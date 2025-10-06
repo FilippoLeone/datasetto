@@ -1,3 +1,5 @@
+<img width="1918" height="946" alt="image" src="https://github.com/user-attachments/assets/4fb05e34-bf73-4565-a85c-e51144aec7fb" />
+
 # 🎮 Twiscord
 
 A modern, self-hosted Discord-like streaming platform with RTMP streaming, voice chat, and text chat.
