@@ -1,0 +1,133 @@
+# Production docker-compose for RTMP-Disc
+# Works on: GCP, AWS, DigitalOcean, Hetzner, any VPS with Docker
+
+services:
+  # NGINX RTMP Server (Custom build with CORS)
+  rtmp:
+    build:
+      context: .
+      dockerfile: Dockerfile.rtmp
+    container_name: rtmp-server
+    restart: unless-stopped
+    ports:
+      - "1935:1935"  # RTMP ingestion (must be public for OBS)
+    # Keep HLS segments on a ramdisk for faster writes
+    tmpfs:
+      - /tmp/hls:rw,size=512m
+    networks:
+      - rtmp-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.4'
+          memory: 768M
+        reservations:
+          cpus: '0.6'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+  
+  # Backend Server (Node.js + Socket.IO)
+  server:
+    build:
+      context: ../server
+      dockerfile: Dockerfile.prod
+    container_name: backend-server
+    restart: unless-stopped
+    # No external ports - accessed via reverse proxy
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - HOST=0.0.0.0
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - HLS_BASE_URL=${HLS_BASE_URL:-http://localhost/hls}
+      - MAX_CONNECTIONS_PER_IP=${MAX_CONNECTIONS_PER_IP:-10}
+      - MAX_CHANNELS=${MAX_CHANNELS:-50}
+      - MAX_USERS_PER_CHANNEL=${MAX_USERS_PER_CHANNEL:-50}
+    networks:
+      - rtmp-network
+    depends_on:
+      - rtmp
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 160M
+        reservations:
+          cpus: '0.1'
+          memory: 96M
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  
+  # Frontend (Static files served by nginx)
+  client:
+    build:
+      context: ../client
+      dockerfile: Dockerfile.prod
+      args:
+        - VITE_SERVER_URL=${SERVER_URL:-http://localhost:4000}
+        - VITE_HLS_BASE_URL=${HLS_BASE_URL:-http://localhost/hls}
+        - VITE_API_BASE_URL=${API_BASE_URL:-http://localhost:4000}
+    container_name: frontend-client
+    restart: unless-stopped
+    # No external ports - accessed via reverse proxy
+    networks:
+      - rtmp-network
+    depends_on:
+      - server
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 96M
+        reservations:
+          cpus: '0.04'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Nginx Reverse Proxy (Routes all traffic)
+  nginx-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx-proxy
+    container_name: nginx-reverse-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"  # Main HTTP port
+    networks:
+      - rtmp-network
+    depends_on:
+      - client
+      - server
+      - rtmp
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 96M
+        reservations:
+          cpus: '0.04'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  rtmp-network:
+    driver: bridge

@@ -1,0 +1,245 @@
+/**
+ * Audio Notification Service
+ * Provides Discord-like sound effects for user interactions
+ */
+
+export type SoundEffect = 
+  | 'message'
+  | 'messageSent'
+  | 'userJoin'
+  | 'userLeave'
+  | 'notification'
+  | 'call'
+  | 'disconnect'
+  | 'mute'
+  | 'unmute'
+  | 'deafen'
+  | 'undeafen'
+  | 'ptt_on'
+  | 'ptt_off'
+  | 'error'
+  | 'success'
+  | 'hover'
+  | 'click';
+
+export class AudioNotificationService {
+  private audioContext: AudioContext | null = null;
+  private sounds: Map<SoundEffect, AudioBuffer> = new Map();
+  private enabled: boolean = true;
+  private volume: number = 0.3;
+
+  constructor() {
+    this.init();
+  }
+
+  private async init(): Promise<void> {
+    try {
+      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      await this.generateSounds();
+    } catch (error) {
+      console.warn('AudioNotificationService: Failed to initialize', error);
+    }
+  }
+
+  /**
+   * Generate sound effects programmatically (no external files needed)
+   */
+  private async generateSounds(): Promise<void> {
+    if (!this.audioContext) return;
+
+    // Message received - gentle notification tone
+    this.sounds.set('message', this.createTone(440, 0.05, 'sine', 0.2));
+    
+    // Message sent - confirmation beep
+    this.sounds.set('messageSent', this.createTone(660, 0.04, 'sine', 0.15));
+    
+    // User joined - ascending tone
+    this.sounds.set('userJoin', this.createAscendingTone(440, 660, 0.1, 0.2));
+    
+    // User left - descending tone
+    this.sounds.set('userLeave', this.createDescendingTone(660, 440, 0.1, 0.2));
+    
+    // Notification - attention sound
+    this.sounds.set('notification', this.createDoubleBeep(600, 800, 0.25));
+    
+    // Call connecting
+    this.sounds.set('call', this.createTone(800, 0.2, 'sine', 0.25));
+    
+    // Disconnect
+    this.sounds.set('disconnect', this.createDescendingTone(600, 200, 0.2, 0.25));
+    
+    // Mute/Unmute
+    this.sounds.set('mute', this.createTone(300, 0.06, 'sine', 0.2));
+    this.sounds.set('unmute', this.createTone(500, 0.06, 'sine', 0.2));
+    
+    // Deafen/Undeafen
+    this.sounds.set('deafen', this.createDescendingTone(500, 300, 0.08, 0.2));
+    this.sounds.set('undeafen', this.createAscendingTone(300, 500, 0.08, 0.2));
+    
+    // PTT
+    this.sounds.set('ptt_on', this.createTone(600, 0.03, 'sine', 0.15));
+    this.sounds.set('ptt_off', this.createTone(400, 0.03, 'sine', 0.15));
+    
+    // Error
+    this.sounds.set('error', this.createErrorSound());
+    
+    // Success
+    this.sounds.set('success', this.createSuccessSound());
+    
+    // UI sounds
+    this.sounds.set('hover', this.createTone(800, 0.02, 'sine', 0.08));
+    this.sounds.set('click', this.createTone(600, 0.03, 'sine', 0.12));
+  }
+
+  private createTone(frequency: number, duration: number, _type: OscillatorType = 'sine', volume: number = 0.2): AudioBuffer {
+    if (!this.audioContext) throw new Error('AudioContext not initialized');
+    
+    const ctx = this.audioContext;
+    const sampleRate = ctx.sampleRate;
+    const numSamples = Math.floor(sampleRate * duration);
+    const buffer = ctx.createBuffer(1, numSamples, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < numSamples; i++) {
+      const t = i / sampleRate;
+      const envelope = Math.exp(-t * 8); // Exponential decay
+      const sample = Math.sin(2 * Math.PI * frequency * t) * envelope * volume;
+      data[i] = sample;
+    }
+
+    return buffer;
+  }
+
+  private createAscendingTone(startFreq: number, endFreq: number, duration: number, volume: number = 0.2): AudioBuffer {
+    if (!this.audioContext) throw new Error('AudioContext not initialized');
+    
+    const ctx = this.audioContext;
+    const sampleRate = ctx.sampleRate;
+    const numSamples = Math.floor(sampleRate * duration);
+    const buffer = ctx.createBuffer(1, numSamples, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < numSamples; i++) {
+      const t = i / sampleRate;
+      const progress = t / duration;
+      const frequency = startFreq + (endFreq - startFreq) * progress;
+      const envelope = 1 - progress; // Linear decay
+      const sample = Math.sin(2 * Math.PI * frequency * t) * envelope * volume;
+      data[i] = sample;
+    }
+
+    return buffer;
+  }
+
+  private createDescendingTone(startFreq: number, endFreq: number, duration: number, volume: number = 0.2): AudioBuffer {
+    return this.createAscendingTone(startFreq, endFreq, duration, volume);
+  }
+
+  private createDoubleBeep(freq1: number, freq2: number, volume: number = 0.2): AudioBuffer {
+    if (!this.audioContext) throw new Error('AudioContext not initialized');
+    
+    const ctx = this.audioContext;
+    const sampleRate = ctx.sampleRate;
+    const beepDuration = 0.08;
+    const gap = 0.04;
+    const totalDuration = beepDuration * 2 + gap;
+    const numSamples = Math.floor(sampleRate * totalDuration);
+    const buffer = ctx.createBuffer(1, numSamples, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < numSamples; i++) {
+      const t = i / sampleRate;
+      let sample = 0;
+
+      if (t < beepDuration) {
+        // First beep
+        const envelope = Math.exp(-(t / beepDuration) * 5);
+        sample = Math.sin(2 * Math.PI * freq1 * t) * envelope * volume;
+      } else if (t > beepDuration + gap) {
+        // Second beep
+        const t2 = t - beepDuration - gap;
+        const envelope = Math.exp(-(t2 / beepDuration) * 5);
+        sample = Math.sin(2 * Math.PI * freq2 * t2) * envelope * volume;
+      }
+
+      data[i] = sample;
+    }
+
+    return buffer;
+  }
+
+  private createErrorSound(): AudioBuffer {
+    if (!this.audioContext) throw new Error('AudioContext not initialized');
+    
+    const ctx = this.audioContext;
+    const sampleRate = ctx.sampleRate;
+    const duration = 0.15;
+    const numSamples = Math.floor(sampleRate * duration);
+    const buffer = ctx.createBuffer(1, numSamples, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < numSamples; i++) {
+      const t = i / sampleRate;
+      const envelope = Math.exp(-t * 10);
+      const sample = (Math.random() * 2 - 1) * envelope * 0.15; // White noise
+      data[i] = sample;
+    }
+
+    return buffer;
+  }
+
+  private createSuccessSound(): AudioBuffer {
+    return this.createAscendingTone(440, 880, 0.12, 0.22);
+  }
+
+  /**
+   * Play a sound effect
+   */
+  public play(effect: SoundEffect, volumeMultiplier: number = 1): void {
+    if (!this.enabled || !this.audioContext || !this.sounds.has(effect)) return;
+
+    try {
+      const source = this.audioContext.createBufferSource();
+      const gainNode = this.audioContext.createGain();
+      
+      source.buffer = this.sounds.get(effect)!;
+      gainNode.gain.value = this.volume * volumeMultiplier;
+      
+      source.connect(gainNode);
+      gainNode.connect(this.audioContext.destination);
+      source.start();
+    } catch (error) {
+      console.warn('Failed to play sound:', effect, error);
+    }
+  }
+
+  /**
+   * Set master volume (0 to 1)
+   */
+  public setVolume(volume: number): void {
+    this.volume = Math.max(0, Math.min(1, volume));
+  }
+
+  /**
+   * Enable or disable sound effects
+   */
+  public setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+  }
+
+  /**
+   * Get current enabled state
+   */
+  public isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  /**
+   * Resume audio context (required after user interaction on some browsers)
+   */
+  public async resume(): Promise<void> {
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+  }
+}

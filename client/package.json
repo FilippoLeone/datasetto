@@ -1,0 +1,25 @@
+{
+  "name": "twiscord-client",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host",
+    "type-check": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,js,css}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,js,css}\""
+  },
+  "dependencies": {
+    "hls.js": "^1.5.15",
+  "twiscord-client": "file:",
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "prettier": "^3.1.0",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.2"
+  }
+}

@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Twiscord</title>
+    <style>
+      /* Inline critical CSS removed - now using main.css */
+    </style>
+  </head>
+  <body>
+    <div id="app" class="app">
+      <!-- Left Sidebar: Channels + User Area -->
+      <aside class="sidebar" role="navigation" aria-label="Server navigation">
+        <!-- Sidebar Header -->
+        <div class="sidebar-header">
+          <strong>Twiscord</strong>
+        </div>
+
+        <!-- Channels Section -->
+        <div class="channels-section">
+          <!-- Text Channels -->
+          <div class="channel-category">
+            <div class="category-header">
+              <span class="category-title">Text Channels</span>
+              <button id="create-text-channel" class="create-channel-btn" title="Create Text Channel">+</button>
+            </div>
+            <div class="channel-list" id="text-channels">
+              <!-- Dynamic text channels will be inserted here -->
+            </div>
+          </div>
+
+          <!-- Voice Channels -->
+          <div class="channel-category">
+            <div class="category-header">
+              <span class="category-title">Voice Channels</span>
+              <button id="create-voice-channel" class="create-channel-btn" title="Create Voice Channel">+</button>
+            </div>
+            <div class="channel-list" id="channelsList">
+              <!-- Dynamic voice channels will be inserted here -->
+            </div>
+          </div>
+
+          <!-- Streams -->
+          <div class="channel-category">
+            <div class="category-header">
+              <span class="category-title">Live Streams</span>
+              <button id="create-stream-channel" class="create-channel-btn" title="Create Stream Channel">+</button>
+            </div>
+            <div class="channel-list" id="stream-channels">
+              <!-- Dynamic stream channels will be inserted here -->
+            </div>
+          </div>
+        </div>
+
+        <!-- User Area (Bottom) -->
+        <div class="user-area">
+          <!-- Voice Status (when connected) -->
+          <div id="voice-status-panel" class="voice-status" style="display: none;">
+            <div class="voice-status-header">
+              <span class="icon">🔊</span>
+              <div class="voice-status-text">
+                <span id="connected-voice-channel">Voice Channel</span>
+                <span id="watching-stream-indicator" class="watching-stream" style="display: none;">📺 Watching stream</span>
+              </div>
+            </div>
+            <div class="voice-controls">
+              <button id="mute" aria-label="Toggle microphone" title="Toggle Mic">
+                <span id="mic-icon">🎤</span>
+              </button>
+              <button id="deafen" aria-label="Toggle deafen" title="Toggle Deafen">
+                <span id="deafen-icon">🔊</span>
+              </button>
+              <button id="disconnect-voice" aria-label="Disconnect from voice" title="Disconnect">❌</button>
+            </div>
+          </div>
+
+          <!-- Voice Users Panel (Discord-like) -->
+          <div id="voice-users-panel" class="voice-users-panel" style="display: none;">
+            <div class="voice-users-header">
+              <span class="voice-users-count"><span id="voice-user-count">0</span> members</span>
+              <span class="voice-session-timer" id="voice-session-timer" aria-live="polite" style="display: none;">--:--</span>
+            </div>
+            <div class="voice-users-list" id="voice-users-list">
+              <!-- Dynamic voice users will be inserted here -->
+            </div>
+          </div>
+
+          <!-- User Profile Bar -->
+          <div class="user-profile">
+            <div class="user-avatar" id="user-avatar" aria-label="User avatar" role="img"></div>
+            <div class="user-info">
+              <div class="user-name" id="accName">User</div>
+              <div class="user-status" id="user-status-text">Online</div>
+            </div>
+            <div class="user-actions">
+              <button
+                id="superuser-menu-btn"
+                class="superuser-btn"
+                aria-label="Superuser actions"
+                title="Superuser Actions"
+                aria-haspopup="true"
+                aria-expanded="false"
+                type="button"
+                style="display: none;"
+              >⚡</button>
+              <div id="superuser-menu" class="superuser-menu" role="menu" aria-hidden="true">
+                <button id="superuser-manage-users" class="superuser-menu-item" role="menuitem" type="button">Manage Users</button>
+                <button id="superuser-manage-channels" class="superuser-menu-item" role="menuitem" type="button">Manage Channels</button>
+              </div>
+              <button id="user-settings-btn" aria-label="User settings" title="User Settings">⚙️</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content: Chat -->
+      <main class="main-content" role="main">
+        <!-- Chat Header -->
+        <header class="chat-header">
+          <div class="chat-header-actions">
+            <button id="toggleSidebar" class="chat-header-btn" aria-label="Toggle sidebar" title="Toggle Sidebar">☰</button>
+            <button id="toggle-members" class="chat-header-btn" aria-label="Toggle member list" title="Toggle Member List">👥</button>
+          </div>
+          <span class="channel-icon">#</span>
+          <h1 class="channel-name" id="current-channel-name">general</h1>
+          <span class="divider"></span>
+          <div class="topic" id="channel-topic">Welcome to Twiscord</div>
+          <div class="header-toolbar">
+            <div id="connectionStatus" class="connection-status" aria-live="polite" aria-label="Connection status">
+              <span class="dot"></span>
+              <span class="text">Disconnected</span>
+            </div>
+            <button id="toggle-video-popout" aria-label="Toggle video" title="Toggle Video">📺</button>
+          </div>
+        </header>
+
+        <!-- Inline Video Container (for stream channels - Theater Mode) -->
+        <div id="inlineVideoContainer" class="inline-video-container" style="display: none;">
+          <!-- Top Controls -->
+          <div class="inline-video-controls-top">
+            <button
+              id="theaterModeToggle"
+              class="video-control-btn close-video-btn"
+              aria-label="Back to channels"
+              title="Back to Channels"
+            >
+              <span class="btn-icon">⬅️</span>
+              <span class="btn-text">Back</span>
+            </button>
+            <div class="mobile-stream-title" id="mobileStreamTitle" aria-live="polite">Live Stream</div>
+          </div>
+
+          <div class="inline-video-player">
+            <video id="inlineVideo" class="inline-video" aria-label="Video player" autoplay muted></video>
+            <div id="inlinePlayerOverlay" class="inline-player-overlay">
+              <div class="spinner" aria-hidden="true"></div>
+              <div class="message">No stream</div>
+            </div>
+          </div>
+
+          <!-- Bottom Video Controls Bar -->
+          <div class="video-controls-bar" id="videoControlsBar">
+            <div class="video-controls-left">
+              <button id="playPauseBtn" class="control-btn" aria-label="Play/Pause" title="Play/Pause">
+                <span class="icon">▶️</span>
+              </button>
+              <div class="volume-control">
+                <button id="volumeBtn" class="control-btn" aria-label="Mute/Unmute" title="Mute/Unmute">
+                  <span class="icon" id="volumeIcon">🔊</span>
+                </button>
+                <input
+                  type="range"
+                  id="volumeSlider"
+                  class="volume-slider"
+                  min="0"
+                  max="100"
+                  value="0"
+                  aria-label="Volume"
+                />
+              </div>
+              <span class="live-indicator-badge">🔴 LIVE</span>
+            </div>
+            <div class="video-controls-right">
+              <button id="toggleChatBtn" class="control-btn" aria-label="Toggle Chat" title="Toggle Chat">
+                <span class="icon">💬</span>
+              </button>
+              <button id="fullscreenBtn" class="control-btn" aria-label="Fullscreen" title="Fullscreen">
+                <span class="icon">⛶</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Messages -->
+        <div id="msgs" class="chat-messages" role="log" aria-live="polite" aria-label="Chat messages">
+          <!-- Messages will be dynamically inserted here -->
+        </div>
+
+        <!-- Chat Input -->
+        <div id="chat-input-container" class="chat-input-container">
+          <form id="chatForm" class="chat-input-wrapper" aria-label="Send message">
+            <button type="button" id="emojiPickerBtn" class="emoji-picker-btn" aria-label="Add emoji" title="Add Emoji">😀</button>
+            <input
+              type="text"
+              id="chatInput"
+              placeholder="Message #general"
+              aria-label="Message input"
+              autocomplete="off"
+            />
+            <button type="submit" aria-label="Send message" title="Send">📤</button>
+          </form>
+          <!-- Emoji Picker Popup -->
+          <div id="emojiPicker" class="emoji-picker" style="display: none;">
+            <div class="emoji-picker-header">Emojis</div>
+            <div class="emoji-picker-grid" id="emojiGrid">
+              <!-- Emojis will be populated here -->
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Right Sidebar: Members List -->
+      <aside class="members-list hidden" role="complementary" aria-label="Members list">
+        <div class="members-header">
+          Members — <span id="member-count">0</span>
+        </div>
+        <div class="members-content" id="presenceList">
+          <!-- Dynamic members will be inserted here -->
+        </div>
+      </aside>
+
+      <!-- Video Popout -->
+      <div id="video-popout" class="video-popout hidden" role="region" aria-label="Video player">
+        <div class="video-header" id="video-popout-header">
+          <span class="title">Stream</span>
+          <div class="controls">
+            <button id="popinVideo" aria-label="Theater mode" title="Theater Mode">📺</button>
+            <button id="minimize-video" aria-label="Minimize video" title="Minimize">—</button>
+            <button id="close-video" aria-label="Close video" title="Close">✕</button>
+          </div>
+        </div>
+        <div class="video-container">
+          <video id="video" aria-label="Video player" autoplay muted></video>
+          <div id="playerOverlay" class="video-overlay">
+            <div class="spinner" aria-hidden="true"></div>
+            <div class="message">No stream</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Create Channel Modal -->
+      <div id="createChannelModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="create-channel-title" style="display: none;">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3 id="create-channel-title">Create Channel</h3>
+            <button id="createChannelCancel" aria-label="Close">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="newChannelName">Channel Name</label>
+              <input
+                type="text"
+                id="newChannelName"
+                placeholder="e.g., general, lobby, main-stream"
+                aria-label="Channel name"
+                maxlength="32"
+              />
+              <span class="form-hint">Letters, numbers, hyphens only</span>
+            </div>
+
+            <input type="hidden" id="newChannelType" value="text" />
+
+            <div id="createChannelError" class="form-error"></div>
+          </div>
+          <div class="modal-footer">
+            <button id="createChannelBtn" class="button-primary">Create Channel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stream Info Modal -->
+      <div id="streamInfoModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="stream-info-title" style="display: none;">
+        <div class="modal-card modal-large">
+          <div class="modal-header">
+            <h3 id="stream-info-title">📺 How to Stream</h3>
+            <button id="streamInfoCancel" aria-label="Close">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="stream-info-section">
+              <h4>🎥 OBS Studio Setup</h4>
+              <p>Configure your streaming software with these settings:</p>
+              
+              <div class="stream-setting">
+                <label>Server URL:</label>
+                <div class="stream-value">
+                  <code id="streamServerUrl">rtmp://localhost:1935/hls</code>
+                  <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('streamServerUrl').textContent)">📋 Copy</button>
+                </div>
+              </div>
+
+              <div class="stream-setting">
+                <label>Stream Key:</label>
+                <div class="stream-value">
+                  <code id="streamKeyDisplay">main-stream</code>
+                  <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('streamKeyDisplay').textContent)">📋 Copy</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="stream-info-section">
+              <h4>📝 Quick Steps</h4>
+              <ol class="stream-steps">
+                <li>Open OBS Studio (or your preferred streaming software)</li>
+                <li>Go to <strong>Settings → Stream</strong></li>
+                <li>Select <strong>Custom</strong> as the service</li>
+                <li>Copy the Server URL above and paste it</li>
+                <li><strong>⚠️ IMPORTANT:</strong> Copy the <strong>FULL Stream Key</strong> above (including the part after +) and paste it exactly</li>
+                <li>Click <strong>OK</strong> to save settings</li>
+                <li>Click <strong>Start Streaming</strong> in OBS</li>
+                <li>Your stream will appear in the channel within 3-10 seconds!</li>
+              </ol>
+            </div>
+
+            <div class="stream-info-section">
+              <h4>⚙️ Recommended OBS Settings</h4>
+              <ul class="stream-tips">
+                <li><strong>Encoder:</strong> x264 or NVENC (if available)</li>
+                <li><strong>Bitrate:</strong> 2500-4000 Kbps for 1080p</li>
+                <li><strong>Keyframe Interval:</strong> 2 seconds</li>
+                <li><strong>Preset:</strong> veryfast to medium</li>
+                <li><strong>Profile:</strong> high</li>
+              </ul>
+            </div>
+
+            <div class="stream-info-section alert-info">
+              <strong>⚠️ CRITICAL:</strong> You MUST use the FULL stream key shown above (e.g., <code>main-stream+ABC123XYZ...</code>).
+              Using just the channel name (<span id="streamChannelName">main-stream</span>) will NOT work!
+              The stream key contains a security token after the + sign.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button id="streamInfoClose" class="button-primary">Got it!</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- User Settings Modal (Profile) -->
+      <div id="regModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3 id="settings-modal-title">User Settings</h3>
+            <button id="regCancel" aria-label="Close settings">✕</button>
+          </div>
+          <p id="settings-modal-subtitle" class="modal-subtitle" style="display: none; padding: 0 24px; margin: -8px 0 16px; color: var(--text-muted); font-size: 14px;"></p>
+          <div class="modal-body modal-body-scrollable">
+            <div class="modal-tabs auth-mode-tabs" role="tablist" aria-label="Authentication modes">
+              <button id="authTabLogin" class="modal-tab" type="button" role="tab" aria-selected="false">
+                <span class="modal-tab-icon" aria-hidden="true">🔐</span>
+                <span class="modal-tab-text">
+                  <span class="modal-tab-title">Log In</span>
+                  <span class="modal-tab-subtitle">Use an existing account</span>
+                </span>
+              </button>
+              <button id="authTabRegister" class="modal-tab" type="button" role="tab" aria-selected="false">
+                <span class="modal-tab-icon" aria-hidden="true">✨</span>
+                <span class="modal-tab-text">
+                  <span class="modal-tab-title">Create Account</span>
+                  <span class="modal-tab-subtitle">Start fresh with a new profile</span>
+                </span>
+              </button>
+              <button id="authTabProfile" class="modal-tab" type="button" role="tab" aria-selected="false">
+                <span class="modal-tab-icon" aria-hidden="true">👤</span>
+                <span class="modal-tab-text">
+                  <span class="modal-tab-title">Profile</span>
+                  <span class="modal-tab-subtitle">Manage your details</span>
+                </span>
+              </button>
+            </div>
+            <p class="auth-mode-hint" id="auth-mode-hint">Choose how you’d like to continue.</p>
+
+            <div class="form-group">
+              <label for="regUsername">Email</label>
+              <input
+                type="email"
+                id="regUsername"
+                placeholder="name@example.com"
+                aria-label="Email address"
+                maxlength="254"
+                autocomplete="email"
+              />
+              <span class="form-hint">Used to sign in. We’ll just store it — no emails will be sent.</span>
+            </div>
+
+            <div class="form-group">
+              <label for="regPassword">Password</label>
+              <input
+                type="password"
+                id="regPassword"
+                placeholder="Enter your password"
+                aria-label="Password"
+                autocomplete="current-password"
+              />
+              <span class="form-hint">Required to sign in. 8+ characters to create an account.</span>
+              <div class="password-strength" id="passwordStrength" aria-live="polite">
+                <div class="password-strength-bar" role="presentation">
+                  <div class="password-strength-fill" id="passwordStrengthFill"></div>
+                </div>
+                <span class="password-strength-label" id="passwordStrengthLabel">Start typing to check strength</span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="regConfirm">Confirm Password</label>
+              <input
+                type="password"
+                id="regConfirm"
+                placeholder="Re-enter your password"
+                aria-label="Confirm password"
+                autocomplete="new-password"
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="regDisplayName">Display Name</label>
+              <input
+                type="text"
+                id="regDisplayName"
+                placeholder="Pick a display name"
+                aria-label="Display name"
+                maxlength="50"
+              />
+              <span class="form-hint">Shown in chat, voice, and presence lists</span>
+            </div>
+
+            <div class="form-group">
+              <label for="regEmail">Contact Email (optional)</label>
+              <input
+                type="email"
+                id="regEmail"
+                placeholder="name@example.com"
+                aria-label="Email address"
+                maxlength="254"
+                autocomplete="email"
+              />
+              <span class="form-hint">Optional: store another email for account recovery or notes.</span>
+            </div>
+
+            <div class="form-group">
+              <label for="regBio">Bio</label>
+              <textarea
+                id="regBio"
+                placeholder="Tell others about yourself"
+                aria-label="User bio"
+                maxlength="500"
+              ></textarea>
+              <span class="form-hint">Visible on your profile</span>
+            </div>
+
+            <div class="form-group">
+              <label for="regCurrentPassword">Current Password</label>
+              <input
+                type="password"
+                id="regCurrentPassword"
+                placeholder="Enter current password"
+                aria-label="Current password"
+                autocomplete="current-password"
+              />
+              <span class="form-hint">Required to set a new password</span>
+            </div>
+
+            <div class="form-group">
+              <label for="regNewPassword">New Password</label>
+              <input
+                type="password"
+                id="regNewPassword"
+                placeholder="Choose a new password"
+                aria-label="New password"
+                autocomplete="new-password"
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="regNewPasswordConfirm">Confirm New Password</label>
+              <input
+                type="password"
+                id="regNewPasswordConfirm"
+                placeholder="Confirm new password"
+                aria-label="Confirm new password"
+                autocomplete="new-password"
+              />
+            </div>
+
+            <div id="regError" class="form-error" aria-live="polite"></div>
+          </div>
+          <div class="modal-footer">
+            <button id="logoutBtn" class="button-secondary" style="display: none;" type="button">Log Out</button>
+            <button id="registerBtn" class="button-primary" type="button">Create Account</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audio Settings Modal -->
+      <div id="audioSettingsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3 id="audio-settings-title">⚙️ Audio & Voice Settings</h3>
+            <button id="audioSettingsCancel" aria-label="Close audio settings">✕</button>
+          </div>
+          <div class="modal-body modal-body-scrollable">
+            <!-- Device Selection -->
+            <div class="settings-section">
+              <h4 class="settings-section-title">🎤 Devices</h4>
+              
+              <div class="form-group">
+                <label for="micSelect">Microphone</label>
+                <select id="micSelect" aria-label="Select microphone">
+                  <option>Loading devices...</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="spkSelect">Speakers/Output</label>
+                <select id="spkSelect" aria-label="Select speakers">
+                  <option>Loading devices...</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>Microphone Level</label>
+                <div class="level-meter">
+                  <div id="micLevel" class="level-bar"></div>
+                </div>
+                <button id="testMicBtn" class="button-secondary" style="margin-top: 8px;" data-testing="false">Test Microphone</button>
+              </div>
+            </div>
+
+            <!-- Voice Processing -->
+            <div class="settings-section">
+              <h4 class="settings-section-title">🔊 Voice Processing</h4>
+              
+              <div class="form-group checkbox-group">
+                <label>
+                  <input type="checkbox" id="echoCancel" checked />
+                  <span>Echo Cancellation</span>
+                </label>
+                <span class="form-hint">Removes echo and feedback</span>
+              </div>
+
+              <div class="form-group checkbox-group">
+                <label>
+                  <input type="checkbox" id="noiseSuppression" checked />
+                  <span>Noise Suppression</span>
+                </label>
+                <span class="form-hint">Reduces background noise</span>
+              </div>
+
+              <div class="form-group checkbox-group">
+                <label>
+                  <input type="checkbox" id="autoGain" checked />
+                  <span>Auto Gain Control</span>
+                </label>
+                <span class="form-hint">Automatically adjusts volume</span>
+              </div>
+            </div>
+
+            <!-- Volume Controls -->
+            <div class="settings-section">
+              <h4 class="settings-section-title">🎚️ Volume</h4>
+              
+              <div class="form-group">
+                <label for="micGain">Microphone Gain: <span id="micGainVal">1.0x</span></label>
+                <input type="range" id="micGain" min="0.5" max="2.0" step="0.1" value="1.0" />
+              </div>
+
+              <div class="form-group">
+                <label for="outputVol">Output Volume: <span id="outputVolVal">100%</span></label>
+                <input type="range" id="outputVol" min="0" max="1" step="0.05" value="1" />
+              </div>
+            </div>
+
+            <!-- Push to Talk -->
+            <div class="settings-section">
+              <h4 class="settings-section-title">🎙️ Push to Talk</h4>
+              
+              <div class="form-group checkbox-group">
+                <label>
+                  <input type="checkbox" id="pttEnable" />
+                  <span>Enable Push to Talk</span>
+                </label>
+                <span class="form-hint">Hold key to transmit</span>
+              </div>
+
+              <div class="form-group">
+                <label for="pttKey">PTT Key</label>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" id="pttKey" value="Space" readonly placeholder="Press Set Key button" />
+                  <button id="pttSetKey" class="button-secondary">Set Key</button>
+                </div>
+                <span class="form-hint">Click Set Key and press the key you want to use</span>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button id="audioSettingsSave" class="button-primary">Save Settings</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Superuser Control Modal -->
+    <div
+      id="superuserModal"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="superuser-modal-title"
+      style="display: none;"
+    >
+      <div class="modal-card modal-large superuser-modal-card">
+        <div class="modal-header">
+          <h3 id="superuser-modal-title">Superuser Control Center</h3>
+          <button id="superuserModalClose" aria-label="Close superuser controls">✕</button>
+        </div>
+        <div class="modal-body modal-body-scrollable">
+          <div class="modal-tabs" role="tablist" aria-label="Superuser sections">
+            <button id="superuserTabUsers" class="modal-tab" role="tab" aria-selected="true">Users</button>
+            <button id="superuserTabChannels" class="modal-tab" role="tab" aria-selected="false">Channels</button>
+          </div>
+          <div class="superuser-panels">
+            <section
+              id="superuserUsersPanel"
+              class="superuser-panel active"
+              data-panel="users"
+              role="tabpanel"
+              aria-labelledby="superuserTabUsers"
+            >
+              <div class="superuser-panel-header">
+                <p>Review accounts, disable access, or re-enable users.</p>
+              </div>
+              <div id="superuserUsersList" class="superuser-list" role="table"></div>
+            </section>
+            <section
+              id="superuserChannelsPanel"
+              class="superuser-panel"
+              data-panel="channels"
+              role="tabpanel"
+              aria-labelledby="superuserTabChannels"
+              hidden
+            >
+              <div class="superuser-panel-header">
+                <p>Manage channels, review usage, and remove unused rooms.</p>
+              </div>
+              <div id="superuserChannelsList" class="superuser-list" role="table"></div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HLS.js for video streaming -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+  </html>

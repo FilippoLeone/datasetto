@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.*.local
+**/.env
+
+# Build outputs
+**/.vite
+**/dist
+**/build
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# GCP & secrets
+gcp-key.json
+*.pem
+*.key
+*.crt
+ssl/
+certs/
+secrets/
+
+# Logs
+logs/
+*.log
+
+# Temporary
+temp/
+tmp/
+/tmp/hls/
