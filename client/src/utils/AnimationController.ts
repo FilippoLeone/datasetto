@@ -54,7 +54,7 @@ export class AnimationController {
    */
   public fadeIn(element: HTMLElement, duration?: number, onComplete?: () => void): void {
     element.style.opacity = '0';
-    element.style.display = '';
+    element.classList.remove('hidden');
     requestAnimationFrame(() => {
       this.animate(element, 'fadeIn', duration, () => {
         element.style.opacity = '';
@@ -68,7 +68,7 @@ export class AnimationController {
    */
   public fadeOut(element: HTMLElement, duration?: number, onComplete?: () => void): void {
     this.animate(element, 'fadeOut', duration, () => {
-      element.style.display = 'none';
+      element.classList.add('hidden');
       if (onComplete) onComplete();
     });
   }
@@ -89,7 +89,7 @@ export class AnimationController {
       down: 'slideInDown'
     };
 
-    element.style.display = '';
+    element.classList.remove('hidden');
     this.animate(element, animationMap[direction], duration, onComplete);
   }
 
@@ -97,7 +97,7 @@ export class AnimationController {
    * Scale in (zoom in) an element
    */
   public scaleIn(element: HTMLElement, duration?: number, onComplete?: () => void): void {
-    element.style.display = '';
+    element.classList.remove('hidden');
     this.animate(element, 'scaleIn', duration, onComplete);
   }
 
@@ -106,7 +106,7 @@ export class AnimationController {
    */
   public scaleOut(element: HTMLElement, duration?: number, onComplete?: () => void): void {
     this.animate(element, 'scaleOut', duration, () => {
-      element.style.display = 'none';
+      element.classList.add('hidden');
       if (onComplete) onComplete();
     });
   }
@@ -176,7 +176,7 @@ export class AnimationController {
    * Animate modal opening
    */
   public openModal(modalElement: HTMLElement, onComplete?: () => void): void {
-    modalElement.style.display = 'flex';
+    modalElement.classList.remove('hidden');
     modalElement.style.opacity = '0';
     
     const modalCard = modalElement.querySelector('.modal-card') as HTMLElement;
@@ -216,7 +216,7 @@ export class AnimationController {
     }
 
     setTimeout(() => {
-      modalElement.style.display = 'none';
+        modalElement.classList.add('hidden');
       modalElement.style.transition = '';
       if (modalCard) {
         modalCard.style.transition = '';
@@ -230,7 +230,7 @@ export class AnimationController {
    * Animate notification toast
    */
   public showToast(toastElement: HTMLElement, duration: number = 3000): void {
-    toastElement.style.display = 'block';
+    toastElement.classList.remove('hidden');
     toastElement.style.opacity = '0';
     toastElement.style.transform = 'translateX(100%)';
     
@@ -245,7 +245,7 @@ export class AnimationController {
         toastElement.style.transform = 'translateX(100%)';
 
         setTimeout(() => {
-          toastElement.style.display = 'none';
+          toastElement.classList.add('hidden');
           toastElement.style.transition = '';
         }, 300);
       }, duration);

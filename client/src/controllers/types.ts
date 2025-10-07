@@ -72,6 +72,7 @@ export interface VoiceControllerDeps {
   refreshChannels: () => void;
   updateStreamIndicator: () => void;
   resolveUserLabel: (label?: string | null, fallback?: string) => string;
+  closeMobileVoicePanel?: () => void;
 }
 
 export interface ChatControllerDeps {
@@ -125,6 +126,7 @@ export interface NavigationControllerDeps {
   socketJoinChannel: (channelId: string) => void;
   stateSetChannelWithType: (channelId: string, type: 'text' | 'voice' | 'stream') => void;
   stateGetVoiceConnected: () => boolean;
+  voiceJoinChannel: (channelId: string, channelName: string) => Promise<void> | void;
   chatHideChatUI: () => void;
   chatShowChatUI: () => void;
   chatClearMessages: () => void;
@@ -132,5 +134,6 @@ export interface NavigationControllerDeps {
   videoHandleTextChannelSelected: (params: { voiceConnected: boolean }) => void;
   videoHandleVoiceChannelSelected: () => void;
   videoHandleStreamChannelSelected: (channelName: string) => void;
+  mobileClosePanels?: () => void;
 }
 

@@ -131,7 +131,7 @@ export class App {
       rolePermissions: this.rolePermissions,
     });
   }
-
+  
   private initializeVideoController(): void {
     this.videoController = new VideoController({
       elements: this.elements,
@@ -168,6 +168,7 @@ export class App {
       },
       updateStreamIndicator: () => this.updateStreamIndicator(),
       resolveUserLabel: (label, fallback) => this.userListController?.resolveUserLabel(label, fallback) || 'Unknown User',
+      closeMobileVoicePanel: () => this.closeMobileVoicePanel(),
     });
 
     this.voiceController.initialize();
@@ -234,6 +235,9 @@ export class App {
       socketJoinChannel: (channelId) => this.socket.joinChannel(channelId),
       stateSetChannelWithType: (channelId, type) => this.state.setChannelWithType(channelId, type),
       stateGetVoiceConnected: () => this.state.get('voiceConnected'),
+      voiceJoinChannel: async (channelId, channelName) => {
+        await this.voiceController?.joinChannel(channelId, channelName);
+      },
       chatHideChatUI: () => this.chatController?.hideChatUI(),
       chatShowChatUI: () => this.chatController?.showChatUI(),
       chatClearMessages: () => this.chatController?.clearMessages(),
@@ -241,6 +245,7 @@ export class App {
       videoHandleTextChannelSelected: (params) => this.videoController?.handleTextChannelSelected(params),
       videoHandleVoiceChannelSelected: () => this.videoController?.handleVoiceChannelSelected(),
       videoHandleStreamChannelSelected: (channelName) => this.videoController?.handleStreamChannelSelected(channelName),
+      mobileClosePanels: () => this.closeMobilePanels(),
     });
 
     this.navigationController.initialize();
@@ -302,13 +307,13 @@ export class App {
       'registerBtn', 'regCancel', 'regError', 'echoCancel', 'noiseSuppression',
       'autoGain', 'micGain', 'outputVol', 'pttEnable', 'pttKey', 'pttSetKey',
       'micLevel', 'micGainVal', 'outputVolVal', 'testMicBtn', 'presenceList',
-      'playerOverlay', 'toggleSidebar', 'channelsList',
-      'connectionStatus', 'app',
-      'video-popout', 'video-popout-header', 'toggle-video-popout',
-      'minimize-video', 'close-video', 'toggle-members',
+    'playerOverlay', 'channelsList',
+  'app',
+    'video-popout', 'video-popout-header',
+    'minimize-video', 'close-video',
       'user-settings-btn', 'current-channel-name',
-      'user-avatar', 'user-status-text', 'voice-status-panel',
-      'connected-voice-channel', 'disconnect-voice',
+    'user-avatar', 'user-status-text', 'voice-status-panel',
+    'connected-voice-channel',
   'voice-users-panel', 'voice-users-list', 'voice-user-count', 'voice-session-timer',
       'text-channels', 'stream-channels', 'member-count',
       'create-text-channel', 'create-voice-channel', 'create-stream-channel',
@@ -322,6 +327,9 @@ export class App {
   'popoutVideo', 'theaterModeToggle', 'mobileStreamTitle', 'popinVideo',
       'playPauseBtn', 'volumeBtn', 'volumeSlider', 'volumeIcon',
       'fullscreenBtn', 'toggleChatBtn', 'videoControlsBar',
+  'mobile-toolbar', 'mobile-overlay',
+  'mobile-open-channels', 'mobile-open-settings', 'mobile-open-profile',
+  'mobile-voice-close',
       'audioSettingsModal', 'audioSettingsCancel', 'audioSettingsSave',
       'superuser-menu-btn', 'superuser-menu',
       'superuser-manage-users', 'superuser-manage-channels',
@@ -426,7 +434,6 @@ export class App {
     // Voice controls
   this.addTrackedListener(this.elements.mute, 'click', () => { void this.voiceController?.toggleMute(); });
   this.addTrackedListener(this.elements.deafen, 'click', () => { void this.voiceController?.toggleDeafen(); });
-  this.addTrackedListener(this.elements['disconnect-voice'], 'click', () => { void this.voiceController?.disconnect({ playSound: true }); });
 
     // Gear icon -> Audio Settings
     const settingsBtn = document.getElementById('user-settings-btn');
@@ -459,9 +466,6 @@ export class App {
   this.addTrackedListener(window, 'keyup', (e) => { void this.handleKeyUp(e as KeyboardEvent); });
 
     // Sidebar toggle
-  this.addTrackedListener(this.elements.toggleSidebar, 'click', () => this.toggleSidebar());
-  this.addTrackedListener(this.elements['toggle-members'], 'click', () => this.toggleMembersPanel());
-
     // Channel creation
     this.addTrackedListener(this.elements['create-text-channel'], 'click', () => this.channelController?.showCreateChannelModal('text'));
     this.addTrackedListener(this.elements['create-voice-channel'], 'click', () => this.channelController?.showCreateChannelModal('voice'));
@@ -485,6 +489,32 @@ export class App {
       }
     };
     this.addTrackedListener(document, 'click', emojiClickHandler);
+
+    // Mobile toolbar actions
+    this.addTrackedListener(this.elements['mobile-open-channels'], 'click', () => {
+      this.toggleSidebar();
+    });
+
+    this.addTrackedListener(this.elements['mobile-open-settings'], 'click', () => {
+      void this.settingsController?.showAudioSettingsModal();
+    });
+
+    this.addTrackedListener(this.elements['mobile-open-profile'], 'click', () => {
+      if (this.isAuthenticated) {
+        this.authController?.showAuthModal('profile');
+      } else {
+        this.authController?.showAuthModal('login');
+      }
+    });
+
+    this.addTrackedListener(this.elements['mobile-overlay'], 'click', () => {
+      this.closeMobilePanels();
+    });
+
+    this.addTrackedListener(this.elements['mobile-voice-close'], 'click', () => {
+      void this.voiceController?.disconnect({ playSound: true });
+      this.closeMobileVoicePanel();
+    });
   }
   /**
    * Setup service event handlers
@@ -505,7 +535,6 @@ export class App {
     this.socket.on('connection:status', ({ connected, reconnecting }) => {
       this.voiceController?.handleConnectionStatusChange({ connected, reconnecting });
       this.state.setConnected(connected);
-      this.updateConnectionStatus(connected, reconnecting);
     });
     this.socket.on('notification', (notif) => {
       this.notifications.show(notif.message, notif.type, notif.duration);
@@ -606,60 +635,58 @@ export class App {
     this.videoController?.updateStreamWatchingIndicator();
   }
 
-  private updateConnectionStatus(connected: boolean, reconnecting: boolean): void {
-    const statusEl = this.elements.connectionStatus;
-    if (!statusEl) return;
-
-    statusEl.classList.toggle('connected', connected);
-    statusEl.classList.toggle('reconnecting', reconnecting);
-
-    const text = statusEl.querySelector('.text');
-    
-    if (text) {
-      if (reconnecting) {
-        text.textContent = 'Reconnecting...';
-      } else if (connected) {
-        text.textContent = 'Connected';
-      } else {
-        text.textContent = 'Disconnected';
-      }
-    }
-  }
-
-
-
-  private toggleSidebar(): void {
+  private toggleSidebar(forceState?: boolean): void {
     const app = this.elements.app;
     if (!app) return;
 
-    if (this.isMobileLayout()) {
-      return;
-    }
-
-    if (window.matchMedia('(max-width: 1024px)').matches) {
+    const narrowLayout = window.matchMedia('(max-width: 1024px)').matches;
+    if (narrowLayout) {
       this.soundFX.play('click', 0.4);
-      app.classList.toggle('sidebar-open');
-      if (app.classList.contains('sidebar-open')) {
-        app.classList.remove('members-open');
+      const nextState = typeof forceState === 'boolean' ? forceState : !app.classList.contains('sidebar-open');
+      app.classList.toggle('sidebar-open', nextState);
+      if (nextState) {
+        app.classList.remove('members-open', 'voice-panel-open');
+        if (this.isMobileLayout()) {
+          this.videoController?.closeInlineVideo();
+        }
       }
+      this.updateMobileOverlayState();
     }
   }
 
-  private toggleMembersPanel(): void {
+  private closeMobileVoicePanel(): void {
     const app = this.elements.app;
     if (!app) return;
 
-    if (this.isMobileLayout()) {
+    if (app.classList.contains('voice-panel-open')) {
+      app.classList.remove('voice-panel-open');
+      this.updateMobileOverlayState();
+    }
+  }
+
+  private closeMobilePanels(): void {
+    const app = this.elements.app;
+    if (!app) return;
+
+    app.classList.remove('sidebar-open', 'members-open');
+    this.closeMobileVoicePanel();
+  }
+
+  private updateMobileOverlayState(): void {
+    const app = this.elements.app;
+    const overlay = this.elements['mobile-overlay'];
+    if (!app || !overlay) {
       return;
     }
 
-    if (window.matchMedia('(max-width: 1024px)').matches) {
-      this.soundFX.play('click', 0.4);
-      app.classList.toggle('members-open');
-      if (app.classList.contains('members-open')) {
-        app.classList.remove('sidebar-open');
-      }
-    }
+    const shouldShow = this.isMobileLayout() && (
+      app.classList.contains('sidebar-open') ||
+      app.classList.contains('members-open') ||
+      app.classList.contains('voice-panel-open')
+    );
+
+    overlay.classList.toggle('visible', shouldShow);
+    overlay.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
   }
 
   private setupResponsiveObservers(): void {
@@ -669,7 +696,8 @@ export class App {
     const breakpoint = window.matchMedia('(max-width: 1024px)');
     const resetPanels = (): void => {
       if (!breakpoint.matches) {
-        app.classList.remove('sidebar-open', 'members-open');
+        app.classList.remove('sidebar-open', 'members-open', 'voice-panel-open');
+        this.updateMobileOverlayState();
       }
     };
 
@@ -677,7 +705,8 @@ export class App {
 
     const handleChange = (event: MediaQueryListEvent): void => {
       if (!event.matches) {
-        app.classList.remove('sidebar-open', 'members-open');
+        app.classList.remove('sidebar-open', 'members-open', 'voice-panel-open');
+        this.updateMobileOverlayState();
       }
     };
 
@@ -687,6 +716,7 @@ export class App {
     const mobileBreakpoint = window.matchMedia('(max-width: 768px)');
     const handleMobileChange = (event: MediaQueryListEvent): void => {
       this.videoController?.handleMobileBreakpointChange(event);
+      this.updateMobileOverlayState();
     };
 
     mobileBreakpoint.addEventListener('change', handleMobileChange);

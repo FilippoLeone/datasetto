@@ -87,7 +87,6 @@ export class ChannelController {
     }
     if (errorEl) errorEl.textContent = '';
 
-    modal.style.display = 'flex';
     this.deps.animator.openModal(modal);
     this.deps.soundFX.play('click', 0.4);
   }
@@ -99,9 +98,7 @@ export class ChannelController {
     const modal = this.deps.elements.createChannelModal;
     if (!modal) return;
     
-    this.deps.animator.closeModal(modal, () => {
-      modal.style.display = 'none';
-    });
+    this.deps.animator.closeModal(modal);
   }
 
   /**
@@ -220,7 +217,7 @@ export class ChannelController {
       
       // Add watching-stream class if user is in voice AND currently viewing a stream
       const videoContainer = this.deps.elements.inlineVideoContainer as HTMLElement;
-      const isWatchingStream = videoContainer && videoContainer.style.display !== 'none';
+  const isWatchingStream = !!(videoContainer && !videoContainer.classList.contains('hidden'));
       const currentChannelType = this.deps.state.get('currentChannelType');
       if (type === 'voice' && voiceConnected && activeVoiceChannelId && ch.id === activeVoiceChannelId && isWatchingStream && currentChannelType === 'stream') {
         item.classList.add('watching-stream');
@@ -247,15 +244,6 @@ export class ChannelController {
       item.appendChild(icon);
       item.appendChild(content);
 
-      let voiceTimerEl: HTMLElement | null = null;
-      if (type === 'voice') {
-        voiceTimerEl = document.createElement('span');
-        voiceTimerEl.className = 'voice-call-timer';
-        voiceTimerEl.setAttribute('data-channel-id', ch.id);
-        voiceTimerEl.style.display = 'none';
-        content.appendChild(voiceTimerEl);
-      }
-
       // User count for voice channels
       if (type === 'voice' && ch.count > 0) {
         const count = document.createElement('span');
@@ -278,7 +266,9 @@ export class ChannelController {
         e.stopPropagation();
         // Emit a custom event that App.ts can listen to
         const event = new CustomEvent('channel-select', {
-          detail: { channelId: ch.id, channelName: ch.name, type }
+          detail: { channelId: ch.id, channelName: ch.name, type },
+          bubbles: true,
+          composed: true,
         });
         item.dispatchEvent(event);
       });

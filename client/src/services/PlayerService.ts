@@ -107,7 +107,7 @@ export class PlayerService {
    */
   private showOverlay(message?: string): void {
     if (this.overlayElement) {
-      this.overlayElement.style.display = 'flex';
+      this.overlayElement.classList.add('visible');
       if (message) {
         const textElement = this.overlayElement.querySelector('.message');
         if (textElement) {
@@ -124,7 +124,7 @@ export class PlayerService {
    */
   private hideOverlay(): void {
     if (this.overlayElement) {
-      this.overlayElement.style.display = 'none';
+      this.overlayElement.classList.remove('visible');
     }
   }
 

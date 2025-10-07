@@ -70,13 +70,13 @@ export class VoicePanelController {
 
   show(): void {
     if (this.panel) {
-      this.panel.style.display = 'block';
+      this.panel.classList.remove('hidden');
     }
   }
 
   hide(): void {
     if (this.panel) {
-      this.panel.style.display = 'none';
+      this.panel.classList.add('hidden');
     }
   }
 
@@ -120,7 +120,7 @@ export class VoicePanelController {
 
     if (display) {
       this.timer.textContent = display;
-      this.timer.style.display = 'inline-flex';
+      this.timer.classList.remove('hidden');
       this.timer.classList.add('active');
       if (title) {
         this.timer.title = title;
@@ -129,7 +129,7 @@ export class VoicePanelController {
       }
     } else {
       this.timer.textContent = '--:--';
-      this.timer.style.display = 'none';
+      this.timer.classList.add('hidden');
       this.timer.classList.remove('active');
       this.timer.removeAttribute('title');
     }
@@ -187,7 +187,7 @@ export class VoicePanelController {
       const deafenedIcon = document.createElement('span');
       deafenedIcon.className = 'text-xs opacity-70';
       deafenedIcon.textContent = '🔇';
-      deafenedIcon.title = 'Deafened';
+      deafenedIcon.title = 'Output muted';
       iconsContainer.appendChild(deafenedIcon);
     }
 

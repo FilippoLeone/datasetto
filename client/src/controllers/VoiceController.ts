@@ -20,7 +20,6 @@ export class VoiceController {
   private voiceSessionId: string | null = null;
   private voiceSessionTimerHandle: number | null = null;
   private voiceChannelTimerHandle: number | null = null;
-  private wasMutedBeforeDeafen: boolean | null = null;
   private pttActive = false;
   private disposers: Array<() => void> = [];
 
@@ -33,6 +32,11 @@ export class VoiceController {
     this.deps.registerCleanup(() => this.dispose());
     this.updateMuteButtons();
     this.updateVoiceStatusPanel();
+
+    const channels = this.deps.state.get('channels') ?? [];
+    if (Array.isArray(channels) && channels.length > 0) {
+      this.updateChannelTimers(channels);
+    }
   }
 
   dispose(): void {
@@ -51,12 +55,6 @@ export class VoiceController {
   }
 
   async toggleMute(): Promise<void> {
-    const state = this.deps.state.getState();
-    if (state.deafened && state.muted) {
-      this.deps.notifications.warning('Cannot unmute while deafened');
-      return;
-    }
-
     const muted = this.deps.state.toggleMute();
     if (muted) {
       this.setLocalSpeaking(false);
@@ -71,21 +69,11 @@ export class VoiceController {
   }
 
   async toggleDeafen(): Promise<void> {
-    const { deafened: currentlyDeafened, muted: currentlyMuted } = this.deps.state.getState();
-
-    if (!currentlyDeafened) {
-      this.wasMutedBeforeDeafen = currentlyMuted;
-    }
-
     const deafened = this.deps.state.toggleDeafen();
     this.deps.voice.setDeafened(deafened);
 
     if (deafened) {
       this.setLocalSpeaking(false);
-    } else {
-      const shouldRestoreMute = this.wasMutedBeforeDeafen ?? false;
-      this.deps.state.setMuted(shouldRestoreMute);
-      this.wasMutedBeforeDeafen = null;
     }
 
     await this.syncMicrophoneState();
@@ -155,6 +143,8 @@ export class VoiceController {
 
   handleChannelsUpdate(channels: Channel[]): void {
     this.syncVoiceSessionFromChannels(channels);
+    this.updateChannelTimers(channels);
+    this.updateVoiceStatusPanel();
   }
 
   updateChannelTimers(channels: Channel[]): void {
@@ -163,9 +153,8 @@ export class VoiceController {
 
   async handleKeyDown(event: KeyboardEvent): Promise<void> {
     const settings = this.deps.state.get('settings');
-    const deafened = this.deps.state.getState().deafened;
 
-    if (settings.pttEnable && event.code === settings.pttKey && !this.pttActive && !deafened) {
+    if (settings.pttEnable && event.code === settings.pttKey && !this.pttActive) {
       this.pttActive = true;
       this.deps.state.setMuted(false);
       await this.syncMicrophoneState();
@@ -226,9 +215,8 @@ export class VoiceController {
     this.deps.state.setActiveVoiceChannel(data.channelId, channelName);
     this.deps.state.setVoiceConnected(true);
 
-    const sessionStart = typeof data.startedAt === 'number' ? data.startedAt : Date.now();
     const sessionId = data.sessionId ?? null;
-    this.startVoiceSessionTimer(sessionStart, sessionId);
+    this.startVoiceSessionTimer(data.startedAt ?? null, sessionId);
 
     await this.syncMicrophoneState();
     this.announceVoiceState();
@@ -307,7 +295,6 @@ export class VoiceController {
     const shouldTrackLocal =
       state.voiceConnected &&
       !state.muted &&
-      !state.deafened &&
       this.deps.audio.hasActiveStream();
 
     if (shouldTrackLocal && level > LOCAL_SPEAKING_THRESHOLD) {
@@ -385,13 +372,14 @@ export class VoiceController {
     this.disposers.push(
       this.deps.state.on('state:change', () => {
         this.updateMuteButtons();
+        this.updateVoiceStatusPanel();
       })
     );
   }
 
   private async syncMicrophoneState(forceRestart = false): Promise<void> {
-    const { muted, deafened } = this.deps.state.getState();
-    const shouldDisable = muted || deafened;
+    const { muted } = this.deps.state.getState();
+    const shouldDisable = muted;
     const isVoiceSessionActive = this.deps.state.get('voiceConnected') || Boolean(this.pendingVoiceJoin);
 
     if (shouldDisable) {
@@ -533,8 +521,8 @@ export class VoiceController {
     }
   }
 
-  private startVoiceSessionTimer(startedAt: number, sessionId: string | null): void {
-    const startTime = Number.isFinite(startedAt) && startedAt > 0 ? startedAt : Date.now();
+  private startVoiceSessionTimer(startedAt: number | null | undefined, sessionId: string | null): void {
+    const startTime = this.sanitizeCallTimestamp(startedAt) ?? Date.now();
 
     this.clearVoiceSessionTimer();
 
@@ -558,6 +546,29 @@ export class VoiceController {
     this.voiceSessionId = null;
     this.deps.state.setVoiceSession(null, null);
     this.deps.voicePanel.updateSessionTimer(null);
+  }
+
+  private sanitizeCallTimestamp(raw: number | null | undefined): number | null {
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) {
+      return null;
+    }
+
+    let timestamp = raw;
+    if (timestamp < 1_000_000_000_000) {
+      timestamp *= 1000;
+    }
+
+    const now = Date.now();
+    if (timestamp > now) {
+      return now;
+    }
+
+    const drift = now - timestamp;
+    if (drift >= 0 && drift < 60_000) {
+      return now;
+    }
+
+    return timestamp;
   }
 
   private updateVoiceSessionTimerDisplay(): void {
@@ -607,17 +618,19 @@ export class VoiceController {
     const startedAt = channel.voiceStartedAt ?? null;
     const sessionId = channel.voiceSessionId ?? null;
 
-    if (sessionId && sessionId !== this.voiceSessionId) {
-      this.startVoiceSessionTimer(startedAt ?? Date.now(), sessionId);
+    if (sessionId) {
+      if (!this.voiceSessionId || sessionId !== this.voiceSessionId) {
+        this.startVoiceSessionTimer(startedAt ?? null, sessionId);
+        return;
+      }
+
+      if (!this.voiceSessionStart) {
+        this.startVoiceSessionTimer(startedAt ?? null, sessionId);
+      }
       return;
     }
 
-    if (sessionId && this.voiceSessionStart && startedAt && startedAt !== this.voiceSessionStart) {
-      this.startVoiceSessionTimer(startedAt, sessionId);
-      return;
-    }
-
-    if (!sessionId && this.voiceSessionId && (channel.count ?? 0) === 0) {
+    if (this.voiceSessionId && (channel.count ?? 0) === 0) {
       this.clearVoiceSessionTimer();
     }
   }
@@ -640,16 +653,26 @@ export class VoiceController {
         }
 
         if (channel.voiceStartedAt) {
-          timerEl.dataset.voiceStart = channel.voiceStartedAt.toString();
-          timerEl.style.display = 'inline-flex';
+          const sanitizedStart = this.sanitizeCallTimestamp(channel.voiceStartedAt);
+          if (!sanitizedStart) {
+            timerEl.classList.add('hidden');
+            delete timerEl.dataset.voiceStart;
+            timerEl.textContent = '';
+            timerEl.removeAttribute('title');
+            return;
+          }
+
+          timerEl.dataset.voiceStart = sanitizedStart.toString();
+          timerEl.classList.remove('hidden');
+          timerEl.classList.add('inline-flex');
           try {
-            timerEl.title = `Call started ${new Date(channel.voiceStartedAt).toLocaleTimeString()}`;
+            timerEl.title = `Call started ${new Date(sanitizedStart).toLocaleTimeString()}`;
           } catch {
             timerEl.title = 'Call in progress';
           }
           hasActiveTimers = true;
         } else {
-          timerEl.style.display = 'none';
+          timerEl.classList.add('hidden');
           delete timerEl.dataset.voiceStart;
           timerEl.textContent = '';
           timerEl.removeAttribute('title');
@@ -674,14 +697,15 @@ export class VoiceController {
       const start = Number(el.dataset.voiceStart);
       if (!Number.isFinite(start) || start <= 0) {
         el.textContent = '';
-        el.style.display = 'none';
+        el.classList.add('hidden');
         delete el.dataset.voiceStart;
         return;
       }
 
       const duration = now - start;
       el.textContent = `⏱ ${this.formatDuration(duration)}`;
-      el.style.display = 'inline-flex';
+      el.classList.remove('hidden');
+      el.classList.add('inline-flex');
     });
   }
 
@@ -719,6 +743,13 @@ export class VoiceController {
 
     this.pendingVoiceJoin = null;
 
+    this.deps.closeMobileVoicePanel?.();
+
+    const channels = this.deps.state.get('channels') ?? [];
+    if (Array.isArray(channels)) {
+      this.updateChannelTimers(channels);
+    }
+
     this.deps.refreshChannels();
 
     if (notify) {
@@ -731,7 +762,12 @@ export class VoiceController {
     const voiceConnected = this.deps.state.get('voiceConnected');
 
     if (panel) {
-      panel.style.display = voiceConnected ? 'block' : 'none';
+      panel.classList.toggle('hidden', !voiceConnected);
+      panel.classList.toggle('connected', voiceConnected);
+    }
+
+    if (!voiceConnected) {
+      this.deps.closeMobileVoicePanel?.();
     }
 
     const channelNameEl = this.deps.elements['connected-voice-channel'];
@@ -758,21 +794,31 @@ export class VoiceController {
 
     const muteBtn = this.deps.elements.mute;
     if (muteBtn) {
+      const label = state.muted ? 'Unmute' : 'Mute';
       muteBtn.classList.toggle('muted', state.muted);
-      muteBtn.setAttribute('title', state.muted ? 'Unmute' : 'Mute');
-      const icon = muteBtn.querySelector('span');
-      if (icon) {
-        icon.textContent = state.muted ? '🎤🚫' : '🎤';
-      }
+      muteBtn.setAttribute('title', label);
+      muteBtn.setAttribute('aria-label', label);
+      muteBtn.setAttribute('aria-pressed', state.muted ? 'true' : 'false');
+      muteBtn.textContent = label;
     }
 
     const deafenBtn = this.deps.elements.deafen;
     if (deafenBtn) {
-      deafenBtn.classList.toggle('deafened', state.deafened);
-      deafenBtn.setAttribute('title', state.deafened ? 'Undeafen' : 'Deafen');
-      const icon = deafenBtn.querySelector('span');
+      const isOutputMuted = state.deafened;
+      const title = isOutputMuted ? 'Restore output audio' : 'Mute output audio';
+      deafenBtn.classList.toggle('deafened', isOutputMuted);
+      deafenBtn.setAttribute('title', title);
+      deafenBtn.setAttribute('aria-label', title);
+      deafenBtn.setAttribute('aria-pressed', isOutputMuted ? 'true' : 'false');
+
+      const icon = deafenBtn.querySelector('#deafen-icon');
       if (icon) {
-        icon.textContent = state.deafened ? '🔇' : '🔊';
+        icon.textContent = isOutputMuted ? '🔇' : '🔊';
+      }
+
+      const labelEl = deafenBtn.querySelector('.output-label');
+      if (labelEl) {
+        labelEl.textContent = isOutputMuted ? 'Muted' : 'Output';
       }
     }
   }

@@ -52,6 +52,7 @@ export class NavigationController {
    * Handle voice channel selection (viewing only, not connecting to voice)
    */
   private handleVoiceChannelSelect(channelId: string, channelName: string): void {
+    void this.deps.voiceJoinChannel(channelId, channelName);
     this.deps.socketJoinChannel(channelId);
     
     // Remove active class from all voice channels
@@ -68,6 +69,8 @@ export class NavigationController {
     
     // Hide chat for voice channels
     this.deps.chatHideChatUI();
+
+  this.deps.mobileClosePanels?.();
     
     if (import.meta.env.DEV) {
       console.log('📍 Voice channel selected (viewing, not voice connected):', channelName);
@@ -165,5 +168,7 @@ export class NavigationController {
 
       this.deps.videoHandleStreamChannelSelected(channelName);
     }
+
+    this.deps.mobileClosePanels?.();
   }
 }

@@ -96,7 +96,6 @@ export class AuthController {
     const modal = this.elements.regModal;
     if (!modal) return;
 
-    modal.style.display = 'flex';
     this.deps.animator.openModal(modal);
     this.deps.soundFX.play('click', 0.4);
   }
@@ -298,7 +297,6 @@ export class AuthController {
     const unsubscribeAccountError = this.deps.socket.on('account:error', (payload) => this.handleAccountError(payload));
     const unsubscribeSocketConnected = this.deps.socket.on('socket:connected', () => this.handleSocketConnected());
     const unsubscribeSocketDisconnected = this.deps.socket.on('socket:disconnected', ({ reason }) => this.handleSocketDisconnected(reason));
-    const unsubscribeConnectionStatus = this.deps.socket.on('connection:status', ({ connected, reconnecting }) => this.updateConnectionStatus(connected, reconnecting));
     const unsubscribePresence = this.deps.socket.on('user:update', (users) => this.updatePresenceUI(users));
 
     [
@@ -311,7 +309,6 @@ export class AuthController {
       unsubscribeAccountError,
       unsubscribeSocketConnected,
       unsubscribeSocketDisconnected,
-      unsubscribeConnectionStatus,
       unsubscribePresence,
     ].forEach((unsubscribe) => this.deps.registerCleanup(unsubscribe));
   }
@@ -396,7 +393,7 @@ export class AuthController {
     if (!this.isAuthenticated) {
       this.setAuthMode(code === 'REGISTRATION_FAILED' ? 'register' : 'login');
       const modal = this.elements.regModal;
-      if (!modal || modal.style.display !== 'flex') {
+        if (!modal || modal.classList.contains('hidden')) {
         this.showAuthModal(this.authMode);
       }
     }
@@ -501,8 +498,6 @@ export class AuthController {
 
     toggleDisabled(this.elements.mute as HTMLButtonElement, !this.isAuthenticated);
     toggleDisabled(this.elements.deafen as HTMLButtonElement, !this.isAuthenticated);
-    toggleDisabled(this.elements['disconnect-voice'] as HTMLButtonElement, !this.isAuthenticated);
-
     const canCreateChannels = hasPermission(permissions, 'canCreateChannels');
     toggleDisabled(this.elements['create-text-channel'] as HTMLButtonElement, !canCreateChannels);
     toggleDisabled(this.elements['create-voice-channel'] as HTMLButtonElement, !canCreateChannels);
@@ -532,25 +527,6 @@ export class AuthController {
     this.updateAccountUI();
     this.updateAuthTabs();
     this.emitStateChange();
-  }
-
-  private updateConnectionStatus(connected: boolean, reconnecting: boolean): void {
-    const statusEl = this.elements.connectionStatus;
-    if (!statusEl) return;
-
-    statusEl.classList.toggle('connected', connected);
-    statusEl.classList.toggle('reconnecting', reconnecting);
-
-    const text = statusEl.querySelector('.text');
-    if (text) {
-      if (reconnecting) {
-        text.textContent = 'Reconnecting...';
-      } else if (connected) {
-        text.textContent = 'Connected';
-      } else {
-        text.textContent = 'Disconnected';
-      }
-    }
   }
 
   private updatePresenceUI(users: User[]): void {
@@ -686,6 +662,7 @@ export class AuthController {
     const tabLogin = document.getElementById('authTabLogin');
     const tabRegister = document.getElementById('authTabRegister');
     const tabProfile = document.getElementById('authTabProfile');
+    const tabsContainer = document.querySelector('.auth-mode-tabs');
 
     const activate = (tab: HTMLElement | null, active: boolean) => {
       if (!tab) return;
@@ -698,8 +675,22 @@ export class AuthController {
     activate(tabRegister, this.authMode === 'register');
     activate(tabProfile, this.authMode === 'profile');
 
+    const hideAuthTabs = this.isAuthenticated;
+
+    if (tabLogin) {
+      tabLogin.classList.toggle('hidden', hideAuthTabs);
+    }
+
+    if (tabRegister) {
+      tabRegister.classList.toggle('hidden', hideAuthTabs);
+    }
+
     if (tabProfile) {
-      tabProfile.style.display = this.isAuthenticated ? '' : 'none';
+      tabProfile.classList.toggle('hidden', !this.isAuthenticated);
+    }
+
+    if (tabsContainer) {
+      tabsContainer.classList.toggle('hidden', hideAuthTabs);
     }
   }
 
@@ -719,7 +710,7 @@ export class AuthController {
 
     if (this.authMode === 'login') return 'Log In';
     if (this.authMode === 'register') return 'Create Account';
-    return 'Save Changes';
+    return 'Save Settings';
   }
 
   private updateAuthFormVisibility(): void {
@@ -735,7 +726,7 @@ export class AuthController {
 
     const show = (el: HTMLElement | null | undefined, visible: boolean) => {
       if (!el) return;
-      el.style.display = visible ? '' : 'none';
+      el.classList.toggle('hidden', !visible);
     };
 
     show(usernameGroup, true);
@@ -799,36 +790,43 @@ export class AuthController {
 
     if (subtitle) {
       if (!this.isAuthenticated && (this.authMode === 'login' || this.authMode === 'register')) {
-        subtitle.style.display = 'block';
+        subtitle.classList.remove('hidden');
         subtitle.textContent = this.authMode === 'login'
           ? 'Enter your credentials to continue'
           : 'Password is required to create an account';
+      } else if (this.authMode === 'profile' && this.isAuthenticated) {
+        subtitle.classList.remove('hidden');
+        subtitle.textContent = 'Review your account details and update password or profile info.';
       } else {
-        subtitle.style.display = 'none';
+        subtitle.classList.add('hidden');
       }
     }
 
     if (modeHint) {
-      if (this.authMode === 'login') {
-        modeHint.textContent = 'Log back in to pick up where you left off.';
-      } else if (this.authMode === 'register') {
-        modeHint.textContent = 'Create a new account to join the conversation.';
-      } else {
-        modeHint.textContent = 'Review and update the details other members see.';
+      const shouldHideHint = this.isAuthenticated || this.authMode === 'profile';
+      modeHint.classList.toggle('hidden', shouldHideHint);
+
+      if (!shouldHideHint) {
+        if (this.authMode === 'login') {
+          modeHint.textContent = 'Log back in to pick up where you left off.';
+        } else if (this.authMode === 'register') {
+          modeHint.textContent = 'Create a new account to join the conversation.';
+        }
       }
     }
 
     if (cancelBtn) {
-      cancelBtn.style.display = !this.isAuthenticated && (this.authMode === 'login' || this.authMode === 'register') ? 'none' : '';
+      const shouldHideCancel = !this.isAuthenticated && (this.authMode === 'login' || this.authMode === 'register');
+      cancelBtn.classList.toggle('hidden', shouldHideCancel);
     }
 
     if (logoutBtn) {
       if (this.authMode === 'profile' && this.isAuthenticated) {
-        logoutBtn.style.display = '';
+        logoutBtn.classList.remove('hidden');
         this.setLogoutSubmitting(false);
       } else {
         this.setLogoutSubmitting(false);
-        logoutBtn.style.display = 'none';
+        logoutBtn.classList.add('hidden');
       }
     }
   }

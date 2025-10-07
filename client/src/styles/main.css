@@ -8,6 +8,7 @@
 /* Tailwind CSS v4 import */
 @import "tailwindcss";
 
+/* stylelint-disable at-rule-no-unknown */
 /* Custom Theme Configuration (Tailwind v4 @theme syntax) */
 @theme {
   /* Surface palette */
@@ -49,6 +50,7 @@
   --font-display: 'Inter', 'Roobert', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
+/* stylelint-enable at-rule-no-unknown */
 
 /* Custom CSS variables for utilities (not theme) */
 :root {
@@ -73,6 +75,8 @@
   /* App metrics */
   --header-height: 56px;
   --sidebar-width: 260px;
+  --stream-chat-dock-width: clamp(260px, 32vw, 380px);
+  --stream-chat-input-height: 120px;
 
   /* Shadows */
   --shadow-soft: 0 12px 32px rgba(15, 15, 20, 0.35);

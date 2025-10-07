@@ -64,7 +64,7 @@ export class AdminController {
     }
 
     const modal = this.deps.elements['superuserModal'];
-    if (modal && modal.style.display !== 'none') {
+    if (modal && !modal.classList.contains('hidden')) {
       this.closeModal();
       handled = true;
     }
@@ -181,14 +181,14 @@ export class AdminController {
       return;
     }
 
-    this.deps.animator.openModal(modal);
+  this.deps.animator.openModal(modal);
     this.deps.soundFX.play('click', 0.4);
     this.switchTab(tab);
   }
 
   private closeModal(): void {
     const modal = this.deps.elements['superuserModal'];
-    if (!modal || modal.style.display === 'none') {
+    if (!modal || modal.classList.contains('hidden')) {
       return;
     }
 
@@ -654,7 +654,7 @@ export class AdminController {
   private syncAccessUI(): void {
     const menuBtn = this.deps.elements['superuser-menu-btn'] as HTMLButtonElement | undefined;
     if (menuBtn) {
-      menuBtn.style.display = this.hasManagementAccess ? 'inline-flex' : 'none';
+      menuBtn.classList.toggle('hidden', !this.hasManagementAccess);
       menuBtn.setAttribute('aria-hidden', this.hasManagementAccess ? 'false' : 'true');
       menuBtn.setAttribute('aria-expanded', 'false');
     }

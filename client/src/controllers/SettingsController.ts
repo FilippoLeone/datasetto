@@ -82,9 +82,8 @@ export class SettingsController {
     // Update UI with current settings
     this.updateSettingsUI();
 
-    // Show modal with animation
-    modal.style.display = 'flex';
-    this.deps.animator.openModal(modal);
+  // Show modal with animation
+  this.deps.animator.openModal(modal);
     this.deps.soundFX.play('click', 0.4);
   }
 

@@ -19,11 +19,12 @@ export class VideoController {
     this.registerDomListeners();
     this.setupVideoPopoutDrag();
     this.updateVolumeDisplay();
+    this.syncFullscreenButton(false);
   }
 
   handlePlaybackShortcut(event: KeyboardEvent): boolean {
     const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
-    if (!container || container.style.display === 'none') {
+    if (!container || container.classList.contains('hidden')) {
       return false;
     }
 
@@ -202,19 +203,16 @@ export class VideoController {
 
     this.closePopout();
 
-    container.style.display = 'block';
+    container.classList.remove('hidden');
+    document.body.classList.add('stream-inline-active');
+    this.updateLiveIndicator('loading');
 
     if (overlay) {
-      overlay.style.display = 'flex';
+      overlay.classList.add('visible');
       const message = overlay.querySelector('.message');
       if (message) {
         message.textContent = 'Connecting to stream...';
       }
-    }
-
-    const liveBadge = document.querySelector('.live-indicator-badge') as HTMLElement | null;
-    if (liveBadge) {
-      liveBadge.style.display = 'none';
     }
 
     const streamUrl = `${this.deps.hlsBaseUrl}/${channelName}/index.m3u8`;
@@ -261,13 +259,12 @@ export class VideoController {
 
       this.inlineHls.on(HlsConstructor.Events.MANIFEST_PARSED, () => {
         if (overlay) {
-          overlay.style.display = 'none';
+          overlay.classList.remove('visible');
+          overlay.style.cursor = '';
+          overlay.onclick = null;
         }
 
-        const badge = document.querySelector('.live-indicator-badge') as HTMLElement | null;
-        if (badge) {
-          badge.style.display = 'flex';
-        }
+        this.updateLiveIndicator('live');
 
         this.updateStreamWatchingIndicator();
         this.deps.refreshChannels();
@@ -275,7 +272,7 @@ export class VideoController {
         video.play().catch((err: Error) => {
           console.warn('Autoplay blocked:', err);
           if (overlay) {
-            overlay.style.display = 'flex';
+            overlay.classList.add('visible');
             const message = overlay.querySelector('.message');
             if (message) {
               message.textContent = 'Click to play';
@@ -283,8 +280,9 @@ export class VideoController {
             overlay.style.cursor = 'pointer';
             overlay.onclick = () => {
               video.play();
-              overlay.style.display = 'none';
+              overlay.classList.remove('visible');
               overlay.onclick = null;
+              overlay.style.cursor = '';
             };
           }
         });
@@ -297,7 +295,7 @@ export class VideoController {
         }
 
         if (overlay) {
-          overlay.style.display = 'flex';
+          overlay.classList.add('visible');
           const message = overlay.querySelector('.message');
           if (message) {
             if (data.type === HlsConstructor.ErrorTypes.NETWORK_ERROR) {
@@ -321,10 +319,7 @@ export class VideoController {
           }
         }
 
-        const badge = document.querySelector('.live-indicator-badge') as HTMLElement | null;
-        if (badge) {
-          badge.style.display = 'none';
-        }
+        this.updateLiveIndicator('offline');
       });
 
       return;
@@ -337,8 +332,11 @@ export class VideoController {
       video.src = streamUrl;
       video.addEventListener('loadeddata', () => {
         if (overlay) {
-          overlay.style.display = 'none';
+          overlay.classList.remove('visible');
+          overlay.style.cursor = '';
+          overlay.onclick = null;
         }
+        this.updateLiveIndicator('live');
       }, { once: true });
       video.play().catch((err: Error) => {
         console.warn('Autoplay blocked:', err);
@@ -353,6 +351,8 @@ export class VideoController {
         message.textContent = 'HLS not supported';
       }
     }
+
+    this.updateLiveIndicator('offline');
   }
 
   closeInlineVideo(): void {
@@ -377,7 +377,23 @@ export class VideoController {
     }
 
     if (container) {
-      container.style.display = 'none';
+      if (container.classList.contains('fullscreen')) {
+        container.classList.remove('fullscreen');
+        document.body.classList.remove('stream-fullscreen-active', 'stream-chat-hidden');
+        this.syncFullscreenButton(false);
+      }
+      container.classList.add('hidden');
+    }
+
+    document.body.classList.remove('stream-inline-active', 'stream-chat-hidden');
+    this.updateLiveIndicator('hidden');
+
+    const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
+    if (overlay) {
+      const message = overlay.querySelector('.message');
+      if (message) {
+        message.textContent = 'No stream';
+      }
     }
 
     if (video) {
@@ -469,33 +485,18 @@ export class VideoController {
       return;
     }
 
-    if (!document.fullscreenElement) {
-      container.requestFullscreen().then(() => {
-        container.classList.add('fullscreen');
-        const btn = this.deps.elements.fullscreenBtn;
-        if (btn) {
-          const icon = btn.querySelector('.icon');
-          if (icon) {
-            icon.textContent = '⛶';
-          }
-        }
-      }).catch((err: Error) => {
-        console.error('Error entering fullscreen:', err);
-      });
+    const willEnable = !container.classList.contains('fullscreen');
+
+    container.classList.toggle('fullscreen', willEnable);
+    document.body.classList.toggle('stream-fullscreen-active', willEnable);
+
+    if (willEnable) {
+      this.ensureDockedChatVisible();
     } else {
-      document.exitFullscreen().then(() => {
-        container.classList.remove('fullscreen');
-        const btn = this.deps.elements.fullscreenBtn;
-        if (btn) {
-          const icon = btn.querySelector('.icon');
-          if (icon) {
-            icon.textContent = '⛶';
-          }
-        }
-      }).catch((err: Error) => {
-        console.error('Error exiting fullscreen:', err);
-      });
+      document.body.classList.remove('stream-chat-hidden');
     }
+
+    this.syncFullscreenButton(willEnable);
   }
 
   toggleChatVisibility(): void {
@@ -513,11 +514,13 @@ export class VideoController {
       chatMessages.classList.remove('hidden-in-fullscreen');
       chatInput?.classList.remove('hidden-in-fullscreen');
       membersList?.classList.remove('hidden-in-fullscreen');
+      document.body.classList.remove('stream-chat-hidden');
       this.deps.notifications.info('Chat shown');
     } else {
       chatMessages.classList.add('hidden-in-fullscreen');
       chatInput?.classList.add('hidden-in-fullscreen');
       membersList?.classList.add('hidden-in-fullscreen');
+      document.body.classList.add('stream-chat-hidden');
       this.deps.notifications.info('Chat hidden');
     }
   }
@@ -548,7 +551,7 @@ export class VideoController {
 
     const voiceConnected = this.deps.state.get('voiceConnected');
     const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
-    const isWatchingStream = !!(container && container.style.display !== 'none');
+    const isWatchingStream = !!(container && !container.classList.contains('hidden'));
 
     if (voiceConnected && isWatchingStream) {
       const currentChannelType = this.deps.state.get('currentChannelType');
@@ -556,12 +559,12 @@ export class VideoController {
 
       if (currentChannelType === 'stream' && currentChannelName) {
         indicator.textContent = `📺 ${currentChannelName}`;
-        indicator.style.display = 'block';
+        indicator.classList.remove('hidden');
       } else {
-        indicator.style.display = 'none';
+        indicator.classList.add('hidden');
       }
     } else {
-      indicator.style.display = 'none';
+      indicator.classList.add('hidden');
     }
   }
 
@@ -582,6 +585,43 @@ export class VideoController {
 
     if (enabled) {
       app.classList.remove('sidebar-open', 'members-open');
+    }
+  }
+
+  private updateLiveIndicator(state: 'hidden' | 'loading' | 'live' | 'offline'): void {
+    const badge = document.querySelector('.live-indicator-badge') as HTMLElement | null;
+    if (!badge) {
+      return;
+    }
+
+    const text = badge.querySelector('.status-text') as HTMLElement | null;
+
+    badge.classList.remove('is-live', 'is-offline', 'is-loading');
+    badge.dataset.status = state;
+    badge.classList.add('inline-flex');
+
+    if (state === 'hidden') {
+      badge.classList.add('hidden');
+      badge.setAttribute('aria-hidden', 'true');
+      if (text) {
+        text.textContent = 'OFFLINE';
+      }
+      return;
+    }
+
+    if (text) {
+      text.textContent = state === 'loading' ? 'CONNECTING' : state.toUpperCase();
+    }
+
+    badge.classList.remove('hidden');
+    badge.setAttribute('aria-hidden', 'false');
+
+    if (state === 'live') {
+      badge.classList.add('is-live');
+    } else if (state === 'offline') {
+      badge.classList.add('is-offline');
+    } else if (state === 'loading') {
+      badge.classList.add('is-loading');
     }
   }
 
@@ -606,7 +646,20 @@ export class VideoController {
       addListener(inlineVideo, 'click', () => this.togglePlayPause());
     }
 
-    addListener(document, 'fullscreenchange', () => this.handleFullscreenChange());
+    addListener(document, 'keydown', (event: Event) => {
+      const keyboardEvent = event as KeyboardEvent;
+      if (keyboardEvent.key !== 'Escape') {
+        return;
+      }
+
+      const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
+      if (!container?.classList.contains('fullscreen')) {
+        return;
+      }
+
+      keyboardEvent.preventDefault();
+      this.toggleFullscreen();
+    });
   }
 
   private setupVideoPopoutDrag(): void {
@@ -678,25 +731,34 @@ export class VideoController {
     btn.setAttribute('title', isPaused ? 'Play' : 'Pause');
   }
 
-  private handleFullscreenChange(): void {
-    const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
-    if (!container) {
+  private isMobileLayout(): boolean {
+    return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  private ensureDockedChatVisible(): void {
+    const chatMessages = this.deps.elements.msgs;
+    const chatInput = this.deps.elements['chat-input-container'];
+    const membersList = this.deps.elements['members-list'];
+
+    chatMessages?.classList.remove('hidden-in-fullscreen');
+    chatInput?.classList.remove('hidden-in-fullscreen');
+    membersList?.classList.remove('hidden-in-fullscreen');
+    document.body.classList.remove('stream-chat-hidden');
+  }
+
+  private syncFullscreenButton(isFullscreen: boolean): void {
+    const btn = this.deps.elements.fullscreenBtn;
+    if (!btn) {
       return;
     }
 
-    if (!document.fullscreenElement) {
-      container.classList.remove('fullscreen');
-      const btn = this.deps.elements.fullscreenBtn;
-      if (btn) {
-        const icon = btn.querySelector('.icon');
-        if (icon) {
-          icon.textContent = '⛶';
-        }
-      }
+    const icon = btn.querySelector('.icon');
+    if (icon) {
+      icon.textContent = isFullscreen ? '🗗' : '🗖';
     }
-  }
 
-  private isMobileLayout(): boolean {
-    return window.matchMedia('(max-width: 768px)').matches;
+    const label = isFullscreen ? 'Exit docked fullscreen' : 'Enter docked fullscreen';
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('title', label);
   }
 }

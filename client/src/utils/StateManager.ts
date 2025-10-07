@@ -270,15 +270,11 @@ export class StateManager extends EventEmitter<EventMap> {
   }
 
   /**
-   * Toggle deafen (when deafening, also mute - Discord behavior)
+   * Toggle output mute (deafen state)
    */
   toggleDeafen(): boolean {
     const deafened = !this.state.deafened;
     this.setDeafened(deafened);
-    // When deafening, also mute the microphone
-    if (deafened) {
-      this.setMuted(true);
-    }
     return deafened;
   }
 

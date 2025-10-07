@@ -56,30 +56,33 @@
         <!-- User Area (Bottom) -->
         <div class="mt-auto flex-shrink-0">
           <!-- Voice Status (when connected) -->
-          <div id="voice-status-panel" class="p-3 border-t border-black/30 bg-black/20" style="display: none;">
+          <div id="voice-status-panel" class="p-3 border-t border-black/30 bg-black/20 hidden">
             <div class="flex items-center gap-2 text-xs font-bold text-success mb-2 uppercase tracking-wide">
               <span class="text-lg voice-pulse flex-shrink-0">🔊</span>
               <div class="flex flex-col gap-0.5 overflow-hidden">
                 <span id="connected-voice-channel">Voice Channel</span>
-                <span id="watching-stream-indicator" class="text-[10px] font-medium text-brand normal-case tracking-normal opacity-90 whitespace-nowrap overflow-hidden text-ellipsis" style="display: none;">📺 Watching stream</span>
+                <span id="watching-stream-indicator" class="text-[10px] font-medium text-brand normal-case tracking-normal opacity-90 whitespace-nowrap overflow-hidden text-ellipsis hidden">📺 Watching stream</span>
               </div>
             </div>
             <div class="flex gap-2">
               <button id="mute" class="flex-1 bg-bg-tertiary border border-white/10 text-text-normal px-2 py-2 rounded cursor-pointer text-sm font-semibold transition-fast flex items-center justify-center relative overflow-hidden hover:bg-bg-floating hover:border-white/20 hover:-translate-y-px hover:shadow-sm active:translate-y-0" aria-label="Toggle microphone" title="Toggle Mic">
-                <span id="mic-icon">🎤</span>
+                Mute
               </button>
-              <button id="deafen" class="flex-1 bg-bg-tertiary border border-white/10 text-text-normal px-2 py-2 rounded cursor-pointer text-sm font-semibold transition-fast flex items-center justify-center relative overflow-hidden hover:bg-bg-floating hover:border-white/20 hover:-translate-y-px hover:shadow-sm active:translate-y-0" aria-label="Toggle deafen" title="Toggle Deafen">
-                <span id="deafen-icon">🔊</span>
+              <button id="deafen" class="flex-1 bg-bg-tertiary border border-white/10 text-text-normal px-2 py-2 rounded cursor-pointer text-sm font-semibold transition-fast flex items-center justify-center gap-2 relative overflow-hidden hover:bg-bg-floating hover:border-white/20 hover:-translate-y-px hover:shadow-sm active:translate-y-0" aria-label="Toggle output mute" title="Toggle Output Mute">
+                <span id="deafen-icon" class="text-lg leading-none">🔊</span>
+                <span class="output-label text-xs uppercase tracking-wide">Output</span>
               </button>
-              <button id="disconnect-voice" class="flex-1 bg-bg-tertiary border border-white/10 text-text-normal px-2 py-2 rounded cursor-pointer text-sm font-semibold transition-fast flex items-center justify-center relative overflow-hidden hover:bg-bg-floating hover:border-white/20 hover:-translate-y-px hover:shadow-sm active:translate-y-0" aria-label="Disconnect from voice" title="Disconnect">❌</button>
             </div>
           </div>
 
           <!-- Voice Users Panel (Discord-like) -->
-          <div id="voice-users-panel" class="voice-users-panel bg-black/20 border-t border-black/30 max-h-[280px] overflow-y-auto flex-shrink-0 custom-scrollbar" style="display: none;">
+          <div id="voice-users-panel" class="voice-users-panel bg-black/20 border-t border-black/30 max-h-[280px] overflow-y-auto flex-shrink-0 custom-scrollbar hidden">
             <div class="px-4 py-3 text-2xs font-bold uppercase text-text-muted tracking-wider bg-black/30 sticky top-0 z-sticky flex items-center justify-between gap-3">
               <span class="text-text-normal"><span id="voice-user-count">0</span> members</span>
-              <span class="text-2xs font-semibold tracking-wide text-text-muted" id="voice-session-timer" aria-live="polite" style="display: none;">--:--</span>
+              <div class="flex items-center gap-2">
+                <span class="text-2xs font-semibold tracking-wide text-text-muted inline-flex hidden" id="voice-session-timer" aria-live="polite">--:--</span>
+                <button id="mobile-voice-close" class="mobile-voice-close-btn" type="button" aria-label="Close voice panel">✕</button>
+              </div>
             </div>
             <div class="py-2" id="voice-users-list">
               <!-- Dynamic voice users will be inserted here -->
@@ -96,15 +99,14 @@
             <div class="flex items-center gap-2 relative">
               <button
                 id="superuser-menu-btn"
-                class="w-8 h-8 rounded flex items-center justify-center text-lg transition-fast hover:bg-bg-floating hover:text-brand-primary"
+                class="hidden w-8 h-8 rounded flex items-center justify-center text-lg transition-fast hover:bg-bg-floating hover:text-brand-primary"
                 aria-label="Superuser actions"
                 title="Superuser Actions"
                 aria-haspopup="true"
                 aria-expanded="false"
                 type="button"
-                style="display: none;"
               >⚡</button>
-              <div id="superuser-menu" class="absolute bottom-full right-0 mb-2 bg-bg-tertiary border border-white/10 rounded-md p-2 min-w-[180px] shadow-lg z-dropdown" role="menu" aria-hidden="true" style="display: none;">
+              <div id="superuser-menu" class="absolute bottom-full right-0 mb-2 bg-bg-tertiary border border-white/10 rounded-md p-2 min-w-[180px] shadow-lg z-dropdown hidden" role="menu" aria-hidden="true">
                 <button id="superuser-manage-users" class="w-full px-3 py-2 rounded cursor-pointer text-text-normal flex items-center gap-3 transition-fast hover:bg-modifier-selected text-left" role="menuitem" type="button">Manage Users</button>
                 <button id="superuser-manage-channels" class="w-full px-3 py-2 rounded cursor-pointer text-text-normal flex items-center gap-3 transition-fast hover:bg-modifier-selected text-left" role="menuitem" type="button">Manage Channels</button>
               </div>
@@ -116,27 +118,10 @@
 
       <!-- Main Content: Chat -->
       <main class="main-content chat-content flex-1 flex flex-col bg-bg-chat overflow-hidden" role="main">
-        <!-- Chat Header -->
-        <header class="chat-header h-14 px-4 border-b border-black/30 bg-bg-secondary flex items-center gap-3 flex-shrink-0 shadow-sm">
-          <div class="flex gap-2">
-            <button id="toggleSidebar" class="w-8 h-8 rounded flex items-center justify-center text-lg transition-fast hover:bg-bg-floating hover:text-text-hover" aria-label="Toggle sidebar" title="Toggle Sidebar">☰</button>
-            <button id="toggle-members" class="w-8 h-8 rounded flex items-center justify-center text-lg transition-fast hover:bg-bg-floating hover:text-text-hover" aria-label="Toggle member list" title="Toggle Member List">👥</button>
-          </div>
-          <span class="channel-icon text-xl text-text-muted font-semibold" aria-hidden="true">#</span>
-          <h1 class="text-base font-bold text-text-normal" id="current-channel-name">general</h1>
-          <span class="h-6 w-px bg-white/10 mx-2"></span>
-          <div class="text-sm text-text-muted truncate" id="channel-topic">Welcome to Twiscord</div>
-          <div class="ml-auto flex items-center gap-4">
-            <div id="connectionStatus" class="connection-status flex items-center gap-2 text-xs font-medium" aria-live="polite" aria-label="Connection status">
-              <span class="status-dot w-2 h-2 rounded-full bg-text-muted"></span>
-              <span class="text">Disconnected</span>
-            </div>
-            <button id="toggle-video-popout" class="w-8 h-8 rounded flex items-center justify-center text-lg transition-fast hover:bg-bg-floating hover:text-text-hover" aria-label="Toggle video" title="Toggle Video">📺</button>
-          </div>
-        </header>
+        <h1 id="current-channel-name" class="hidden">general</h1>
 
         <!-- Inline Video Container (for stream channels - Theater Mode) -->
-        <div id="inlineVideoContainer" class="inline-video-container flex-shrink-0 bg-black relative" style="display: none;">
+  <div id="inlineVideoContainer" class="inline-video-container flex-shrink-0 bg-black relative hidden">
           <!-- Top Controls -->
           <div class="absolute top-0 left-0 right-0 p-4 flex items-center gap-4 bg-gradient-to-b from-black/70 to-transparent z-10">
             <button
@@ -151,11 +136,13 @@
             <div class="text-lg font-bold text-white" id="mobileStreamTitle" aria-live="polite">Live Stream</div>
           </div>
 
-          <div class="relative w-full aspect-video bg-black">
+          <div class="inline-video-stage relative w-full aspect-video bg-black">
             <video id="inlineVideo" class="w-full h-full" aria-label="Video player" autoplay muted></video>
-            <div id="inlinePlayerOverlay" class="video-player-overlay">
-              <div class="w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
-              <div class="text-text-normal text-lg mt-4">No stream</div>
+            <div id="inlinePlayerOverlay" class="video-player-overlay" aria-live="polite">
+              <div class="overlay-content">
+                <div class="overlay-spinner w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
+                <p class="message">No stream</p>
+              </div>
             </div>
           </div>
 
@@ -179,14 +166,17 @@
                   aria-label="Volume"
                 />
               </div>
-              <span class="live-indicator-badge">🔴 LIVE</span>
+              <span class="live-indicator-badge hidden inline-flex items-center" aria-live="polite" aria-hidden="true">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span class="status-text">OFFLINE</span>
+              </span>
             </div>
             <div class="video-controls-right">
               <button id="toggleChatBtn" class="control-btn" aria-label="Toggle Chat" title="Toggle Chat">
                 <span class="icon">💬</span>
               </button>
               <button id="fullscreenBtn" class="control-btn" aria-label="Fullscreen" title="Fullscreen">
-                <span class="icon">⛶</span>
+                 <span class="icon">🗖</span>
               </button>
             </div>
           </div>
@@ -212,7 +202,7 @@
             <button type="submit" class="text-2xl flex-shrink-0 hover:scale-110 transition-fast" aria-label="Send message" title="Send">📤</button>
           </form>
           <!-- Emoji Picker Popup -->
-          <div id="emojiPicker" class="emoji-picker" style="display: none;">
+          <div id="emojiPicker" class="emoji-picker hidden">
             <div class="px-4 py-3 font-bold text-text-normal border-b border-white/10">Emojis</div>
             <div class="grid grid-cols-8 gap-2 p-3 max-h-64 overflow-y-auto custom-scrollbar" id="emojiGrid">
               <!-- Emojis will be populated here -->
@@ -243,15 +233,17 @@
         </div>
         <div class="relative aspect-video bg-black">
           <video id="video" class="w-full h-full" aria-label="Video player" autoplay muted></video>
-          <div id="playerOverlay" class="video-player-overlay">
-            <div class="w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
-            <div class="text-text-normal text-lg mt-4">No stream</div>
+          <div id="playerOverlay" class="video-player-overlay" aria-live="polite">
+            <div class="overlay-content">
+              <div class="overlay-spinner w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
+              <p class="message">No stream</p>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Create Channel Modal -->
-      <div id="createChannelModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-modal backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="create-channel-title" style="display: none;">
+    <!-- Create Channel Modal -->
+    <div id="createChannelModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-modal backdrop-blur-sm hidden" role="dialog" aria-modal="true" aria-labelledby="create-channel-title">
         <div class="bg-bg-tertiary rounded-xl shadow-lg w-full max-w-md mx-4 overflow-hidden">
           <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
             <h3 id="create-channel-title" class="text-xl font-bold text-text-normal">Create Channel</h3>
@@ -281,8 +273,8 @@
         </div>
       </div>
 
-      <!-- Stream Info Modal -->
-      <div id="streamInfoModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="stream-info-title" style="display: none;">
+    <!-- Stream Info Modal -->
+    <div id="streamInfoModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="stream-info-title">
         <div class="modal-card modal-large">
           <div class="modal-header">
             <h3 id="stream-info-title">📺 How to Stream</h3>
@@ -347,14 +339,14 @@
         </div>
       </div>
 
-      <!-- User Settings Modal (Profile) -->
-      <div id="regModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" style="display: none;">
+    <!-- User Settings Modal (Profile) -->
+    <div id="regModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
         <div class="modal-card">
           <div class="modal-header">
             <h3 id="settings-modal-title">User Settings</h3>
             <button id="regCancel" aria-label="Close settings">✕</button>
           </div>
-          <p id="settings-modal-subtitle" class="modal-subtitle" style="display: none; padding: 0 24px; margin: -8px 0 16px; color: var(--text-muted); font-size: 14px;"></p>
+          <p id="settings-modal-subtitle" class="modal-subtitle hidden px-6 -mt-2 mb-4 text-text-muted text-sm"></p>
           <div class="modal-body modal-body-scrollable">
             <div class="modal-tabs auth-mode-tabs" role="tablist" aria-label="Authentication modes">
               <button id="authTabLogin" class="modal-tab" type="button" role="tab" aria-selected="false">
@@ -496,14 +488,14 @@
             <div id="regError" class="form-error" aria-live="polite"></div>
           </div>
           <div class="modal-footer">
-            <button id="logoutBtn" class="button-secondary" style="display: none;" type="button">Log Out</button>
+            <button id="logoutBtn" class="button-secondary hidden" type="button">Log Out</button>
             <button id="registerBtn" class="button-primary" type="button">Create Account</button>
           </div>
         </div>
       </div>
 
       <!-- Audio Settings Modal -->
-      <div id="audioSettingsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title" style="display: none;">
+  <div id="audioSettingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title">
         <div class="modal-card">
           <div class="modal-header">
             <h3 id="audio-settings-title">⚙️ Audio & Voice Settings</h3>
@@ -608,15 +600,32 @@
           </div>
         </div>
       </div>
+      <!-- Mobile Overlay -->
+      <div id="mobile-overlay" class="mobile-overlay" aria-hidden="true"></div>
+
+      <!-- Mobile Navigation Toolbar -->
+      <nav id="mobile-toolbar" class="mobile-toolbar" aria-label="Mobile navigation">
+        <button id="mobile-open-channels" class="mobile-toolbar-btn" type="button" aria-label="Open channels">
+          <span class="icon" aria-hidden="true">☰</span>
+          <span class="label">Channels</span>
+        </button>
+        <button id="mobile-open-settings" class="mobile-toolbar-btn" type="button" aria-label="Open settings">
+          <span class="icon" aria-hidden="true">⚙️</span>
+          <span class="label">Settings</span>
+        </button>
+        <button id="mobile-open-profile" class="mobile-toolbar-btn" type="button" aria-label="Open profile settings">
+          <span class="icon" aria-hidden="true">👤</span>
+          <span class="label">Profile</span>
+        </button>
+      </nav>
     </div>
     <!-- Superuser Control Modal -->
     <div
       id="superuserModal"
-      class="modal"
+      class="modal hidden"
       role="dialog"
       aria-modal="true"
       aria-labelledby="superuser-modal-title"
-      style="display: none;"
     >
       <div class="modal-card modal-large superuser-modal-card">
         <div class="modal-header">

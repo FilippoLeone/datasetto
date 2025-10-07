@@ -2,6 +2,8 @@ import type { ChatControllerDeps } from './types';
 import type { ChatMessage } from '@/types';
 import { formatTime } from '@/utils';
 
+const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
+
 export class ChatController {
   private deps: ChatControllerDeps;
   private disposers: Array<() => void> = [];
@@ -49,13 +51,13 @@ export class ChatController {
     const picker = this.deps.elements.emojiPicker;
     if (!picker) return;
 
-    const isVisible = picker.style.display === 'block';
-    picker.style.display = isVisible ? 'none' : 'block';
+    const isVisible = !picker.classList.contains('hidden');
+    picker.classList.toggle('hidden', isVisible);
   }
 
   hideEmojiPicker(): void {
     const picker = this.deps.elements.emojiPicker;
-    if (picker) picker.style.display = 'none';
+    if (picker) picker.classList.add('hidden');
   }
 
   insertEmoji(emoji: string): void {
@@ -116,51 +118,185 @@ export class ChatController {
     const msgsContainer = this.deps.elements.msgs;
     if (!msgsContainer) return;
 
+    const previousMessage = msgsContainer.lastElementChild as HTMLElement | null;
+    const previousTimestamp = previousMessage?.dataset.timestamp ? Number(previousMessage.dataset.timestamp) : null;
+    const sameAuthorAsPrevious = previousMessage?.dataset.author === message.from;
+    const withinGroupWindow = previousTimestamp ? message.ts - previousTimestamp <= MESSAGE_GROUP_WINDOW_MS : false;
+    const isGroupedWithPrevious = Boolean(previousMessage && sameAuthorAsPrevious && withinGroupWindow);
+
+    if (previousMessage) {
+      previousMessage.classList.toggle('message--has-follow', isGroupedWithPrevious);
+    }
+
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message';
-    
-    // Avatar
+    messageDiv.dataset.author = message.from;
+    messageDiv.dataset.timestamp = String(message.ts);
+
     const avatar = document.createElement('div');
     avatar.className = 'message-avatar';
     avatar.textContent = message.from.charAt(0).toUpperCase();
-    
-    // Content
-    const content = document.createElement('div');
-    content.className = 'message-content';
-    
-    // Header
+
+    const bubble = document.createElement('div');
+    bubble.className = 'message-content message-bubble';
+
     const header = document.createElement('div');
     header.className = 'message-header';
-    
+
     const author = document.createElement('span');
     author.className = 'message-author';
     author.textContent = message.from;
-    
-    const timestamp = document.createElement('span');
+
+    const roleBadge = this.createRoleBadge(message);
+
+    const timestamp = document.createElement('time');
     timestamp.className = 'message-timestamp';
     timestamp.textContent = formatTime(message.ts);
-    
+    timestamp.dateTime = new Date(message.ts).toISOString();
+    timestamp.title = new Date(message.ts).toLocaleString();
+
     header.appendChild(author);
+    if (roleBadge) {
+      header.appendChild(roleBadge);
+    }
     header.appendChild(timestamp);
-    
-    // Text
-    const text = document.createElement('div');
-    text.className = 'message-text';
-    text.textContent = message.text;
-    
-    content.appendChild(header);
-    content.appendChild(text);
-    
+
+    const text = this.buildMessageBody(message.text);
+
+    bubble.appendChild(header);
+    bubble.appendChild(text);
+
+    if (isGroupedWithPrevious) {
+      messageDiv.classList.add('message--grouped');
+      bubble.classList.add('message-bubble--grouped');
+      avatar.classList.add('message-avatar--hidden');
+      author.classList.add('message-author--hidden');
+      header.classList.add('message-header--grouped');
+      if (roleBadge) {
+        roleBadge.classList.add('message-role-badge--hidden');
+      }
+    }
+
     messageDiv.appendChild(avatar);
-    messageDiv.appendChild(content);
-    
+    messageDiv.appendChild(bubble);
+
     msgsContainer.appendChild(messageDiv);
-    
-    // Add animation and sound effect
+
     this.deps.animator.animateMessage(messageDiv);
     this.deps.soundFX.play('message', 0.5);
-    
+
     msgsContainer.scrollTop = msgsContainer.scrollHeight;
+  }
+
+  private createRoleBadge(message: ChatMessage): HTMLSpanElement | null {
+    if (message.isSuperuser) {
+      return this.buildRoleBadge('Superuser', 'superuser');
+    }
+
+    if (Array.isArray(message.roles) && message.roles.length > 0) {
+      const label = this.formatRoleLabel(message.roles[0]);
+      return this.buildRoleBadge(label, 'default');
+    }
+
+    return null;
+  }
+
+  private buildRoleBadge(label: string, variant: 'default' | 'superuser'): HTMLSpanElement {
+    const badge = document.createElement('span');
+    badge.className = 'message-role-badge';
+    badge.textContent = label;
+
+    if (variant === 'superuser') {
+      badge.dataset.variant = 'superuser';
+    }
+
+    return badge;
+  }
+
+  private formatRoleLabel(role: string): string {
+    return role
+      .split(/[_\s]/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+
+  private buildMessageBody(rawText: string): HTMLElement {
+    const body = document.createElement('div');
+    body.className = 'message-text';
+
+    const lines = rawText.split(/\r?\n/);
+    lines.forEach((line) => {
+      const lineEl = this.createMessageLine(line);
+      body.appendChild(lineEl);
+    });
+
+    return body;
+  }
+
+  private createMessageLine(line: string): HTMLElement {
+    const lineElement = document.createElement('p');
+    const urlPattern = /(https?:\/\/[^\s]+)/gi;
+
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = urlPattern.exec(line)) !== null) {
+      const preceding = line.slice(lastIndex, match.index);
+      if (preceding) {
+        this.appendTextWithMentions(lineElement, preceding);
+      }
+
+      this.appendLink(lineElement, match[0]);
+      lastIndex = match.index + match[0].length;
+    }
+
+    const remaining = line.slice(lastIndex);
+    if (remaining || lineElement.childNodes.length === 0) {
+      this.appendTextWithMentions(lineElement, remaining);
+    }
+
+    if (lineElement.childNodes.length === 0) {
+      lineElement.appendChild(document.createTextNode('\u00A0'));
+    }
+
+    return lineElement;
+  }
+
+  private appendTextWithMentions(container: HTMLElement, text: string): void {
+    if (!text) return;
+
+    const mentionPattern = /@[A-Za-z0-9_\-]+/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = mentionPattern.exec(text)) !== null) {
+      const before = text.slice(lastIndex, match.index);
+      if (before) {
+        container.appendChild(document.createTextNode(before));
+      }
+
+      const mention = document.createElement('span');
+      mention.className = 'message-mention';
+      mention.textContent = match[0];
+      container.appendChild(mention);
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    const rest = text.slice(lastIndex);
+    if (rest) {
+      container.appendChild(document.createTextNode(rest));
+    }
+  }
+
+  private appendLink(container: HTMLElement, url: string): void {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.textContent = url;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    container.appendChild(anchor);
   }
 
   /**
