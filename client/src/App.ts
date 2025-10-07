@@ -296,7 +296,7 @@ export class App {
   private cacheElements(): void {
     const ids = [
       'channel', 'join', 'video', 'micSelect', 'spkSelect',
-      'mute', 'deafen', 'msgs', 'chatForm', 'chatInput', 'accName',
+  'mute', 'deafen', 'msgs', 'chatForm', 'chat-input-container', 'chatInput', 'accName',
       'regModal', 'regUsername', 'regPassword', 'regConfirm',
   'passwordStrength', 'passwordStrengthFill', 'passwordStrengthLabel',
       'registerBtn', 'regCancel', 'regError', 'echoCancel', 'noiseSuppression',

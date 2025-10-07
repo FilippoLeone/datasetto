@@ -1,22 +1,25 @@
 ﻿/**
  * Main stylesheet for Twiscord - Tailwind CSS v4 Edition
- * Professional Discord + Twitch inspired design
+ * Discord ✕ Twitch inspired UI with Tailwind's new theming primitives.
  */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 /* Tailwind CSS v4 import */
 @import "tailwindcss";
 
 /* Custom Theme Configuration (Tailwind v4 @theme syntax) */
 @theme {
-  /* Custom colors - these automatically generate utilities like bg-bg-primary, text-text-normal, etc. */
+  /* Surface palette */
   --color-bg-primary: #0e0e10;
   --color-bg-secondary: #18181b;
   --color-bg-tertiary: #1f1f23;
   --color-bg-sidebar: #1f1f23;
   --color-bg-chat: #18181b;
-  --color-bg-elevated: #0e0e10;
+  --color-bg-elevated: #141417;
   --color-bg-floating: #26262c;
-  
+
+  /* Text palette */
   --color-text-normal: #efeff1;
   --color-text-muted: #adadb8;
   --color-text-link: #a970ff;
@@ -24,24 +27,25 @@
   --color-text-error: #f0506e;
   --color-text-hover: #ffffff;
   --color-text-bright: #ffffff;
-  
+
+  /* Interactive states */
   --color-interactive-normal: #dedee3;
   --color-interactive-hover: #efeff1;
   --color-interactive-active: #ffffff;
   --color-interactive-muted: #53535f;
-  
+
+  /* Brand + status colors */
   --color-brand: #9147ff;
   --color-brand-primary: #9147ff;
   --color-brand-secondary: #5865f2;
   --color-brand-hover: #772ce8;
   --color-brand-active: #5c16c5;
-  
   --color-success: #00f593;
   --color-danger: #f0506e;
   --color-warning: #ffb800;
   --color-live: #eb0400;
-  
-  /* Font families */
+
+  /* Typography */
   --font-display: 'Inter', 'Roobert', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
@@ -51,8 +55,13 @@
   /* Transitions */
   --transition-fast: 120ms;
   --transition-base: 200ms;
-  --transition-slow: 300ms;
-  
+  --transition-slow: 320ms;
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
   /* Z-index scale */
   --z-base: 1;
   --z-dropdown: 1000;
@@ -60,13 +69,179 @@
   --z-modal: 1300;
   --z-popover: 1400;
   --z-tooltip: 1500;
-  
-  /* Spacing */
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 32px;
+
+  /* App metrics */
+  --header-height: 56px;
+  --sidebar-width: 260px;
+
+  /* Shadows */
+  --shadow-soft: 0 12px 32px rgba(15, 15, 20, 0.35);
+  --shadow-strong: 0 20px 48px rgba(12, 12, 18, 0.55);
+
+  /* Gradient tokens */
+  --gradient-brand: linear-gradient(135deg, var(--color-brand) 0%, var(--color-brand-secondary) 100%);
+  --gradient-elevated: linear-gradient(160deg, rgba(145, 71, 255, 0.12) 0%, rgba(88, 101, 242, 0.08) 50%, rgba(20, 20, 25, 0.85) 100%);
+}
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    min-height: 100%;
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-normal);
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-body);
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: -30% auto auto -10%;
+    width: 640px;
+    height: 640px;
+    background: radial-gradient(circle at center, rgba(145, 71, 255, 0.22), rgba(20, 20, 25, 0));
+    pointer-events: none;
+    z-index: 0;
+    filter: blur(0);
+  }
+
+  #app {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+  }
+
+  img, svg, video {
+    display: block;
+    max-width: 100%;
+  }
+
+  a {
+    color: inherit;
+  }
+
+  ::selection {
+    color: #ffffff;
+    background: rgba(145, 71, 255, 0.35);
+  }
+}
+
+@layer components {
+  .app-shell {
+    background: radial-gradient(circle at top left, rgba(145, 71, 255, 0.12), transparent 40%),
+                radial-gradient(circle at bottom right, rgba(235, 4, 0, 0.08), transparent 55%),
+                var(--color-bg-primary);
+    color: var(--color-text-normal);
+    overflow: hidden;
+  }
+
+  .sidebar {
+    backdrop-filter: saturate(120%);
+    border-right: 1px solid rgba(0, 0, 0, 0.45);
+    box-shadow: 1px 0 0 rgba(255, 255, 255, 0.02);
+  }
+
+  .sidebar-header {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+  }
+
+  .sidebar-scroller {
+    mask-image: linear-gradient(to bottom, transparent 0, black 32px, black calc(100% - 32px), transparent 100%);
+  }
+
+  .main-content {
+    min-width: 0;
+    position: relative;
+  }
+
+  .chat-header {
+    backdrop-filter: blur(18px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 8px 24px rgba(8, 8, 12, 0.45);
+  }
+
+  .chat-log {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: linear-gradient(180deg, rgba(31, 31, 35, 0.65), rgba(24, 24, 27, 0.9));
+  }
+
+  .chat-log::after {
+    content: '';
+    height: 48px;
+  }
+
+  .chat-input-container {
+    background: rgba(20, 20, 24, 0.96);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 -12px 32px rgba(8, 8, 12, 0.5);
+  }
+
+  .emoji-picker {
+    backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .inline-video-container {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+  }
+
+  .members-panel {
+    border-left: 1px solid rgba(0, 0, 0, 0.45);
+    box-shadow: -1px 0 0 rgba(255, 255, 255, 0.02);
+    background: rgba(22, 22, 26, 0.95);
+  }
+
+  .members-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .video-popout {
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    box-shadow: var(--shadow-strong);
+    backdrop-filter: blur(16px);
+  }
+}
+
+@layer utilities {
+  .text-2xs {
+    font-size: 0.7rem;
+    line-height: 1.2;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .bg-gradient-brand {
+    background: var(--gradient-brand);
+  }
+
+  .shadow-soft {
+    box-shadow: var(--shadow-soft);
+  }
+
+  .shadow-strong {
+    box-shadow: var(--shadow-strong);
+  }
+
+  .backdrop-frosted {
+    background: rgba(24, 24, 28, 0.72);
+    backdrop-filter: blur(22px);
+  }
 }
 
 /* Import custom animations */
