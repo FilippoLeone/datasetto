@@ -9,21 +9,21 @@
     </style>
   </head>
   <body>
-    <div id="app" class="app">
+    <div id="app" class="flex h-screen w-screen overflow-hidden">
       <!-- Left Sidebar: Channels + User Area -->
-      <aside class="sidebar" role="navigation" aria-label="Server navigation">
+      <aside class="flex flex-col w-[260px] bg-bg-sidebar flex-shrink-0 overflow-hidden border-r border-black/30" role="navigation" aria-label="Server navigation">
         <!-- Sidebar Header -->
-        <div class="sidebar-header">
-          <strong>Twiscord</strong>
+        <div class="px-4 py-3 border-b border-black/40 bg-bg-tertiary flex items-center justify-between min-h-[56px] shadow-sm sticky top-0 z-sticky">
+          <strong class="text-lg font-bold gradient-text tracking-tight">Twiscord</strong>
         </div>
 
         <!-- Channels Section -->
-        <div class="channels-section">
+        <div class="flex-1 overflow-y-auto overflow-x-hidden py-2 pl-2 custom-scrollbar">
           <!-- Text Channels -->
-          <div class="channel-category">
-            <div class="category-header">
-              <span class="category-title">Text Channels</span>
-              <button id="create-text-channel" class="create-channel-btn" title="Create Text Channel">+</button>
+          <div class="mb-4">
+            <div class="flex items-center justify-between px-2 py-2 mb-1 cursor-pointer select-none rounded transition-fast hover:bg-modifier-hover">
+              <span class="text-2xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-2">Text Channels</span>
+              <button id="create-text-channel" class="bg-transparent border-none text-text-muted cursor-pointer p-1 text-lg leading-none opacity-0 group-hover:opacity-100 transition-fast rounded w-6 h-6 hover:bg-modifier-hover" title="Create Text Channel">+</button>
             </div>
             <div class="channel-list" id="text-channels">
               <!-- Dynamic text channels will be inserted here -->
@@ -31,10 +31,10 @@
           </div>
 
           <!-- Voice Channels -->
-          <div class="channel-category">
-            <div class="category-header">
-              <span class="category-title">Voice Channels</span>
-              <button id="create-voice-channel" class="create-channel-btn" title="Create Voice Channel">+</button>
+          <div class="mb-4">
+            <div class="flex items-center justify-between px-2 py-2 mb-1 cursor-pointer select-none rounded transition-fast hover:bg-modifier-hover">
+              <span class="text-2xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-2">Voice Channels</span>
+              <button id="create-voice-channel" class="bg-transparent border-none text-text-muted cursor-pointer p-1 text-lg leading-none opacity-0 group-hover:opacity-100 transition-fast rounded w-6 h-6 hover:bg-modifier-hover" title="Create Voice Channel">+</button>
             </div>
             <div class="channel-list" id="channelsList">
               <!-- Dynamic voice channels will be inserted here -->
@@ -42,10 +42,10 @@
           </div>
 
           <!-- Streams -->
-          <div class="channel-category">
-            <div class="category-header">
-              <span class="category-title">Live Streams</span>
-              <button id="create-stream-channel" class="create-channel-btn" title="Create Stream Channel">+</button>
+          <div class="mb-4">
+            <div class="flex items-center justify-between px-2 py-2 mb-1 cursor-pointer select-none rounded transition-fast hover:bg-modifier-hover">
+              <span class="text-2xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-2">Live Streams</span>
+              <button id="create-stream-channel" class="bg-transparent border-none text-text-muted cursor-pointer p-1 text-lg leading-none opacity-0 group-hover:opacity-100 transition-fast rounded w-6 h-6 hover:bg-modifier-hover" title="Create Stream Channel">+</button>
             </div>
             <div class="channel-list" id="stream-channels">
               <!-- Dynamic stream channels will be inserted here -->
@@ -54,49 +54,49 @@
         </div>
 
         <!-- User Area (Bottom) -->
-        <div class="user-area">
+        <div class="mt-auto flex-shrink-0">
           <!-- Voice Status (when connected) -->
-          <div id="voice-status-panel" class="voice-status" style="display: none;">
-            <div class="voice-status-header">
-              <span class="icon">🔊</span>
-              <div class="voice-status-text">
+          <div id="voice-status-panel" class="p-3 border-t border-black/30 bg-black/20" style="display: none;">
+            <div class="flex items-center gap-2 text-xs font-bold text-success mb-2 uppercase tracking-wide">
+              <span class="text-lg voice-pulse flex-shrink-0">🔊</span>
+              <div class="flex flex-col gap-0.5 overflow-hidden">
                 <span id="connected-voice-channel">Voice Channel</span>
-                <span id="watching-stream-indicator" class="watching-stream" style="display: none;">📺 Watching stream</span>
+                <span id="watching-stream-indicator" class="text-[10px] font-medium text-brand normal-case tracking-normal opacity-90 whitespace-nowrap overflow-hidden text-ellipsis" style="display: none;">📺 Watching stream</span>
               </div>
             </div>
-            <div class="voice-controls">
-              <button id="mute" aria-label="Toggle microphone" title="Toggle Mic">
+            <div class="flex gap-2">
+              <button id="mute" class="flex-1 bg-bg-tertiary border border-white/10 text-text-normal px-2 py-2 rounded cursor-pointer text-sm font-semibold transition-fast flex items-center justify-center relative overflow-hidden hover:bg-bg-floating hover:border-white/20 hover:-translate-y-px hover:shadow-sm active:translate-y-0" aria-label="Toggle microphone" title="Toggle Mic">
                 <span id="mic-icon">🎤</span>
               </button>
-              <button id="deafen" aria-label="Toggle deafen" title="Toggle Deafen">
+              <button id="deafen" class="flex-1 bg-bg-tertiary border border-white/10 text-text-normal px-2 py-2 rounded cursor-pointer text-sm font-semibold transition-fast flex items-center justify-center relative overflow-hidden hover:bg-bg-floating hover:border-white/20 hover:-translate-y-px hover:shadow-sm active:translate-y-0" aria-label="Toggle deafen" title="Toggle Deafen">
                 <span id="deafen-icon">🔊</span>
               </button>
-              <button id="disconnect-voice" aria-label="Disconnect from voice" title="Disconnect">❌</button>
+              <button id="disconnect-voice" class="flex-1 bg-bg-tertiary border border-white/10 text-text-normal px-2 py-2 rounded cursor-pointer text-sm font-semibold transition-fast flex items-center justify-center relative overflow-hidden hover:bg-bg-floating hover:border-white/20 hover:-translate-y-px hover:shadow-sm active:translate-y-0" aria-label="Disconnect from voice" title="Disconnect">❌</button>
             </div>
           </div>
 
           <!-- Voice Users Panel (Discord-like) -->
-          <div id="voice-users-panel" class="voice-users-panel" style="display: none;">
-            <div class="voice-users-header">
-              <span class="voice-users-count"><span id="voice-user-count">0</span> members</span>
-              <span class="voice-session-timer" id="voice-session-timer" aria-live="polite" style="display: none;">--:--</span>
+          <div id="voice-users-panel" class="bg-black/20 border-t border-black/30 max-h-[280px] overflow-y-auto flex-shrink-0 custom-scrollbar" style="display: none;">
+            <div class="px-4 py-3 text-2xs font-bold uppercase text-text-muted tracking-wider bg-black/30 sticky top-0 z-sticky flex items-center justify-between gap-3">
+              <span class="text-text-normal"><span id="voice-user-count">0</span> members</span>
+              <span class="text-2xs font-semibold tracking-wide text-text-muted" id="voice-session-timer" aria-live="polite" style="display: none;">--:--</span>
             </div>
-            <div class="voice-users-list" id="voice-users-list">
+            <div class="py-2" id="voice-users-list">
               <!-- Dynamic voice users will be inserted here -->
             </div>
           </div>
 
           <!-- User Profile Bar -->
-          <div class="user-profile">
-            <div class="user-avatar" id="user-avatar" aria-label="User avatar" role="img"></div>
-            <div class="user-info">
-              <div class="user-name" id="accName">User</div>
-              <div class="user-status" id="user-status-text">Online</div>
+          <div class="p-3 bg-bg-tertiary border-t border-black/40 flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-gradient-brand flex items-center justify-center text-white font-bold text-base flex-shrink-0" id="user-avatar" aria-label="User avatar" role="img"></div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-semibold text-text-normal truncate" id="accName">User</div>
+              <div class="text-xs text-text-muted truncate" id="user-status-text">Online</div>
             </div>
-            <div class="user-actions">
+            <div class="flex items-center gap-2 relative">
               <button
                 id="superuser-menu-btn"
-                class="superuser-btn"
+                class="w-8 h-8 rounded flex items-center justify-center text-lg transition-fast hover:bg-bg-floating hover:text-brand-primary"
                 aria-label="Superuser actions"
                 title="Superuser Actions"
                 aria-haspopup="true"
@@ -104,58 +104,58 @@
                 type="button"
                 style="display: none;"
               >⚡</button>
-              <div id="superuser-menu" class="superuser-menu" role="menu" aria-hidden="true">
-                <button id="superuser-manage-users" class="superuser-menu-item" role="menuitem" type="button">Manage Users</button>
-                <button id="superuser-manage-channels" class="superuser-menu-item" role="menuitem" type="button">Manage Channels</button>
+              <div id="superuser-menu" class="absolute bottom-full right-0 mb-2 bg-bg-tertiary border border-white/10 rounded-md p-2 min-w-[180px] shadow-lg z-dropdown" role="menu" aria-hidden="true" style="display: none;">
+                <button id="superuser-manage-users" class="w-full px-3 py-2 rounded cursor-pointer text-text-normal flex items-center gap-3 transition-fast hover:bg-modifier-selected text-left" role="menuitem" type="button">Manage Users</button>
+                <button id="superuser-manage-channels" class="w-full px-3 py-2 rounded cursor-pointer text-text-normal flex items-center gap-3 transition-fast hover:bg-modifier-selected text-left" role="menuitem" type="button">Manage Channels</button>
               </div>
-              <button id="user-settings-btn" aria-label="User settings" title="User Settings">⚙️</button>
+              <button id="user-settings-btn" class="w-8 h-8 rounded flex items-center justify-center text-lg transition-fast hover:bg-bg-floating hover:text-brand-primary" aria-label="User settings" title="User Settings">⚙️</button>
             </div>
           </div>
         </div>
       </aside>
 
       <!-- Main Content: Chat -->
-      <main class="main-content" role="main">
+      <main class="flex-1 flex flex-col bg-bg-chat overflow-hidden" role="main">
         <!-- Chat Header -->
-        <header class="chat-header">
-          <div class="chat-header-actions">
-            <button id="toggleSidebar" class="chat-header-btn" aria-label="Toggle sidebar" title="Toggle Sidebar">☰</button>
-            <button id="toggle-members" class="chat-header-btn" aria-label="Toggle member list" title="Toggle Member List">👥</button>
+        <header class="h-14 px-4 border-b border-black/30 bg-bg-secondary flex items-center gap-3 flex-shrink-0 shadow-sm">
+          <div class="flex gap-2">
+            <button id="toggleSidebar" class="w-8 h-8 rounded flex items-center justify-center text-lg transition-fast hover:bg-bg-floating hover:text-text-hover" aria-label="Toggle sidebar" title="Toggle Sidebar">☰</button>
+            <button id="toggle-members" class="w-8 h-8 rounded flex items-center justify-center text-lg transition-fast hover:bg-bg-floating hover:text-text-hover" aria-label="Toggle member list" title="Toggle Member List">👥</button>
           </div>
-          <span class="channel-icon">#</span>
-          <h1 class="channel-name" id="current-channel-name">general</h1>
-          <span class="divider"></span>
-          <div class="topic" id="channel-topic">Welcome to Twiscord</div>
-          <div class="header-toolbar">
-            <div id="connectionStatus" class="connection-status" aria-live="polite" aria-label="Connection status">
-              <span class="dot"></span>
-              <span class="text">Disconnected</span>
+          <span class="text-xl text-text-muted font-semibold">#</span>
+          <h1 class="text-base font-bold text-text-normal" id="current-channel-name">general</h1>
+          <span class="h-6 w-px bg-white/10 mx-2"></span>
+          <div class="text-sm text-text-muted truncate" id="channel-topic">Welcome to Twiscord</div>
+          <div class="ml-auto flex items-center gap-4">
+            <div id="connectionStatus" class="flex items-center gap-2 text-xs font-medium" aria-live="polite" aria-label="Connection status">
+              <span class="w-2 h-2 rounded-full bg-text-muted"></span>
+              <span>Disconnected</span>
             </div>
-            <button id="toggle-video-popout" aria-label="Toggle video" title="Toggle Video">📺</button>
+            <button id="toggle-video-popout" class="w-8 h-8 rounded flex items-center justify-center text-lg transition-fast hover:bg-bg-floating hover:text-text-hover" aria-label="Toggle video" title="Toggle Video">📺</button>
           </div>
         </header>
 
         <!-- Inline Video Container (for stream channels - Theater Mode) -->
-        <div id="inlineVideoContainer" class="inline-video-container" style="display: none;">
+        <div id="inlineVideoContainer" class="flex-shrink-0 bg-black relative" style="display: none;">
           <!-- Top Controls -->
-          <div class="inline-video-controls-top">
+          <div class="absolute top-0 left-0 right-0 p-4 flex items-center gap-4 bg-gradient-to-b from-black/70 to-transparent z-10">
             <button
               id="theaterModeToggle"
-              class="video-control-btn close-video-btn"
+              class="px-4 py-2 bg-bg-tertiary/90 backdrop-blur-sm rounded-md flex items-center gap-2 font-semibold transition-fast hover:bg-bg-floating hover:shadow-md"
               aria-label="Back to channels"
               title="Back to Channels"
             >
-              <span class="btn-icon">⬅️</span>
-              <span class="btn-text">Back</span>
+              <span>⬅️</span>
+              <span>Back</span>
             </button>
-            <div class="mobile-stream-title" id="mobileStreamTitle" aria-live="polite">Live Stream</div>
+            <div class="text-lg font-bold text-white" id="mobileStreamTitle" aria-live="polite">Live Stream</div>
           </div>
 
-          <div class="inline-video-player">
-            <video id="inlineVideo" class="inline-video" aria-label="Video player" autoplay muted></video>
-            <div id="inlinePlayerOverlay" class="inline-player-overlay">
-              <div class="spinner" aria-hidden="true"></div>
-              <div class="message">No stream</div>
+          <div class="relative w-full aspect-video bg-black">
+            <video id="inlineVideo" class="w-full h-full" aria-label="Video player" autoplay muted></video>
+            <div id="inlinePlayerOverlay" class="video-player-overlay">
+              <div class="w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
+              <div class="text-text-normal text-lg mt-4">No stream</div>
             </div>
           </div>
 
@@ -193,27 +193,28 @@
         </div>
 
         <!-- Chat Messages -->
-        <div id="msgs" class="chat-messages" role="log" aria-live="polite" aria-label="Chat messages">
+        <div id="msgs" class="flex-1 overflow-y-auto overflow-x-hidden p-4 custom-scrollbar" role="log" aria-live="polite" aria-label="Chat messages">
           <!-- Messages will be dynamically inserted here -->
         </div>
 
         <!-- Chat Input -->
-        <div id="chat-input-container" class="chat-input-container">
-          <form id="chatForm" class="chat-input-wrapper" aria-label="Send message">
-            <button type="button" id="emojiPickerBtn" class="emoji-picker-btn" aria-label="Add emoji" title="Add Emoji">😀</button>
+        <div id="chat-input-container" class="p-4 bg-bg-secondary flex-shrink-0 relative">
+          <form id="chatForm" class="flex items-center gap-3 bg-bg-elevated rounded-lg px-4 py-3" aria-label="Send message">
+            <button type="button" id="emojiPickerBtn" class="text-2xl flex-shrink-0 hover:scale-110 transition-fast" aria-label="Add emoji" title="Add Emoji">😀</button>
             <input
               type="text"
               id="chatInput"
+              class="flex-1 bg-transparent border-none text-text-normal text-base outline-none"
               placeholder="Message #general"
               aria-label="Message input"
               autocomplete="off"
             />
-            <button type="submit" aria-label="Send message" title="Send">📤</button>
+            <button type="submit" class="text-2xl flex-shrink-0 hover:scale-110 transition-fast" aria-label="Send message" title="Send">📤</button>
           </form>
           <!-- Emoji Picker Popup -->
           <div id="emojiPicker" class="emoji-picker" style="display: none;">
-            <div class="emoji-picker-header">Emojis</div>
-            <div class="emoji-picker-grid" id="emojiGrid">
+            <div class="px-4 py-3 font-bold text-text-normal border-b border-white/10">Emojis</div>
+            <div class="grid grid-cols-8 gap-2 p-3 max-h-64 overflow-y-auto custom-scrollbar" id="emojiGrid">
               <!-- Emojis will be populated here -->
             </div>
           </div>
@@ -221,60 +222,61 @@
       </main>
 
       <!-- Right Sidebar: Members List -->
-      <aside class="members-list hidden" role="complementary" aria-label="Members list">
-        <div class="members-header">
+      <aside class="w-60 bg-bg-secondary flex-shrink-0 overflow-hidden border-l border-black/30 hidden" role="complementary" aria-label="Members list">
+        <div class="px-4 py-3 text-2xs font-bold uppercase text-text-muted tracking-wider border-b border-black/30">
           Members — <span id="member-count">0</span>
         </div>
-        <div class="members-content" id="presenceList">
+        <div class="p-2 overflow-y-auto custom-scrollbar" id="presenceList">
           <!-- Dynamic members will be inserted here -->
         </div>
       </aside>
 
       <!-- Video Popout -->
-      <div id="video-popout" class="video-popout hidden" role="region" aria-label="Video player">
-        <div class="video-header" id="video-popout-header">
-          <span class="title">Stream</span>
-          <div class="controls">
-            <button id="popinVideo" aria-label="Theater mode" title="Theater Mode">📺</button>
-            <button id="minimize-video" aria-label="Minimize video" title="Minimize">—</button>
-            <button id="close-video" aria-label="Close video" title="Close">✕</button>
+      <div id="video-popout" class="fixed bottom-4 right-4 w-96 bg-bg-tertiary rounded-lg shadow-lg overflow-hidden z-modal hidden" role="region" aria-label="Video player">
+        <div class="px-4 py-3 bg-bg-secondary flex items-center justify-between cursor-move" id="video-popout-header">
+          <span class="font-bold text-text-normal">Stream</span>
+          <div class="flex gap-2">
+            <button id="popinVideo" class="w-8 h-8 rounded flex items-center justify-center transition-fast hover:bg-bg-floating" aria-label="Theater mode" title="Theater Mode">📺</button>
+            <button id="minimize-video" class="w-8 h-8 rounded flex items-center justify-center transition-fast hover:bg-bg-floating" aria-label="Minimize video" title="Minimize">—</button>
+            <button id="close-video" class="w-8 h-8 rounded flex items-center justify-center transition-fast hover:bg-danger hover:text-white" aria-label="Close video" title="Close">✕</button>
           </div>
         </div>
-        <div class="video-container">
-          <video id="video" aria-label="Video player" autoplay muted></video>
-          <div id="playerOverlay" class="video-overlay">
-            <div class="spinner" aria-hidden="true"></div>
-            <div class="message">No stream</div>
+        <div class="relative aspect-video bg-black">
+          <video id="video" class="w-full h-full" aria-label="Video player" autoplay muted></video>
+          <div id="playerOverlay" class="video-player-overlay">
+            <div class="w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
+            <div class="text-text-normal text-lg mt-4">No stream</div>
           </div>
         </div>
       </div>
 
       <!-- Create Channel Modal -->
-      <div id="createChannelModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="create-channel-title" style="display: none;">
-        <div class="modal-card">
-          <div class="modal-header">
-            <h3 id="create-channel-title">Create Channel</h3>
-            <button id="createChannelCancel" aria-label="Close">✕</button>
+      <div id="createChannelModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-modal backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="create-channel-title" style="display: none;">
+        <div class="bg-bg-tertiary rounded-xl shadow-lg w-full max-w-md mx-4 overflow-hidden">
+          <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+            <h3 id="create-channel-title" class="text-xl font-bold text-text-normal">Create Channel</h3>
+            <button id="createChannelCancel" class="w-8 h-8 rounded flex items-center justify-center transition-fast hover:bg-bg-floating hover:text-danger" aria-label="Close">✕</button>
           </div>
-          <div class="modal-body">
-            <div class="form-group">
-              <label for="newChannelName">Channel Name</label>
+          <div class="px-6 py-4">
+            <div class="mb-4">
+              <label for="newChannelName" class="block text-sm font-semibold text-text-normal mb-2">Channel Name</label>
               <input
                 type="text"
                 id="newChannelName"
+                class="w-full px-4 py-3 bg-bg-elevated border border-transparent text-text-normal rounded-md transition-fast focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
                 placeholder="e.g., general, lobby, main-stream"
                 aria-label="Channel name"
                 maxlength="32"
               />
-              <span class="form-hint">Letters, numbers, hyphens only</span>
+              <span class="block mt-2 text-xs text-text-muted">Letters, numbers, hyphens only</span>
             </div>
 
             <input type="hidden" id="newChannelType" value="text" />
 
-            <div id="createChannelError" class="form-error"></div>
+            <div id="createChannelError" class="text-danger text-sm mt-2"></div>
           </div>
-          <div class="modal-footer">
-            <button id="createChannelBtn" class="button-primary">Create Channel</button>
+          <div class="px-6 py-4 border-t border-white/10 flex justify-end">
+            <button id="createChannelBtn" class="px-6 py-3 bg-brand-primary text-white rounded-md font-semibold transition-fast hover:bg-brand-hover active:bg-brand-active">Create Channel</button>
           </div>
         </div>
       </div>
@@ -346,7 +348,7 @@
       </div>
 
       <!-- User Settings Modal (Profile) -->
-      <div id="regModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+      <div id="regModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" style="display: none;">
         <div class="modal-card">
           <div class="modal-header">
             <h3 id="settings-modal-title">User Settings</h3>
@@ -501,7 +503,7 @@
       </div>
 
       <!-- Audio Settings Modal -->
-      <div id="audioSettingsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title">
+      <div id="audioSettingsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title" style="display: none;">
         <div class="modal-card">
           <div class="modal-header">
             <h3 id="audio-settings-title">⚙️ Audio & Voice Settings</h3>

@@ -1,7 +1,12 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
+  css: {
+    transformer: 'lightningcss',
+  },
+  plugins: [tailwindcss()],
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
@@ -15,6 +20,7 @@ export default defineConfig({
     target: 'es2020',
     minify: 'esbuild',
     sourcemap: true,
+    cssMinify: 'lightningcss',
     rollupOptions: {
       output: {
         manualChunks: {

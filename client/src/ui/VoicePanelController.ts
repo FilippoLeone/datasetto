@@ -137,47 +137,47 @@ export class VoicePanelController {
 
   private createVoiceUserElement(entry: VoicePanelEntry): HTMLElement {
     const item = document.createElement('div');
-    item.className = 'voice-user-item';
+    item.className = 'flex items-center gap-3 px-4 py-2 transition-fast cursor-pointer relative hover:bg-modifier-hover hover:pl-[calc(1rem+2px)]';
     if (entry.speaking) {
-      item.classList.add('speaking');
+      item.classList.add('speaking-indicator');
     }
     item.setAttribute('data-user-id', entry.id);
 
     const avatarContainer = document.createElement('div');
-    avatarContainer.className = 'voice-user-avatar-container';
+    avatarContainer.className = 'relative flex-shrink-0';
     if (entry.speaking) {
-      avatarContainer.classList.add('speaking');
+      avatarContainer.classList.add('speaking-indicator');
     }
 
     const avatar = document.createElement('div');
-    avatar.className = 'voice-user-avatar';
+    avatar.className = 'w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm';
     avatar.textContent = entry.name.charAt(0).toUpperCase();
     avatar.style.background = getAvatarColor(entry.name);
 
     const statusIndicator = document.createElement('div');
-    statusIndicator.className = 'voice-user-status-indicator online';
+    statusIndicator.className = 'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-bg-sidebar bg-success';
 
     avatarContainer.appendChild(avatar);
     avatarContainer.appendChild(statusIndicator);
 
     const userInfo = document.createElement('div');
-    userInfo.className = 'voice-user-info';
+    userInfo.className = 'flex-1 min-w-0';
 
     const userName = document.createElement('div');
-    userName.className = 'voice-user-name';
+    userName.className = 'text-sm font-medium text-text-normal truncate';
     userName.textContent = entry.isCurrentUser ? `${entry.name} (You)` : entry.name;
 
     userInfo.appendChild(userName);
 
     const rightSide = document.createElement('div');
-    rightSide.className = 'voice-user-right';
+    rightSide.className = 'flex items-center gap-1 flex-shrink-0';
 
     const iconsContainer = document.createElement('div');
-    iconsContainer.className = 'voice-user-icons';
+    iconsContainer.className = 'flex items-center gap-1';
 
     if (entry.muted) {
       const mutedIcon = document.createElement('span');
-      mutedIcon.className = 'voice-user-icon muted';
+      mutedIcon.className = 'text-xs opacity-70';
       mutedIcon.textContent = '🎤🚫';
       mutedIcon.title = 'Muted';
       iconsContainer.appendChild(mutedIcon);
@@ -185,7 +185,7 @@ export class VoicePanelController {
 
     if (entry.deafened) {
       const deafenedIcon = document.createElement('span');
-      deafenedIcon.className = 'voice-user-icon deafened';
+      deafenedIcon.className = 'text-xs opacity-70';
       deafenedIcon.textContent = '🔇';
       deafenedIcon.title = 'Deafened';
       iconsContainer.appendChild(deafenedIcon);
