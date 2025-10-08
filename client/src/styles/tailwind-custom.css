@@ -420,11 +420,24 @@
     color: var(--color-text-muted);
   }
 
-  /* Voice user controls */
-  .voice-user-controls {
-    @apply flex items-center gap-2 mt-2 px-2;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+  /* Voice user layout */
+  .voice-user-item {
+    @apply flex flex-col gap-2;
+  }
+
+  .voice-user-header {
+    @apply flex items-center gap-3;
+  }
+
+  .voice-user-volume-row {
+    @apply flex items-center gap-3 pr-3 pb-1 text-xs;
+    padding-left: calc(2rem + 0.75rem);
+    color: var(--color-text-muted);
+  }
+
+  .voice-user-volume-icon {
+    font-size: 0.95rem;
+    line-height: 1;
   }
 
   .voice-user-control-btn {
@@ -443,9 +456,17 @@
 
   .voice-user-volume-wrapper {
     @apply flex items-center gap-2;
-    flex: 1 1 160px;
-    min-width: 150px;
-    max-width: 220px;
+    flex: 1 1 clamp(140px, 40vw, 220px);
+    min-width: 0;
+    max-width: 100%;
+    width: min(100%, 220px);
+  }
+
+  @media (max-width: 480px) {
+    .voice-user-volume-wrapper {
+      flex-basis: 100%;
+      width: 100%;
+    }
   }
 
   .voice-user-volume-slider {
@@ -1403,22 +1424,76 @@
     display: none;
   }
 
-  body.stream-fullscreen-active {
+  body.stream-fullscreen-active,
+  body.native-fullscreen-active {
     overflow: hidden;
+    background: #000;
   }
 
   body.stream-fullscreen-active .sidebar,
-  body.stream-fullscreen-active .members-panel {
-    display: none;
+  body.stream-fullscreen-active .members-panel,
+  body.stream-fullscreen-active .stream-chat-dock,
+  body.stream-fullscreen-active #msgs,
+  body.stream-fullscreen-active #chat-input-container,
+  body.stream-fullscreen-active .mobile-toolbar,
+  body.native-fullscreen-active .sidebar,
+  body.native-fullscreen-active .members-panel,
+  body.native-fullscreen-active .stream-chat-dock,
+  body.native-fullscreen-active #msgs,
+  body.native-fullscreen-active #chat-input-container,
+  body.native-fullscreen-active .mobile-toolbar {
+    display: none !important;
   }
 
-  body.stream-fullscreen-active .app-shell {
-    background: #050507;
+  body.stream-fullscreen-active .app-shell,
+  body.native-fullscreen-active .app-shell {
+    background: #000;
   }
 
-  body.stream-fullscreen-active .chat-content {
+  body.stream-fullscreen-active .chat-content,
+  body.native-fullscreen-active .chat-content {
     width: 100%;
     max-width: 100%;
+    padding: 0;
+  }
+
+  body.stream-fullscreen-active #inlineVideoContainer,
+  body.native-fullscreen-active #inlineVideoContainer {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    background: #000;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  body.stream-fullscreen-active #inlineVideoContainer > :not(.inline-video-stage),
+  body.native-fullscreen-active #inlineVideoContainer > :not(.inline-video-stage) {
+    display: none !important;
+  }
+
+  body.stream-fullscreen-active #inlineVideoContainer .inline-video-stage,
+  body.native-fullscreen-active #inlineVideoContainer .inline-video-stage {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+
+  body.stream-fullscreen-active #inlineVideoContainer .inline-video-stage > video,
+  body.stream-fullscreen-active #inlineVideoContainer .inline-video-stage > canvas,
+  body.native-fullscreen-active #inlineVideoContainer .inline-video-stage > video,
+  body.native-fullscreen-active #inlineVideoContainer .inline-video-stage > canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
 
   .video-controls-bar {
@@ -1805,6 +1880,7 @@
 
     .app-shell.sidebar-open .sidebar {
       transform: translateX(0);
+      padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
     }
 
     .sidebar .sidebar-scroller {
@@ -1843,6 +1919,13 @@
     .mobile-toolbar {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .app-shell.sidebar-open .mobile-toolbar,
+    .app-shell.members-open .mobile-toolbar {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(100%);
     }
 
     .main-content {

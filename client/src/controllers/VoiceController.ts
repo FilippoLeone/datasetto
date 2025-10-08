@@ -390,6 +390,12 @@ export class VoiceController {
     );
 
     this.disposers.push(
+      this.deps.audio.on('stream:active', (stream) => {
+        this.handleAudioStreamActive(stream as MediaStream);
+      })
+    );
+
+    this.disposers.push(
       this.deps.state.on('state:change', () => {
         this.updateMuteButtons();
         this.updateVoiceStatusPanel();
@@ -404,10 +410,8 @@ export class VoiceController {
 
     if (shouldDisable) {
       this.deps.audio.setMuted(true);
-      if (this.deps.audio.hasActiveStream()) {
+      if (!isVoiceSessionActive && this.deps.audio.hasActiveStream()) {
         this.deps.audio.stopLocalStream();
-      }
-      if (isVoiceSessionActive) {
         this.deps.voice.setLocalStream(null);
       }
       this.setLocalSpeaking(false);
@@ -431,6 +435,22 @@ export class VoiceController {
       this.announceVoiceState();
       this.deps.notifications.error('Failed to enable microphone. Please check permissions.');
     }
+  }
+
+  private handleAudioStreamActive(stream: MediaStream): void {
+    if (!(stream instanceof MediaStream)) {
+      return;
+    }
+
+    const voiceActive = this.deps.state.get('voiceConnected') || Boolean(this.pendingVoiceJoin);
+    if (!voiceActive) {
+      return;
+    }
+
+    this.deps.voice.setLocalStream(stream);
+
+    const { muted } = this.deps.state.getState();
+    this.deps.audio.setMuted(muted);
   }
 
   private announceVoiceState(): void {

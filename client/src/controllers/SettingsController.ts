@@ -97,7 +97,12 @@ export class SettingsController {
     // Stop mic test if running
     const testBtn = this.deps.elements.testMicBtn as HTMLButtonElement;
     if (testBtn && testBtn.getAttribute('data-testing') === 'true') {
-      this.deps.audio.stopLocalStream();
+      if (!this.deps.state.get('voiceConnected')) {
+        this.deps.audio.stopLocalStream();
+      } else {
+        const { muted } = this.deps.state.getState();
+        this.deps.audio.setMuted(muted);
+      }
       testBtn.textContent = 'Test Microphone';
       testBtn.setAttribute('data-testing', 'false');
       testBtn.classList.remove('button-danger');
@@ -131,10 +136,42 @@ export class SettingsController {
   async handleMicChange(): Promise<void> {
     const select = this.deps.elements.micSelect as HTMLSelectElement;
     const deviceId = select?.value;
-    
-    if (deviceId) {
-      this.deps.state.updateSettings({ micDeviceId: deviceId });
+    if (!deviceId) {
+      return;
+    }
+
+    const previousMic = this.deps.state.get('settings').micDeviceId;
+    if (previousMic === deviceId) {
+      return;
+    }
+
+    this.deps.state.updateSettings({ micDeviceId: deviceId });
+
+    try {
       await this.deps.audio.updateSettings({ micDeviceId: deviceId });
+      this.deps.notifications.success('Microphone changed');
+    } catch (error) {
+      console.error('Error switching microphone:', error);
+      this.deps.notifications.error('Failed to switch microphone');
+      return;
+    }
+
+    const testBtn = this.deps.elements.testMicBtn as HTMLButtonElement | null;
+    const isTesting = testBtn?.getAttribute('data-testing') === 'true';
+    const voiceConnected = this.deps.state.get('voiceConnected');
+
+    if (isTesting) {
+      try {
+        if (voiceConnected) {
+          await this.deps.audio.getLocalStream(false);
+        } else {
+          await this.deps.audio.getLocalStream(true);
+        }
+        this.deps.notifications.info('Test restarted with new device');
+      } catch (error) {
+        console.error('Error restarting microphone test:', error);
+        this.deps.notifications.error('Could not restart microphone test');
+      }
     }
   }
 
@@ -146,10 +183,16 @@ export class SettingsController {
     if (!btn) return;
 
     const isTesting = btn.getAttribute('data-testing') === 'true';
+    const voiceConnected = this.deps.state.get('voiceConnected');
 
     if (isTesting) {
       // Stop testing
-      this.deps.audio.stopLocalStream();
+      if (!voiceConnected) {
+        this.deps.audio.stopLocalStream();
+      } else {
+        const { muted } = this.deps.state.getState();
+        this.deps.audio.setMuted(muted);
+      }
       btn.textContent = 'Test Microphone';
       btn.setAttribute('data-testing', 'false');
       btn.classList.remove('button-danger');
@@ -159,7 +202,7 @@ export class SettingsController {
     } else {
       // Start testing
       try {
-        await this.deps.audio.getLocalStream();
+        await this.deps.audio.getLocalStream(false);
         btn.textContent = 'Stop Test';
         btn.setAttribute('data-testing', 'true');
         btn.classList.remove('button-secondary');
@@ -334,23 +377,8 @@ export class SettingsController {
     const spkSelect = this.deps.elements.spkSelect as HTMLSelectElement;
 
     if (micSelect) {
-      micSelect.addEventListener('change', async () => {
-        const deviceId = micSelect.value;
-        this.deps.state.updateSettings({ micDeviceId: deviceId });
-        this.deps.notifications.success('Microphone changed');
-        
-        // If currently testing, restart with new device
-        const testBtn = this.deps.elements.testMicBtn as HTMLButtonElement;
-        if (testBtn && testBtn.getAttribute('data-testing') === 'true') {
-          this.deps.audio.stopLocalStream();
-          try {
-            await this.deps.audio.getLocalStream(true); // Force new stream
-            this.deps.notifications.info('Test restarted with new device');
-          } catch (error) {
-            console.error('Error switching microphone:', error);
-            this.deps.notifications.error('Failed to switch microphone');
-          }
-        }
+      micSelect.addEventListener('change', () => {
+        void this.handleMicChange();
       });
     }
 

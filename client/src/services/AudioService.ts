@@ -126,12 +126,15 @@ export class AudioService extends EventEmitter {
       // Start meter visualization
       this.startMeterVisualization();
 
-    return this.localStream;
-      } catch (error) {
-        console.error('Error getting local stream:', error);
-        throw new Error('Failed to access microphone. Please check permissions.');
-      }
+      // Notify listeners that a new processed stream is ready
+      this.emit('stream:active', this.localStream);
+
+      return this.localStream;
+    } catch (error) {
+      console.error('Error getting local stream:', error);
+      throw new Error('Failed to access microphone. Please check permissions.');
     }
+  }
 
   hasActiveStream(): boolean {
     return Boolean(this.localStream || this.rawStream);

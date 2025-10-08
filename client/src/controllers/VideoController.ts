@@ -10,6 +10,8 @@ export class VideoController {
   private dragOffset = { x: 0, y: 0 };
   private isMinimized = false;
   private mobileStreamMode = false;
+  private nativeFullscreenActive = false;
+  private orientationLocked = false;
 
   constructor(deps: VideoControllerDeps) {
     this.deps = deps;
@@ -20,6 +22,13 @@ export class VideoController {
     this.setupVideoPopoutDrag();
     this.updateVolumeDisplay();
     this.syncFullscreenButton(false);
+
+    document.addEventListener('fullscreenchange', this.handleNativeFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', this.handleNativeFullscreenChange as EventListener);
+    this.deps.registerCleanup(() => {
+      document.removeEventListener('fullscreenchange', this.handleNativeFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', this.handleNativeFullscreenChange as EventListener);
+    });
   }
 
   handlePlaybackShortcut(event: KeyboardEvent): boolean {
@@ -36,15 +45,11 @@ export class VideoController {
         return true;
       case 'KeyF':
         event.preventDefault();
-        this.toggleFullscreen();
+        void this.toggleFullscreen();
         return true;
       case 'KeyM':
         event.preventDefault();
         this.toggleMuteVideo();
-        return true;
-      case 'KeyC':
-        event.preventDefault();
-        this.toggleChatVisibility();
         return true;
       case 'ArrowUp':
         event.preventDefault();
@@ -491,41 +496,40 @@ export class VideoController {
     }
   }
 
-  toggleFullscreen(): void {
+  async toggleFullscreen(): Promise<void> {
     const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
     if (!container) {
       return;
     }
 
-    const willEnable = !container.classList.contains('fullscreen');
+    const isCurrentlyNative = this.getFullscreenElement() === container;
 
-    container.classList.toggle('fullscreen', willEnable);
-    document.body.classList.toggle('stream-fullscreen-active', willEnable);
-
-    if (willEnable) {
-      this.ensureDockedChatVisible();
-    } else {
-      this.syncChatDockState(false);
-    }
-
-    this.syncFullscreenButton(willEnable);
-  }
-
-  toggleChatVisibility(): void {
-    const chatDock = this.deps.elements.streamChatDock;
-    const chatMessages = this.deps.elements.msgs;
-
-    if (!chatDock && !chatMessages) {
+    if (isCurrentlyNative || this.nativeFullscreenActive) {
+      try {
+        await this.exitNativeFullscreen();
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[VideoController] Failed to exit native fullscreen:', error);
+        }
+  this.toggleLegacyFullscreen(false);
+      }
       return;
     }
 
-    const isHidden = chatDock?.classList.contains('stream-chat-hidden')
-      ?? chatMessages?.classList.contains('hidden-in-fullscreen')
-      ?? false;
-    const willHide = !isHidden;
+    if (!this.supportsNativeFullscreen(container)) {
+  this.toggleLegacyFullscreen(true);
+      return;
+    }
 
-    this.syncChatDockState(willHide);
-    this.deps.notifications.info(willHide ? 'Chat hidden' : 'Chat shown');
+    try {
+      await this.requestNativeFullscreen(container);
+      await this.lockLandscapeOrientationIfNeeded();
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[VideoController] Native fullscreen failed, falling back:', error);
+      }
+  this.toggleLegacyFullscreen(!container.classList.contains('fullscreen'));
+    }
   }
 
   adjustVolume(delta: number): void {
@@ -649,8 +653,7 @@ export class VideoController {
     addListener(elements.playPauseBtn, 'click', () => this.togglePlayPause());
     addListener(elements.volumeBtn, 'click', () => this.toggleMuteVideo());
   addListener(elements.volumeSlider, 'input', (event: Event) => this.handleVolumeChange(event));
-    addListener(elements.fullscreenBtn, 'click', () => this.toggleFullscreen());
-    addListener(elements.toggleChatBtn, 'click', () => this.toggleChatVisibility());
+  addListener(elements.fullscreenBtn, 'click', () => this.toggleFullscreen());
 
     const inlineVideo = elements.inlineVideo as HTMLVideoElement | undefined;
     if (inlineVideo) {
@@ -749,10 +752,6 @@ export class VideoController {
     return window.matchMedia('(max-width: 768px)').matches;
   }
 
-  private ensureDockedChatVisible(): void {
-    this.syncChatDockState(false);
-  }
-
   private syncChatDockState(isHidden: boolean): void {
     const chatDock = this.deps.elements.streamChatDock;
     const streamLayout = this.deps.elements.streamLayout;
@@ -778,6 +777,158 @@ export class VideoController {
     }
   }
 
+  private toggleLegacyFullscreen(enable: boolean): void {
+    this.nativeFullscreenActive = false;
+    this.updateFullscreenClasses(enable, false);
+    if (!enable) {
+      this.unlockOrientation();
+    }
+  }
+
+  private handleNativeFullscreenChange = (): void => {
+    const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
+    if (!container) {
+      return;
+    }
+
+    const fullscreenElement = this.getFullscreenElement();
+    const isActive = fullscreenElement === container;
+
+    this.nativeFullscreenActive = isActive;
+    this.updateFullscreenClasses(isActive, true);
+
+    if (!isActive) {
+      this.unlockOrientation();
+    }
+  };
+
+  private updateFullscreenClasses(isActive: boolean, isNative: boolean): void {
+    const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
+    if (!container) {
+      return;
+    }
+
+    container.classList.toggle('fullscreen', isActive);
+    document.body.classList.toggle('stream-fullscreen-active', isActive);
+    document.body.classList.toggle('native-fullscreen-active', isActive && isNative);
+
+    this.syncChatDockState(isActive);
+    this.syncFullscreenButton(isActive);
+
+    if (!isActive) {
+      document.body.classList.remove('native-fullscreen-active');
+    }
+  }
+
+  private getFullscreenElement(): Element | null {
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      mozFullScreenElement?: Element | null;
+      msFullscreenElement?: Element | null;
+    };
+
+    return doc.fullscreenElement
+      ?? doc.webkitFullscreenElement
+      ?? doc.mozFullScreenElement
+      ?? doc.msFullscreenElement
+      ?? null;
+  }
+
+  private supportsNativeFullscreen(element: HTMLElement): boolean {
+    const anyElement = element as HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void> | void;
+      mozRequestFullScreen?: () => Promise<void> | void;
+      msRequestFullscreen?: () => Promise<void> | void;
+    };
+
+    return typeof element.requestFullscreen === 'function'
+      || typeof anyElement.webkitRequestFullscreen === 'function'
+      || typeof anyElement.mozRequestFullScreen === 'function'
+      || typeof anyElement.msRequestFullscreen === 'function';
+  }
+
+  private async requestNativeFullscreen(element: HTMLElement): Promise<void> {
+    const anyElement = element as HTMLElement & {
+      webkitRequestFullscreen?: (options?: FullscreenOptions) => Promise<void> | void;
+      mozRequestFullScreen?: () => Promise<void> | void;
+      msRequestFullscreen?: () => Promise<void> | void;
+    };
+
+    const request = element.requestFullscreen?.bind(element)
+      ?? anyElement.webkitRequestFullscreen?.bind(anyElement)
+      ?? anyElement.mozRequestFullScreen?.bind(anyElement)
+      ?? anyElement.msRequestFullscreen?.bind(anyElement);
+
+    if (!request) {
+      throw new Error('Fullscreen API is not supported');
+    }
+
+    const result = request.length > 0 ? request({ navigationUI: 'hide' }) : request();
+    await Promise.resolve(result);
+  }
+
+  private async exitNativeFullscreen(): Promise<void> {
+    const doc = document as Document & {
+      webkitExitFullscreen?: () => Promise<void> | void;
+      mozCancelFullScreen?: () => Promise<void> | void;
+      msExitFullscreen?: () => Promise<void> | void;
+    };
+
+    const exit = doc.exitFullscreen?.bind(doc)
+      ?? doc.webkitExitFullscreen?.bind(doc)
+      ?? doc.mozCancelFullScreen?.bind(doc)
+      ?? doc.msExitFullscreen?.bind(doc);
+
+    if (!exit) {
+      throw new Error('Fullscreen exit is not supported');
+    }
+
+    const result = exit();
+    await Promise.resolve(result);
+  }
+
+  private async lockLandscapeOrientationIfNeeded(): Promise<void> {
+    if (this.orientationLocked || !this.isMobileLayout()) {
+      return;
+    }
+
+    const orientation = screen.orientation as ScreenOrientation | undefined;
+    const lockOrientation = orientation && (orientation as unknown as { lock?: (type: string) => Promise<void> }).lock;
+
+    if (!orientation || typeof lockOrientation !== 'function') {
+      return;
+    }
+
+    try {
+      await lockOrientation.call(orientation, 'landscape');
+      this.orientationLocked = true;
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[VideoController] Unable to lock orientation:', error);
+      }
+    }
+  }
+
+  private unlockOrientation(): void {
+    if (!this.orientationLocked) {
+      return;
+    }
+
+    const orientation = screen.orientation as ScreenOrientation | undefined;
+    const unlockOrientation = orientation && (orientation as unknown as { unlock?: () => void }).unlock;
+    if (orientation && typeof unlockOrientation === 'function') {
+      try {
+        unlockOrientation.call(orientation);
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[VideoController] Unable to unlock orientation:', error);
+        }
+      }
+    }
+
+    this.orientationLocked = false;
+  }
+
   private syncFullscreenButton(isFullscreen: boolean): void {
     const btn = this.deps.elements.fullscreenBtn;
     if (!btn) {
@@ -786,10 +937,10 @@ export class VideoController {
 
     const icon = btn.querySelector('.icon');
     if (icon) {
-      icon.textContent = isFullscreen ? '🗗' : '🗖';
+      icon.textContent = isFullscreen ? '🗗' : '⛶';
     }
 
-    const label = isFullscreen ? 'Exit docked fullscreen' : 'Enter docked fullscreen';
+    const label = isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen';
     btn.setAttribute('aria-label', label);
     btn.setAttribute('title', label);
   }

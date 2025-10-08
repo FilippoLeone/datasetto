@@ -137,11 +137,14 @@ export class VoicePanelController {
 
   private createVoiceUserElement(entry: VoicePanelEntry): HTMLElement {
     const item = document.createElement('div');
-    item.className = 'flex items-center gap-3 px-4 py-2 transition-fast cursor-pointer relative hover:bg-modifier-hover hover:pl-[calc(1rem+2px)]';
+    item.className = 'voice-user-item flex flex-col gap-2 px-4 py-2 transition-fast cursor-pointer relative hover:bg-modifier-hover hover:pl-[calc(1rem+2px)]';
     if (entry.speaking) {
       item.classList.add('speaking-indicator');
     }
     item.setAttribute('data-user-id', entry.id);
+
+    const header = document.createElement('div');
+    header.className = 'voice-user-header flex items-center gap-3';
 
     const avatarContainer = document.createElement('div');
     avatarContainer.className = 'relative flex-shrink-0';
@@ -191,28 +194,39 @@ export class VoicePanelController {
       iconsContainer.appendChild(deafenedIcon);
     }
 
-    item.appendChild(avatarContainer);
-    item.appendChild(userInfo);
+    header.appendChild(avatarContainer);
+    header.appendChild(userInfo);
 
     if (iconsContainer.childElementCount > 0) {
       rightSide.appendChild(iconsContainer);
     }
 
+    let controlElements: ReturnType<typeof this.createLocalControls> | null = null;
+
     if (entry.showLocalControls && !entry.isCurrentUser) {
-      const controls = this.createLocalControls(entry);
-      if (controls) {
-        rightSide.appendChild(controls);
+      controlElements = this.createLocalControls(entry);
+      if (controlElements?.muteButton) {
+        rightSide.appendChild(controlElements.muteButton);
       }
     }
 
     if (rightSide.childElementCount > 0) {
-      item.appendChild(rightSide);
+      header.appendChild(rightSide);
+    }
+
+    item.appendChild(header);
+
+    if (controlElements?.volumeRow) {
+      item.appendChild(controlElements.volumeRow);
     }
 
     return item;
   }
 
-  private createLocalControls(entry: VoicePanelEntry): HTMLElement | null {
+  private createLocalControls(entry: VoicePanelEntry): {
+    muteButton?: HTMLElement;
+    volumeRow?: HTMLElement;
+  } | null {
     const hasMuteControl = typeof entry.onLocalMuteToggle === 'function';
     const hasVolumeControl = typeof entry.onLocalVolumeChange === 'function';
 
@@ -220,8 +234,7 @@ export class VoicePanelController {
       return null;
     }
 
-    const controls = document.createElement('div');
-    controls.className = 'voice-user-controls';
+    const controls: { muteButton?: HTMLElement; volumeRow?: HTMLElement } = {};
 
     if (hasMuteControl) {
       const muteButton = document.createElement('button');
@@ -268,7 +281,7 @@ export class VoicePanelController {
         }
       });
 
-      controls.appendChild(muteButton);
+      controls.muteButton = muteButton;
     }
 
     if (hasVolumeControl) {
@@ -286,9 +299,28 @@ export class VoicePanelController {
       slider.setAttribute('aria-label', `Adjust ${entry.name}'s volume`);
       slider.title = `Volume: ${initialVolume}%`;
 
+      const volumeRow = document.createElement('div');
+      volumeRow.className = 'voice-user-volume-row flex items-center gap-3 pl-11 pr-3 pb-1 text-xs text-text-muted';
+
+      const volumeIcon = document.createElement('span');
+      volumeIcon.className = 'voice-user-volume-icon text-base leading-none';
+
+      const updateVolumeIcon = (value: number) => {
+        if (value <= 0) {
+          volumeIcon.textContent = '🔇';
+        } else if (value < 50) {
+          volumeIcon.textContent = '🔉';
+        } else {
+          volumeIcon.textContent = '🔊';
+        }
+      };
+
+      updateVolumeIcon(initialVolume);
+
       const updateVolume = (value: number) => {
         const normalized = clampVolume(value);
         slider.title = `Volume: ${value}%`;
+        updateVolumeIcon(value);
         entry.onLocalVolumeChange?.(normalized);
       };
 
@@ -305,10 +337,12 @@ export class VoicePanelController {
       });
 
       sliderWrapper.appendChild(slider);
-      controls.appendChild(sliderWrapper);
+      volumeRow.appendChild(volumeIcon);
+      volumeRow.appendChild(sliderWrapper);
+      controls.volumeRow = volumeRow;
     }
 
-    return controls.childElementCount > 0 ? controls : null;
+    return controls;
   }
 }
 
