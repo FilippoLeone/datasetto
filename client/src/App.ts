@@ -19,6 +19,7 @@ import type {
   Channel,
   RolePermissions,
   ChannelGroup,
+  ChatMessage,
 } from '@/types';
 import { validateEnv, resolveRuntimeConfig } from '@/utils';
 
@@ -300,8 +301,9 @@ export class App {
    */
   private cacheElements(): void {
     const ids = [
-      'channel', 'join', 'video', 'micSelect', 'spkSelect',
-  'mute', 'deafen', 'msgs', 'chatForm', 'chat-input-container', 'chatInput', 'accName',
+    'channel', 'join', 'video', 'micSelect', 'spkSelect',
+  'mute', 'mute-output-combo', 'deafen', 'msgs', 'chatForm', 'chat-input-container', 'chatInput', 'accName',
+    'streamLayout', 'streamChatDock', 'streamChatStatus',
       'regModal', 'regUsername', 'regPassword', 'regConfirm',
   'passwordStrength', 'passwordStrengthFill', 'passwordStrengthLabel',
       'registerBtn', 'regCancel', 'regError', 'echoCancel', 'noiseSuppression',
@@ -433,6 +435,7 @@ export class App {
 
     // Voice controls
   this.addTrackedListener(this.elements.mute, 'click', () => { void this.voiceController?.toggleMute(); });
+  this.addTrackedListener(this.elements['mute-output-combo'], 'click', () => { void this.voiceController?.toggleMuteAndDeafen(); });
   this.addTrackedListener(this.elements.deafen, 'click', () => { void this.voiceController?.toggleDeafen(); });
 
     // Gear icon -> Audio Settings
@@ -530,7 +533,10 @@ export class App {
       this.voiceController?.handleChannelsUpdate(Array.isArray(channels) ? channels : channels.channels);
       this.adminController?.handleChannelsUpdate(Array.isArray(channels) ? channels : channels.channels);
     });
-    this.socket.on('chat:message', (message) => this.chatController?.handleChatMessage(message));
+    this.socket.on('chat:message', (message) => {
+      this.chatController?.handleChatMessage(message, { muteSound: true });
+      this.handleIncomingChatMessage(message);
+    });
     this.socket.on('chat:history', (messages) => this.chatController?.handleChatHistory(messages));
     this.socket.on('connection:status', ({ connected, reconnecting }) => {
       this.voiceController?.handleConnectionStatusChange({ connected, reconnecting });
@@ -571,6 +577,56 @@ export class App {
     this.audio.on('mic:level', (level: unknown) => {
       this.voiceController?.handleMicLevel(level as number);
     });
+  }
+
+  private handleIncomingChatMessage(message: ChatMessage): void {
+    const socketId = this.socket.getId();
+    if (socketId && message.fromId === socketId) {
+      return;
+    }
+
+    const currentChannel = this.state.get('currentChannel');
+    const currentChannelType = this.state.get('currentChannelType');
+    const isCurrentChannel = message.channelId === currentChannel;
+    const pageHidden = typeof document !== 'undefined' && document.hidden;
+    const chatVisible = currentChannelType !== 'voice';
+
+    if (!isCurrentChannel) {
+      this.channelController?.markChannelUnread(message.channelId);
+    }
+
+    const channelName = this.resolveChannelName(message.channelId);
+    const preview = this.buildMessagePreview(message.text);
+
+    if (!isCurrentChannel || pageHidden || !chatVisible) {
+      const toastMessage = channelName
+        ? `#${channelName} • ${message.from}: ${preview}`
+        : `${message.from}: ${preview}`;
+      this.soundFX.play('notification', 0.5);
+      this.notifications.info(toastMessage, 6000);
+      return;
+    }
+
+    this.soundFX.play('message', 0.5);
+  }
+
+  private resolveChannelName(channelId: string): string | null {
+    const channels = this.state.get('channels');
+    if (!Array.isArray(channels)) {
+      return null;
+    }
+
+    const channel = channels.find((ch) => ch.id === channelId);
+    return channel?.name ?? null;
+  }
+
+  private buildMessagePreview(text: string): string {
+    const condensed = text.replace(/\s+/g, ' ').trim();
+    if (!condensed) {
+      return '(no content)';
+    }
+
+    return condensed.length > 80 ? `${condensed.slice(0, 77)}…` : condensed;
   }
 
   /**

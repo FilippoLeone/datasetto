@@ -95,12 +95,16 @@ export interface ChannelGroup {
 }
 
 export interface ChatMessage {
+  id: string;
+  channelId: string;
   from: string;
   fromId?: string;
   text: string;
   ts: number;
   roles?: RoleName[];
   isSuperuser?: boolean;
+  edited?: boolean;
+  deleted?: boolean;
 }
 
 export interface AudioSettings {

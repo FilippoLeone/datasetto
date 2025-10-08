@@ -379,13 +379,14 @@ export class VideoController {
     if (container) {
       if (container.classList.contains('fullscreen')) {
         container.classList.remove('fullscreen');
-        document.body.classList.remove('stream-fullscreen-active', 'stream-chat-hidden');
+        document.body.classList.remove('stream-fullscreen-active');
         this.syncFullscreenButton(false);
       }
       container.classList.add('hidden');
     }
 
-    document.body.classList.remove('stream-inline-active', 'stream-chat-hidden');
+    this.syncChatDockState(false);
+    document.body.classList.remove('stream-inline-active');
     this.updateLiveIndicator('hidden');
 
     const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
@@ -493,36 +494,27 @@ export class VideoController {
     if (willEnable) {
       this.ensureDockedChatVisible();
     } else {
-      document.body.classList.remove('stream-chat-hidden');
+      this.syncChatDockState(false);
     }
 
     this.syncFullscreenButton(willEnable);
   }
 
   toggleChatVisibility(): void {
+    const chatDock = this.deps.elements.streamChatDock;
     const chatMessages = this.deps.elements.msgs;
-    const chatInput = this.deps.elements['chat-input-container'];
-    const membersList = this.deps.elements['members-list'];
 
-    if (!chatMessages) {
+    if (!chatDock && !chatMessages) {
       return;
     }
 
-    const isHidden = chatMessages.classList.contains('hidden-in-fullscreen');
+    const isHidden = chatDock?.classList.contains('stream-chat-hidden')
+      ?? chatMessages?.classList.contains('hidden-in-fullscreen')
+      ?? false;
+    const willHide = !isHidden;
 
-    if (isHidden) {
-      chatMessages.classList.remove('hidden-in-fullscreen');
-      chatInput?.classList.remove('hidden-in-fullscreen');
-      membersList?.classList.remove('hidden-in-fullscreen');
-      document.body.classList.remove('stream-chat-hidden');
-      this.deps.notifications.info('Chat shown');
-    } else {
-      chatMessages.classList.add('hidden-in-fullscreen');
-      chatInput?.classList.add('hidden-in-fullscreen');
-      membersList?.classList.add('hidden-in-fullscreen');
-      document.body.classList.add('stream-chat-hidden');
-      this.deps.notifications.info('Chat hidden');
-    }
+    this.syncChatDockState(willHide);
+    this.deps.notifications.info(willHide ? 'Chat hidden' : 'Chat shown');
   }
 
   adjustVolume(delta: number): void {
@@ -736,14 +728,32 @@ export class VideoController {
   }
 
   private ensureDockedChatVisible(): void {
+    this.syncChatDockState(false);
+  }
+
+  private syncChatDockState(isHidden: boolean): void {
+    const chatDock = this.deps.elements.streamChatDock;
+    const streamLayout = this.deps.elements.streamLayout;
+    const status = this.deps.elements.streamChatStatus;
     const chatMessages = this.deps.elements.msgs;
     const chatInput = this.deps.elements['chat-input-container'];
     const membersList = this.deps.elements['members-list'];
 
-    chatMessages?.classList.remove('hidden-in-fullscreen');
-    chatInput?.classList.remove('hidden-in-fullscreen');
-    membersList?.classList.remove('hidden-in-fullscreen');
-    document.body.classList.remove('stream-chat-hidden');
+    chatDock?.classList.toggle('stream-chat-hidden', isHidden);
+    streamLayout?.classList.toggle('stream-chat-collapsed', isHidden);
+    document.body.classList.toggle('stream-chat-hidden', isHidden);
+
+    chatMessages?.classList.toggle('hidden-in-fullscreen', isHidden);
+    chatInput?.classList.toggle('hidden-in-fullscreen', isHidden);
+    membersList?.classList.toggle('hidden-in-fullscreen', isHidden);
+
+    if (status) {
+      if (document.body.classList.contains('stream-inline-active')) {
+        status.textContent = isHidden ? 'Chat hidden. Click to show.' : 'Chat docked';
+      } else {
+        status.textContent = '';
+      }
+    }
   }
 
   private syncFullscreenButton(isFullscreen: boolean): void {

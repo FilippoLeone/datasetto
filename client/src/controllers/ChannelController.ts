@@ -23,6 +23,7 @@ export interface ChannelControllerDeps {
 
 export class ChannelController {
   private deps: ChannelControllerDeps;
+  private unreadCounts: Map<string, number> = new Map();
 
   constructor(deps: ChannelControllerDeps) {
     this.deps = deps;
@@ -41,6 +42,7 @@ export class ChannelController {
       console.log('📋 ChannelController.handleChannelsUpdate - Received channels:', channels);
     }
     this.deps.state.setChannels(channels);
+    this.pruneUnreadCounts(channels);
     this.updateChannelsUI(channels);
   }
 
@@ -254,6 +256,8 @@ export class ChannelController {
         item.appendChild(count);
       }
 
+      this.decorateChannelUnread(item, ch.id);
+
       container.appendChild(item);
 
       // Voice channel users (show underneath the channel item)
@@ -320,12 +324,79 @@ export class ChannelController {
 
     // Update state
     this.deps.state.setChannelWithType(channelId, type);
+
+    if (type === 'text' || type === 'stream') {
+      this.clearChannelUnread(channelId);
+    }
     
     // Join socket channel
     this.deps.socket.joinChannel(channelId);
     
     if (import.meta.env.DEV) {
       console.log(`📍 ChannelController: Switched to ${type} channel:`, channelName);
+    }
+  }
+
+  markChannelUnread(channelId: string): void {
+    const currentChannel = this.deps.state.get('currentChannel');
+    if (currentChannel === channelId) {
+      return;
+    }
+
+    const channels = this.deps.state.get('channels');
+    const channel = channels.find((ch) => ch.id === channelId);
+    if (!channel || (channel.type !== 'text' && channel.type !== 'stream')) {
+      return;
+    }
+
+    const nextCount = (this.unreadCounts.get(channelId) ?? 0) + 1;
+    this.unreadCounts.set(channelId, nextCount);
+    this.applyUnreadState(channelId);
+  }
+
+  clearChannelUnread(channelId: string): void {
+    if (!this.unreadCounts.has(channelId)) {
+      return;
+    }
+
+    this.unreadCounts.delete(channelId);
+    this.applyUnreadState(channelId);
+  }
+
+  private pruneUnreadCounts(channels: Channel[]): void {
+    const validIds = new Set(channels.map((ch) => ch.id));
+
+    for (const channelId of Array.from(this.unreadCounts.keys())) {
+      if (!validIds.has(channelId)) {
+        this.unreadCounts.delete(channelId);
+      }
+    }
+  }
+
+  private applyUnreadState(channelId: string): void {
+    const item = document.querySelector(`[data-channel-id="${channelId}"]`) as HTMLElement | null;
+    if (!item) {
+      return;
+    }
+
+    this.decorateChannelUnread(item, channelId);
+  }
+
+  private decorateChannelUnread(item: HTMLElement, channelId: string): void {
+    const unread = this.unreadCounts.get(channelId) ?? 0;
+    item.classList.toggle('has-unread', unread > 0);
+
+    let badge = item.querySelector('.channel-unread-badge') as HTMLElement | null;
+    if (unread > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'channel-unread-badge';
+        const content = item.querySelector('.channel-content');
+        (content ?? item).appendChild(badge);
+      }
+      badge.textContent = unread > 99 ? '99+' : unread.toString();
+    } else if (badge) {
+      badge.remove();
     }
   }
 }

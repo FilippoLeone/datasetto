@@ -35,6 +35,10 @@ export class NotificationManager {
     type: NotificationType = 'info',
     duration = 4000
   ): string {
+    if (this.notifications.size > 0) {
+      this.clear(true);
+    }
+
     const id = generateId();
     const notification: Notification = { id, message, type, duration };
     
@@ -81,16 +85,28 @@ export class NotificationManager {
   /**
    * Remove a notification
    */
-  remove(id: string): void {
+  remove(id: string, immediate = false): void {
     const element = this.notifications.get(id);
     if (!element) return;
 
-    element.classList.add('removing');
-    
-    setTimeout(() => {
+    if (immediate) {
       element.remove();
       this.notifications.delete(id);
-    }, 300);
+      return;
+    }
+
+    const handleAnimationEnd = () => {
+      element.removeEventListener('animationend', handleAnimationEnd);
+      element.remove();
+      this.notifications.delete(id);
+    };
+
+    element.addEventListener('animationend', handleAnimationEnd);
+    element.classList.add('removing');
+
+    window.setTimeout(() => {
+      handleAnimationEnd();
+    }, 600);
   }
 
   /**
@@ -120,9 +136,9 @@ export class NotificationManager {
   /**
    * Clear all notifications
    */
-  clear(): void {
-    for (const id of this.notifications.keys()) {
-      this.remove(id);
+  clear(immediate = false): void {
+    for (const id of Array.from(this.notifications.keys())) {
+      this.remove(id, immediate);
     }
   }
 }

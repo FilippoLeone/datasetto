@@ -178,25 +178,28 @@
   .chat-log {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    background: linear-gradient(180deg, rgba(31, 31, 35, 0.65), rgba(24, 24, 27, 0.9));
+    gap: 0.25rem;
+    padding: 1.25rem 1.5rem 1.75rem;
+    background: radial-gradient(circle at top, rgba(98, 71, 255, 0.08), transparent 65%),
+                radial-gradient(circle at bottom right, rgba(235, 4, 0, 0.05), transparent 55%),
+                rgba(12, 12, 18, 0.94);
   }
 
   .chat-log::after {
     content: '';
-    height: 48px;
+    height: 0;
   }
 
   .chat-input-container {
-    background: rgba(20, 20, 24, 0.96);
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: 0 -12px 32px rgba(8, 8, 12, 0.5);
+    background: rgba(16, 16, 24, 0.94);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 -18px 36px rgba(8, 8, 12, 0.45);
   }
 
   .emoji-picker {
     backdrop-filter: blur(18px);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: var(--shadow-soft);
+    box-shadow: 0 18px 38px rgba(6, 6, 12, 0.55);
   }
 
   .inline-video-container {

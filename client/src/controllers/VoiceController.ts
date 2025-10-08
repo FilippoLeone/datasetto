@@ -84,6 +84,26 @@ export class VoiceController {
     this.renderVoiceUsers();
   }
 
+  async toggleMuteAndDeafen(): Promise<void> {
+    const state = this.deps.state.getState();
+    const enableSilence = !(state.muted && state.deafened);
+
+    this.deps.state.setMuted(enableSilence);
+    this.deps.state.setDeafened(enableSilence);
+    this.deps.voice.setDeafened(enableSilence);
+
+    if (enableSilence) {
+      this.setLocalSpeaking(false);
+    }
+
+    await this.syncMicrophoneState();
+    this.announceVoiceState();
+
+    this.deps.soundFX.play(enableSilence ? 'deafen' : 'undeafen');
+    this.updateMuteButtons();
+    this.renderVoiceUsers();
+  }
+
   async joinChannel(channelId: string, channelName: string): Promise<void> {
     const isAuthenticated = Boolean(this.deps.state.get('session')?.token ?? this.deps.state.get('account'));
     if (!isAuthenticated) {
@@ -427,16 +447,22 @@ export class VoiceController {
 
   private addVoiceUser(peer: VoicePeerEvent): void {
     const label = this.deps.resolveUserLabel(peer.name, peer.id);
+    const existing = this.voiceUsers.get(peer.id);
+
     this.voiceUsers.set(peer.id, {
       id: peer.id,
       name: label,
       muted: Boolean(peer.muted),
       deafened: Boolean(peer.deafened),
-      speaking: false,
+      speaking: existing?.speaking ?? false,
     });
+
     this.renderVoiceUsers();
-    this.deps.soundFX.play('userJoin', 0.6);
-    this.deps.notifications.info(`${label} joined voice`);
+
+    if (!existing) {
+      this.deps.soundFX.play('userJoin', 0.6);
+      this.deps.notifications.info(`${label} joined voice`);
+    }
   }
 
   private removeVoiceUser(id: string): void {
@@ -794,12 +820,17 @@ export class VoiceController {
 
     const muteBtn = this.deps.elements.mute;
     if (muteBtn) {
-      const label = state.muted ? 'Unmute' : 'Mute';
+      const label = state.muted ? 'Unmute Mic' : 'Mute Mic';
+      const title = state.muted ? 'Unmute microphone' : 'Mute microphone';
       muteBtn.classList.toggle('muted', state.muted);
-      muteBtn.setAttribute('title', label);
-      muteBtn.setAttribute('aria-label', label);
+      muteBtn.setAttribute('title', title);
+      muteBtn.setAttribute('aria-label', title);
       muteBtn.setAttribute('aria-pressed', state.muted ? 'true' : 'false');
-      muteBtn.textContent = label;
+
+      const muteLabel = muteBtn.querySelector('.mute-label');
+      if (muteLabel) {
+        muteLabel.textContent = label;
+      }
     }
 
     const deafenBtn = this.deps.elements.deafen;
@@ -811,14 +842,24 @@ export class VoiceController {
       deafenBtn.setAttribute('aria-label', title);
       deafenBtn.setAttribute('aria-pressed', isOutputMuted ? 'true' : 'false');
 
-      const icon = deafenBtn.querySelector('#deafen-icon');
-      if (icon) {
-        icon.textContent = isOutputMuted ? '🔇' : '🔊';
-      }
-
       const labelEl = deafenBtn.querySelector('.output-label');
       if (labelEl) {
-        labelEl.textContent = isOutputMuted ? 'Muted' : 'Output';
+        labelEl.textContent = isOutputMuted ? 'Restore Out' : 'Mute Out';
+      }
+    }
+
+    const comboBtn = this.deps.elements['mute-output-combo'];
+    if (comboBtn) {
+      const bothMuted = state.muted && state.deafened;
+      const comboTitle = bothMuted ? 'Restore mic and output audio' : 'Mute mic and output audio';
+      comboBtn.classList.toggle('active', bothMuted);
+      comboBtn.setAttribute('title', comboTitle);
+      comboBtn.setAttribute('aria-label', comboTitle);
+      comboBtn.setAttribute('aria-pressed', bothMuted ? 'true' : 'false');
+
+      const comboLabel = comboBtn.querySelector('.mute-output-label');
+      if (comboLabel) {
+        comboLabel.textContent = bothMuted ? 'Restore All' : 'Mute All';
       }
     }
   }

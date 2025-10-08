@@ -69,8 +69,9 @@ export class NavigationController {
     
     // Hide chat for voice channels
     this.deps.chatHideChatUI();
+    this.deps.mobileClosePanels?.();
 
-  this.deps.mobileClosePanels?.();
+    this.deps.soundFX.play('channelVoice', 0.55);
     
     if (import.meta.env.DEV) {
       console.log('📍 Voice channel selected (viewing, not voice connected):', channelName);
@@ -81,8 +82,12 @@ export class NavigationController {
    * Switch to a different channel with animation
    */
   private switchChannel(channelId: string, channelName: string, type: 'text' | 'voice' | 'stream'): void {
-    // Play channel switch sound
-    this.deps.soundFX.play('click', 0.5);
+    // Play channel switch sound (skip text channels)
+    if (type === 'stream') {
+      this.deps.soundFX.play('channelStream', 0.65);
+    } else if (type === 'voice') {
+      this.deps.soundFX.play('channelVoice', 0.55);
+    }
     
     // Animate channel switch
     const chatContent = document.querySelector('.chat-content');

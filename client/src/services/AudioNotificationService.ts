@@ -20,7 +20,9 @@ export type SoundEffect =
   | 'error'
   | 'success'
   | 'hover'
-  | 'click';
+  | 'click'
+  | 'channelVoice'
+  | 'channelStream';
 
 export class AudioNotificationService {
   private audioContext: AudioContext | null = null;
@@ -89,6 +91,10 @@ export class AudioNotificationService {
     // UI sounds
     this.sounds.set('hover', this.createTone(800, 0.02, 'sine', 0.08));
     this.sounds.set('click', this.createTone(600, 0.03, 'sine', 0.12));
+
+    // Channel switches
+    this.sounds.set('channelVoice', this.createAscendingTone(260, 520, 0.14, 0.24));
+    this.sounds.set('channelStream', this.createDoubleBeep(520, 720, 0.26));
   }
 
   private createTone(frequency: number, duration: number, _type: OscillatorType = 'sine', volume: number = 0.2): AudioBuffer {

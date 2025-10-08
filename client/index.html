@@ -65,12 +65,14 @@
               </div>
             </div>
             <div class="flex gap-2">
-              <button id="mute" class="flex-1 bg-bg-tertiary border border-white/10 text-text-normal px-2 py-2 rounded cursor-pointer text-sm font-semibold transition-fast flex items-center justify-center relative overflow-hidden hover:bg-bg-floating hover:border-white/20 hover:-translate-y-px hover:shadow-sm active:translate-y-0" aria-label="Toggle microphone" title="Toggle Mic">
-                Mute
+              <button id="mute" class="voice-toggle-btn" aria-label="Toggle microphone" title="Toggle mic">
+                <span class="mute-label">Mute Mic</span>
               </button>
-              <button id="deafen" class="flex-1 bg-bg-tertiary border border-white/10 text-text-normal px-2 py-2 rounded cursor-pointer text-sm font-semibold transition-fast flex items-center justify-center gap-2 relative overflow-hidden hover:bg-bg-floating hover:border-white/20 hover:-translate-y-px hover:shadow-sm active:translate-y-0" aria-label="Toggle output mute" title="Toggle Output Mute">
-                <span id="deafen-icon" class="text-lg leading-none">🔊</span>
-                <span class="output-label text-xs uppercase tracking-wide">Output</span>
+              <button id="deafen" class="voice-toggle-btn" aria-label="Toggle output mute" title="Toggle output">
+                <span class="output-label">Mute Out</span>
+              </button>
+              <button id="mute-output-combo" class="voice-toggle-btn" aria-label="Toggle mic and output" title="Mute mic and output" aria-pressed="false">
+                <span class="mute-output-label">Mute All</span>
               </button>
             </div>
           </div>
@@ -120,94 +122,116 @@
       <main class="main-content chat-content flex-1 flex flex-col bg-bg-chat overflow-hidden" role="main">
         <h1 id="current-channel-name" class="hidden">general</h1>
 
-        <!-- Inline Video Container (for stream channels - Theater Mode) -->
-  <div id="inlineVideoContainer" class="inline-video-container flex-shrink-0 bg-black relative hidden">
-          <!-- Top Controls -->
-          <div class="absolute top-0 left-0 right-0 p-4 flex items-center gap-4 bg-gradient-to-b from-black/70 to-transparent z-10">
-            <button
-              id="theaterModeToggle"
-              class="px-4 py-2 bg-bg-tertiary/90 backdrop-blur-sm rounded-md flex items-center gap-2 font-semibold transition-fast hover:bg-bg-floating hover:shadow-md"
-              aria-label="Back to channels"
-              title="Back to Channels"
-            >
-              <span>⬅️</span>
-              <span>Back</span>
-            </button>
-            <div class="text-lg font-bold text-white" id="mobileStreamTitle" aria-live="polite">Live Stream</div>
-          </div>
-
-          <div class="inline-video-stage relative w-full aspect-video bg-black">
-            <video id="inlineVideo" class="w-full h-full" aria-label="Video player" autoplay muted></video>
-            <div id="inlinePlayerOverlay" class="video-player-overlay" aria-live="polite">
-              <div class="overlay-content">
-                <div class="overlay-spinner w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
-                <p class="message">No stream</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Bottom Video Controls Bar -->
-          <div class="video-controls-bar" id="videoControlsBar">
-            <div class="video-controls-left">
-              <button id="playPauseBtn" class="control-btn" aria-label="Play/Pause" title="Play/Pause">
-                <span class="icon">▶️</span>
-              </button>
-              <div class="volume-control">
-                <button id="volumeBtn" class="control-btn" aria-label="Mute/Unmute" title="Mute/Unmute">
-                  <span class="icon" id="volumeIcon">🔊</span>
+        <div id="streamLayout" class="stream-layout">
+          <!-- Stream Player Column -->
+          <section class="stream-player-column">
+            <!-- Inline Video Container (for stream channels - Theater Mode) -->
+      <div id="inlineVideoContainer" class="inline-video-container flex-shrink-0 bg-black relative hidden">
+              <!-- Top Controls -->
+              <div class="absolute top-0 left-0 right-0 p-4 flex items-center gap-4 bg-gradient-to-b from-black/70 to-transparent z-10">
+                <button
+                  id="theaterModeToggle"
+                  class="px-4 py-2 bg-bg-tertiary/90 backdrop-blur-sm rounded-md flex items-center gap-2 font-semibold transition-fast hover:bg-bg-floating hover:shadow-md"
+                  aria-label="Back to channels"
+                  title="Back to Channels"
+                >
+                  <span>⬅️</span>
+                  <span>Back</span>
                 </button>
-                <input
-                  type="range"
-                  id="volumeSlider"
-                  class="volume-slider"
-                  min="0"
-                  max="100"
-                  value="0"
-                  aria-label="Volume"
-                />
+                <div class="text-lg font-bold text-white" id="mobileStreamTitle" aria-live="polite">Live Stream</div>
               </div>
-              <span class="live-indicator-badge hidden inline-flex items-center" aria-live="polite" aria-hidden="true">
-                <span class="status-dot" aria-hidden="true"></span>
-                <span class="status-text">OFFLINE</span>
-              </span>
-            </div>
-            <div class="video-controls-right">
-              <button id="toggleChatBtn" class="control-btn" aria-label="Toggle Chat" title="Toggle Chat">
-                <span class="icon">💬</span>
-              </button>
-              <button id="fullscreenBtn" class="control-btn" aria-label="Fullscreen" title="Fullscreen">
-                 <span class="icon">🗖</span>
-              </button>
-            </div>
-          </div>
-        </div>
 
-        <!-- Chat Messages -->
-        <div id="msgs" class="chat-log flex-1 overflow-y-auto overflow-x-hidden p-4 custom-scrollbar" role="log" aria-live="polite" aria-label="Chat messages">
-          <!-- Messages will be dynamically inserted here -->
-        </div>
+              <div class="inline-video-stage relative w-full aspect-video bg-black">
+                <video id="inlineVideo" class="w-full h-full" aria-label="Video player" autoplay muted></video>
+                <div id="inlinePlayerOverlay" class="video-player-overlay" aria-live="polite">
+                  <div class="overlay-content">
+                    <div class="overlay-spinner w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
+                    <p class="message">No stream</p>
+                  </div>
+                </div>
+              </div>
 
-        <!-- Chat Input -->
-        <div id="chat-input-container" class="chat-input-container p-4 bg-bg-secondary flex-shrink-0 relative">
-          <form id="chatForm" class="flex items-center gap-3 bg-bg-elevated rounded-lg px-4 py-3" aria-label="Send message">
-            <button type="button" id="emojiPickerBtn" class="text-2xl flex-shrink-0 hover:scale-110 transition-fast" aria-label="Add emoji" title="Add Emoji">😀</button>
-            <input
-              type="text"
-              id="chatInput"
-              class="flex-1 bg-transparent border-none text-text-normal text-base outline-none"
-              placeholder="Message #general"
-              aria-label="Message input"
-              autocomplete="off"
-            />
-            <button type="submit" class="text-2xl flex-shrink-0 hover:scale-110 transition-fast" aria-label="Send message" title="Send">📤</button>
-          </form>
-          <!-- Emoji Picker Popup -->
-          <div id="emojiPicker" class="emoji-picker hidden">
-            <div class="px-4 py-3 font-bold text-text-normal border-b border-white/10">Emojis</div>
-            <div class="grid grid-cols-8 gap-2 p-3 max-h-64 overflow-y-auto custom-scrollbar" id="emojiGrid">
-              <!-- Emojis will be populated here -->
+              <!-- Bottom Video Controls Bar -->
+              <div class="video-controls-bar" id="videoControlsBar">
+                <div class="video-controls-left">
+                  <button id="playPauseBtn" class="control-btn" aria-label="Play/Pause" title="Play/Pause">
+                    <span class="icon">▶️</span>
+                  </button>
+                  <div class="volume-control">
+                    <button id="volumeBtn" class="control-btn" aria-label="Mute/Unmute" title="Mute/Unmute">
+                      <span class="icon" id="volumeIcon">🔊</span>
+                    </button>
+                    <input
+                      type="range"
+                      id="volumeSlider"
+                      class="volume-slider"
+                      min="0"
+                      max="100"
+                      value="0"
+                      aria-label="Volume"
+                    />
+                  </div>
+                  <span class="live-indicator-badge hidden inline-flex items-center" aria-live="polite" aria-hidden="true">
+                    <span class="status-dot" aria-hidden="true"></span>
+                    <span class="status-text">OFFLINE</span>
+                  </span>
+                </div>
+                <div class="video-controls-right">
+                  <button id="toggleChatBtn" class="control-btn" aria-label="Toggle Chat" title="Toggle Chat">
+                    <span class="icon">💬</span>
+                  </button>
+                  <button id="fullscreenBtn" class="control-btn" aria-label="Fullscreen" title="Fullscreen">
+                     <span class="icon">🗖</span>
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          </section>
+
+          <!-- Stream Chat Column -->
+          <aside id="streamChatDock" class="stream-chat-dock">
+            <header class="stream-chat-header">
+              <div class="stream-chat-title">Live Chat</div>
+              <div class="stream-chat-status" id="streamChatStatus" aria-live="polite">Chat docked</div>
+            </header>
+
+            <!-- Chat Messages -->
+            <div id="msgs" class="chat-log flex-1 overflow-y-auto overflow-x-hidden p-4 custom-scrollbar" role="log" aria-live="polite" aria-label="Chat messages">
+              <!-- Messages will be dynamically inserted here -->
+            </div>
+
+            <!-- Chat Input -->
+            <div id="chat-input-container" class="chat-input-container p-4 bg-bg-secondary flex-shrink-0 relative">
+              <form id="chatForm" class="flex items-center gap-3 bg-bg-elevated rounded-lg px-4 py-3" aria-label="Send message">
+                <button
+                  type="button"
+                  id="emojiPickerBtn"
+                  class="text-2xl flex-shrink-0 hover:scale-110 transition-fast"
+                  aria-label="Add emoji"
+                  aria-haspopup="dialog"
+                  aria-controls="emojiPicker"
+                  aria-expanded="false"
+                  title="Add Emoji"
+                >😀</button>
+                <input
+                  type="text"
+                  id="chatInput"
+                  class="flex-1 bg-transparent border-none text-text-normal text-base outline-none"
+                  placeholder="Message #general"
+                  aria-label="Message input"
+                  autocomplete="off"
+                />
+                <button type="submit" class="text-2xl flex-shrink-0 hover:scale-110 transition-fast" aria-label="Send message" title="Send">📤</button>
+              </form>
+              <!-- Emoji Picker Popup -->
+              <div id="emojiPicker" class="emoji-picker hidden" role="dialog" aria-hidden="true">
+                <div class="px-4 py-3 font-bold text-text-normal border-b border-white/10">Emojis</div>
+                <div id="emojiGrid" class="emoji-grid grid grid-cols-8 gap-2 p-3 custom-scrollbar">
+                  <!-- Emojis will be populated here -->
+                </div>
+              </div>
+            </div>
+          </aside>
         </div>
       </main>
 

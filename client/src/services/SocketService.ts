@@ -75,6 +75,13 @@ export class SocketService extends EventEmitter<EventMap> {
   }
 
   /**
+   * Get the current socket identifier
+   */
+  getId(): string | null {
+    return this.socket?.id ?? null;
+  }
+
+  /**
    * Send a chat message
    */
   sendMessage(message: string): void {

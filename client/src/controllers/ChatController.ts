@@ -37,27 +37,40 @@ export class ChatController {
     this.deps.soundFX.play('messageSent', 0.6);
   }
 
-  handleChatMessage(message: ChatMessage): void {
-    this.appendChatMessage(message);
+  handleChatMessage(message: ChatMessage, options?: { muteSound?: boolean }): void {
+    this.appendChatMessage(message, options);
   }
 
   handleChatHistory(messages: ChatMessage[]): void {
     messages.forEach((message) => {
-      this.appendChatMessage(message);
+      this.appendChatMessage(message, { muteSound: true });
     });
   }
 
   toggleEmojiPicker(): void {
     const picker = this.deps.elements.emojiPicker;
+    const button = this.deps.elements.emojiPickerBtn;
     if (!picker) return;
 
     const isVisible = !picker.classList.contains('hidden');
     picker.classList.toggle('hidden', isVisible);
+    picker.setAttribute('aria-hidden', String(isVisible));
+    if (button) {
+      button.setAttribute('aria-expanded', String(!isVisible));
+    }
   }
 
   hideEmojiPicker(): void {
     const picker = this.deps.elements.emojiPicker;
-    if (picker) picker.classList.add('hidden');
+    if (picker) {
+      picker.classList.add('hidden');
+      picker.setAttribute('aria-hidden', 'true');
+    }
+
+    const button = this.deps.elements.emojiPickerBtn;
+    if (button) {
+      button.setAttribute('aria-expanded', 'false');
+    }
   }
 
   insertEmoji(emoji: string): void {
@@ -78,9 +91,6 @@ export class ChatController {
     
     // Focus input
     input.focus();
-    
-    // Hide picker
-    this.hideEmojiPicker();
   }
 
   private registerSocketListeners(): void {
@@ -114,7 +124,7 @@ export class ChatController {
     });
   }
 
-  private appendChatMessage(message: ChatMessage): void {
+  private appendChatMessage(message: ChatMessage, options?: { muteSound?: boolean }): void {
     const msgsContainer = this.deps.elements.msgs;
     if (!msgsContainer) return;
 
@@ -128,10 +138,12 @@ export class ChatController {
       previousMessage.classList.toggle('message--has-follow', isGroupedWithPrevious);
     }
 
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message';
-    messageDiv.dataset.author = message.from;
-    messageDiv.dataset.timestamp = String(message.ts);
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'message';
+  messageDiv.dataset.author = message.from;
+  messageDiv.dataset.timestamp = String(message.ts);
+  messageDiv.dataset.messageId = message.id;
+  messageDiv.dataset.channelId = message.channelId;
 
     const avatar = document.createElement('div');
     avatar.className = 'message-avatar';
@@ -183,7 +195,9 @@ export class ChatController {
     msgsContainer.appendChild(messageDiv);
 
     this.deps.animator.animateMessage(messageDiv);
-    this.deps.soundFX.play('message', 0.5);
+    if (!options?.muteSound) {
+      this.deps.soundFX.play('message', 0.5);
+    }
 
     msgsContainer.scrollTop = msgsContainer.scrollHeight;
   }
