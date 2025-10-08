@@ -27,26 +27,142 @@ export type SoundEffect =
 export class AudioNotificationService {
   private audioContext: AudioContext | null = null;
   private sounds: Map<SoundEffect, AudioBuffer> = new Map();
-  private enabled: boolean = true;
-  private volume: number = 0.3;
+  private enabled = true;
+  private volume = 0.3;
+  private initializing: Promise<void> | null = null;
+  private unlockHandler?: () => void;
 
-  constructor() {
-    this.init();
+  constructor() {}
+
+  private async ensureInitialized(): Promise<void> {
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      return;
+    }
+
+    if (!this.initializing) {
+      this.initializing = this.initializeContext().finally(() => {
+        this.initializing = null;
+      });
+    }
+
+    await this.initializing;
   }
 
-  private async init(): Promise<void> {
+  private async initializeContext(): Promise<void> {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) {
+      console.warn('AudioNotificationService: Web Audio API not supported');
+      this.enabled = false;
+      return;
+    }
+
     try {
-      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      await this.generateSounds();
+      this.audioContext = new AudioContextCtor();
+      this.attachUnlockHandlers();
+      this.generateSounds();
     } catch (error) {
       console.warn('AudioNotificationService: Failed to initialize', error);
+    }
+  }
+
+  private attachUnlockHandlers(): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (this.unlockHandler) {
+      return;
+    }
+
+    this.unlockHandler = () => {
+      if (!this.audioContext) {
+        return;
+      }
+
+      if (this.audioContext.state !== 'suspended') {
+        this.detachUnlockHandlers();
+        return;
+      }
+
+      this.audioContext
+        .resume()
+        .then(() => {
+          if (this.audioContext && this.audioContext.state === 'running') {
+            this.detachUnlockHandlers();
+          }
+        })
+        .catch((error) => {
+          if (import.meta.env.DEV) {
+            console.warn('AudioNotificationService: Unable to resume AudioContext automatically', error);
+          }
+        });
+    };
+
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchend'];
+    for (const event of events) {
+      window.addEventListener(event, this.unlockHandler, { passive: true });
+    }
+  }
+
+  private detachUnlockHandlers(): void {
+    if (!this.unlockHandler || typeof window === 'undefined') {
+      return;
+    }
+
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchend'];
+    for (const event of events) {
+      window.removeEventListener(event, this.unlockHandler);
+    }
+    this.unlockHandler = undefined;
+  }
+
+  private playBuffer(effect: SoundEffect, volumeMultiplier: number): void {
+    if (!this.enabled || !this.audioContext || !this.sounds.has(effect)) {
+      return;
+    }
+
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext
+        .resume()
+        .then(() => {
+          if (this.audioContext?.state === 'running') {
+            this.detachUnlockHandlers();
+            this.playBuffer(effect, volumeMultiplier);
+          }
+        })
+        .catch((error) => {
+          if (import.meta.env.DEV) {
+            console.warn('AudioNotificationService: Unable to resume AudioContext', error);
+          }
+        });
+      return;
+    }
+
+    this.detachUnlockHandlers();
+
+    try {
+      const source = this.audioContext.createBufferSource();
+      const gainNode = this.audioContext.createGain();
+
+      source.buffer = this.sounds.get(effect)!;
+      gainNode.gain.value = this.volume * volumeMultiplier;
+
+      source.connect(gainNode);
+      gainNode.connect(this.audioContext.destination);
+      source.start();
+    } catch (error) {
+      console.warn('Failed to play sound:', effect, error);
     }
   }
 
   /**
    * Generate sound effects programmatically (no external files needed)
    */
-  private async generateSounds(): Promise<void> {
+  private generateSounds(): void {
     if (!this.audioContext) return;
 
     // Message received - gentle notification tone
@@ -202,21 +318,24 @@ export class AudioNotificationService {
    * Play a sound effect
    */
   public play(effect: SoundEffect, volumeMultiplier: number = 1): void {
-    if (!this.enabled || !this.audioContext || !this.sounds.has(effect)) return;
-
-    try {
-      const source = this.audioContext.createBufferSource();
-      const gainNode = this.audioContext.createGain();
-      
-      source.buffer = this.sounds.get(effect)!;
-      gainNode.gain.value = this.volume * volumeMultiplier;
-      
-      source.connect(gainNode);
-      gainNode.connect(this.audioContext.destination);
-      source.start();
-    } catch (error) {
-      console.warn('Failed to play sound:', effect, error);
+    if (!this.enabled) {
+      return;
     }
+
+    if (this.audioContext && this.audioContext.state !== 'closed' && this.sounds.has(effect)) {
+      this.playBuffer(effect, volumeMultiplier);
+      return;
+    }
+
+    void this.ensureInitialized()
+      .then(() => {
+        this.playBuffer(effect, volumeMultiplier);
+      })
+      .catch((error) => {
+        if (import.meta.env.DEV) {
+          console.warn('AudioNotificationService: Unable to initialize audio before playback', error);
+        }
+      });
   }
 
   /**
@@ -244,8 +363,21 @@ export class AudioNotificationService {
    * Resume audio context (required after user interaction on some browsers)
    */
   public async resume(): Promise<void> {
-    if (this.audioContext && this.audioContext.state === 'suspended') {
+    await this.ensureInitialized();
+
+    if (!this.audioContext) {
+      return;
+    }
+
+    try {
       await this.audioContext.resume();
+      if (this.audioContext.state === 'running') {
+        this.detachUnlockHandlers();
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('AudioNotificationService: Unable to resume AudioContext', error);
+      }
     }
   }
 }

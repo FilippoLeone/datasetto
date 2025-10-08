@@ -312,6 +312,7 @@ export class App {
   'mute', 'mute-output-combo', 'deafen', 'msgs', 'chatForm', 'chat-input-container', 'chatInput', 'accName',
   'voiceGallery',
   'streamLayout', 'streamChatDock', 'streamChatStatus',
+  'streamPlayerColumn',
       'regModal', 'regUsername', 'regPassword', 'regConfirm',
   'passwordStrength', 'passwordStrengthFill', 'passwordStrengthLabel',
       'registerBtn', 'regCancel', 'regError', 'echoCancel', 'noiseSuppression',

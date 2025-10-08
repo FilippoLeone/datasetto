@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Twiscord</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <style>
       /* Inline critical CSS removed - now using main.css */
     </style>
@@ -132,7 +133,7 @@
 
         <div id="streamLayout" class="stream-layout">
           <!-- Stream Player Column -->
-          <section class="stream-player-column">
+          <section id="streamPlayerColumn" class="stream-player-column hidden">
             <!-- Inline Video Container (for stream channels - Theater Mode) -->
       <div id="inlineVideoContainer" class="inline-video-container flex-shrink-0 bg-black relative hidden">
               <!-- Top Controls -->
@@ -697,8 +698,7 @@
       </div>
     </div>
 
-    <!-- HLS.js for video streaming -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    
     <script type="module" src="/src/main.ts"></script>
   </body>
   </html>

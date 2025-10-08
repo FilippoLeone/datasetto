@@ -1,3 +1,4 @@
+import Hls from 'hls.js';
 import type { VideoControllerDeps } from './types';
 
 const STREAM_RETRY_DELAY_MS = 5000;
@@ -183,11 +184,14 @@ export class VideoController {
     const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
     const video = this.deps.elements.inlineVideo as HTMLVideoElement | undefined;
     const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
+    const playerColumn = this.deps.elements['streamPlayerColumn'] as HTMLElement | undefined;
 
     if (!container || !video) {
       console.error('Inline video elements not found');
       return;
     }
+
+    playerColumn?.classList.remove('hidden');
 
     const mobileTitle = this.deps.elements.mobileStreamTitle as HTMLElement | undefined;
     if (mobileTitle) {
@@ -235,24 +239,12 @@ export class VideoController {
       console.log('Loading inline stream:', streamUrl);
     }
 
-    const HlsConstructor = (window as unknown as { Hls?: any }).Hls;
-    if (!HlsConstructor) {
-      console.error('HLS.js not loaded! Make sure the script tag is in index.html');
-      if (overlay) {
-        const message = overlay.querySelector('.message');
-        if (message) {
-          message.textContent = 'HLS.js not loaded';
-        }
-      }
-      return;
-    }
-
-    if (HlsConstructor.isSupported()) {
+    if (Hls.isSupported()) {
       if (this.inlineHls) {
         this.inlineHls.destroy();
       }
 
-      this.inlineHls = new HlsConstructor({
+      this.inlineHls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
         debug: false,
@@ -271,7 +263,7 @@ export class VideoController {
       this.inlineHls.loadSource(streamUrl);
       this.inlineHls.attachMedia(video);
 
-      this.inlineHls.on(HlsConstructor.Events.MANIFEST_PARSED, () => {
+      this.inlineHls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (overlay) {
           overlay.classList.remove('visible');
           overlay.style.cursor = '';
@@ -302,7 +294,7 @@ export class VideoController {
         });
       });
 
-      this.inlineHls.on(HlsConstructor.Events.ERROR, (_event: unknown, data: any) => {
+      this.inlineHls.on(Hls.Events.ERROR, (_event: unknown, data: any) => {
         console.error('❌ HLS error:', data);
         if (!data?.fatal) {
           return;
@@ -312,7 +304,7 @@ export class VideoController {
           overlay.classList.add('visible');
           const message = overlay.querySelector('.message');
           if (message) {
-            if (data.type === HlsConstructor.ErrorTypes.NETWORK_ERROR) {
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
               message.textContent = 'Stream Offline - Waiting for stream...';
               if (this.streamRetryTimer) {
                 clearTimeout(this.streamRetryTimer);
@@ -324,7 +316,7 @@ export class VideoController {
                 }
                 this.streamRetryTimer = null;
               }, STREAM_RETRY_DELAY_MS);
-            } else if (data.type === HlsConstructor.ErrorTypes.MEDIA_ERROR) {
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
               message.textContent = 'Media error - Recovering...';
               this.inlineHls?.recoverMediaError();
             } else {
@@ -372,6 +364,7 @@ export class VideoController {
   closeInlineVideo(): void {
     const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
     const video = this.deps.elements.inlineVideo as HTMLVideoElement | undefined;
+    const playerColumn = this.deps.elements['streamPlayerColumn'] as HTMLElement | undefined;
 
     if (this.streamRetryTimer) {
       clearTimeout(this.streamRetryTimer);
@@ -390,6 +383,17 @@ export class VideoController {
       }
     }
 
+    if (video) {
+      video.pause();
+      video.removeAttribute('src');
+      try {
+        video.srcObject = null;
+      } catch {
+        // Ignore; srcObject may already be null in some browsers.
+      }
+      video.load();
+    }
+
     if (container) {
       if (container.classList.contains('fullscreen')) {
         container.classList.remove('fullscreen');
@@ -398,6 +402,8 @@ export class VideoController {
       }
       container.classList.add('hidden');
     }
+
+    playerColumn?.classList.add('hidden');
 
     this.syncChatDockState(false);
     document.body.classList.remove('stream-inline-active');
@@ -409,12 +415,6 @@ export class VideoController {
       if (message) {
         message.textContent = 'No stream';
       }
-    }
-
-    if (video) {
-      video.pause();
-      video.src = '';
-      video.load();
     }
 
     this.updateStreamWatchingIndicator();

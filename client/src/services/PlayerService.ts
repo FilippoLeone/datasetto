@@ -136,6 +136,13 @@ export class PlayerService {
       this.hls.destroy();
       this.hls = null;
     }
-    this.videoElement.src = '';
+    this.videoElement.pause();
+    this.videoElement.removeAttribute('src');
+    try {
+      this.videoElement.srcObject = null;
+    } catch {
+      // Some browsers may throw if srcObject isn't set; ignore safely.
+    }
+    this.videoElement.load();
   }
 }

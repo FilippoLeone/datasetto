@@ -1295,7 +1295,7 @@
     border-radius: 32px;
     display: grid;
     place-items: center;
-    overflow: hidden;
+    overflow: visible;
     background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.16), rgba(10, 10, 18, 0.82));
     box-shadow: 0 16px 30px rgba(10, 10, 16, 0.42);
     transition: transform var(--transition-base) ease, box-shadow var(--transition-base) ease;
@@ -1315,6 +1315,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    border-radius: inherit;
   }
 
   .voice-gallery-item.speaking .voice-gallery-avatar {

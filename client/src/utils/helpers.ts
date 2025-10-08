@@ -172,7 +172,6 @@ export function resolveRuntimeConfig(): RuntimeConfig {
     if (origin && !runningOnLocalhost) {
       serverUrl = origin;
       sources.serverUrl = 'origin';
-      warnings.push('VITE_SERVER_URL not set; falling back to current origin for socket connections.');
     } else {
       serverUrl = LOCAL_SERVER_FALLBACK;
       sources.serverUrl = 'fallback';
@@ -186,8 +185,6 @@ export function resolveRuntimeConfig(): RuntimeConfig {
     sources.apiBaseUrl = sources.serverUrl;
     if (sources.apiBaseUrl === 'fallback') {
       warnings.push('VITE_API_BASE_URL not set; using same fallback as server URL.');
-    } else if (sources.apiBaseUrl === 'origin') {
-      warnings.push('VITE_API_BASE_URL not set; using current origin for API requests.');
     }
   }
 
@@ -198,7 +195,6 @@ export function resolveRuntimeConfig(): RuntimeConfig {
     if (origin && !runningOnLocalhost) {
       hlsBaseUrl = `${stripTrailingSlash(origin)}/hls`;
       sources.hlsBaseUrl = 'origin';
-      warnings.push('VITE_HLS_BASE_URL not set; falling back to current origin /hls.');
     } else {
       hlsBaseUrl = LOCAL_HLS_FALLBACK;
       sources.hlsBaseUrl = 'fallback';
@@ -215,7 +211,6 @@ export function resolveRuntimeConfig(): RuntimeConfig {
         const parsed = new URL(origin);
         rtmpServerUrl = `rtmp://${parsed.hostname}/hls`;
         sources.rtmpServerUrl = 'origin';
-        warnings.push('VITE_RTMP_SERVER_URL not set; deriving RTMP ingest URL from current origin.');
       } catch {
         rtmpServerUrl = LOCAL_RTMP_FALLBACK;
         sources.rtmpServerUrl = 'fallback';
