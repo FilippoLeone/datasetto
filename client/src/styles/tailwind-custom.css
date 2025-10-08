@@ -1474,11 +1474,6 @@
     box-shadow: none;
   }
 
-  body.stream-fullscreen-active #inlineVideoContainer > :not(.inline-video-stage),
-  body.native-fullscreen-active #inlineVideoContainer > :not(.inline-video-stage) {
-    display: none !important;
-  }
-
   body.stream-fullscreen-active #inlineVideoContainer .inline-video-stage,
   body.native-fullscreen-active #inlineVideoContainer .inline-video-stage {
     flex: 1;
@@ -1499,7 +1494,8 @@
   .video-controls-bar {
     @apply absolute inset-x-0 bottom-0 flex items-center justify-between px-6 py-4 text-text-normal;
     background: linear-gradient(180deg, rgba(10, 10, 12, 0) 0%, rgba(10, 10, 12, 0.8) 80%);
-    pointer-events: none;
+    pointer-events: auto;
+    z-index: 20;
   }
 
   .video-controls-bar .video-controls-left,
