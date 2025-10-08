@@ -309,7 +309,8 @@ export class App {
     const ids = [
     'channel', 'join', 'video', 'micSelect', 'spkSelect',
   'mute', 'mute-output-combo', 'deafen', 'msgs', 'chatForm', 'chat-input-container', 'chatInput', 'accName',
-    'streamLayout', 'streamChatDock', 'streamChatStatus',
+  'voiceGallery',
+  'streamLayout', 'streamChatDock', 'streamChatStatus',
       'regModal', 'regUsername', 'regPassword', 'regConfirm',
   'passwordStrength', 'passwordStrengthFill', 'passwordStrengthLabel',
       'registerBtn', 'regCancel', 'regError', 'echoCancel', 'noiseSuppression',

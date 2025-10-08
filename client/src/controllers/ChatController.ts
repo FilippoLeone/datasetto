@@ -321,6 +321,14 @@ export class ChatController {
     if (mainContent) {
       mainContent.classList.add('voice-mode');
     }
+
+    const voiceGallery = this.deps.elements.voiceGallery;
+    if (voiceGallery) {
+      voiceGallery.classList.remove('hidden');
+      voiceGallery.classList.add('empty');
+      voiceGallery.textContent = 'Join the voice channel to see who\'s hanging out.';
+      voiceGallery.setAttribute('aria-hidden', 'false');
+    }
   }
 
   /**
@@ -330,6 +338,15 @@ export class ChatController {
     const mainContent = document.querySelector('.main-content');
     if (mainContent) {
       mainContent.classList.remove('voice-mode');
+    }
+
+    const voiceGallery = this.deps.elements.voiceGallery;
+    if (voiceGallery) {
+      voiceGallery.classList.add('hidden');
+      voiceGallery.classList.remove('empty');
+      voiceGallery.textContent = '';
+      voiceGallery.innerHTML = '';
+      voiceGallery.setAttribute('aria-hidden', 'true');
     }
   }
 

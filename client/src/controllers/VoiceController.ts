@@ -1,6 +1,7 @@
 import type { VoiceControllerDeps } from './types';
 import type { Channel, VoicePeerEvent } from '@/types';
 import type { VoicePanelEntry } from '@/ui/VoicePanelController';
+import { generateIdenticonDataUri } from '@/utils/avatarGenerator';
 
 const LOCAL_SPEAKING_THRESHOLD = 0.08;
 const LOCAL_SPEAKING_RELEASE_MS = 300;
@@ -32,6 +33,7 @@ export class VoiceController {
     this.deps.registerCleanup(() => this.dispose());
     this.updateMuteButtons();
     this.updateVoiceStatusPanel();
+  this.setVoiceGalleryEmptyState("Join the voice channel to see who's hanging out.");
 
     const channels = this.deps.state.get('channels') ?? [];
     if (Array.isArray(channels) && channels.length > 0) {
@@ -539,6 +541,265 @@ export class VoiceController {
     } else {
       this.deps.voicePanel.hide();
     }
+
+    this.renderVoiceGallery(entries, state.voiceConnected);
+  }
+
+  private renderVoiceGallery(entries: VoicePanelEntry[], voiceConnected: boolean): void {
+    const gallery = this.deps.elements.voiceGallery;
+    if (!gallery) {
+      return;
+    }
+
+    const activeChannelType = this.deps.state.get('currentChannelType');
+    const isVoiceChannelActive = activeChannelType === 'voice';
+
+    if (!isVoiceChannelActive) {
+      this.updateVoiceGalleryLayoutState(gallery, 0);
+      gallery.classList.add('hidden');
+      gallery.classList.remove('empty');
+      gallery.setAttribute('aria-hidden', 'true');
+      gallery.replaceChildren();
+      return;
+    }
+
+    const mainContent = document.querySelector('.main-content');
+    const isVoiceMode = mainContent?.classList.contains('voice-mode');
+
+    if (!isVoiceMode) {
+      this.updateVoiceGalleryLayoutState(gallery, 0);
+      gallery.classList.add('hidden');
+      gallery.setAttribute('aria-hidden', 'true');
+      return;
+    }
+
+    gallery.classList.remove('hidden');
+    gallery.setAttribute('aria-hidden', 'false');
+
+    if (!voiceConnected) {
+      this.updateVoiceGalleryLayoutState(gallery, 0);
+      this.setVoiceGalleryEmptyState("Join the voice channel to see who's hanging out.");
+      return;
+    }
+
+    if (entries.length === 0) {
+      this.updateVoiceGalleryLayoutState(gallery, 0);
+      this.setVoiceGalleryEmptyState('No one else is here yet. Share the invite!');
+      return;
+    }
+
+    gallery.classList.remove('empty');
+    this.updateVoiceGalleryLayoutState(gallery, entries.length);
+
+    const fragment = document.createDocumentFragment();
+    entries.forEach((entry) => {
+      fragment.appendChild(this.createVoiceGalleryTile(entry));
+    });
+
+    gallery.replaceChildren(fragment);
+  }
+
+  private createVoiceGalleryTile(entry: VoicePanelEntry): HTMLElement {
+    const tile = document.createElement('article');
+    tile.className = 'voice-gallery-tile';
+  tile.setAttribute('role', 'listitem');
+  tile.dataset.userId = entry.id;
+  tile.dataset.muted = String(Boolean(entry.muted));
+  tile.dataset.deafened = String(Boolean(entry.deafened));
+  tile.dataset.currentUser = entry.isCurrentUser ? 'true' : 'false';
+  const displayName = (entry.name ?? '').trim() || 'Participant';
+  tile.dataset.displayName = entry.isCurrentUser ? `${displayName} (You)` : displayName;
+
+    const avatar = document.createElement('div');
+    avatar.className = 'voice-gallery-avatar';
+
+    const avatarImg = document.createElement('img');
+    const avatarSeed = entry.name || entry.id || 'participant';
+    avatarImg.src = generateIdenticonDataUri(avatarSeed, { size: 160, label: entry.name ?? avatarSeed });
+    avatarImg.alt = `${entry.name ?? 'Participant'} avatar`;
+  avatarImg.decoding = 'async';
+  avatarImg.loading = 'lazy';
+  avatarImg.draggable = false;
+    avatar.appendChild(avatarImg);
+
+    const status = document.createElement('span');
+    status.className = 'voice-gallery-status';
+    avatar.appendChild(status);
+
+    tile.appendChild(avatar);
+
+    const name = document.createElement('h3');
+  name.className = 'voice-gallery-name';
+  name.textContent = entry.isCurrentUser ? `${displayName} (You)` : displayName;
+    tile.appendChild(name);
+
+    const meta = document.createElement('div');
+    meta.className = 'voice-gallery-meta';
+    tile.appendChild(meta);
+
+    this.refreshVoiceGalleryTile(tile, Boolean(entry.speaking));
+
+    return tile;
+  }
+
+  private refreshVoiceGalleryTile(tile: HTMLElement, speaking: boolean): void {
+    tile.classList.toggle('speaking', speaking);
+    tile.dataset.speaking = String(speaking);
+
+    const muted = tile.dataset.muted === 'true';
+    const deafened = tile.dataset.deafened === 'true';
+    const isCurrentUser = tile.dataset.currentUser === 'true';
+
+    const statusEl = tile.querySelector('.voice-gallery-status') as HTMLElement | null;
+    this.updateVoiceGalleryStatus(statusEl, { muted, deafened, speaking, isCurrentUser });
+
+    const metaEl = tile.querySelector('.voice-gallery-meta') as HTMLElement | null;
+    if (metaEl) {
+      this.populateVoiceGalleryMeta(metaEl, { muted, deafened, speaking });
+    }
+
+    const labelParts: string[] = [];
+    if (isCurrentUser) {
+      labelParts.push('You');
+    }
+    if (deafened) {
+      labelParts.push('Deafened');
+    } else if (muted) {
+      labelParts.push('Muted');
+    }
+    if (!deafened && !muted) {
+      labelParts.push(speaking ? 'Speaking' : 'Listening');
+    } else if (speaking) {
+      labelParts.push('Speaking');
+    }
+
+    const displayName = tile.dataset.displayName ?? 'Participant';
+    const labelDescription = labelParts.length > 0 ? labelParts.join(', ') : 'Connected';
+    tile.setAttribute('aria-label', `${displayName} — ${labelDescription}`);
+  }
+
+  private populateVoiceGalleryMeta(
+    metaEl: HTMLElement,
+    state: { muted: boolean; deafened: boolean; speaking: boolean }
+  ): void {
+    const descriptors: string[] = [];
+
+    if (state.deafened) {
+      descriptors.push('Audio Off');
+    }
+
+    if (state.muted) {
+      descriptors.push('Mic Off');
+    }
+
+    if (!state.muted && !state.deafened) {
+      descriptors.push(state.speaking ? 'Now Speaking' : 'Listening');
+    } else if (state.speaking) {
+      descriptors.push('Speaking');
+    }
+
+    if (descriptors.length === 0) {
+      descriptors.push('Connected');
+    }
+
+    metaEl.replaceChildren();
+    descriptors.forEach((label) => {
+      const span = document.createElement('span');
+      span.textContent = label;
+      metaEl.appendChild(span);
+    });
+  }
+
+  private updateVoiceGalleryStatus(
+    statusEl: HTMLElement | null,
+    state: { muted: boolean; deafened: boolean; speaking: boolean; isCurrentUser: boolean }
+  ): void {
+    if (!statusEl) {
+      return;
+    }
+
+    let label: string;
+
+    if (state.isCurrentUser) {
+      if (state.deafened) {
+        label = 'You · Deafened';
+      } else if (state.muted) {
+        label = 'You · Muted';
+      } else if (state.speaking) {
+        label = 'You · Speaking';
+      } else {
+        label = 'You';
+      }
+    } else if (state.deafened) {
+      label = 'Deafened';
+    } else if (state.muted) {
+      label = 'Muted';
+    } else if (state.speaking) {
+      label = 'Speaking';
+    } else {
+      label = 'Participant';
+    }
+
+    statusEl.textContent = label;
+  }
+
+  private updateVoiceGallerySpeakingState(userId: string, speaking: boolean): void {
+    const tile = this.findVoiceGalleryTile(userId);
+    if (!tile) {
+      return;
+    }
+
+    this.refreshVoiceGalleryTile(tile, speaking);
+  }
+
+  private findVoiceGalleryTile(userId: string): HTMLElement | null {
+    const gallery = this.deps.elements.voiceGallery;
+    if (!gallery) {
+      return null;
+    }
+
+    const safeId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(userId) : userId.replace(/"/g, '\\"');
+    return gallery.querySelector<HTMLElement>(`.voice-gallery-tile[data-user-id="${safeId}"]`);
+  }
+
+  private setVoiceGalleryEmptyState(message: string): void {
+    const gallery = this.deps.elements.voiceGallery;
+    if (!gallery) {
+      return;
+    }
+
+    gallery.classList.add('empty');
+    this.updateVoiceGalleryLayoutState(gallery, 0);
+    gallery.replaceChildren();
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'voice-gallery-empty-message';
+    messageEl.textContent = message;
+    gallery.appendChild(messageEl);
+  }
+
+  private updateVoiceGalleryLayoutState(gallery: HTMLElement, participantCount: number): void {
+    const layoutClasses = ['voice-gallery--single', 'voice-gallery--double', 'voice-gallery--multi'];
+    gallery.classList.remove(...layoutClasses);
+
+    if (participantCount <= 0) {
+      delete gallery.dataset.participantCount;
+      return;
+    }
+
+    gallery.dataset.participantCount = String(participantCount);
+
+    if (participantCount === 1) {
+      gallery.classList.add('voice-gallery--single');
+      return;
+    }
+
+    if (participantCount === 2) {
+      gallery.classList.add('voice-gallery--double');
+      return;
+    }
+
+    gallery.classList.add('voice-gallery--multi');
   }
 
   private setLocalSpeaking(speaking: boolean): void {
@@ -560,11 +821,7 @@ export class VoiceController {
     }
 
     this.deps.voicePanel.updateSpeakingIndicator(userId, speaking);
-
-    const userRow = document.querySelector(`[data-id="${userId}"]`);
-    if (userRow) {
-      userRow.classList.toggle('speaking', speaking);
-    }
+    this.updateVoiceGallerySpeakingState(userId, speaking);
   }
 
   private startVoiceSessionTimer(startedAt: number | null | undefined, sessionId: string | null): void {

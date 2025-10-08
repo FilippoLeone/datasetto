@@ -1145,11 +1145,251 @@
     display: none;
   }
 
-  .main-content.voice-mode::after {
-    content: 'Jump into a text or stream channel to start chatting.';
-    @apply absolute inset-y-0 left-0 right-0 flex items-center justify-center text-center text-text-muted px-6;
+  .voice-gallery {
+    display: none;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+  }
+
+  .main-content.voice-mode .voice-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: clamp(1rem, 3vw, 1.75rem);
+    padding: clamp(1.5rem, 5vw, 3rem);
+    align-content: start;
+    justify-items: center;
+    justify-content: center;
+    grid-auto-rows: minmax(0, 1fr);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    min-height: 100%;
+    margin-inline: auto;
+    max-width: min(1200px, 100%);
+  }
+
+  .voice-gallery.empty {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: clamp(1rem, 2.6vw, 1.25rem);
+    color: var(--color-text-muted);
+    letter-spacing: 0.04em;
+    padding: clamp(1.5rem, 6vw, 3rem);
+    min-height: 100%;
+  }
+
+  .voice-gallery-empty-message {
+    max-width: 40ch;
+    line-height: 1.6;
+  }
+
+  .voice-gallery.voice-gallery--single {
+    grid-template-columns: minmax(260px, min(70vw, 460px));
+    place-content: center;
+    padding: clamp(2rem, 10vw, 5rem);
+    max-width: min(640px, 100%);
+  }
+
+  .voice-gallery.voice-gallery--single .voice-gallery-tile {
+    width: min(70vw, 460px);
+    min-height: clamp(240px, 55vh, 420px);
+    padding: clamp(2rem, 6vw, 3.25rem);
+  }
+
+  .voice-gallery.voice-gallery--single .voice-gallery-avatar {
+    width: clamp(6rem, 17vw, 8.5rem);
+    height: clamp(6rem, 17vw, 8.5rem);
+  }
+
+  .voice-gallery.voice-gallery--single .voice-gallery-name {
+    font-size: clamp(1.1rem, 2.3vw, 1.5rem);
+  }
+
+  .voice-gallery.voice-gallery--single .voice-gallery-meta {
+    font-size: clamp(0.8rem, 1.8vw, 1rem);
+    gap: clamp(0.45rem, 1.2vw, 0.75rem);
+  }
+
+  .voice-gallery.voice-gallery--double {
+    grid-template-columns: repeat(auto-fit, minmax(220px, min(45vw, 360px)));
+    place-content: center;
+    max-width: min(960px, 100%);
+  }
+
+  .voice-gallery.voice-gallery--double .voice-gallery-tile {
+    width: min(45vw, 360px);
+  }
+
+  .voice-gallery.voice-gallery--multi {
+    max-width: min(1200px, 100%);
+  }
+
+  .voice-gallery-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1.5rem 1rem;
+    border-radius: 18px;
+    background: rgba(18, 18, 24, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 18px 28px rgba(6, 6, 12, 0.35);
+    transition: transform var(--transition-base) ease, box-shadow var(--transition-base) ease, border-color var(--transition-base) ease;
+    min-height: 180px;
+  }
+
+  .voice-gallery-tile:hover {
+    transform: translateY(-4px);
+    border-color: rgba(145, 71, 255, 0.32);
+    box-shadow: 0 24px 42px rgba(10, 10, 16, 0.45);
+  }
+
+  .voice-gallery-tile.speaking {
+    border-color: rgba(0, 245, 147, 0.65);
+    box-shadow: 0 0 32px rgba(0, 245, 147, 0.35);
+  }
+
+  .voice-gallery-avatar {
+    position: relative;
+    width: 5rem;
+    height: 5rem;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    transition: transform var(--transition-base) ease;
+  }
+
+  .voice-gallery-avatar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.12);
     pointer-events: none;
-    font-weight: 500;
+    transition: box-shadow var(--transition-base) ease;
+  }
+
+  .voice-gallery-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .voice-gallery-avatar .initials {
+    position: relative;
+    z-index: 1;
+    font-size: 1.85rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.08em;
+  }
+
+  .voice-gallery-status {
+    position: absolute;
+    bottom: -6px;
+    right: -6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.45rem;
+    border-radius: 999px;
+    background: rgba(18, 18, 24, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    box-shadow: 0 8px 16px rgba(5, 5, 8, 0.45);
+  }
+
+  .voice-gallery-name {
+    text-align: center;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-text-normal);
+    max-width: 100%;
+    word-break: break-word;
+  }
+
+  .voice-gallery-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text-muted);
+  }
+
+  .voice-gallery-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .voice-gallery-tile.speaking .voice-gallery-meta {
+    color: var(--color-success);
+  }
+
+  .voice-gallery-tile.speaking .voice-gallery-avatar {
+    transform: scale(1.05);
+  }
+
+  .voice-gallery-tile.speaking .voice-gallery-avatar::after {
+    box-shadow: inset 0 0 0 2px rgba(0, 245, 147, 0.55), 0 0 24px rgba(0, 245, 147, 0.35);
+  }
+
+  @media (max-width: 768px) {
+    .main-content.voice-mode .voice-gallery {
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: clamp(0.75rem, 4vw, 1.25rem);
+      padding: clamp(1rem, 6vw, 2rem);
+    }
+
+    .voice-gallery-tile {
+      padding: 1.25rem 0.85rem;
+      min-height: 160px;
+    }
+
+    .voice-gallery-avatar {
+      width: 4.25rem;
+      height: 4.25rem;
+    }
+
+    .voice-gallery-name {
+      font-size: 0.9rem;
+    }
+
+    .voice-gallery-meta {
+      font-size: 0.7rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      text-align: center;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .main-content.voice-mode .voice-gallery {
+      grid-template-columns: minmax(0, 1fr);
+      padding: clamp(0.75rem, 7vw, 1.5rem);
+    }
+
+    .voice-gallery-tile {
+      padding: 1.1rem 0.75rem;
+    }
+
+    .voice-gallery-status {
+      bottom: -4px;
+      right: -4px;
+    }
   }
 
   .hidden-in-fullscreen {
@@ -1862,6 +2102,17 @@
       bottom: 0;
       left: 0;
       width: min(var(--sidebar-width), 92vw);
+
+    .voice-gallery.voice-gallery--single {
+      grid-template-columns: minmax(220px, min(85vw, 420px));
+      padding: clamp(1.5rem, 8vw, 3rem);
+    }
+
+    .voice-gallery.voice-gallery--single .voice-gallery-tile {
+      width: min(85vw, 420px);
+      min-height: clamp(220px, 58vh, 360px);
+      padding: clamp(1.75rem, 6vw, 2.5rem);
+    }
       max-width: 92vw;
       transform: translateX(-100%);
       transition: transform var(--transition-base) ease;
@@ -1934,6 +2185,16 @@
       flex-direction: column;
     }
 
+
+    .voice-gallery.voice-gallery--single {
+      grid-template-columns: minmax(0, 1fr);
+      padding: clamp(1rem, 10vw, 2.5rem);
+    }
+
+    .voice-gallery.voice-gallery--single .voice-gallery-tile {
+      width: 100%;
+      min-height: clamp(220px, 48vh, 320px);
+    }
     .sidebar,
     .members-panel {
       width: 100%;
