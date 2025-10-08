@@ -363,6 +363,11 @@ export class App {
     if (membersList) {
       this.elements['members-list'] = membersList as HTMLElement;
     }
+
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+      this.elements['sidebar'] = sidebar as HTMLElement;
+    }
   }
 
   private addTrackedListener(
@@ -568,6 +573,13 @@ export class App {
       void this.voiceController?.disconnect({ playSound: true });
       this.closeMobileVoicePanel();
     });
+
+    if (window.PointerEvent) {
+      this.addTrackedListener(document, 'pointerdown', (event) => this.handleDocumentPointerDown(event));
+    } else {
+      this.addTrackedListener(document, 'mousedown', (event) => this.handleDocumentPointerDown(event));
+      this.addTrackedListener(document, 'touchstart', (event) => this.handleDocumentPointerDown(event));
+    }
 
     this.registerModalBackdropHandlers();
   }
@@ -781,6 +793,35 @@ export class App {
     this.updateMobileOverlayState();
   }
 
+  private handleDocumentPointerDown(event: Event): void {
+    const app = this.elements.app;
+    if (!app || !this.isMobileLayout() || !app.classList.contains('sidebar-open')) {
+      return;
+    }
+
+    const targetNode = event.target as Node | null;
+    if (!targetNode) {
+      return;
+    }
+
+    const sidebar = this.elements['sidebar'] as HTMLElement | undefined;
+    if (sidebar && sidebar.contains(targetNode)) {
+      return;
+    }
+
+    const toolbar = this.elements['mobile-toolbar'] as HTMLElement | undefined;
+    if (toolbar && toolbar.contains(targetNode)) {
+      return;
+    }
+
+    const elementTarget = targetNode instanceof Element ? targetNode : targetNode.parentElement;
+    if (elementTarget?.closest('.modal-card')) {
+      return;
+    }
+
+    this.closeMobilePanels();
+  }
+
   private updateMobileToolbarState(): void {
     const app = this.elements.app;
 
@@ -859,6 +900,7 @@ export class App {
       const handleBackdrop = (event: Event): void => {
         if (event.target === modal) {
           dismiss();
+          this.closeMobilePanels();
           this.updateMobileToolbarState();
         }
       };
