@@ -14,6 +14,12 @@ export class PlayerService {
     this.videoElement = videoElement;
     this.baseUrl = baseUrl;
     this.overlayElement = overlayElement || null;
+
+    this.videoElement.playsInline = true;
+    this.videoElement.autoplay = true;
+    this.videoElement.muted = true;
+    this.videoElement.setAttribute('playsinline', '');
+    this.videoElement.setAttribute('webkit-playsinline', 'true');
     
     this.setupVideoEvents();
   }

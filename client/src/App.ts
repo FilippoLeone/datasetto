@@ -23,6 +23,7 @@ import type {
   Account,
 } from '@/types';
 import { validateEnv, resolveRuntimeConfig } from '@/utils';
+import { applyDeviceClasses } from '@/utils/device';
 
 const RUNTIME_CONFIG = validateEnv(resolveRuntimeConfig());
 
@@ -86,6 +87,8 @@ export class App {
     this.cacheElements();
     this.updateMobileProfileButton();
   this.updateStreamingInstructions();
+
+    applyDeviceClasses(document.documentElement);
 
     this.voicePanel = new VoicePanelController({
       panel: this.elements['voice-users-panel'],
@@ -216,6 +219,12 @@ export class App {
       notifications: this.notifications,
       registerCleanup: (cleanup) => this.cleanupCallbacks.push(cleanup),
       voiceSetOutputVolume: (volume) => this.voice.setOutputVolume(volume),
+      voiceSetOutputDevice: async (deviceId) => {
+        if (!this.voiceController) {
+          throw new Error('Voice controller not ready yet.');
+        }
+        await this.voiceController.setOutputDevice(deviceId);
+      },
     });
 
     this.settingsController.initialize();
@@ -326,6 +335,7 @@ export class App {
     'user-avatar', 'user-status-text', 'voice-status-panel',
     'connected-voice-channel',
   'voice-users-panel', 'voice-users-list', 'voice-user-count', 'voice-session-timer',
+  'face-guard-toggle', 'face-guard-overlay', 'face-guard-dismiss',
       'text-channels', 'stream-channels', 'member-count',
       'create-text-channel', 'create-voice-channel', 'create-stream-channel',
       'createChannelModal', 'newChannelName', 'newChannelType',

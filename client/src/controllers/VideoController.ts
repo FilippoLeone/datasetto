@@ -104,9 +104,20 @@ export class VideoController {
   }
 
   handleVoiceChannelSelected(): void {
-    if (!this.deps.state.get('streamingMode')) {
-      this.closePopout();
+    this.closeInlineVideo();
+
+    if (this.deps.state.get('streamingMode')) {
+      this.deps.state.setStreamingMode(false);
+
+      const toggleBtn = this.deps.elements['toggle-video-popout'];
+      if (toggleBtn) {
+        toggleBtn.textContent = '📺';
+      }
+
+      this.deps.notifications.info('Streaming mode disabled');
     }
+
+    this.closePopout();
   }
 
   handleStreamChannelSelected(channelName: string): void {
@@ -190,6 +201,12 @@ export class VideoController {
       console.error('Inline video elements not found');
       return;
     }
+
+    video.playsInline = true;
+    video.muted = true;
+    video.autoplay = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', 'true');
 
     playerColumn?.classList.remove('hidden');
 

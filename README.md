@@ -2,7 +2,7 @@
 
 # 🎮 Twiscord
 
-A modern, self-hosted Discord-like streaming platform with RTMP streaming, voice chat, and text chat.
+A modern, self-hosted streaming platform with RTMP streaming, voice chat, and text chat.
 
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue)](https://www.docker.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-green)](https://nodejs.org/)
@@ -17,7 +17,7 @@ A modern, self-hosted Discord-like streaming platform with RTMP streaming, voice
 - 🎤 **WebRTC Voice Chat** - P2P voice communication with echo cancellation & noise suppression
 - 💬 **Text Chat** - Real-time messaging with per-channel history (100 messages in-memory)
 - 🎬 **Video Player Controls** - Play/pause, volume, fullscreen, keyboard shortcuts (Space/F/M/C/Arrows)
-- 👥 **Multi-Channel** - Separate text, voice, and stream channels with Discord-like UI
+- 👥 **Multi-Channel** - Separate text, voice, and stream channels 
 - 🔐 **Role System** - Superuser, admin, moderator, streamer, and user roles
 - 📱 **Responsive Design** - Mobile-friendly interface
 ---
@@ -159,3 +159,5 @@ sudo ./deploy-vps.sh
 chmod +x deploy-gcp.sh
 ./deploy-gcp.sh
 ```
+
+This project is meant for local use only and it is not affiliated nor sponsored in any way shape or form with Twitch or Discord.

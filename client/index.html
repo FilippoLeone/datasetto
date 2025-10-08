@@ -75,6 +75,15 @@
               <button id="mute-output-combo" class="voice-toggle-btn" aria-label="Toggle mic and output" title="Mute mic and output" aria-pressed="false">
                 <span class="mute-output-label">Mute All</span>
               </button>
+              <button
+                id="face-guard-toggle"
+                class="voice-toggle-btn"
+                type="button"
+                aria-pressed="false"
+                title="Prevent accidental touches when holding the device near your face"
+              >
+                Face Guard
+              </button>
             </div>
           </div>
 
@@ -151,7 +160,7 @@
               </div>
 
               <div class="inline-video-stage relative w-full aspect-video bg-black">
-                <video id="inlineVideo" class="w-full h-full" aria-label="Video player" autoplay muted></video>
+                <video id="inlineVideo" class="w-full h-full" aria-label="Video player" autoplay muted playsinline webkit-playsinline></video>
                 <div id="inlinePlayerOverlay" class="video-player-overlay" aria-live="polite">
                   <div class="overlay-content">
                     <div class="overlay-spinner w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
@@ -252,7 +261,7 @@
       </aside>
 
       <!-- Video Popout -->
-      <div id="video-popout" class="video-popout fixed bottom-4 right-4 w-96 bg-bg-tertiary rounded-lg shadow-lg overflow-hidden z-modal hidden" role="region" aria-label="Video player">
+  <div id="video-popout" class="video-popout fixed bottom-4 right-4 w-96 bg-bg-tertiary rounded-lg shadow-lg overflow-hidden z-modal hidden" role="region" aria-label="Video player">
         <div class="px-4 py-3 bg-bg-secondary flex items-center justify-between cursor-move" id="video-popout-header">
           <span class="font-bold text-text-normal">Stream</span>
           <div class="flex gap-2">
@@ -262,7 +271,7 @@
           </div>
         </div>
         <div class="relative aspect-video bg-black">
-          <video id="video" class="w-full h-full" aria-label="Video player" autoplay muted></video>
+          <video id="video" class="w-full h-full" aria-label="Video player" autoplay muted playsinline webkit-playsinline></video>
           <div id="playerOverlay" class="video-player-overlay" aria-live="polite">
             <div class="overlay-content">
               <div class="overlay-spinner w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
@@ -369,7 +378,7 @@
         </div>
       </div>
 
-    <!-- User Settings Modal (Profile) -->
+  <!-- User Settings Modal (Profile) -->
     <div id="regModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
         <div class="modal-card">
           <div class="modal-header">
@@ -700,5 +709,19 @@
 
     
     <script type="module" src="/src/main.ts"></script>
+    <div
+      id="face-guard-overlay"
+      class="face-guard-overlay hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-live="polite"
+      aria-label="Face guard lock"
+    >
+      <div class="face-guard-card" role="document">
+        <span class="face-guard-icon" aria-hidden="true">📵</span>
+        <p class="face-guard-message">Face guard is active. Move your device away from your face to resume using the app.</p>
+        <button id="face-guard-dismiss" type="button" class="face-guard-dismiss-btn">Disable Face Guard</button>
+      </div>
+    </div>
   </body>
   </html>

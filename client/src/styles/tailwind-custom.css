@@ -599,6 +599,20 @@
   }
 
 
+  @keyframes voice-speaking-pulse {
+    0%,
+    100% {
+      transform: scale(1.02);
+      box-shadow: 0 0 0 4px rgba(0, 245, 147, 0.28), 0 18px 32px rgba(0, 245, 147, 0.18), 0 16px 30px rgba(10, 10, 16, 0.42);
+    }
+
+    50% {
+      transform: scale(1.09);
+      box-shadow: 0 0 0 10px rgba(0, 245, 147, 0), 0 22px 36px rgba(0, 245, 147, 0.32), 0 16px 30px rgba(10, 10, 16, 0.42);
+    }
+  }
+
+
   @keyframes pulse-dot {
     0%,
     100% {
@@ -1299,6 +1313,8 @@
     background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.16), rgba(10, 10, 18, 0.82));
     box-shadow: 0 16px 30px rgba(10, 10, 16, 0.42);
     transition: transform var(--transition-base) ease, box-shadow var(--transition-base) ease;
+    transform: scale(1);
+    will-change: transform, box-shadow;
   }
 
   .voice-gallery-avatar::after {
@@ -1318,13 +1334,18 @@
     border-radius: inherit;
   }
 
-  .voice-gallery-item.speaking .voice-gallery-avatar {
-    box-shadow: 0 0 0 4px rgba(0, 245, 147, 0.45), 0 18px 32px rgba(0, 245, 147, 0.25);
-    transform: scale(1.04);
+  .voice-gallery-avatar.voice-speaking {
+    animation: voice-speaking-pulse 1.8s ease-in-out infinite;
   }
 
-  .voice-gallery-item.speaking .voice-gallery-avatar::after {
+  .voice-gallery-avatar.voice-speaking::after {
     border-color: rgba(0, 245, 147, 0.6);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .voice-gallery-avatar.voice-speaking {
+      animation-duration: 3.6s;
+    }
   }
 
   .voice-gallery-status {
@@ -2139,7 +2160,7 @@
       padding: clamp(1.5rem, 8vw, 3rem);
     }
 
-    .voice-gallery.voice-gallery--single .voice-gallery-tile {
+    .voice-gallery.voice-gallery--single .voice-gallery-item {
       width: min(85vw, 420px);
       min-height: clamp(220px, 58vh, 360px);
       padding: clamp(1.75rem, 6vw, 2.5rem);
@@ -2211,6 +2232,105 @@
     }
   }
 
+
+  /* Face guard overlay */
+  #face-guard-toggle {
+    display: none;
+  }
+
+  @media (max-width: 768px) {
+    #face-guard-toggle {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.3rem 0.55rem;
+      font-size: 0.58rem;
+      letter-spacing: 0.08em;
+      min-width: auto;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(36, 36, 42, 0.68);
+      color: rgba(215, 223, 240, 0.82);
+    }
+
+    #face-guard-toggle::before {
+      content: '📵';
+      font-size: 0.8rem;
+      line-height: 1;
+    }
+
+    #face-guard-toggle.active {
+      background: rgba(59, 130, 246, 0.25);
+      border-color: rgba(59, 130, 246, 0.45);
+      color: #93c5fd;
+    }
+  }
+
+  .face-guard-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(8, 8, 12, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    z-index: 9999;
+  }
+
+  .face-guard-overlay.hidden {
+    display: none;
+  }
+
+  .face-guard-card {
+    background: rgba(17, 24, 39, 0.92);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 1rem;
+    padding: 2rem;
+    max-width: 22rem;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    text-align: center;
+    box-shadow: 0 20px 45px rgba(8, 8, 12, 0.7);
+  }
+
+  .face-guard-icon {
+    font-size: 2.75rem;
+  }
+
+  .face-guard-message {
+    color: rgba(226, 232, 240, 0.9);
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  .face-guard-dismiss-btn {
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    color: #bfdbfe;
+    font-weight: 600;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .face-guard-dismiss-btn:hover,
+  .face-guard-dismiss-btn:focus-visible {
+    background: rgba(59, 130, 246, 0.3);
+    border-color: rgba(59, 130, 246, 0.55);
+    outline: none;
+  }
+
+  body.face-guard-lock #app {
+    pointer-events: none;
+    touch-action: none;
+  }
+
+  body.face-guard-lock .face-guard-overlay {
+    pointer-events: auto;
+  }
   @media (max-width: 768px) {
     .app-shell {
       flex-direction: column;
@@ -2222,7 +2342,7 @@
       padding: clamp(1rem, 10vw, 2.5rem);
     }
 
-    .voice-gallery.voice-gallery--single .voice-gallery-tile {
+    .voice-gallery.voice-gallery--single .voice-gallery-item {
       width: 100%;
       min-height: clamp(220px, 48vh, 320px);
     }
@@ -2311,3 +2431,5 @@
     backdrop-filter: blur(8px);
   }
 }
+
+  /* Face guard overlay and states */

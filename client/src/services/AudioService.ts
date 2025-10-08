@@ -4,6 +4,9 @@
 import type { AudioSettings, DeviceInfo } from '@/types';
 import { EventEmitter } from '@/utils';
 
+export const MICROPHONE_PERMISSION_HELP_TEXT =
+  'Microphone permission is blocked. Enable access in your browser or system settings, then reload. On iOS Safari: Settings → Safari → Camera & Microphone. On Android Chrome: Settings → Site Settings → Microphone.';
+
 export class AudioService extends EventEmitter {
   private audioContext: AudioContext | null = null;
   private localStream: MediaStream | null = null;
@@ -18,6 +21,22 @@ export class AudioService extends EventEmitter {
   constructor(settings: AudioSettings) {
     super();
     this.settings = settings;
+  }
+
+  async getMicrophonePermissionStatus(): Promise<PermissionState | 'unsupported'> {
+    if (typeof navigator === 'undefined' || !('permissions' in navigator)) {
+      return 'unsupported';
+    }
+
+    try {
+      const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      return status.state;
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[AudioService] Unable to read microphone permission status:', error);
+      }
+      return 'unsupported';
+    }
   }
 
   /**
@@ -35,6 +54,10 @@ export class AudioService extends EventEmitter {
    */
   async getDevices(): Promise<{ mics: DeviceInfo[]; speakers: DeviceInfo[] }> {
     try {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
+        throw new Error('Audio device enumeration is not supported in this browser.');
+      }
+
       const devices = await navigator.mediaDevices.enumerateDevices();
       
       const mics = devices
@@ -86,6 +109,8 @@ export class AudioService extends EventEmitter {
     }
 
     try {
+      this.assertMicrophoneSupport();
+
       // Stop existing stream if any
       if (this.localStream || this.rawStream) {
         this.stopLocalStream();
@@ -132,7 +157,7 @@ export class AudioService extends EventEmitter {
       return this.localStream;
     } catch (error) {
       console.error('Error getting local stream:', error);
-      throw new Error('Failed to access microphone. Please check permissions.');
+      throw this.mapGetUserMediaError(error);
     }
   }
 
@@ -327,5 +352,58 @@ export class AudioService extends EventEmitter {
     }
 
     this.clear();
+  }
+
+  private assertMicrophoneSupport(): void {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+      throw new Error('Microphone access is only available in supported browsers.');
+    }
+
+    if (!window.isSecureContext) {
+      throw new Error('Microphone access requires a secure connection (HTTPS). Please reload the app using https://');
+    }
+
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+      throw new Error('Microphone access is not supported in this browser. Try the latest versions of Chrome, Safari, or Firefox.');
+    }
+  }
+
+  private mapGetUserMediaError(error: unknown): Error {
+    if (error instanceof DOMException) {
+      switch (error.name) {
+        case 'NotAllowedError':
+        case 'SecurityError':
+          return new Error(MICROPHONE_PERMISSION_HELP_TEXT);
+        case 'NotFoundError':
+        case 'DevicesNotFoundError':
+          return new Error('No microphone was detected. Connect a microphone or check that it is enabled, then try again.');
+        case 'NotReadableError':
+        case 'TrackStartError':
+        case 'HardwareError':
+          return new Error('Your microphone is currently in use by another app. Close other apps that use the mic, then try again.');
+        case 'OverconstrainedError':
+        case 'ConstraintNotSatisfiedError':
+          return new Error('The selected microphone is unavailable. Reset your input device in audio settings and retry.');
+        case 'AbortError':
+          return new Error('Microphone initialization was interrupted. Please try again.');
+        default:
+          return new Error(`Failed to access microphone (${error.name}). Please check your device settings.`);
+      }
+    }
+
+    if (error instanceof Error) {
+      return new Error(`Failed to access microphone: ${error.message}`);
+    }
+
+    return new Error('Failed to access microphone. Please check permissions and device settings.');
+  }
+
+  supportsOutputDeviceSelection(): boolean {
+    if (typeof document === 'undefined') {
+      return false;
+    }
+
+    const audio = document.createElement('audio');
+    return typeof (audio as HTMLMediaElement & { setSinkId?: unknown }).setSinkId === 'function';
   }
 }

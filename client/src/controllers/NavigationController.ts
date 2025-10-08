@@ -183,18 +183,32 @@ export class NavigationController {
   private updateStreamLayoutMode(type: 'text' | 'voice' | 'stream', channelName: string): void {
     const streamLayout = this.deps.elements.streamLayout as HTMLElement | undefined;
     const chatDock = this.deps.elements.streamChatDock as HTMLElement | undefined;
-    const chatStatus = this.deps.elements.streamChatStatus as HTMLElement | undefined;
-    const chatTitle = chatDock?.querySelector('.stream-chat-title') as HTMLElement | null;
+  const chatStatus = this.deps.elements.streamChatStatus as HTMLElement | undefined;
+  const chatTitle = chatDock?.querySelector('.stream-chat-title') as HTMLElement | null;
+  const playerColumn = this.deps.elements.streamPlayerColumn as HTMLElement | undefined;
 
-    streamLayout?.classList.toggle('is-stream-mode', type === 'stream');
+    const isStreamMode = type === 'stream';
+
+    streamLayout?.classList.toggle('is-stream-mode', isStreamMode);
     streamLayout?.classList.toggle('is-text-mode', type === 'text');
     streamLayout?.classList.toggle('is-voice-mode', type === 'voice');
     if (streamLayout) {
       streamLayout.dataset.mode = type;
     }
 
+    playerColumn?.classList.toggle('hidden', !isStreamMode);
+
+    if (!isStreamMode) {
+      chatDock?.classList.add('hidden');
+      chatDock?.setAttribute('aria-hidden', 'true');
+      chatDock?.classList.remove('stream-chat-hidden');
+    } else {
+      chatDock?.classList.remove('hidden');
+      chatDock?.removeAttribute('aria-hidden');
+    }
+
     if (chatTitle) {
-      if (type === 'stream') {
+      if (isStreamMode) {
         chatTitle.textContent = 'Live Chat';
         chatTitle.classList.remove('text-channel-title');
       } else {
@@ -204,7 +218,7 @@ export class NavigationController {
     }
 
     if (chatStatus) {
-      if (type === 'stream') {
+      if (isStreamMode) {
         chatStatus.textContent = document.body.classList.contains('stream-inline-active') ? 'Chat docked' : 'Chat ready';
       } else if (type === 'text') {
         chatStatus.textContent = '';

@@ -1,7 +1,10 @@
 import type { VoiceControllerDeps } from './types';
 import type { Channel, VoicePeerEvent } from '@/types';
 import type { VoicePanelEntry } from '@/ui/VoicePanelController';
+import { MICROPHONE_PERMISSION_HELP_TEXT } from '@/services/AudioService';
 import { generateIdenticonDataUri } from '@/utils/avatarGenerator';
+import { FaceGuard } from '@/utils/FaceGuard';
+import { isMobileDevice } from '@/utils/device';
 
 const LOCAL_SPEAKING_THRESHOLD = 0.08;
 const LOCAL_SPEAKING_RELEASE_MS = 300;
@@ -23,9 +26,46 @@ export class VoiceController {
   private voiceChannelTimerHandle: number | null = null;
   private pttActive = false;
   private disposers: Array<() => void> = [];
+  private activeOutputDeviceId: string | null = null;
+  private faceGuard: FaceGuard | null = null;
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps;
+
+    if (isMobileDevice()) {
+      const overlay = this.deps.elements['face-guard-overlay'] ?? null;
+      const toggleButton = this.deps.elements['face-guard-toggle'] as HTMLButtonElement | undefined;
+      const dismissButton = this.deps.elements['face-guard-dismiss'] as HTMLButtonElement | undefined;
+
+      this.faceGuard = new FaceGuard({
+        overlay,
+        toggleButton: toggleButton ?? null,
+        dismissButton: dismissButton ?? null,
+        notifications: this.deps.notifications,
+      });
+
+      this.deps.registerCleanup(() => this.faceGuard?.dispose());
+    } else {
+      const toggleButton = this.deps.elements['face-guard-toggle'] as HTMLButtonElement | undefined;
+      const overlay = this.deps.elements['face-guard-overlay'] as HTMLElement | undefined;
+      const dismissButton = this.deps.elements['face-guard-dismiss'] as HTMLButtonElement | undefined;
+
+      if (toggleButton) {
+        toggleButton.style.display = 'none';
+        toggleButton.setAttribute('aria-hidden', 'true');
+        toggleButton.setAttribute('tabindex', '-1');
+      }
+
+      if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.setAttribute('aria-hidden', 'true');
+      }
+
+      if (dismissButton) {
+        dismissButton.setAttribute('tabindex', '-1');
+        dismissButton.setAttribute('aria-hidden', 'true');
+      }
+    }
   }
 
   initialize(): void {
@@ -33,7 +73,9 @@ export class VoiceController {
     this.deps.registerCleanup(() => this.dispose());
     this.updateMuteButtons();
     this.updateVoiceStatusPanel();
-  this.setVoiceGalleryEmptyState("Join the voice channel to see who's hanging out.");
+
+    void this.applySpeakerPreference();
+    this.faceGuard?.setVoiceActive(this.deps.state.get('voiceConnected'));
 
     const channels = this.deps.state.get('channels') ?? [];
     if (Array.isArray(channels) && channels.length > 0) {
@@ -44,6 +86,8 @@ export class VoiceController {
   dispose(): void {
     this.clearVoiceSessionTimer();
     this.clearVoiceChannelTimer();
+    this.faceGuard?.setVoiceActive(false);
+    this.faceGuard?.dispose();
 
     for (const dispose of this.disposers.splice(0)) {
       try {
@@ -236,12 +280,15 @@ export class VoiceController {
 
     this.deps.state.setActiveVoiceChannel(data.channelId, channelName);
     this.deps.state.setVoiceConnected(true);
+  this.faceGuard?.setVoiceActive(true);
 
     const sessionId = data.sessionId ?? null;
     this.startVoiceSessionTimer(data.startedAt ?? null, sessionId);
 
     await this.syncMicrophoneState();
     this.announceVoiceState();
+
+  await this.applySpeakerPreference();
 
     this.voiceUsers.clear();
     data.peers.forEach((peer) => {
@@ -270,6 +317,18 @@ export class VoiceController {
       await this.deps.voice.createOffer(data.id);
     } catch (error) {
       console.error('Error creating offer:', error);
+    }
+  }
+
+  async setOutputDevice(deviceId: string | null): Promise<void> {
+    try {
+      await this.deps.voice.setOutputDevice(deviceId ?? '');
+      this.activeOutputDeviceId = deviceId ?? '';
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.error('[VoiceController] Failed to switch output device:', error);
+      }
+      throw error instanceof Error ? error : new Error('Unable to switch speaker output.');
     }
   }
 
@@ -335,6 +394,24 @@ export class VoiceController {
 
   public refreshVoiceInterface(): void {
     this.renderVoiceUsers();
+  }
+
+  private async applySpeakerPreference(): Promise<void> {
+    const settings = this.deps.state.get('settings');
+    const targetDeviceId = settings.spkDeviceId ?? '';
+
+    if (targetDeviceId === this.activeOutputDeviceId) {
+      return;
+    }
+
+    try {
+      await this.deps.voice.setOutputDevice(targetDeviceId);
+      this.activeOutputDeviceId = targetDeviceId;
+    } catch (error) {
+      if (targetDeviceId && import.meta.env.DEV) {
+        console.warn('[VoiceController] Unable to apply speaker preference:', error);
+      }
+    }
   }
 
   private registerServiceListeners(): void {
@@ -405,6 +482,8 @@ export class VoiceController {
       this.deps.state.on('state:change', () => {
         this.updateMuteButtons();
         this.updateVoiceStatusPanel();
+        void this.applySpeakerPreference();
+        this.faceGuard?.setVoiceActive(this.deps.state.get('voiceConnected'));
       })
     );
   }
@@ -430,6 +509,18 @@ export class VoiceController {
     }
 
     try {
+      const permissionState = await this.deps.audio.getMicrophonePermissionStatus();
+      if (permissionState === 'denied') {
+        this.handleMicrophonePermissionDenied();
+        return;
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[VoiceController] Unable to determine microphone permission status:', error);
+      }
+    }
+
+    try {
       const stream = await this.deps.audio.getLocalStream(forceRestart);
       this.deps.audio.setMuted(false);
       this.deps.voice.setLocalStream(stream);
@@ -439,8 +530,18 @@ export class VoiceController {
       this.updateMuteButtons();
       this.renderVoiceUsers();
       this.announceVoiceState();
-      this.deps.notifications.error('Failed to enable microphone. Please check permissions.');
+      this.deps.notifications.error(error instanceof Error ? error.message : 'Failed to enable microphone. Please check permissions.');
     }
+  }
+
+  private handleMicrophonePermissionDenied(): void {
+    this.deps.state.setMuted(true);
+    this.deps.audio.stopLocalStream();
+    this.setLocalSpeaking(false);
+    this.updateMuteButtons();
+    this.renderVoiceUsers();
+    this.announceVoiceState();
+    this.deps.notifications.error(MICROPHONE_PERMISSION_HELP_TEXT);
   }
 
   private handleAudioStreamActive(stream: MediaStream): void {
@@ -580,9 +681,10 @@ export class VoiceController {
     gallery.classList.remove('hidden');
     gallery.setAttribute('aria-hidden', 'false');
 
-    if (!voiceConnected) {
+    if (!voiceConnected && entries.length === 0) {
       this.updateVoiceGalleryLayoutState(gallery, 0);
-      this.setVoiceGalleryEmptyState("Join the voice channel to see who's hanging out.");
+      gallery.classList.remove('empty');
+      gallery.replaceChildren();
       return;
     }
 
@@ -626,7 +728,7 @@ export class VoiceController {
     avatarImg.draggable = false;
     avatar.appendChild(avatarImg);
 
-    const status = document.createElement('span');
+  const status = document.createElement('span');
     status.className = 'voice-gallery-status';
     avatar.appendChild(status);
 
@@ -641,7 +743,7 @@ export class VoiceController {
     meta.className = 'voice-gallery-meta';
     tile.appendChild(meta);
 
-    this.refreshVoiceGalleryTile(tile, Boolean(entry.speaking));
+  this.refreshVoiceGalleryTile(tile, Boolean(entry.speaking));
 
     return tile;
   }
@@ -650,6 +752,11 @@ export class VoiceController {
     tile.classList.toggle('speaking', speaking);
     tile.dataset.speaking = String(speaking);
 
+    const avatarEl = tile.querySelector('.voice-gallery-avatar') as HTMLElement | null;
+    if (avatarEl) {
+      avatarEl.classList.toggle('voice-speaking', speaking);
+    }
+
     const muted = tile.dataset.muted === 'true';
     const deafened = tile.dataset.deafened === 'true';
     const isCurrentUser = tile.dataset.currentUser === 'true';
@@ -657,7 +764,7 @@ export class VoiceController {
     const statusEl = tile.querySelector('.voice-gallery-status') as HTMLElement | null;
     this.updateVoiceGalleryStatus(statusEl, { muted, deafened, speaking, isCurrentUser });
 
-    const metaEl = tile.querySelector('.voice-gallery-meta') as HTMLElement | null;
+  const metaEl = tile.querySelector('.voice-gallery-meta') as HTMLElement | null;
     if (metaEl) {
       this.populateVoiceGalleryMeta(metaEl, { muted, deafened, speaking });
     }
@@ -677,7 +784,7 @@ export class VoiceController {
       labelParts.push('Speaking');
     }
 
-    const displayName = tile.dataset.displayName ?? 'Participant';
+  const displayName = tile.dataset.displayName ?? 'Participant';
     const labelDescription = labelParts.length > 0 ? labelParts.join(', ') : 'Connected';
     tile.setAttribute('aria-label', `${displayName} — ${labelDescription}`);
   }
@@ -763,7 +870,7 @@ export class VoiceController {
     }
 
     const safeId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(userId) : userId.replace(/"/g, '\\"');
-    return gallery.querySelector<HTMLElement>(`.voice-gallery-tile[data-user-id="${safeId}"]`);
+    return gallery.querySelector<HTMLElement>(`.voice-gallery-item[data-user-id="${safeId}"]`);
   }
 
   private setVoiceGalleryEmptyState(message: string): void {
@@ -1074,6 +1181,7 @@ export class VoiceController {
 
     this.deps.state.setVoiceConnected(false);
     this.deps.state.setActiveVoiceChannel(null, null);
+  this.faceGuard?.setVoiceActive(false);
 
     this.voiceUsers.clear();
     this.renderVoiceUsers();

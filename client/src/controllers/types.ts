@@ -105,6 +105,7 @@ export interface SettingsControllerDeps {
   notifications: NotificationManager;
   registerCleanup: (cleanup: () => void) => void;
   voiceSetOutputVolume: (volume: number) => void;
+  voiceSetOutputDevice: (deviceId: string | null) => Promise<void> | void;
 }
 
 export interface UserListControllerDeps {

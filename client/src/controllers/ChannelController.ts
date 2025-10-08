@@ -253,7 +253,14 @@ export class ChannelController {
         count.className = 'channel-count';
         count.textContent = `🗣️ ${ch.count}`;
         count.title = `${ch.count} participant${ch.count !== 1 ? 's' : ''}`;
-        count.setAttribute('aria-label', `${ch.count} voice participant${ch.count !== 1 ? 's' : ''}`);
+  count.setAttribute('aria-label', `${ch.count} voice participant${ch.count !== 1 ? 's' : ''}`);
+        count.addEventListener('click', (event) => {
+          event.stopPropagation();
+          event.preventDefault();
+        });
+        count.addEventListener('pointerdown', (event) => {
+          event.stopPropagation();
+        });
         item.appendChild(count);
       }
 

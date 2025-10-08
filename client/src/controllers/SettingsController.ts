@@ -17,6 +17,7 @@ export interface SettingsControllerDeps {
   notifications: NotificationManager;
   registerCleanup: (cleanup: () => void) => void;
   voiceSetOutputVolume: (volume: number) => void;
+  voiceSetOutputDevice: (deviceId: string | null) => Promise<void> | void;
 }
 
 export class SettingsController {
@@ -303,6 +304,13 @@ export class SettingsController {
       const spkSelect = this.deps.elements.spkSelect as HTMLSelectElement;
       if (spkSelect && devices.speakers.length > 0) {
         spkSelect.innerHTML = '';
+        const supportsOutputSelection = this.deps.audio.supportsOutputDeviceSelection();
+
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = supportsOutputSelection ? 'System Default' : 'System Route';
+        spkSelect.appendChild(defaultOption);
+
         devices.speakers.forEach(device => {
           const option = document.createElement('option');
           option.value = device.deviceId;
@@ -314,6 +322,15 @@ export class SettingsController {
         const currentSpk = this.deps.state.get('settings').spkDeviceId;
         if (currentSpk) {
           spkSelect.value = currentSpk;
+        } else {
+          spkSelect.value = '';
+        }
+
+        spkSelect.disabled = !supportsOutputSelection;
+        if (!supportsOutputSelection) {
+          spkSelect.title = 'Switching audio output is not supported by this browser. Use system controls instead.';
+        } else {
+          spkSelect.removeAttribute('title');
         }
       }
 
@@ -383,11 +400,18 @@ export class SettingsController {
     }
 
     if (spkSelect) {
-      spkSelect.addEventListener('change', () => {
-        const deviceId = spkSelect.value;
-        this.deps.state.updateSettings({ spkDeviceId: deviceId });
-        this.deps.notifications.success('Speaker changed');
-        // TODO: Apply speaker device to audio output
+      spkSelect.addEventListener('change', async () => {
+        const deviceId = spkSelect.value || null;
+        this.deps.state.updateSettings({ spkDeviceId: deviceId ?? undefined });
+
+        try {
+          await this.deps.voiceSetOutputDevice(deviceId);
+          this.deps.notifications.success('Speaker route updated');
+        } catch (error) {
+          console.error('Error selecting speaker device:', error);
+          const message = error instanceof Error ? error.message : 'Failed to switch speaker output.';
+          this.deps.notifications.error(message);
+        }
       });
     }
 
