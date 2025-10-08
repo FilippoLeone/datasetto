@@ -78,7 +78,7 @@ docker compose -f docker-compose.prod.yml up -d
 ### 1. Stream with OBS
 1. Open OBS Studio → Settings → Stream
 2. **Service:** Custom
-3. **Server:** `rtmp://YOUR_SERVER:1935/live`
+3. **Server:** `rtmps://YOUR_SERVER/live`
 4. **Stream Key:** Get from web interface (e.g., `main-stream+ABC123xyz456...`)
 5. Start Streaming
 
@@ -109,8 +109,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 ### Firewall Ports
 ```bash
-sudo ufw allow 80,443/tcp    # HTTP/HTTPS (includes HLS)
-sudo ufw allow 1935/tcp      # RTMP
+sudo ufw allow 80,443/tcp    # HTTP/HTTPS (includes RTMPS + HLS)
 sudo ufw allow 4000/tcp      # Backend API
 ```
 

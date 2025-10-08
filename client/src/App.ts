@@ -20,6 +20,7 @@ import type {
   RolePermissions,
   ChannelGroup,
   ChatMessage,
+  Account,
 } from '@/types';
 import { validateEnv, resolveRuntimeConfig } from '@/utils';
 
@@ -28,6 +29,7 @@ const RUNTIME_CONFIG = validateEnv(resolveRuntimeConfig());
 const SERVER_URL = RUNTIME_CONFIG.serverUrl;
 const HLS_BASE_URL = RUNTIME_CONFIG.hlsBaseUrl;
 const API_BASE_URL = RUNTIME_CONFIG.apiBaseUrl;
+const RTMP_SERVER_URL = RUNTIME_CONFIG.rtmpServerUrl;
 
 export class App {
   // Services
@@ -82,6 +84,8 @@ export class App {
 
     // Cache DOM elements
     this.cacheElements();
+    this.updateMobileProfileButton();
+  this.updateStreamingInstructions();
 
     this.voicePanel = new VoicePanelController({
       panel: this.elements['voice-users-panel'],
@@ -197,8 +201,8 @@ export class App {
       notifications: this.notifications,
       registerCleanup: (cleanup) => this.cleanupCallbacks.push(cleanup),
       isAuthenticated: () => this.isAuthenticated,
-      hasPermission: (permissions, permission) => hasPermission(permissions as RolePermissions, permission as keyof RolePermissions),
-      rolePermissions: this.rolePermissions,
+      hasPermission: (permissions, permission) => hasPermission(permissions, permission),
+      getRolePermissions: () => this.rolePermissions,
     });
   }
 
@@ -280,6 +284,8 @@ export class App {
       hasManagementAccess: this.hasManagementAccess,
       rolePermissions: this.rolePermissions,
     });
+
+    this.updateMobileToolbarState();
   }
 
   private handleAuthSessionInvalidated(): void {
@@ -371,6 +377,13 @@ export class App {
     this.eventListeners.push({ element, event, handler });
   }
 
+  private updateStreamingInstructions(): void {
+    const ingestEl = this.elements['streamServerUrl'];
+    if (ingestEl) {
+      ingestEl.textContent = RTMP_SERVER_URL;
+    }
+  }
+
   /**
    * Initialize the application
    */
@@ -454,8 +467,14 @@ export class App {
     
     // Avatar/Profile -> User Settings
     // Audio Settings Modal
-    this.addTrackedListener(this.elements.audioSettingsCancel, 'click', () => this.settingsController?.hideAudioSettingsModal());
-    this.addTrackedListener(this.elements.audioSettingsSave, 'click', () => this.settingsController?.saveAudioSettings());
+    this.addTrackedListener(this.elements.audioSettingsCancel, 'click', () => {
+      this.settingsController?.hideAudioSettingsModal();
+      this.updateMobileToolbarState();
+    });
+    this.addTrackedListener(this.elements.audioSettingsSave, 'click', () => {
+      this.settingsController?.saveAudioSettings();
+      this.updateMobileToolbarState();
+    });
 
     // Device selection
     this.addTrackedListener(this.elements.micSelect, 'change', () => { void this.settingsController?.handleMicChange(); });
@@ -495,19 +514,50 @@ export class App {
 
     // Mobile toolbar actions
     this.addTrackedListener(this.elements['mobile-open-channels'], 'click', () => {
-      this.toggleSidebar();
+      const app = this.elements.app;
+      if (!app) return;
+      const isOpen = app.classList.contains('sidebar-open');
+      this.toggleSidebar(!isOpen);
     });
 
     this.addTrackedListener(this.elements['mobile-open-settings'], 'click', () => {
-      void this.settingsController?.showAudioSettingsModal();
+      const modal = this.elements.audioSettingsModal;
+      if (!modal) return;
+
+      const isVisible = !modal.classList.contains('hidden');
+      if (isVisible) {
+        this.settingsController?.hideAudioSettingsModal();
+        this.updateMobileToolbarState();
+        return;
+      }
+
+      this.closeMobilePanels();
+
+      void (async () => {
+        await this.settingsController?.showAudioSettingsModal();
+        this.updateMobileToolbarState();
+      })();
     });
 
     this.addTrackedListener(this.elements['mobile-open-profile'], 'click', () => {
+      const modal = this.elements.regModal;
+      const isVisible = modal ? !modal.classList.contains('hidden') : false;
+
+      if (isVisible) {
+        this.authController?.hideAuthModal();
+        this.updateMobileToolbarState();
+        return;
+      }
+
+      this.closeMobilePanels();
+
       if (this.isAuthenticated) {
         this.authController?.showAuthModal('profile');
       } else {
         this.authController?.showAuthModal('login');
       }
+
+      this.updateMobileToolbarState();
     });
 
     this.addTrackedListener(this.elements['mobile-overlay'], 'click', () => {
@@ -518,6 +568,8 @@ export class App {
       void this.voiceController?.disconnect({ playSound: true });
       this.closeMobileVoicePanel();
     });
+
+    this.registerModalBackdropHandlers();
   }
   /**
    * Setup service event handlers
@@ -726,6 +778,123 @@ export class App {
 
     app.classList.remove('sidebar-open', 'members-open');
     this.closeMobileVoicePanel();
+    this.updateMobileOverlayState();
+  }
+
+  private updateMobileToolbarState(): void {
+    const app = this.elements.app;
+
+    const channelsBtn = this.elements['mobile-open-channels'];
+    if (channelsBtn && app) {
+      channelsBtn.setAttribute('aria-pressed', app.classList.contains('sidebar-open') ? 'true' : 'false');
+    }
+
+    const settingsBtn = this.elements['mobile-open-settings'];
+    if (settingsBtn) {
+      const modal = this.elements.audioSettingsModal;
+      const pressed = modal ? !modal.classList.contains('hidden') : false;
+      settingsBtn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+    }
+
+    const profileBtn = this.elements['mobile-open-profile'];
+    if (profileBtn) {
+      const modal = this.elements.regModal;
+      const pressed = modal ? !modal.classList.contains('hidden') : false;
+      profileBtn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+    }
+
+    this.updateMobileProfileButton();
+  }
+
+  private updateMobileProfileButton(): void {
+    const profileBtn = this.elements['mobile-open-profile'];
+    if (!profileBtn) {
+      return;
+    }
+
+    const iconEl = profileBtn.querySelector('.icon') as HTMLElement | null;
+    const labelEl = profileBtn.querySelector('.label') as HTMLElement | null;
+
+    if (!iconEl || !labelEl) {
+      return;
+    }
+
+    if (this.isAuthenticated) {
+      const account = this.state.get('account') as Account | undefined;
+      const displayName = (account?.displayName || account?.username || 'Profile').trim();
+      const initial = displayName.charAt(0).toUpperCase() || 'U';
+
+      iconEl.textContent = initial;
+      iconEl.classList.add('avatar-icon');
+      labelEl.textContent = 'Profile';
+    } else {
+      iconEl.textContent = '👤';
+      iconEl.classList.remove('avatar-icon');
+      labelEl.textContent = 'Sign In';
+    }
+  }
+
+  private observeModalVisibility(modal: HTMLElement): void {
+    if (typeof MutationObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      this.updateMobileToolbarState();
+    });
+
+    observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+    this.cleanupCallbacks.push(() => observer.disconnect());
+  }
+
+  private registerModalBackdropHandlers(): void {
+    const register = (
+      modal: HTMLElement | undefined,
+      dismiss: () => void
+    ): void => {
+      if (!modal) {
+        return;
+      }
+
+      const handleBackdrop = (event: Event): void => {
+        if (event.target === modal) {
+          dismiss();
+          this.updateMobileToolbarState();
+        }
+      };
+
+      if (window.PointerEvent) {
+        this.addTrackedListener(modal, 'pointerdown', handleBackdrop);
+      } else {
+        this.addTrackedListener(modal, 'mousedown', handleBackdrop);
+        this.addTrackedListener(modal, 'touchstart', handleBackdrop);
+      }
+
+      this.observeModalVisibility(modal);
+    };
+
+    register(
+      this.elements.audioSettingsModal,
+      () => {
+        this.settingsController?.hideAudioSettingsModal();
+        this.updateMobileToolbarState();
+      }
+    );
+
+    register(
+      this.elements.createChannelModal,
+      () => this.channelController?.hideCreateChannelModal()
+    );
+
+    register(
+      this.elements.regModal,
+      () => {
+        this.authController?.hideAuthModal();
+        this.updateMobileToolbarState();
+      }
+    );
+
+    this.updateMobileToolbarState();
   }
 
   private updateMobileOverlayState(): void {
@@ -743,6 +912,7 @@ export class App {
 
     overlay.classList.toggle('visible', shouldShow);
     overlay.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+    this.updateMobileToolbarState();
   }
 
   private setupResponsiveObservers(): void {

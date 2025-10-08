@@ -83,9 +83,20 @@ export class VideoController {
       this.closeInlineVideo();
     }
 
-    if (!this.deps.state.get('streamingMode')) {
+    if (this.deps.state.get('streamingMode')) {
+      this.deps.state.setStreamingMode(false);
       this.closePopout();
+
+      const toggleBtn = this.deps.elements['toggle-video-popout'];
+      if (toggleBtn) {
+        toggleBtn.textContent = '📺';
+      }
+
+      this.deps.notifications.info('Streaming mode disabled');
+      return;
     }
+
+    this.closePopout();
   }
 
   handleVoiceChannelSelected(): void {
@@ -576,7 +587,18 @@ export class VideoController {
     app.classList.toggle('mobile-stream-mode', enabled);
 
     if (enabled) {
-      app.classList.remove('sidebar-open', 'members-open');
+      app.classList.remove('sidebar-open', 'members-open', 'voice-panel-open');
+
+      const channelsBtn = this.deps.elements['mobile-open-channels'];
+      if (channelsBtn) {
+        channelsBtn.setAttribute('aria-pressed', 'false');
+      }
+
+      const overlay = this.deps.elements['mobile-overlay'];
+      if (overlay) {
+        overlay.classList.remove('visible');
+        overlay.setAttribute('aria-hidden', 'true');
+      }
     }
   }
 

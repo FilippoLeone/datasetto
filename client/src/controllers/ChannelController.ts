@@ -3,7 +3,7 @@
  * Manages channel list rendering, channel switching, and channel creation
  */
 
-import type { Channel } from '@/types';
+import type { Channel, RolePermissions } from '@/types';
 import type { SocketService, AudioNotificationService } from '@/services';
 import type { StateManager, AnimationController } from '@/utils';
 import type { NotificationManager } from '@/components/NotificationManager';
@@ -17,8 +17,8 @@ export interface ChannelControllerDeps {
   notifications: NotificationManager;
   registerCleanup: (cleanup: () => void) => void;
   isAuthenticated: () => boolean;
-  hasPermission: (permissions: unknown, permission: string) => boolean;
-  rolePermissions: unknown;
+  hasPermission: (permissions: RolePermissions | null | undefined, permission: keyof RolePermissions) => boolean;
+  getRolePermissions: () => RolePermissions | null;
 }
 
 export class ChannelController {
@@ -113,7 +113,8 @@ export class ChannelController {
       return;
     }
 
-    if (!this.deps.hasPermission(this.deps.rolePermissions, 'canCreateChannels')) {
+    const rolePermissions = this.deps.getRolePermissions();
+    if (!this.deps.hasPermission(rolePermissions, 'canCreateChannels')) {
       this.deps.notifications.warning("You don't have permission to create channels");
       this.hideCreateChannelModal();
       return;

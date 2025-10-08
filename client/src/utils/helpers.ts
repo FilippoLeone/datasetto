@@ -123,6 +123,7 @@ export function formatTime(timestamp: number): string {
 
 const LOCAL_SERVER_FALLBACK = 'http://localhost:4000';
 const LOCAL_HLS_FALLBACK = 'http://localhost/hls';
+const LOCAL_RTMP_FALLBACK = 'rtmp://localhost:443/live';
 
 const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
@@ -137,11 +138,13 @@ export interface RuntimeConfig {
   serverUrl: string;
   apiBaseUrl: string;
   hlsBaseUrl: string;
+  rtmpServerUrl: string;
   warnings: string[];
   sources: {
     serverUrl: 'env' | 'origin' | 'fallback';
     apiBaseUrl: 'env' | 'origin' | 'fallback';
     hlsBaseUrl: 'env' | 'origin' | 'fallback';
+    rtmpServerUrl: 'env' | 'origin' | 'fallback';
   };
 }
 
@@ -155,6 +158,7 @@ export function resolveRuntimeConfig(): RuntimeConfig {
     serverUrl: 'env',
     apiBaseUrl: 'env',
     hlsBaseUrl: 'env',
+    rtmpServerUrl: 'env',
   };
 
   const origin = isBrowserEnvironment ? window.location.origin : undefined;
@@ -202,10 +206,34 @@ export function resolveRuntimeConfig(): RuntimeConfig {
     }
   }
 
+  const envRtmp = import.meta.env.VITE_RTMP_SERVER_URL?.trim();
+  let rtmpServerUrl = envRtmp;
+
+  if (!rtmpServerUrl) {
+    if (origin && !runningOnLocalhost) {
+      try {
+        const parsed = new URL(origin);
+        const protocol = parsed.protocol === 'https:' ? 'rtmps://' : 'rtmp://';
+        rtmpServerUrl = `${protocol}${parsed.host}/live`;
+        sources.rtmpServerUrl = 'origin';
+        warnings.push('VITE_RTMP_SERVER_URL not set; deriving RTMP ingest URL from current origin.');
+      } catch {
+        rtmpServerUrl = LOCAL_RTMP_FALLBACK;
+        sources.rtmpServerUrl = 'fallback';
+        warnings.push(`Unable to derive RTMP ingest URL from origin; using fallback ${LOCAL_RTMP_FALLBACK}.`);
+      }
+    } else {
+      rtmpServerUrl = LOCAL_RTMP_FALLBACK;
+      sources.rtmpServerUrl = 'fallback';
+      warnings.push(`VITE_RTMP_SERVER_URL not set; using local fallback ${LOCAL_RTMP_FALLBACK}.`);
+    }
+  }
+
   return {
     serverUrl: stripTrailingSlash(serverUrl),
     apiBaseUrl: stripTrailingSlash(apiBaseUrl),
     hlsBaseUrl: stripTrailingSlash(hlsBaseUrl),
+    rtmpServerUrl: stripTrailingSlash(rtmpServerUrl),
     warnings,
     sources,
   };
