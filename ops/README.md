@@ -11,7 +11,7 @@ chmod +x deploy-vps.sh
 
 Then configure DNS:
 1. Point an **A** record (e.g. `app.yourdomain.com`) to your VPS IP for the web UI (can sit behind a CDN)
-2. If you want RTMPS behind Cloudflare (or another TLS proxy), create a Spectrum/ TCP proxy for port **443** that forwards to your server. Otherwise point a second record (e.g. `rtmp.yourdomain.com`) directly to the VPS with TLS terminated on the host.
+2. If you want RTMPS behind Cloudflare (or another TLS proxy), create a Spectrum/ TCP proxy for port **1935** (or 443 if you terminate TLS separately) that forwards to your server. Otherwise point a second record (e.g. `rtmp.yourdomain.com`) directly to the VPS and leave the CDN disabled.
 3. Visit: https://app.yourdomain.com
 
 **See [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md) for full instructions.**
@@ -26,7 +26,7 @@ docker compose up -d
 ```
 
 **Services:**
-- `rtmp` - nginx-rtmp (port 443 RTMPS, internal HLS on 80)
+- `rtmp` - nginx-rtmp (port 1935 RTMP, internal HLS on 80)
 - `server` - Node.js backend (port 4000)
 - `client` - Vite dev server (port 5173)
 
@@ -37,7 +37,7 @@ docker compose up -d
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-- `rtmp` - nginx-rtmp with custom build (RTMPS on 443, internal HLS on 80)
+- `rtmp` - nginx-rtmp with custom build (RTMP on 1935, internal HLS on 80)
 - `server` - Node.js with resource limits (4000)
 - `client` - nginx serving static build (8081)
 
@@ -97,13 +97,13 @@ HLS_BASE_URL=http://YOUR_IP/hls
 When serving the app at `https://yourdomain.com` you typically want **two DNS records**:
 
 - `app.yourdomain.com` (or root): can sit behind Cloudflare/another CDN and forwards HTTP traffic on port 80.
-- `rtmp.yourdomain.com`: points to the RTMP container over **TCP 443**. If you require TLS termination in front of the server, enable a TCP proxy such as Cloudflare Spectrum for this record. Otherwise keep it DNS-only and stream over plain RTMP on port 443.
+- `rtmp.yourdomain.com`: points to the RTMP container over **TCP 1935**. If you require TLS termination in front of the server, you can proxy RTMP through a service like Cloudflare Spectrum; otherwise keep it DNS-only and stream directly.
 
 Firewall / networking checklist:
 
-- Open ports **80** and **443** on the host firewall / cloud security group.
-- If you use a managed load balancer, add a TCP listener for 443 that targets the RTMP container.
-- From your laptop run `openssl s_client -connect rtmp.yourdomain.com:443 -servername rtmp.yourdomain.com` (or `nc`) to verify the port is reachable before testing with OBS.
+- Open ports **80** and **1935** on the host firewall / cloud security group.
+- If you use a managed load balancer, add a TCP listener for 1935 that targets the RTMP container.
+- From your laptop run `telnet rtmp.yourdomain.com 1935` (or `nc`) to verify the port is reachable before testing with OBS.
 
 Once networking is set up, export these variables before running the production compose file (either in your shell or an `.env` file):
 
@@ -115,7 +115,7 @@ Once networking is set up, export these variables before running the production 
 	```
 
 - Rebuild the client so that Socket.IO and API calls stay on the same origin (avoids mixed-content issues behind HTTPS proxies).
-- Cloudflare forwards WebSocket traffic, so you can keep the orange cloud enabled on the **HTTP** record. For the RTMP record, either enable Spectrum (paid) to proxy TCP 443 or leave it grey-clouded to pass traffic directly to the container. When Spectrum handles TLS, the container only needs plain TCP on port 443—no certificates are mounted inside the RTMP image.
+- Cloudflare forwards WebSocket traffic, so you can keep the orange cloud enabled on the **HTTP** record. For the RTMP record, either enable Spectrum (paid) to proxy TCP 1935 (or 443 if you prefer RTMPS) or leave it grey-clouded to pass traffic directly to the container.
 
 ### WebRTC / Voice Connectivity
 

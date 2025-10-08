@@ -123,7 +123,7 @@ export function formatTime(timestamp: number): string {
 
 const LOCAL_SERVER_FALLBACK = 'http://localhost:4000';
 const LOCAL_HLS_FALLBACK = 'http://localhost/hls';
-const LOCAL_RTMP_FALLBACK = 'rtmp://localhost:443/live';
+const LOCAL_RTMP_FALLBACK = 'rtmp://localhost:1935/hls';
 
 const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
@@ -213,8 +213,7 @@ export function resolveRuntimeConfig(): RuntimeConfig {
     if (origin && !runningOnLocalhost) {
       try {
         const parsed = new URL(origin);
-        const protocol = parsed.protocol === 'https:' ? 'rtmps://' : 'rtmp://';
-        rtmpServerUrl = `${protocol}${parsed.host}/live`;
+        rtmpServerUrl = `rtmp://${parsed.hostname}/hls`;
         sources.rtmpServerUrl = 'origin';
         warnings.push('VITE_RTMP_SERVER_URL not set; deriving RTMP ingest URL from current origin.');
       } catch {

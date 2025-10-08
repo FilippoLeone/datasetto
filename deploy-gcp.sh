@@ -132,7 +132,7 @@ echo -e "${GREEN}Instance created!${NC}"
 echo -e "\n${GREEN}Creating firewall rules...${NC}"
 
 gcloud compute firewall-rules create rtmp-disc-web --project=$PROJECT_ID --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:80,tcp:443 --source-ranges=0.0.0.0/0 --target-tags=http-server,https-server || true
-gcloud compute firewall-rules create rtmp-disc-streaming --project=$PROJECT_ID --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:443,tcp:80,tcp:4000 --source-ranges=0.0.0.0/0 --target-tags=rtmp-server || true
+gcloud compute firewall-rules create rtmp-disc-streaming --project=$PROJECT_ID --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:1935,tcp:80,tcp:4000 --source-ranges=0.0.0.0/0 --target-tags=rtmp-server || true
 
 # Get external IP
 echo -e "\n${YELLOW}Waiting for instance...${NC}"

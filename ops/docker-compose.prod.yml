@@ -10,7 +10,7 @@ services:
     container_name: rtmp-server
     restart: unless-stopped
     ports:
-      - "443:443"  # RTMPS ingestion (publish via TLS)
+      - "1935:1935"  # RTMP ingestion (must be public for OBS)
     # Keep HLS segments on a ramdisk for faster writes
     tmpfs:
       - /tmp/hls:rw,size=512m
