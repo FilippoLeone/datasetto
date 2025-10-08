@@ -889,6 +889,50 @@
     height: 100%;
   }
 
+
+  .stream-layout.is-text-mode {
+    gap: 0.75rem;
+  }
+
+  .stream-layout.is-text-mode .stream-player-column {
+    display: none;
+  }
+
+  .stream-layout.is-text-mode .stream-chat-dock {
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    box-shadow: 0 16px 28px rgba(6, 6, 12, 0.28);
+    background: linear-gradient(180deg, rgba(22, 22, 30, 0.95) 0%, rgba(16, 16, 24, 0.92) 100%);
+  }
+
+  .stream-layout.is-text-mode .stream-chat-header {
+    background: rgba(28, 28, 38, 0.92);
+    border-bottom-color: rgba(255, 255, 255, 0.04);
+  }
+
+  .stream-layout.is-text-mode .stream-chat-status {
+    display: none;
+  }
+
+  .stream-layout.is-voice-mode {
+    gap: 0.75rem;
+  }
+
+  .stream-layout.is-voice-mode .stream-player-column {
+    display: none;
+  }
+
+  .stream-layout.is-voice-mode .stream-chat-dock {
+    display: none;
+  }
+
+  .stream-chat-title.text-channel-title {
+    font-size: 1rem;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    color: var(--color-text-normal);
+  }
+
   @media (min-width: 1024px) {
     body.stream-inline-active:not(.stream-fullscreen-active) .stream-layout {
       display: grid;
@@ -1146,6 +1190,9 @@
   }
 
   .voice-gallery {
+    --voice-gallery-avatar-size: clamp(72px, 12vw, 96px);
+    --voice-gallery-name-size: clamp(0.9rem, 1.6vw, 1.05rem);
+    --voice-gallery-chip-bg: rgba(255, 255, 255, 0.08);
     display: none;
     position: relative;
     flex: 1 1 auto;
@@ -1156,12 +1203,10 @@
   .main-content.voice-mode .voice-gallery {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: clamp(1rem, 3vw, 1.75rem);
-    padding: clamp(1.5rem, 5vw, 3rem);
-    align-content: start;
+    gap: clamp(1.25rem, 3vw, 2.25rem);
+    padding: clamp(1.75rem, 6vw, 3.5rem);
+    align-content: flex-start;
     justify-items: center;
-    justify-content: center;
-    grid-auto-rows: minmax(0, 1fr);
     overflow-y: auto;
     overscroll-behavior: contain;
     min-height: 100%;
@@ -1175,7 +1220,7 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    font-size: clamp(1rem, 2.6vw, 1.25rem);
+    font-size: clamp(1rem, 2.6vw, 1.3rem);
     color: var(--color-text-muted);
     letter-spacing: 0.04em;
     padding: clamp(1.5rem, 6vw, 3rem);
@@ -1183,87 +1228,77 @@
   }
 
   .voice-gallery-empty-message {
-    max-width: 40ch;
-    line-height: 1.6;
+    max-width: 42ch;
+    line-height: 1.65;
   }
 
   .voice-gallery.voice-gallery--single {
-    grid-template-columns: minmax(260px, min(70vw, 460px));
+    grid-template-columns: minmax(220px, 1fr);
     place-content: center;
-    padding: clamp(2rem, 10vw, 5rem);
-    max-width: min(640px, 100%);
-  }
-
-  .voice-gallery.voice-gallery--single .voice-gallery-tile {
-    width: min(70vw, 460px);
-    min-height: clamp(240px, 55vh, 420px);
-    padding: clamp(2rem, 6vw, 3.25rem);
-  }
-
-  .voice-gallery.voice-gallery--single .voice-gallery-avatar {
-    width: clamp(6rem, 17vw, 8.5rem);
-    height: clamp(6rem, 17vw, 8.5rem);
-  }
-
-  .voice-gallery.voice-gallery--single .voice-gallery-name {
-    font-size: clamp(1.1rem, 2.3vw, 1.5rem);
-  }
-
-  .voice-gallery.voice-gallery--single .voice-gallery-meta {
-    font-size: clamp(0.8rem, 1.8vw, 1rem);
-    gap: clamp(0.45rem, 1.2vw, 0.75rem);
+    --voice-gallery-avatar-size: clamp(96px, 20vw, 136px);
+    --voice-gallery-name-size: clamp(1.15rem, 2.4vw, 1.6rem);
   }
 
   .voice-gallery.voice-gallery--double {
-    grid-template-columns: repeat(auto-fit, minmax(220px, min(45vw, 360px)));
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     place-content: center;
-    max-width: min(960px, 100%);
+    --voice-gallery-avatar-size: clamp(88px, 16vw, 118px);
   }
 
-  .voice-gallery.voice-gallery--double .voice-gallery-tile {
-    width: min(45vw, 360px);
+  .voice-gallery.voice-gallery--trio {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .voice-gallery.voice-gallery--quad {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .voice-gallery.voice-gallery--stage {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+
+  .voice-gallery.voice-gallery--grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .voice-gallery.voice-gallery--grid-xl {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    --voice-gallery-avatar-size: clamp(64px, 11vw, 84px);
+    --voice-gallery-name-size: clamp(0.8rem, 1.4vw, 0.9rem);
   }
 
   .voice-gallery.voice-gallery--multi {
-    max-width: min(1200px, 100%);
+    max-width: min(1280px, 100%);
   }
 
-  .voice-gallery-tile {
+  .voice-gallery-item {
     position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.75rem;
-    padding: 1.5rem 1rem;
-    border-radius: 18px;
-    background: rgba(18, 18, 24, 0.82);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: 0 18px 28px rgba(6, 6, 12, 0.35);
-    transition: transform var(--transition-base) ease, box-shadow var(--transition-base) ease, border-color var(--transition-base) ease;
-    min-height: 180px;
+    gap: 0.6rem;
+    text-align: center;
+    color: var(--color-text-normal);
+    min-width: clamp(120px, 20vw, 180px);
+    padding: 0.35rem;
+    transition: transform var(--transition-base) ease, filter var(--transition-base) ease;
   }
 
-  .voice-gallery-tile:hover {
+  .voice-gallery-item:hover {
     transform: translateY(-4px);
-    border-color: rgba(145, 71, 255, 0.32);
-    box-shadow: 0 24px 42px rgba(10, 10, 16, 0.45);
-  }
-
-  .voice-gallery-tile.speaking {
-    border-color: rgba(0, 245, 147, 0.65);
-    box-shadow: 0 0 32px rgba(0, 245, 147, 0.35);
   }
 
   .voice-gallery-avatar {
     position: relative;
-    width: 5rem;
-    height: 5rem;
-    border-radius: 999px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: var(--voice-gallery-avatar-size);
+    height: var(--voice-gallery-avatar-size);
+    border-radius: 32px;
+    display: grid;
+    place-items: center;
     overflow: hidden;
-    transition: transform var(--transition-base) ease;
+    background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.16), rgba(10, 10, 18, 0.82));
+    box-shadow: 0 16px 30px rgba(10, 10, 16, 0.42);
+    transition: transform var(--transition-base) ease, box-shadow var(--transition-base) ease;
   }
 
   .voice-gallery-avatar::after {
@@ -1271,9 +1306,9 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     pointer-events: none;
-    transition: box-shadow var(--transition-base) ease;
+    transition: border-color var(--transition-base) ease;
   }
 
   .voice-gallery-avatar img {
@@ -1282,50 +1317,57 @@
     object-fit: cover;
   }
 
-  .voice-gallery-avatar .initials {
-    position: relative;
-    z-index: 1;
-    font-size: 1.85rem;
-    font-weight: 700;
-    color: #fff;
-    letter-spacing: 0.08em;
+  .voice-gallery-item.speaking .voice-gallery-avatar {
+    box-shadow: 0 0 0 4px rgba(0, 245, 147, 0.45), 0 18px 32px rgba(0, 245, 147, 0.25);
+    transform: scale(1.04);
+  }
+
+  .voice-gallery-item.speaking .voice-gallery-avatar::after {
+    border-color: rgba(0, 245, 147, 0.6);
   }
 
   .voice-gallery-status {
     position: absolute;
-    bottom: -6px;
-    right: -6px;
+    bottom: -14px;
+    left: 50%;
+    transform: translateX(-50%);
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    gap: 0.25rem;
-    padding: 0.25rem 0.45rem;
+    gap: 0.35rem;
+    padding: 0.3rem 0.75rem;
     border-radius: 999px;
-    background: rgba(18, 18, 24, 0.92);
+    background: rgba(18, 18, 26, 0.78);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.85);
-    font-size: 0.75rem;
-    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.88);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    box-shadow: 0 8px 16px rgba(5, 5, 8, 0.45);
+    backdrop-filter: blur(10px);
+    white-space: nowrap;
+  }
+
+  .voice-gallery-item.speaking .voice-gallery-status {
+    background: rgba(0, 245, 147, 0.18);
+    border-color: rgba(0, 245, 147, 0.45);
+    color: #b5ffe8;
   }
 
   .voice-gallery-name {
-    text-align: center;
-    font-size: 0.95rem;
+    margin-top: 1.15rem;
+    font-size: var(--voice-gallery-name-size);
     font-weight: 600;
+    letter-spacing: 0.01em;
     color: var(--color-text-normal);
     max-width: 100%;
-    word-break: break-word;
   }
 
   .voice-gallery-meta {
     display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.35rem;
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
     color: var(--color-text-muted);
   }
 
@@ -1333,62 +1375,50 @@
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: var(--voice-gallery-chip-bg);
+    backdrop-filter: blur(10px);
   }
 
-  .voice-gallery-tile.speaking .voice-gallery-meta {
-    color: var(--color-success);
-  }
-
-  .voice-gallery-tile.speaking .voice-gallery-avatar {
-    transform: scale(1.05);
-  }
-
-  .voice-gallery-tile.speaking .voice-gallery-avatar::after {
-    box-shadow: inset 0 0 0 2px rgba(0, 245, 147, 0.55), 0 0 24px rgba(0, 245, 147, 0.35);
+  .voice-gallery-item.speaking .voice-gallery-meta span {
+    color: #b5ffe8;
   }
 
   @media (max-width: 768px) {
     .main-content.voice-mode .voice-gallery {
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: clamp(0.75rem, 4vw, 1.25rem);
-      padding: clamp(1rem, 6vw, 2rem);
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: clamp(0.85rem, 4vw, 1.35rem);
+      padding: clamp(1.25rem, 8vw, 2.5rem);
+      --voice-gallery-avatar-size: clamp(64px, 16vw, 84px);
+      --voice-gallery-name-size: clamp(0.85rem, 1.8vw, 1rem);
     }
 
-    .voice-gallery-tile {
-      padding: 1.25rem 0.85rem;
-      min-height: 160px;
+    .voice-gallery-item {
+      min-width: 0;
+      gap: 0.55rem;
     }
 
-    .voice-gallery-avatar {
-      width: 4.25rem;
-      height: 4.25rem;
-    }
-
-    .voice-gallery-name {
-      font-size: 0.9rem;
+    .voice-gallery-status {
+      bottom: -12px;
+      font-size: 0.65rem;
+      padding: 0.25rem 0.6rem;
     }
 
     .voice-gallery-meta {
-      font-size: 0.7rem;
-      flex-wrap: wrap;
-      justify-content: center;
-      text-align: center;
+      font-size: 0.65rem;
     }
   }
 
   @media (max-width: 480px) {
     .main-content.voice-mode .voice-gallery {
       grid-template-columns: minmax(0, 1fr);
-      padding: clamp(0.75rem, 7vw, 1.5rem);
-    }
-
-    .voice-gallery-tile {
-      padding: 1.1rem 0.75rem;
+      padding: clamp(0.75rem, 7vw, 1.6rem);
+      gap: clamp(0.75rem, 5vw, 1.25rem);
     }
 
     .voice-gallery-status {
-      bottom: -4px;
-      right: -4px;
+      bottom: -10px;
     }
   }
 

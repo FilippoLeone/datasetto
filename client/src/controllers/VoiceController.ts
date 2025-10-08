@@ -333,6 +333,10 @@ export class VoiceController {
     return this.pendingVoiceJoin;
   }
 
+  public refreshVoiceInterface(): void {
+    this.renderVoiceUsers();
+  }
+
   private registerServiceListeners(): void {
     this.disposers.push(
       this.deps.socket.on('voice:joined', (data) => {
@@ -600,8 +604,8 @@ export class VoiceController {
   }
 
   private createVoiceGalleryTile(entry: VoicePanelEntry): HTMLElement {
-    const tile = document.createElement('article');
-    tile.className = 'voice-gallery-tile';
+  const tile = document.createElement('article');
+  tile.className = 'voice-gallery-item';
   tile.setAttribute('role', 'listitem');
   tile.dataset.userId = entry.id;
   tile.dataset.muted = String(Boolean(entry.muted));
@@ -617,9 +621,9 @@ export class VoiceController {
     const avatarSeed = entry.name || entry.id || 'participant';
     avatarImg.src = generateIdenticonDataUri(avatarSeed, { size: 160, label: entry.name ?? avatarSeed });
     avatarImg.alt = `${entry.name ?? 'Participant'} avatar`;
-  avatarImg.decoding = 'async';
-  avatarImg.loading = 'lazy';
-  avatarImg.draggable = false;
+    avatarImg.decoding = 'async';
+    avatarImg.loading = 'lazy';
+    avatarImg.draggable = false;
     avatar.appendChild(avatarImg);
 
     const status = document.createElement('span');
@@ -628,9 +632,9 @@ export class VoiceController {
 
     tile.appendChild(avatar);
 
-    const name = document.createElement('h3');
-  name.className = 'voice-gallery-name';
-  name.textContent = entry.isCurrentUser ? `${displayName} (You)` : displayName;
+    const name = document.createElement('p');
+    name.className = 'voice-gallery-name';
+    name.textContent = entry.isCurrentUser ? `${displayName} (You)` : displayName;
     tile.appendChild(name);
 
     const meta = document.createElement('div');
@@ -779,7 +783,16 @@ export class VoiceController {
   }
 
   private updateVoiceGalleryLayoutState(gallery: HTMLElement, participantCount: number): void {
-    const layoutClasses = ['voice-gallery--single', 'voice-gallery--double', 'voice-gallery--multi'];
+    const layoutClasses = [
+      'voice-gallery--single',
+      'voice-gallery--double',
+      'voice-gallery--trio',
+      'voice-gallery--quad',
+      'voice-gallery--stage',
+      'voice-gallery--grid',
+      'voice-gallery--grid-xl',
+      'voice-gallery--multi',
+    ];
     gallery.classList.remove(...layoutClasses);
 
     if (participantCount <= 0) {
@@ -800,6 +813,28 @@ export class VoiceController {
     }
 
     gallery.classList.add('voice-gallery--multi');
+
+    if (participantCount === 3) {
+      gallery.classList.add('voice-gallery--trio');
+      return;
+    }
+
+    if (participantCount === 4) {
+      gallery.classList.add('voice-gallery--quad');
+      return;
+    }
+
+    if (participantCount <= 6) {
+      gallery.classList.add('voice-gallery--stage');
+      return;
+    }
+
+    if (participantCount <= 9) {
+      gallery.classList.add('voice-gallery--grid');
+      return;
+    }
+
+    gallery.classList.add('voice-gallery--grid-xl');
   }
 
   private setLocalSpeaking(speaking: boolean): void {

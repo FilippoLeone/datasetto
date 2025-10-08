@@ -83,10 +83,8 @@ export class VideoController {
     }
   }
 
-  handleTextChannelSelected(options: { voiceConnected: boolean }): void {
-    if (!options.voiceConnected) {
-      this.closeInlineVideo();
-    }
+  handleTextChannelSelected(_options: { voiceConnected: boolean }): void {
+    this.closeInlineVideo();
 
     if (this.deps.state.get('streamingMode')) {
       this.deps.state.setStreamingMode(false);

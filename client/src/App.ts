@@ -250,6 +250,7 @@ export class App {
       videoHandleTextChannelSelected: (params) => this.videoController?.handleTextChannelSelected(params),
       videoHandleVoiceChannelSelected: () => this.videoController?.handleVoiceChannelSelected(),
       videoHandleStreamChannelSelected: (channelName) => this.videoController?.handleStreamChannelSelected(channelName),
+      voiceRefreshInterface: () => this.voiceController?.refreshVoiceInterface(),
       mobileClosePanels: () => this.closeMobilePanels(),
     });
 
