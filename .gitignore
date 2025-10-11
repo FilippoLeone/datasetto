@@ -12,6 +12,9 @@ node_modules/
 **/.vite
 **/dist
 **/build
+desktop/renderer/
+desktop/release/
+desktop/node_modules/
 *.log
 
 # OS files

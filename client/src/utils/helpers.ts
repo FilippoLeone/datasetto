@@ -128,6 +128,7 @@ const LOCAL_RTMP_FALLBACK = 'rtmp://localhost:1935/hls';
 const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
 const isBrowserEnvironment = typeof window !== 'undefined';
+const desktopRuntimeConfig = isBrowserEnvironment ? window.datasettoDesktopConfig : undefined;
 
 const isLocalHost = (host?: string): boolean => {
   if (!host) return false;
@@ -141,10 +142,10 @@ export interface RuntimeConfig {
   rtmpServerUrl: string;
   warnings: string[];
   sources: {
-    serverUrl: 'env' | 'origin' | 'fallback';
-    apiBaseUrl: 'env' | 'origin' | 'fallback';
-    hlsBaseUrl: 'env' | 'origin' | 'fallback';
-    rtmpServerUrl: 'env' | 'origin' | 'fallback';
+    serverUrl: 'env' | 'origin' | 'fallback' | 'desktop';
+    apiBaseUrl: 'env' | 'origin' | 'fallback' | 'desktop';
+    hlsBaseUrl: 'env' | 'origin' | 'fallback' | 'desktop';
+    rtmpServerUrl: 'env' | 'origin' | 'fallback' | 'desktop';
   };
 }
 
@@ -163,13 +164,19 @@ export function resolveRuntimeConfig(): RuntimeConfig {
 
   const origin = isBrowserEnvironment ? window.location.origin : undefined;
   const host = isBrowserEnvironment ? window.location.hostname : undefined;
+  const isHttpOrigin = typeof origin === 'string' && origin.startsWith('http');
   const runningOnLocalhost = isLocalHost(host);
 
+  const desktopServer = desktopRuntimeConfig?.serverUrl?.trim();
   const envServer = import.meta.env.VITE_SERVER_URL?.trim();
-  let serverUrl = envServer;
+  let serverUrl = desktopServer || envServer;
+
+  if (desktopServer) {
+    sources.serverUrl = 'desktop';
+  }
 
   if (!serverUrl) {
-    if (origin && !runningOnLocalhost) {
+    if (isHttpOrigin && !runningOnLocalhost) {
       serverUrl = origin;
       sources.serverUrl = 'origin';
     } else {
@@ -179,20 +186,31 @@ export function resolveRuntimeConfig(): RuntimeConfig {
     }
   }
 
+  const desktopApi = desktopRuntimeConfig?.apiBaseUrl?.trim();
   const envApi = import.meta.env.VITE_API_BASE_URL?.trim();
-  let apiBaseUrl = envApi || serverUrl;
-  if (!envApi) {
+  let apiBaseUrl = desktopApi || envApi || serverUrl;
+
+  if (desktopApi) {
+    sources.apiBaseUrl = 'desktop';
+  } else if (envApi) {
+    sources.apiBaseUrl = 'env';
+  } else {
     sources.apiBaseUrl = sources.serverUrl;
     if (sources.apiBaseUrl === 'fallback') {
       warnings.push('VITE_API_BASE_URL not set; using same fallback as server URL.');
     }
   }
 
+  const desktopHls = desktopRuntimeConfig?.hlsBaseUrl?.trim();
   const envHls = import.meta.env.VITE_HLS_BASE_URL?.trim();
-  let hlsBaseUrl = envHls;
+  let hlsBaseUrl = desktopHls || envHls;
+
+  if (desktopHls) {
+    sources.hlsBaseUrl = 'desktop';
+  }
 
   if (!hlsBaseUrl) {
-    if (origin && !runningOnLocalhost) {
+    if (isHttpOrigin && !runningOnLocalhost) {
       hlsBaseUrl = `${stripTrailingSlash(origin)}/hls`;
       sources.hlsBaseUrl = 'origin';
     } else {
@@ -202,11 +220,16 @@ export function resolveRuntimeConfig(): RuntimeConfig {
     }
   }
 
+  const desktopRtmp = desktopRuntimeConfig?.rtmpServerUrl?.trim();
   const envRtmp = import.meta.env.VITE_RTMP_SERVER_URL?.trim();
-  let rtmpServerUrl = envRtmp;
+  let rtmpServerUrl = desktopRtmp || envRtmp;
+
+  if (desktopRtmp) {
+    sources.rtmpServerUrl = 'desktop';
+  }
 
   if (!rtmpServerUrl) {
-    if (origin && !runningOnLocalhost) {
+    if (isHttpOrigin && !runningOnLocalhost) {
       try {
         const parsed = new URL(origin);
         rtmpServerUrl = `rtmp://${parsed.hostname}/hls`;

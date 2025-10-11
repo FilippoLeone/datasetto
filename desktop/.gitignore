@@ -1,0 +1,4 @@
+node_modules/
+renderer/
+release/
+.DS_Store

@@ -73,6 +73,21 @@ docker compose -f docker-compose.prod.yml up -d
 **Stack:** nginx-rtmp → Node.js (Express + Socket.IO) → TypeScript (Vite + HLS.js + WebRTC)
 ---
 
+## 🖥️ Desktop App (Electron)
+
+Prefer a native-feeling desktop window? Check out the new Electron workspace under `desktop/`.
+
+```bash
+cd desktop
+npm install
+npm run dev     # launches Vite + Electron side-by-side
+npm run build   # packages production installers (requires client build)
+```
+
+See `desktop/README.md` for full details on development and packaging.
+
+---
+
 ## 🎮 How to Use
 
 ### 1. Stream with OBS

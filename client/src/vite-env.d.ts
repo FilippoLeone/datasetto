@@ -17,3 +17,18 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+ 
+interface DatasettoDesktopConfig {
+  serverUrl?: string;
+  apiBaseUrl?: string;
+  hlsBaseUrl?: string;
+  rtmpServerUrl?: string;
+}
+ 
+declare global {
+  interface Window {
+    datasettoDesktopConfig?: DatasettoDesktopConfig;
+  }
+}
+
+export {};

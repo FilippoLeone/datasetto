@@ -2,7 +2,10 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import tailwindcss from '@tailwindcss/vite';
 
+const isDesktopBuild = process.env.VITE_BUILD_TARGET === 'desktop';
+
 export default defineConfig({
+  base: isDesktopBuild ? './' : '/',
   css: {
     transformer: 'lightningcss',
   },

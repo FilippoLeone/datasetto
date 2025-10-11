@@ -1,0 +1,80 @@
+{
+  "name": "datasetto-desktop",
+  "version": "0.1.0",
+  "description": "Electron-based desktop shell for the Datasetto web client.",
+  "private": true,
+  "author": "Datasetto",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently \"npm:dev:client\" \"npm:dev:electron\"",
+    "dev:client": "npm run dev --prefix ../client",
+    "dev:electron": "wait-on tcp:5173 && cross-env ELECTRON_START_URL=http://localhost:5173 electron .",
+    "start": "cross-env NODE_ENV=production electron .",
+    "build": "npm run build:renderer && npm run prepare:renderer && node ./scripts/generate-icon.mjs && node ./scripts/clean-release.mjs && electron-builder",
+  "build:renderer": "cross-env VITE_BUILD_TARGET=desktop npm run build --prefix ../client",
+    "prepare:renderer": "node ./scripts/copy-dist.mjs",
+    "generate:icon": "node ./scripts/generate-icon.mjs",
+    "package": "npm run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^31.3.0",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^2.1.8",
+    "pngjs": "^7.0.0",
+    "wait-on": "^7.0.2"
+  },
+  "build": {
+    "appId": "com.datasetto.desktop",
+    "productName": "Datasetto",
+    "artifactName": "Datasetto-${version}-${os}-${arch}.${ext}",
+    "compression": "normal",
+    "npmRebuild": false,
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "renderer/**/*"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "extraResources": [
+      {
+        "from": "resources/",
+        "to": "resources",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.social-networking"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network"
+    }
+  }
+}

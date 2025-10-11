@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+**/.git
+**/.gitignore
+**/.gitkeep
+**/.env
+**/dist
+**/.vite
+**/build
+**/renderer
+**/release
+**/logs
+**/.cache
+**/tmp
+**/temp

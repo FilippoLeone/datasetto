@@ -1,0 +1,6 @@
+{
+  "serverUrl": "https://datasetto.com",
+  "apiBaseUrl": "https://datasetto.com",
+  "hlsBaseUrl": "https://datasetto.com/hls",
+  "rtmpServerUrl": "rtmp://datasetto.com/hls"
+}

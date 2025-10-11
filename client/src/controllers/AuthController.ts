@@ -691,6 +691,21 @@ export class AuthController {
     const tabProfile = document.getElementById('authTabProfile');
     const tabsContainer = document.querySelector('.auth-mode-tabs');
 
+    const applyVisibility = (element: HTMLElement | null, isVisible: boolean) => {
+      if (!element) {
+        return;
+      }
+
+      element.classList.toggle('hidden', !isVisible);
+      element.setAttribute('aria-hidden', isVisible ? 'false' : 'true');
+
+      if (!isVisible) {
+        element.setAttribute('hidden', '');
+      } else {
+        element.removeAttribute('hidden');
+      }
+    };
+
     const activate = (tab: HTMLElement | null, active: boolean) => {
       if (!tab) return;
       tab.classList.toggle('active', active);
@@ -704,20 +719,19 @@ export class AuthController {
 
     const hideAuthTabs = this.isAuthenticated;
 
-    if (tabLogin) {
-      tabLogin.classList.toggle('hidden', hideAuthTabs);
-    }
-
-    if (tabRegister) {
-      tabRegister.classList.toggle('hidden', hideAuthTabs);
-    }
-
-    if (tabProfile) {
-      tabProfile.classList.toggle('hidden', !this.isAuthenticated);
-    }
+    applyVisibility(tabLogin, !hideAuthTabs);
+    applyVisibility(tabRegister, !hideAuthTabs);
+    applyVisibility(tabProfile, this.isAuthenticated);
 
     if (tabsContainer) {
       tabsContainer.classList.toggle('hidden', hideAuthTabs);
+      if (hideAuthTabs) {
+        tabsContainer.setAttribute('hidden', '');
+        tabsContainer.setAttribute('aria-hidden', 'true');
+      } else {
+        tabsContainer.removeAttribute('hidden');
+        tabsContainer.setAttribute('aria-hidden', 'false');
+      }
     }
   }
 
@@ -749,6 +763,11 @@ export class AuthController {
       if (!section) return;
       section.classList.toggle('hidden', !visible);
       section.setAttribute('aria-hidden', visible ? 'false' : 'true');
+      if (!visible) {
+        section.setAttribute('hidden', '');
+      } else {
+        section.removeAttribute('hidden');
+      }
     };
 
     const canShowAuthForms = !this.isAuthenticated;
