@@ -274,6 +274,7 @@ export class App {
       notifications: this.notifications,
       soundFX: this.soundFX,
       animator: this.animator,
+      mobileClosePanels: () => this.closeMobilePanels(),
       addListener: (element, event, handler, options) => this.addTrackedListener(element, event, handler, options),
       registerCleanup: (cleanup) => this.cleanupCallbacks.push(cleanup),
       onStateChange: (snapshot) => this.handleAuthStateChange(snapshot),
@@ -335,7 +336,6 @@ export class App {
     'user-avatar', 'user-status-text', 'voice-status-panel',
     'connected-voice-channel',
   'voice-users-panel', 'voice-users-list', 'voice-user-count', 'voice-session-timer',
-  'face-guard-toggle', 'face-guard-overlay', 'face-guard-dismiss',
       'text-channels', 'stream-channels', 'member-count',
       'create-text-channel', 'create-voice-channel', 'create-stream-channel',
       'createChannelModal', 'newChannelName', 'newChannelType',
@@ -346,10 +346,12 @@ export class App {
       'emojiPickerBtn', 'emojiPicker', 'emojiGrid',
       'inlineVideoContainer', 'inlineVideo', 'inlinePlayerOverlay',
   'popoutVideo', 'theaterModeToggle', 'mobileStreamTitle', 'popinVideo',
+  'mobileStreamChatToggle',
   'playPauseBtn', 'volumeBtn', 'volumeSlider', 'volumeIcon',
   'fullscreenBtn', 'videoControlsBar',
   'mobile-toolbar', 'mobile-overlay',
   'mobile-open-channels', 'mobile-open-settings', 'mobile-open-profile',
+  'mobile-sidebar-close',
   'mobile-voice-close',
       'audioSettingsModal', 'audioSettingsCancel', 'audioSettingsSave',
       'superuser-menu-btn', 'superuser-menu',
@@ -477,7 +479,11 @@ export class App {
           console.log('⚙️ Audio settings button clicked!');
         }
         (e as Event).stopPropagation();
+        if (this.isMobileLayout()) {
+          this.closeMobilePanels();
+        }
         void this.settingsController?.showAudioSettingsModal();
+        this.updateMobileToolbarState();
       });
     } else if (import.meta.env.DEV) {
       console.error('❌ user-settings-btn element not found in DOM!');
@@ -580,6 +586,11 @@ export class App {
 
     this.addTrackedListener(this.elements['mobile-overlay'], 'click', () => {
       this.closeMobilePanels();
+    });
+
+    this.addTrackedListener(this.elements['mobile-sidebar-close'], 'click', () => {
+      this.closeMobilePanels();
+      this.updateMobileToolbarState();
     });
 
     this.addTrackedListener(this.elements['mobile-voice-close'], 'click', () => {
@@ -784,6 +795,7 @@ export class App {
         }
       }
       this.updateMobileOverlayState();
+      this.updateMobileToolbarState();
     }
   }
 
@@ -804,6 +816,7 @@ export class App {
     app.classList.remove('sidebar-open', 'members-open');
     this.closeMobileVoicePanel();
     this.updateMobileOverlayState();
+    this.updateMobileToolbarState();
   }
 
   private handleDocumentPointerDown(event: Event): void {

@@ -1,13 +1,10 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Twiscord</title>
+    <meta charset="utf-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <style>
-      /* Inline critical CSS removed - now using main.css */
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Datasetto</title>
   </head>
   <body>
     <div id="app" class="app-shell flex h-screen w-screen overflow-hidden">
@@ -15,7 +12,8 @@
       <aside class="sidebar flex flex-col w-[260px] bg-bg-sidebar flex-shrink-0 overflow-hidden border-r border-black/30" role="navigation" aria-label="Server navigation">
         <!-- Sidebar Header -->
         <div class="sidebar-header px-4 py-3 border-b border-black/40 bg-bg-tertiary flex items-center justify-between min-h-[56px] shadow-sm sticky top-0 z-sticky">
-          <strong class="text-lg font-bold gradient-text tracking-tight">Twiscord</strong>
+          <strong class="text-lg font-bold gradient-text tracking-tight">Datasetto</strong>
+          <button id="mobile-sidebar-close" class="mobile-sidebar-close-btn" type="button" aria-label="Close navigation">✕</button>
         </div>
 
         <!-- Channels Section -->
@@ -74,15 +72,6 @@
               </button>
               <button id="mute-output-combo" class="voice-toggle-btn" aria-label="Toggle mic and output" title="Mute mic and output" aria-pressed="false">
                 <span class="mute-output-label">Mute All</span>
-              </button>
-              <button
-                id="face-guard-toggle"
-                class="voice-toggle-btn"
-                type="button"
-                aria-pressed="false"
-                title="Prevent accidental touches when holding the device near your face"
-              >
-                Face Guard
               </button>
             </div>
           </div>
@@ -146,7 +135,7 @@
             <!-- Inline Video Container (for stream channels - Theater Mode) -->
       <div id="inlineVideoContainer" class="inline-video-container flex-shrink-0 bg-black relative hidden">
               <!-- Top Controls -->
-              <div class="absolute top-0 left-0 right-0 p-4 flex items-center gap-4 bg-gradient-to-b from-black/70 to-transparent z-10">
+              <div class="inline-video-header absolute top-0 left-0 right-0 p-4 flex items-center gap-4 bg-gradient-to-b from-black/70 to-transparent z-10">
                 <button
                   id="theaterModeToggle"
                   class="px-4 py-2 bg-bg-tertiary/90 backdrop-blur-sm rounded-md flex items-center gap-2 font-semibold transition-fast hover:bg-bg-floating hover:shadow-md"
@@ -204,7 +193,7 @@
           </section>
 
           <!-- Stream Chat Column -->
-          <aside id="streamChatDock" class="stream-chat-dock">
+          <aside id="streamChatDock" class="stream-chat-dock hidden" aria-hidden="true">
             <header class="stream-chat-header">
               <div class="stream-chat-title">Live Chat</div>
               <div class="stream-chat-status" id="streamChatStatus" aria-live="polite">Chat docked</div>
@@ -709,19 +698,5 @@
 
     
     <script type="module" src="/src/main.ts"></script>
-    <div
-      id="face-guard-overlay"
-      class="face-guard-overlay hidden"
-      role="dialog"
-      aria-modal="true"
-      aria-live="polite"
-      aria-label="Face guard lock"
-    >
-      <div class="face-guard-card" role="document">
-        <span class="face-guard-icon" aria-hidden="true">📵</span>
-        <p class="face-guard-message">Face guard is active. Move your device away from your face to resume using the app.</p>
-        <button id="face-guard-dismiss" type="button" class="face-guard-dismiss-btn">Disable Face Guard</button>
-      </div>
-    </div>
   </body>
   </html>

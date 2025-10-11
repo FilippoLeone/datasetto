@@ -1,6 +1,6 @@
 <img width="1918" height="946" alt="image" src="https://github.com/user-attachments/assets/4fb05e34-bf73-4565-a85c-e51144aec7fb" />
 
-# 🎮 Twiscord
+# 🎮 Datasetto
 
 A modern, self-hosted streaming platform with RTMP streaming, voice chat, and text chat.
 
@@ -52,7 +52,7 @@ curl -fsSL https://get.docker.com | sudo sh
 sudo apt install -y docker-compose-plugin
 
 # 2. Clone/upload your code
-cd /opt/twiscord
+cd /opt/datasetto
 
 # 3. Configure environment
 cd ops
@@ -131,10 +131,10 @@ curl http://localhost/hls/CHANNEL_NAME.m3u8
 ### Backup & Updates
 ```bash
 # Backup environment
-cp /opt/twiscord/ops/.env ~/backup/.env.backup
+cp /opt/datasetto/ops/.env ~/backup/.env.backup
 
 # Update application
-cd /opt/twiscord
+cd /opt/datasetto
 git pull
 docker compose -f ops/docker-compose.prod.yml build --no-cache
 docker compose -f ops/docker-compose.prod.yml up -d
@@ -159,5 +159,3 @@ sudo ./deploy-vps.sh
 chmod +x deploy-gcp.sh
 ./deploy-gcp.sh
 ```
-
-This project is meant for local use only and it is not affiliated nor sponsored in any way shape or form with Twitch or Discord.

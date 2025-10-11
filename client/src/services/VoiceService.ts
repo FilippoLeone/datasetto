@@ -38,25 +38,35 @@ const resolveIceServers = (): RTCIceServer[] => {
 };
 
 const ICE_SERVERS = resolveIceServers();
+const ICE_RESTART_DELAY_MS = 2000;
+const ICE_RESTART_MAX_ATTEMPTS = 3;
+const OPUS_TARGET_BITRATE = 96000;
+const TURN_CONFIGURED = ICE_SERVERS.some((server) => {
+  const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+  return urls.some((url) => typeof url === 'string' && url.toLowerCase().startsWith('turn:'));
+});
 
 export interface PeerAudioPreference {
   muted: boolean;
   volume: number;
 }
 
-const PEER_PREFERENCE_STORAGE_KEY = 'twiscord.voice.peerPreferences.v1';
+const PEER_PREFERENCE_STORAGE_KEY = 'datasetto.voice.peerPreferences.v1';
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 export class VoiceService extends EventEmitter<EventMap> {
   private peers: Map<string, RTCPeerConnection> = new Map();
   private remoteAudios: Map<string, HTMLAudioElement> = new Map();
   private remoteMonitors: Map<string, SpeakingMonitor> = new Map();
+  private iceRestartTimers: Map<string, number> = new Map();
+  private iceRestartAttempts: Map<string, number> = new Map();
   private localStream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private outputVolume = 1;
   private outputDeviceId = '';
   private peerAudioPreferences: Map<string, PeerAudioPreference> = new Map();
   private deafened = false;
+  private turnWarningShown = false;
 
   constructor() {
     super();
@@ -104,12 +114,14 @@ export class VoiceService extends EventEmitter<EventMap> {
       if (sender) {
         try {
           await sender.replaceTrack(newTrack);
+          this.applySenderQualityHints(sender);
         } catch (error) {
           console.error(`Error replacing track for peer ${peerId}:`, error);
         }
       } else if (this.localStream) {
         // No sender yet, add the track
-        pc.addTrack(newTrack, this.localStream);
+        const newSender = pc.addTrack(newTrack, this.localStream);
+        this.applySenderQualityHints(newSender);
       }
     } else if (sender) {
       try {
@@ -136,6 +148,12 @@ export class VoiceService extends EventEmitter<EventMap> {
       }
     };
 
+    pc.onicecandidateerror = (event) => {
+      if (import.meta.env.DEV) {
+        console.warn(`[VoiceService] ICE candidate error for ${peerId}:`, event);
+      }
+    };
+
     // Connection state monitoring
     pc.onconnectionstatechange = () => {
       console.log(`Peer ${peerId} connection state: ${pc.connectionState}`);
@@ -147,6 +165,34 @@ export class VoiceService extends EventEmitter<EventMap> {
           message: 'Voice connection issue detected',
           duration: 3000,
         });
+        this.scheduleIceRestart(peerId, 'connection-state-failed');
+      }
+
+      if (pc.connectionState === 'connected') {
+        this.resetIceRecovery(peerId);
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      if (import.meta.env.DEV) {
+        console.log(`[VoiceService] ICE state for ${peerId}: ${state}`);
+      }
+
+      if (state === 'disconnected' || state === 'failed') {
+        if (typeof pc.restartIce === 'function') {
+          try {
+            pc.restartIce();
+          } catch (error) {
+            if (import.meta.env.DEV) {
+              console.warn(`[VoiceService] Failed to call restartIce for ${peerId}:`, error);
+            }
+          }
+        }
+
+        this.scheduleIceRestart(peerId, `ice-state-${state}`);
+      } else if (state === 'connected' || state === 'completed') {
+        this.resetIceRecovery(peerId);
       }
     };
 
@@ -167,13 +213,23 @@ export class VoiceService extends EventEmitter<EventMap> {
     let audioElement = this.remoteAudios.get(peerId);
     
     if (!audioElement) {
-      audioElement = document.createElement('audio');
-      audioElement.id = `audio-${peerId}`;
-      audioElement.autoplay = true;
+    audioElement = document.createElement('audio');
+    audioElement.id = `audio-${peerId}`;
+    audioElement.autoplay = true;
   audioElement.setAttribute('playsinline', 'true');
-      audioElement.muted = false;
-      audioElement.volume = this.computeEffectiveVolume(1);
-      audioElement.dataset.peerId = peerId;
+    audioElement.muted = false;
+      audioElement.defaultPlaybackRate = 1;
+      audioElement.playbackRate = 1;
+      const pitchSafeElement = audioElement as HTMLAudioElement & {
+        preservesPitch?: boolean;
+        mozPreservesPitch?: boolean;
+        webkitPreservesPitch?: boolean;
+      };
+      pitchSafeElement.preservesPitch = true;
+      pitchSafeElement.mozPreservesPitch = true;
+      pitchSafeElement.webkitPreservesPitch = true;
+    audioElement.volume = this.computeEffectiveVolume(1);
+    audioElement.dataset.peerId = peerId;
       
       // Set output device if available
       if (this.outputDeviceId && typeof audioElement.setSinkId === 'function') {
@@ -195,6 +251,121 @@ export class VoiceService extends EventEmitter<EventMap> {
 
     // Setup speaking detection
     this.setupSpeakingDetection(peerId, stream);
+  }
+
+  private scheduleIceRestart(peerId: string, reason: string): void {
+    const pc = this.peers.get(peerId);
+    if (!pc || pc.connectionState === 'closed') {
+      return;
+    }
+
+    if (this.iceRestartAttempts.get(peerId) ?? 0 >= ICE_RESTART_MAX_ATTEMPTS) {
+      if (import.meta.env.DEV) {
+        console.warn(`[VoiceService] ICE restart limit reached for ${peerId}`);
+      }
+      if (!TURN_CONFIGURED) {
+        this.warnMissingTurn(peerId, new Error('restart attempts exhausted'));
+      }
+      return;
+    }
+
+    if (this.iceRestartTimers.has(peerId)) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      this.iceRestartTimers.delete(peerId);
+      void this.performIceRestart(peerId, reason);
+    }, ICE_RESTART_DELAY_MS);
+
+    this.iceRestartTimers.set(peerId, timer);
+  }
+
+  private resetIceRecovery(peerId: string): void {
+    const timer = this.iceRestartTimers.get(peerId);
+    if (timer) {
+      clearTimeout(timer);
+      this.iceRestartTimers.delete(peerId);
+    }
+    if (this.iceRestartAttempts.has(peerId)) {
+      this.iceRestartAttempts.delete(peerId);
+    }
+  }
+
+  private async performIceRestart(peerId: string, reason: string): Promise<void> {
+    const pc = this.peers.get(peerId);
+    if (!pc) {
+      return;
+    }
+
+    const attempts = (this.iceRestartAttempts.get(peerId) ?? 0) + 1;
+    if (attempts > ICE_RESTART_MAX_ATTEMPTS) {
+      if (import.meta.env.DEV) {
+        console.warn(`[VoiceService] Aborting ICE restart for ${peerId}; attempts exhausted.`);
+      }
+      return;
+    }
+
+    this.iceRestartAttempts.set(peerId, attempts);
+
+    if (import.meta.env.DEV) {
+      console.info(`[VoiceService] Performing ICE restart for ${peerId} (attempt ${attempts}) due to ${reason}`);
+    }
+
+    try {
+      if (typeof pc.restartIce === 'function') {
+        try {
+          pc.restartIce();
+        } catch (error) {
+          if (import.meta.env.DEV) {
+            console.warn(`[VoiceService] restartIce call failed before offer for ${peerId}:`, error);
+          }
+        }
+      }
+
+      await this.createAndSendOffer(peerId, pc, { iceRestart: true });
+    } catch (error) {
+      console.error(`[VoiceService] ICE restart offer failed for ${peerId}:`, error);
+      if (!TURN_CONFIGURED) {
+        this.warnMissingTurn(peerId, error);
+      }
+    }
+  }
+
+  private async createAndSendOffer(peerId: string, pc: RTCPeerConnection, options: RTCOfferOptions = {}): Promise<void> {
+    const offer = await pc.createOffer(options);
+    const enhancedOffer = this.enhanceOpusSdp(offer);
+    await pc.setLocalDescription(enhancedOffer);
+
+    const local = pc.localDescription ?? enhancedOffer;
+    const normalized: RTCSessionDescriptionInit = {
+      type: local.type,
+      sdp: local.sdp,
+    };
+
+    this.emit('voice:offer', {
+      peerId,
+      offer: normalized,
+    } as never);
+  }
+
+  private warnMissingTurn(peerId: string, error: unknown): void {
+    if (this.turnWarningShown) {
+      return;
+    }
+
+    this.turnWarningShown = true;
+
+    this.emit('notification', {
+      id: `turn-warning-${peerId}`,
+      type: 'warning',
+      message: 'Voice connection failed. Configure a TURN server for better NAT traversal.',
+      duration: 8000,
+    });
+
+    if (import.meta.env.DEV) {
+      console.warn('[VoiceService] ICE failure without TURN configuration:', error);
+    }
   }
 
   /**
@@ -248,18 +419,13 @@ export class VoiceService extends EventEmitter<EventMap> {
     // Add local tracks
     if (this.localStream) {
       for (const track of this.localStream.getAudioTracks()) {
-        pc.addTrack(track, this.localStream);
+        const sender = pc.addTrack(track, this.localStream);
+        this.applySenderQualityHints(sender);
       }
     }
 
     try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      this.emit('voice:offer', {
-        peerId,
-        offer: pc.localDescription!,
-      } as never);
+      await this.createAndSendOffer(peerId, pc);
     } catch (error) {
       console.error(`Error creating offer for ${peerId}:`, error);
       throw error;
@@ -283,19 +449,24 @@ export class VoiceService extends EventEmitter<EventMap> {
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
-      // Add local tracks
       if (this.localStream) {
         for (const track of this.localStream.getAudioTracks()) {
-          pc.addTrack(track, this.localStream);
+          const sender = pc.addTrack(track, this.localStream);
+          this.applySenderQualityHints(sender);
         }
       }
 
       const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
+      const enhancedAnswer = this.enhanceOpusSdp(answer);
+      await pc.setLocalDescription(enhancedAnswer);
 
+      const local = pc.localDescription ?? enhancedAnswer;
       this.emit('voice:answer', {
         peerId,
-        answer: pc.localDescription!,
+        answer: {
+          type: local.type,
+          sdp: local.sdp,
+        },
       } as never);
     } catch (error) {
       console.error(`Error handling offer from ${peerId}:`, error);
@@ -319,6 +490,7 @@ export class VoiceService extends EventEmitter<EventMap> {
 
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      this.resetIceRecovery(peerId);
     } catch (error) {
       console.error(`Error handling answer from ${peerId}:`, error);
       throw error;
@@ -356,6 +528,8 @@ export class VoiceService extends EventEmitter<EventMap> {
       pc.close();
       this.peers.delete(peerId);
     }
+
+    this.resetIceRecovery(peerId);
 
     // Remove audio element
     const audio = this.remoteAudios.get(peerId);
@@ -528,6 +702,101 @@ export class VoiceService extends EventEmitter<EventMap> {
   private computeEffectiveVolume(localVolume: number): number {
     const clampedLocal = clamp(localVolume, 0, 1);
     return clamp(Number((clampedLocal * this.outputVolume).toFixed(4)), 0, 1);
+  }
+
+  private applySenderQualityHints(sender: RTCRtpSender): void {
+    const track = sender.track;
+    if (track) {
+      track.contentHint = 'speech';
+    }
+
+    try {
+      const parameters = sender.getParameters();
+
+      if (!parameters.encodings || parameters.encodings.length === 0) {
+        parameters.encodings = [{}];
+      }
+
+      for (const encoding of parameters.encodings) {
+        encoding.maxBitrate = OPUS_TARGET_BITRATE;
+        encoding.priority = 'high';
+        (encoding as RTCRtpEncodingParameters & { dtx?: boolean }).dtx = false;
+      }
+
+      parameters.degradationPreference = 'maintain-framerate';
+
+      void sender.setParameters(parameters).catch((error) => {
+        if (import.meta.env.DEV) {
+          console.warn('[VoiceService] Failed to apply RTP sender parameters:', error);
+        }
+      });
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[VoiceService] Failed to read RTP sender parameters:', error);
+      }
+    }
+  }
+
+  private enhanceOpusSdp(desc: RTCSessionDescriptionInit): RTCSessionDescriptionInit {
+    if (!desc.sdp) {
+      return desc;
+    }
+
+    const lines = desc.sdp.split(/\r?\n/);
+    let opusPayloadId: string | null = null;
+
+    for (const line of lines) {
+      if (line.startsWith('a=rtpmap:') && line.includes('opus/48000')) {
+        const parts = line.split(' ');
+        if (parts.length > 0) {
+          opusPayloadId = parts[0].split(':')[1] ?? null;
+          break;
+        }
+      }
+    }
+
+    if (opusPayloadId) {
+      const fmtpIndex = lines.findIndex((line) => line.startsWith(`a=fmtp:${opusPayloadId}`));
+      if (fmtpIndex !== -1) {
+        const [prefix, paramString = ''] = lines[fmtpIndex].split(' ', 2);
+        const params = new Map<string, string>();
+
+        if (paramString) {
+          for (const token of paramString.split(';')) {
+            const trimmed = token.trim();
+            if (!trimmed) continue;
+            const [key, value] = trimmed.split('=');
+            if (key) {
+              params.set(key, value ?? '');
+            }
+          }
+        }
+
+    params.set('stereo', '1');
+    params.set('sprop-stereo', '1');
+    params.set('useinbandfec', '1');
+    params.set('cbr', '0');
+    params.set('dtx', '0');
+        params.set('maxaveragebitrate', String(OPUS_TARGET_BITRATE));
+        params.set('maxplaybackrate', '48000');
+        params.set('minptime', '10');
+        params.set('maxptime', '60');
+
+        const rebuilt = Array.from(params.entries())
+          .map(([key, value]) => (value ? `${key}=${value}` : key))
+          .join(';');
+
+        lines[fmtpIndex] = `${prefix} ${rebuilt}`.trim();
+      }
+    }
+
+    if (!lines.some((line) => line.startsWith('a=ptime:'))) {
+      const audioSectionIndex = lines.findIndex((line) => line.startsWith('m=audio'));
+      const insertionIndex = audioSectionIndex !== -1 ? audioSectionIndex + 1 : lines.length;
+      lines.splice(insertionIndex, 0, 'a=ptime:20');
+    }
+
+    return { ...desc, sdp: lines.join('\r\n') };
   }
 }
 

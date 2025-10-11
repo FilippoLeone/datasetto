@@ -1,6 +1,6 @@
-# Twiscord Client
+# Datasetto Client
 
-Modern, modular frontend for Twiscord - A self-hosted Discord/TeamSpeak-like application with RTMP streaming and WebRTC voice chat.
+Modern, modular frontend for Datasetto - A self-hosted streaming and voice collaboration platform with RTMP streaming and WebRTC voice chat.
 
 ## 🎯 Features
 

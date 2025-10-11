@@ -1,5 +1,5 @@
 /**
- * Core type definitions for Twiscord application
+ * Core type definitions for Datasetto application
  */
 
 export type RoleName = 'superuser' | 'admin' | 'moderator' | 'streamer' | 'user';

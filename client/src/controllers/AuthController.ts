@@ -93,6 +93,7 @@ export class AuthController {
 
   showAuthModal(mode: AuthMode): void {
     this.setAuthMode(mode);
+    this.deps.mobileClosePanels?.();
     const modal = this.elements.regModal;
     if (!modal) return;
 

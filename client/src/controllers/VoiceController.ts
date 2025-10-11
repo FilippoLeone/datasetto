@@ -3,8 +3,6 @@ import type { Channel, VoicePeerEvent } from '@/types';
 import type { VoicePanelEntry } from '@/ui/VoicePanelController';
 import { MICROPHONE_PERMISSION_HELP_TEXT } from '@/services/AudioService';
 import { generateIdenticonDataUri } from '@/utils/avatarGenerator';
-import { FaceGuard } from '@/utils/FaceGuard';
-import { isMobileDevice } from '@/utils/device';
 
 const LOCAL_SPEAKING_THRESHOLD = 0.08;
 const LOCAL_SPEAKING_RELEASE_MS = 300;
@@ -27,45 +25,9 @@ export class VoiceController {
   private pttActive = false;
   private disposers: Array<() => void> = [];
   private activeOutputDeviceId: string | null = null;
-  private faceGuard: FaceGuard | null = null;
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps;
-
-    if (isMobileDevice()) {
-      const overlay = this.deps.elements['face-guard-overlay'] ?? null;
-      const toggleButton = this.deps.elements['face-guard-toggle'] as HTMLButtonElement | undefined;
-      const dismissButton = this.deps.elements['face-guard-dismiss'] as HTMLButtonElement | undefined;
-
-      this.faceGuard = new FaceGuard({
-        overlay,
-        toggleButton: toggleButton ?? null,
-        dismissButton: dismissButton ?? null,
-        notifications: this.deps.notifications,
-      });
-
-      this.deps.registerCleanup(() => this.faceGuard?.dispose());
-    } else {
-      const toggleButton = this.deps.elements['face-guard-toggle'] as HTMLButtonElement | undefined;
-      const overlay = this.deps.elements['face-guard-overlay'] as HTMLElement | undefined;
-      const dismissButton = this.deps.elements['face-guard-dismiss'] as HTMLButtonElement | undefined;
-
-      if (toggleButton) {
-        toggleButton.style.display = 'none';
-        toggleButton.setAttribute('aria-hidden', 'true');
-        toggleButton.setAttribute('tabindex', '-1');
-      }
-
-      if (overlay) {
-        overlay.classList.add('hidden');
-        overlay.setAttribute('aria-hidden', 'true');
-      }
-
-      if (dismissButton) {
-        dismissButton.setAttribute('tabindex', '-1');
-        dismissButton.setAttribute('aria-hidden', 'true');
-      }
-    }
   }
 
   initialize(): void {
@@ -74,8 +36,7 @@ export class VoiceController {
     this.updateMuteButtons();
     this.updateVoiceStatusPanel();
 
-    void this.applySpeakerPreference();
-    this.faceGuard?.setVoiceActive(this.deps.state.get('voiceConnected'));
+  void this.applySpeakerPreference();
 
     const channels = this.deps.state.get('channels') ?? [];
     if (Array.isArray(channels) && channels.length > 0) {
@@ -86,8 +47,6 @@ export class VoiceController {
   dispose(): void {
     this.clearVoiceSessionTimer();
     this.clearVoiceChannelTimer();
-    this.faceGuard?.setVoiceActive(false);
-    this.faceGuard?.dispose();
 
     for (const dispose of this.disposers.splice(0)) {
       try {
@@ -280,7 +239,6 @@ export class VoiceController {
 
     this.deps.state.setActiveVoiceChannel(data.channelId, channelName);
     this.deps.state.setVoiceConnected(true);
-  this.faceGuard?.setVoiceActive(true);
 
     const sessionId = data.sessionId ?? null;
     this.startVoiceSessionTimer(data.startedAt ?? null, sessionId);
@@ -480,10 +438,9 @@ export class VoiceController {
 
     this.disposers.push(
       this.deps.state.on('state:change', () => {
-        this.updateMuteButtons();
-        this.updateVoiceStatusPanel();
-        void this.applySpeakerPreference();
-        this.faceGuard?.setVoiceActive(this.deps.state.get('voiceConnected'));
+  this.updateMuteButtons();
+  this.updateVoiceStatusPanel();
+  void this.applySpeakerPreference();
       })
     );
   }
@@ -1181,7 +1138,6 @@ export class VoiceController {
 
     this.deps.state.setVoiceConnected(false);
     this.deps.state.setActiveVoiceChannel(null, null);
-  this.faceGuard?.setVoiceActive(false);
 
     this.voiceUsers.clear();
     this.renderVoiceUsers();

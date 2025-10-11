@@ -14,6 +14,7 @@ export interface AuthControllerDeps {
   notifications: NotificationManager;
   soundFX: AudioNotificationService;
   animator: AnimationController;
+  mobileClosePanels?: () => void;
   addListener: (
     element: EventTarget | null | undefined,
     event: string,

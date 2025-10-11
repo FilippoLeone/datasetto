@@ -11,6 +11,7 @@ export class VideoController {
   private dragOffset = { x: 0, y: 0 };
   private isMinimized = false;
   private mobileStreamMode = false;
+  private mobileChatOpen = false;
   private nativeFullscreenActive = false;
   private orientationLocked = false;
 
@@ -23,6 +24,7 @@ export class VideoController {
     this.setupVideoPopoutDrag();
     this.updateVolumeDisplay();
     this.syncFullscreenButton(false);
+  this.updateMobileChatToggleUI();
 
     document.addEventListener('fullscreenchange', this.handleNativeFullscreenChange);
     document.addEventListener('webkitfullscreenchange', this.handleNativeFullscreenChange as EventListener);
@@ -439,8 +441,11 @@ export class VideoController {
 
     if (this.mobileStreamMode && this.isMobileLayout()) {
       this.mobileStreamMode = false;
+      this.mobileChatOpen = false;
       const app = this.deps.elements.app;
-      app?.classList.remove('mobile-stream-mode');
+      app?.classList.remove('mobile-stream-mode', 'mobile-chat-open');
+      document.body.classList.remove('mobile-chat-open');
+      this.updateMobileChatToggleUI();
     }
   }
 
@@ -598,7 +603,10 @@ export class VideoController {
 
     if (!this.isMobileLayout()) {
       this.mobileStreamMode = false;
-      app.classList.remove('mobile-stream-mode');
+      this.mobileChatOpen = false;
+      app.classList.remove('mobile-stream-mode', 'mobile-chat-open');
+      document.body.classList.remove('mobile-chat-open');
+      this.updateMobileChatToggleUI();
       return;
     }
 
@@ -617,6 +625,75 @@ export class VideoController {
       if (overlay) {
         overlay.classList.remove('visible');
         overlay.setAttribute('aria-hidden', 'true');
+      }
+
+      this.mobileChatOpen = false;
+    } else {
+      this.mobileChatOpen = false;
+      app.classList.remove('mobile-chat-open');
+      document.body.classList.remove('mobile-chat-open');
+    }
+
+    this.updateMobileChatToggleUI();
+  }
+
+  toggleMobileChat(force?: boolean): void {
+    if (!this.mobileStreamMode || !this.isMobileLayout()) {
+      return;
+    }
+
+    const nextState = force ?? !this.mobileChatOpen;
+    if (nextState === this.mobileChatOpen) {
+      return;
+    }
+
+    this.mobileChatOpen = nextState;
+    this.updateMobileChatToggleUI();
+
+    if (nextState) {
+      const chatInput = this.deps.elements.chatInput as HTMLInputElement | undefined;
+      chatInput?.focus();
+    }
+  }
+
+  private updateMobileChatToggleUI(): void {
+    const app = this.deps.elements.app;
+    const toggle = this.deps.elements.mobileStreamChatToggle as HTMLButtonElement | undefined;
+    const chatDock = this.deps.elements.streamChatDock as HTMLElement | undefined;
+
+    const isMobile = this.isMobileLayout();
+    const isActive = isMobile && this.mobileStreamMode;
+    const isOpen = isActive && this.mobileChatOpen;
+
+    app?.classList.toggle('mobile-chat-open', isOpen);
+    document.body.classList.toggle('mobile-chat-open', isOpen);
+
+    if (toggle) {
+      toggle.classList.toggle('hidden', !isActive);
+      toggle.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+      toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      toggle.setAttribute('aria-label', isOpen ? 'Close live chat overlay' : 'Open live chat overlay');
+
+      const label = toggle.querySelector('.mobile-stream-chat-toggle__label');
+      if (label) {
+        label.textContent = isOpen ? 'Close Chat' : 'Pop-out Chat';
+      }
+
+      const icon = toggle.querySelector('.mobile-stream-chat-toggle__icon');
+      if (icon) {
+        icon.textContent = isOpen ? '✕' : '💬';
+      }
+    }
+
+    if (chatDock) {
+      const overlayActive = isActive && isOpen;
+      chatDock.classList.toggle('mobile-overlay-active', overlayActive);
+
+      if (isActive) {
+        chatDock.setAttribute('aria-hidden', 'false');
+      } else {
+        chatDock.setAttribute('aria-hidden', chatDock.classList.contains('hidden') ? 'true' : 'false');
+        chatDock.classList.remove('mobile-overlay-active');
       }
     }
   }
@@ -665,8 +742,9 @@ export class VideoController {
     addListener(elements['minimize-video'], 'click', () => this.minimizeVideo());
     addListener(elements['close-video'], 'click', () => this.closePopout());
     addListener(elements.theaterModeToggle, 'click', () => this.toggleTheaterMode());
-    addListener(elements.playPauseBtn, 'click', () => this.togglePlayPause());
-    addListener(elements.volumeBtn, 'click', () => this.toggleMuteVideo());
+  addListener(elements.playPauseBtn, 'click', () => this.togglePlayPause());
+  addListener(elements.volumeBtn, 'click', () => this.toggleMuteVideo());
+  addListener(elements.mobileStreamChatToggle, 'click', () => this.toggleMobileChat());
   addListener(elements.volumeSlider, 'input', (event: Event) => this.handleVolumeChange(event));
   addListener(elements.fullscreenBtn, 'click', () => this.toggleFullscreen());
 
@@ -681,6 +759,12 @@ export class VideoController {
     addListener(document, 'keydown', (event: Event) => {
       const keyboardEvent = event as KeyboardEvent;
       if (keyboardEvent.key !== 'Escape') {
+        return;
+      }
+
+      if (this.mobileChatOpen && this.mobileStreamMode && this.isMobileLayout()) {
+        keyboardEvent.preventDefault();
+        this.toggleMobileChat(false);
         return;
       }
 

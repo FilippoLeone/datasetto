@@ -4,6 +4,9 @@
 import type { AudioSettings, DeviceInfo } from '@/types';
 import { EventEmitter } from '@/utils';
 
+const TARGET_SAMPLE_RATE = 48000;
+const MIN_ACCEPTABLE_SAMPLE_RATE = 32000;
+
 export const MICROPHONE_PERMISSION_HELP_TEXT =
   'Microphone permission is blocked. Enable access in your browser or system settings, then reload. On iOS Safari: Settings → Safari → Camera & Microphone. On Android Chrome: Settings → Site Settings → Microphone.';
 
@@ -42,10 +45,39 @@ export class AudioService extends EventEmitter {
   /**
    * Initialize audio context
    */
-  private initAudioContext(): AudioContext {
-    if (!this.audioContext) {
-      this.audioContext = new (window.AudioContext || (window as never)['webkitAudioContext'])();
+  private initAudioContext(forceNew = false): AudioContext {
+    if (forceNew && this.audioContext) {
+      try {
+        void this.audioContext.close();
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[AudioService] Failed to close existing AudioContext before reinitializing:', error);
+        }
+      }
+      this.audioContext = null;
     }
+
+    if (!this.audioContext) {
+      const AudioContextCtor = window.AudioContext || (window as never)['webkitAudioContext'];
+      try {
+        this.audioContext = new AudioContextCtor({
+          sampleRate: TARGET_SAMPLE_RATE,
+          latencyHint: 'interactive',
+        } as AudioContextOptions);
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[AudioService] Unable to create AudioContext at preferred sample rate, falling back to default:', error);
+        }
+        this.audioContext = new AudioContextCtor();
+      }
+
+      if (this.audioContext.sampleRate < MIN_ACCEPTABLE_SAMPLE_RATE && import.meta.env.DEV) {
+        console.warn(
+          `[AudioService] AudioContext running at low sample rate (${this.audioContext.sampleRate}Hz). Voice quality may degrade, attempting automatic recovery.`
+        );
+      }
+    }
+
     return this.audioContext;
   }
 
@@ -91,6 +123,9 @@ export class AudioService extends EventEmitter {
       echoCancellation: this.settings.echoCancel,
       noiseSuppression: this.settings.noiseSuppression,
       autoGainControl: this.settings.autoGain,
+      channelCount: { ideal: 2, min: 1 } as ConstrainULongRange,
+	sampleRate: { ideal: TARGET_SAMPLE_RATE, min: MIN_ACCEPTABLE_SAMPLE_RATE } as ConstrainULongRange,
+	sampleSize: { ideal: 16 } as ConstrainULongRange,
     };
 
     if (this.settings.micDeviceId) {
@@ -123,8 +158,18 @@ export class AudioService extends EventEmitter {
 
       this.rawStream = rawStream;
 
-      // Setup Web Audio processing
-      const ctx = this.initAudioContext();
+      let ctx = this.initAudioContext();
+
+      await this.alignInputStreamSampleRate(rawStream, ctx).catch((error) => {
+        if (import.meta.env.DEV) {
+          console.warn('[AudioService] Failed to normalize microphone sample rate:', error);
+        }
+      });
+
+      if (ctx.sampleRate < MIN_ACCEPTABLE_SAMPLE_RATE) {
+        ctx = this.initAudioContext(true);
+      }
+
       const source = ctx.createMediaStreamSource(rawStream);
       this.sourceNode = source;
 
@@ -163,6 +208,40 @@ export class AudioService extends EventEmitter {
 
   hasActiveStream(): boolean {
     return Boolean(this.localStream || this.rawStream);
+  }
+
+  private async alignInputStreamSampleRate(stream: MediaStream, ctx: AudioContext): Promise<void> {
+    const track = stream.getAudioTracks()[0];
+    if (!track) {
+      return;
+    }
+
+    const settings = track.getSettings();
+    const currentSampleRate = settings.sampleRate ?? ctx.sampleRate;
+
+    if (currentSampleRate && currentSampleRate >= MIN_ACCEPTABLE_SAMPLE_RATE) {
+      return;
+    }
+
+    try {
+      await track.applyConstraints({
+        sampleRate: { ideal: TARGET_SAMPLE_RATE, min: MIN_ACCEPTABLE_SAMPLE_RATE },
+        channelCount: { ideal: 2, min: 1 },
+      });
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[AudioService] Unable to increase microphone sample rate via constraints:', error);
+      }
+    }
+
+    const updatedSettings = track.getSettings();
+    if ((updatedSettings.sampleRate ?? ctx.sampleRate) < MIN_ACCEPTABLE_SAMPLE_RATE) {
+      if (import.meta.env.DEV) {
+        console.warn(
+          `[AudioService] Microphone sample rate remains low (${updatedSettings.sampleRate ?? 'unknown'} Hz).`
+        );
+      }
+    }
   }
 
   /**

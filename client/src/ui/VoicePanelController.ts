@@ -105,10 +105,12 @@ export class VoicePanelController {
 
     const item = this.list.querySelector(`[data-user-id="${id}"]`);
     if (item) {
-      item.classList.toggle('speaking', speaking);
+        item.classList.toggle('speaking', speaking);
+        item.classList.toggle('speaking-indicator', speaking);
       const avatarContainer = item.querySelector('.voice-user-avatar-container');
       if (avatarContainer) {
-        avatarContainer.classList.toggle('speaking', speaking);
+          avatarContainer.classList.toggle('speaking', speaking);
+          avatarContainer.classList.toggle('speaking-indicator', speaking);
       }
     }
   }
@@ -140,6 +142,7 @@ export class VoicePanelController {
     item.className = 'voice-user-item flex flex-col gap-2 px-4 py-2 transition-fast cursor-pointer relative hover:bg-modifier-hover hover:pl-[calc(1rem+2px)]';
     if (entry.speaking) {
       item.classList.add('speaking-indicator');
+      item.classList.add('speaking');
     }
     item.setAttribute('data-user-id', entry.id);
 
@@ -150,6 +153,7 @@ export class VoicePanelController {
     avatarContainer.className = 'relative flex-shrink-0';
     if (entry.speaking) {
       avatarContainer.classList.add('speaking-indicator');
+      avatarContainer.classList.add('speaking');
     }
 
     const avatar = document.createElement('div');

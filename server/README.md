@@ -1,6 +1,6 @@
-# 🚀 Twiscord Backend
+# 🚀 Datasetto Backend
 
-Modern, modular Node.js backend for Twiscord with WebSocket (Socket.IO) and REST API support.
+Modern, modular Node.js backend for Datasetto with WebSocket (Socket.IO) and REST API support.
 
 ## ✨ Features
 
@@ -279,7 +279,7 @@ LOG_FILE_PATH=./logs        # Log file directory
 
 **Development (pretty format):**
 ```
-2025-10-05T12:00:00.000Z INFO  🚀 Twiscord Server started
+2025-10-05T12:00:00.000Z INFO  🚀 Datasetto Server started
 2025-10-05T12:00:05.123Z INFO  User connected: Alice {"userId":"abc123"}
 2025-10-05T12:00:06.456Z DEBUG User Alice joined channel general
 ```

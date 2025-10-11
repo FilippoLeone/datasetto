@@ -198,13 +198,14 @@ export class NavigationController {
 
     playerColumn?.classList.toggle('hidden', !isStreamMode);
 
-    if (!isStreamMode) {
+    if (type === 'voice') {
       chatDock?.classList.add('hidden');
       chatDock?.setAttribute('aria-hidden', 'true');
       chatDock?.classList.remove('stream-chat-hidden');
     } else {
       chatDock?.classList.remove('hidden');
-      chatDock?.removeAttribute('aria-hidden');
+      chatDock?.classList.remove('stream-chat-hidden');
+      chatDock?.setAttribute('aria-hidden', 'false');
     }
 
     if (chatTitle) {

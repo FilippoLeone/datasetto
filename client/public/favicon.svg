@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Twiscord logo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Datasetto logo">
   <defs>
-    <linearGradient id="twiscordGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#8B5CF6" />
-      <stop offset="100%" stop-color="#EC4899" />
+    <linearGradient id="datasettoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0FA4A5" />
+      <stop offset="100%" stop-color="#FF8A3D" />
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="14" fill="url(#twiscordGradient)" />
+  <rect width="64" height="64" rx="14" fill="url(#datasettoGradient)" />
   <path
     d="M20 45c6 4 18 4 24 0v-4c-2 2-6 3-12 3s-10-1-12-3v4zm0-8c6 4 18 4 24 0V18c-6-4-18-4-24 0v19zm12-21c4 0 8 .6 10 1.8-2-2.8-6-4.3-10-4.3s-8 1.5-10 4.3C24 16.6 28 16 32 16z"
     fill="#F9FAFB"

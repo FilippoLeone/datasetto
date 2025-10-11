@@ -1,5 +1,5 @@
 {
-  "name": "twiscord-client",
+  "name": "datasetto-client",
   "private": true,
   "version": "0.2.0",
   "type": "module",
@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "hls.js": "^1.5.15",
-    "socket.io-client": "^4.7.5",
-    "twiscord-client": "file:"
+  "socket.io-client": "^4.7.5",
+  "datasetto-client": "file:"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.14",
