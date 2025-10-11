@@ -2,6 +2,7 @@ import type { VoiceControllerDeps } from './types';
 import type { Channel, VoicePeerEvent } from '@/types';
 import type { VoicePanelEntry } from '@/ui/VoicePanelController';
 import { MICROPHONE_PERMISSION_HELP_TEXT } from '@/services/AudioService';
+import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '@/services';
 import { generateIdenticonDataUri } from '@/utils/avatarGenerator';
 import { createSpinnerWithText } from '@/components/feedback/Spinner';
 
@@ -26,6 +27,9 @@ export class VoiceController {
   private pttActive = false;
   private disposers: Array<() => void> = [];
   private activeOutputDeviceId: string | null = null;
+  private micRecoveryTimeout: number | null = null;
+  private appActive = true;
+  private pendingMicRecoverySource: 'stream-interrupted' | 'app-resume' | null = null;
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps;
@@ -33,11 +37,11 @@ export class VoiceController {
 
   initialize(): void {
     this.registerServiceListeners();
+    this.registerNativeLifecycleListeners();
     this.deps.registerCleanup(() => this.dispose());
     this.updateMuteButtons();
     this.updateVoiceStatusPanel();
-
-  void this.applySpeakerPreference();
+    void this.applySpeakerPreference();
 
     const channels = this.deps.state.get('channels') ?? [];
     if (Array.isArray(channels) && channels.length > 0) {
@@ -48,6 +52,11 @@ export class VoiceController {
   dispose(): void {
     this.clearVoiceSessionTimer();
     this.clearVoiceChannelTimer();
+
+    if (this.micRecoveryTimeout !== null) {
+      window.clearTimeout(this.micRecoveryTimeout);
+      this.micRecoveryTimeout = null;
+    }
 
     for (const dispose of this.disposers.splice(0)) {
       try {
@@ -145,7 +154,7 @@ export class VoiceController {
       }
 
       if (import.meta.env.DEV) {
-        console.log('🎤 Joining voice channel:', channelName);
+        console.log('­ƒÄñ Joining voice channel:', channelName);
       }
 
       this.pendingVoiceJoin = { id: channelId, name: channelName };
@@ -216,7 +225,7 @@ export class VoiceController {
 
       if (reconnecting) {
         if (import.meta.env.DEV) {
-          console.log('⚠️ Voice resources released while attempting to reconnect');
+          console.log('ÔÜá´©Å Voice resources released while attempting to reconnect');
         }
       } else {
         this.deps.notifications.warning('Voice disconnected due to network issues');
@@ -441,12 +450,156 @@ export class VoiceController {
     );
 
     this.disposers.push(
-      this.deps.state.on('state:change', () => {
-  this.updateMuteButtons();
-  this.updateVoiceStatusPanel();
-  void this.applySpeakerPreference();
+      this.deps.audio.on('stream:interrupted', (payload) => {
+        this.handleAudioStreamInterrupted(payload as { reason: 'ended' | 'muted' });
       })
     );
+
+    this.disposers.push(
+      this.deps.state.on('state:change', () => {
+        this.updateMuteButtons();
+        this.updateVoiceStatusPanel();
+        void this.applySpeakerPreference();
+      })
+    );
+  }
+
+  private registerNativeLifecycleListeners(): void {
+    const registerDomLifecycleFallback = (): void => {
+      const handleVisibilityChange = (): void => {
+        if (document.visibilityState === 'visible') {
+          this.handleAppResumed();
+        } else {
+          this.handleAppPaused();
+        }
+      };
+
+      const handleWindowFocus = (): void => {
+        this.handleAppResumed();
+      };
+
+      const handleWindowBlur = (): void => {
+        this.handleAppPaused();
+      };
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      window.addEventListener('focus', handleWindowFocus);
+      window.addEventListener('blur', handleWindowBlur);
+
+      this.disposers.push(() => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('focus', handleWindowFocus);
+        window.removeEventListener('blur', handleWindowBlur);
+      });
+    };
+
+    void (async () => {
+      try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (!Capacitor.isNativePlatform()) {
+          registerDomLifecycleFallback();
+          return;
+        }
+
+        const { App } = await import('@capacitor/app');
+        const handles: Array<{ remove: () => Promise<void> }> = [];
+
+        handles.push(
+          await App.addListener('appStateChange', ({ isActive }) => {
+            if (isActive) {
+              this.handleAppResumed();
+            } else {
+              this.handleAppPaused();
+            }
+          })
+        );
+
+        handles.push(
+          await App.addListener('resume', () => {
+            this.handleAppResumed();
+          })
+        );
+
+        handles.push(
+          await App.addListener('pause', () => {
+            this.handleAppPaused();
+          })
+        );
+
+        this.disposers.push(() => {
+          handles.forEach((handle) => {
+            handle
+              .remove()
+              .catch((error) => {
+                if (import.meta.env.DEV) {
+                  console.warn('[VoiceController] Failed to remove native lifecycle listener:', error);
+                }
+              });
+          });
+        });
+      } catch (error) {
+        registerDomLifecycleFallback();
+        if (import.meta.env.DEV) {
+          console.warn('[VoiceController] Falling back to DOM lifecycle listeners:', error);
+        }
+      }
+    })();
+  }
+
+  private handleAppResumed(): void {
+    this.appActive = true;
+
+    const voiceActive = this.deps.state.get('voiceConnected');
+    if (!voiceActive && !this.pendingVoiceJoin) {
+      this.pendingMicRecoverySource = null;
+      return;
+    }
+
+    void ensureForegroundServiceForVoice();
+
+    const recoverySource = this.pendingMicRecoverySource ?? 'app-resume';
+    this.pendingMicRecoverySource = null;
+    this.scheduleMicrophoneRecovery(recoverySource, 250);
+  }
+
+  private handleAppPaused(): void {
+    this.appActive = false;
+
+    const voiceActive = this.deps.state.get('voiceConnected') || Boolean(this.pendingVoiceJoin);
+    if (voiceActive) {
+      this.pendingMicRecoverySource = 'app-resume';
+      void ensureForegroundServiceForVoice();
+    }
+  }
+
+  private scheduleMicrophoneRecovery(_source: 'stream-interrupted' | 'app-resume', delayMs = 250): void {
+    const voiceActive = this.deps.state.get('voiceConnected') || Boolean(this.pendingVoiceJoin);
+    if (!voiceActive) {
+      return;
+    }
+
+    if (!this.appActive) {
+      this.pendingMicRecoverySource = _source;
+      return;
+    }
+
+    if (this.micRecoveryTimeout !== null) {
+      window.clearTimeout(this.micRecoveryTimeout);
+    }
+
+    this.micRecoveryTimeout = window.setTimeout(() => {
+      this.micRecoveryTimeout = null;
+      const { muted } = this.deps.state.getState();
+      if (muted) {
+        return;
+      }
+
+      void this.syncMicrophoneState(true).catch((error) => {
+        if (import.meta.env.DEV) {
+          console.warn('[VoiceController] Microphone recovery attempt failed:', error);
+        }
+      });
+    }, Math.max(0, delayMs));
   }
 
   private async syncMicrophoneState(forceRestart = false): Promise<void> {
@@ -519,6 +672,18 @@ export class VoiceController {
 
     const { muted } = this.deps.state.getState();
     this.deps.audio.setMuted(muted);
+  }
+
+  private handleAudioStreamInterrupted(payload: { reason: 'ended' | 'muted' }): void {
+    if (!payload) {
+      return;
+    }
+
+    if (import.meta.env.DEV) {
+      console.warn(`[VoiceController] Microphone stream interrupted (${payload.reason})`);
+    }
+
+    this.scheduleMicrophoneRecovery('stream-interrupted', 400);
   }
 
   private announceVoiceState(): void {
@@ -647,7 +812,7 @@ export class VoiceController {
 
     if (this.pendingVoiceJoin && entries.length === 0) {
       const channelName = this.pendingVoiceJoin.name?.trim() || 'voice';
-      this.setVoiceGalleryLoadingState(`Connecting to ${channelName}…`);
+      this.setVoiceGalleryLoadingState(`Connecting to ${channelName}ÔÇª`);
       return;
     }
 
@@ -758,7 +923,7 @@ export class VoiceController {
 
   const displayName = tile.dataset.displayName ?? 'Participant';
     const labelDescription = labelParts.length > 0 ? labelParts.join(', ') : 'Connected';
-    tile.setAttribute('aria-label', `${displayName} — ${labelDescription}`);
+    tile.setAttribute('aria-label', `${displayName} ÔÇö ${labelDescription}`);
   }
 
   private populateVoiceGalleryMeta(
@@ -805,11 +970,11 @@ export class VoiceController {
 
     if (state.isCurrentUser) {
       if (state.deafened) {
-        label = 'You · Deafened';
+        label = 'You ┬À Deafened';
       } else if (state.muted) {
-        label = 'You · Muted';
+        label = 'You ┬À Muted';
       } else if (state.speaking) {
-        label = 'You · Speaking';
+        label = 'You ┬À Speaking';
       } else {
         label = 'You';
       }
@@ -1021,7 +1186,7 @@ export class VoiceController {
     } catch {
       title = undefined;
     }
-    this.deps.voicePanel.updateSessionTimer(`⏱ ${formatted}`, title);
+    this.deps.voicePanel.updateSessionTimer(`ÔÅ▒ ${formatted}`, title);
   }
 
   private formatDuration(milliseconds: number): string {
@@ -1139,7 +1304,7 @@ export class VoiceController {
       }
 
       const duration = now - start;
-      el.textContent = `⏱ ${this.formatDuration(duration)}`;
+      el.textContent = `ÔÅ▒ ${this.formatDuration(duration)}`;
       el.classList.remove('hidden');
       el.classList.add('inline-flex');
     });
@@ -1169,6 +1334,8 @@ export class VoiceController {
     if (this.deps.socket.isConnected()) {
       this.deps.socket.leaveVoiceChannel();
     }
+
+    void stopForegroundServiceForVoice();
 
     this.deps.state.setVoiceConnected(false);
     this.deps.state.setActiveVoiceChannel(null, null);

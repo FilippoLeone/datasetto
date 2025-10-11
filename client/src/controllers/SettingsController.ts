@@ -4,9 +4,9 @@
  */
 
 import type { StateManager, AnimationController } from '@/utils';
-import type { AudioService } from '@/services';
+import type { AudioService, AudioNotificationService } from '@/services';
 import type { NotificationManager } from '@/components/NotificationManager';
-import type { AudioNotificationService } from '@/services';
+import { fetchNativeAudioRoutes } from '@/services';
 
 export interface SettingsControllerDeps {
   elements: Record<string, HTMLElement | null>;
@@ -302,35 +302,73 @@ export class SettingsController {
 
       // Populate speaker dropdown
       const spkSelect = this.deps.elements.spkSelect as HTMLSelectElement;
-      if (spkSelect && devices.speakers.length > 0) {
-        spkSelect.innerHTML = '';
-        const supportsOutputSelection = this.deps.audio.supportsOutputDeviceSelection();
+      const nativeRoutes = await fetchNativeAudioRoutes();
+      const supportsOutputSelection = this.deps.audio.supportsOutputDeviceSelection() || nativeRoutes.length > 0;
 
-        const defaultOption = document.createElement('option');
-        defaultOption.value = '';
-        defaultOption.textContent = supportsOutputSelection ? 'System Default' : 'System Route';
-        spkSelect.appendChild(defaultOption);
+      if (spkSelect) {
+        const speakerMap = new Map<string, { deviceId: string; label: string }>();
 
-        devices.speakers.forEach(device => {
-          const option = document.createElement('option');
-          option.value = device.deviceId;
-          option.textContent = device.label || `Speaker ${device.deviceId.substring(0, 8)}`;
-          spkSelect.appendChild(option);
+        devices.speakers.forEach((device) => {
+          speakerMap.set(device.deviceId, {
+            deviceId: device.deviceId,
+            label: device.label || `Speaker ${device.deviceId.substring(0, 8)}`,
+          });
         });
-        
-        // Select current device
-        const currentSpk = this.deps.state.get('settings').spkDeviceId;
-        if (currentSpk) {
-          spkSelect.value = currentSpk;
-        } else {
-          spkSelect.value = '';
-        }
 
-        spkSelect.disabled = !supportsOutputSelection;
-        if (!supportsOutputSelection) {
+        nativeRoutes.forEach((route) => {
+          const nativeId = `native:${route.id}`;
+          speakerMap.set(nativeId, {
+            deviceId: nativeId,
+            label: route.label || 'Phone Earpiece',
+          });
+        });
+
+        const speakerEntries = Array.from(speakerMap.values());
+
+        spkSelect.innerHTML = '';
+
+        if (!supportsOutputSelection && speakerEntries.length === 0) {
+          spkSelect.innerHTML = '<option>No speakers found</option>';
+          spkSelect.disabled = true;
           spkSelect.title = 'Switching audio output is not supported by this browser. Use system controls instead.';
         } else {
-          spkSelect.removeAttribute('title');
+          const defaultOption = document.createElement('option');
+          defaultOption.value = '';
+          defaultOption.textContent = nativeRoutes.length > 0 ? 'Speakerphone (default)' : supportsOutputSelection ? 'System Default' : 'System Route';
+          spkSelect.appendChild(defaultOption);
+
+          speakerEntries.forEach((device) => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.textContent = device.label;
+            spkSelect.appendChild(option);
+          });
+
+          const currentSettings = this.deps.state.get('settings');
+          let selectedValue = currentSettings.spkDeviceId ?? '';
+
+          if (!selectedValue && nativeRoutes.length > 0) {
+            const activeRoute = nativeRoutes.find((route) => route.selected);
+            if (activeRoute) {
+              const nativeId = `native:${activeRoute.id}`;
+              if (speakerMap.has(nativeId)) {
+                selectedValue = nativeId;
+              }
+            }
+          }
+
+          if (selectedValue && !speakerMap.has(selectedValue)) {
+            selectedValue = '';
+          }
+
+          spkSelect.value = selectedValue;
+          spkSelect.disabled = !supportsOutputSelection;
+
+          if (!supportsOutputSelection) {
+            spkSelect.title = 'Switching audio output is not supported by this browser. Use system controls instead.';
+          } else {
+            spkSelect.removeAttribute('title');
+          }
         }
       }
 

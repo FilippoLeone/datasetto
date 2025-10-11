@@ -3,6 +3,7 @@
  */
 import type { AudioSettings, DeviceInfo } from '@/types';
 import { EventEmitter } from '@/utils';
+import { fetchNativeAudioRoutes, isNativeAudioRoutingAvailable, selectNativeAudioRoute } from './NativeAudioRouteService';
 
 const TARGET_SAMPLE_RATE = 48000;
 const MIN_ACCEPTABLE_SAMPLE_RATE = 32000;
@@ -20,6 +21,8 @@ export class AudioService extends EventEmitter {
   private analyser: AnalyserNode | null = null;
   private meterAnimationId: number | null = null;
   private settings: AudioSettings;
+  private trackLifecycleCleanup: (() => void) | null = null;
+  private shuttingDownStream = false;
 
   constructor(settings: AudioSettings) {
     super();
@@ -91,7 +94,7 @@ export class AudioService extends EventEmitter {
       }
 
       const devices = await navigator.mediaDevices.enumerateDevices();
-      
+
       const mics = devices
         .filter((d) => d.kind === 'audioinput')
         .map((d) => ({
@@ -100,13 +103,34 @@ export class AudioService extends EventEmitter {
           kind: d.kind,
         }));
 
-      const speakers = devices
+      let speakers = devices
         .filter((d) => d.kind === 'audiooutput')
         .map((d) => ({
           deviceId: d.deviceId,
           label: d.label || 'Speaker',
           kind: d.kind,
         }));
+
+      const nativeRoutes = await fetchNativeAudioRoutes();
+      if (nativeRoutes.length > 0) {
+        const speakerMap = new Map<string, DeviceInfo>();
+        for (const speaker of speakers) {
+          speakerMap.set(speaker.deviceId, speaker);
+        }
+
+        for (const route of nativeRoutes) {
+          const nativeId = `native:${route.id}`;
+          if (!speakerMap.has(nativeId)) {
+            speakerMap.set(nativeId, {
+              deviceId: nativeId,
+              label: route.label,
+              kind: 'audiooutput',
+            });
+          }
+        }
+
+        speakers = Array.from(speakerMap.values());
+      }
 
       return { mics, speakers };
     } catch (error) {
@@ -157,6 +181,7 @@ export class AudioService extends EventEmitter {
       });
 
       this.rawStream = rawStream;
+      this.registerTrackLifecycleHandlers(rawStream.getAudioTracks()[0] ?? null);
 
       let ctx = this.initAudioContext();
 
@@ -248,6 +273,9 @@ export class AudioService extends EventEmitter {
    * Stop local audio stream
    */
   stopLocalStream(): void {
+    this.shuttingDownStream = true;
+    this.cleanupTrackLifecycleHandlers();
+
     if (this.destinationNode) {
       try {
         this.destinationNode.disconnect();
@@ -307,6 +335,7 @@ export class AudioService extends EventEmitter {
 
     this.micGainNode = null;
     this.analyser = null;
+    this.shuttingDownStream = false;
   }
 
   /**
@@ -381,6 +410,60 @@ export class AudioService extends EventEmitter {
     this.meterAnimationId = requestAnimationFrame(update);
   }
 
+  private registerTrackLifecycleHandlers(track: MediaStreamTrack | null): void {
+    this.cleanupTrackLifecycleHandlers();
+
+    if (!track) {
+      return;
+    }
+
+    const handleEnded = () => {
+      this.handleMicrophoneTrackInterruption('ended');
+    };
+
+    const handleMute = () => {
+      if (track.muted) {
+        this.handleMicrophoneTrackInterruption('muted');
+      }
+    };
+
+    const handleUnmute = () => {
+      if (import.meta.env.DEV) {
+        console.debug('[AudioService] Microphone track unmuted after interruption');
+      }
+    };
+
+    track.addEventListener('ended', handleEnded);
+    track.addEventListener('mute', handleMute);
+    track.addEventListener('unmute', handleUnmute);
+
+    this.trackLifecycleCleanup = () => {
+      track.removeEventListener('ended', handleEnded);
+      track.removeEventListener('mute', handleMute);
+      track.removeEventListener('unmute', handleUnmute);
+      this.trackLifecycleCleanup = null;
+    };
+  }
+
+  private cleanupTrackLifecycleHandlers(): void {
+    if (this.trackLifecycleCleanup) {
+      this.trackLifecycleCleanup();
+      this.trackLifecycleCleanup = null;
+    }
+  }
+
+  private handleMicrophoneTrackInterruption(reason: 'ended' | 'muted'): void {
+    if (this.shuttingDownStream) {
+      return;
+    }
+
+    if (import.meta.env.DEV) {
+      console.warn(`[AudioService] Microphone track ${reason}; attempting recovery`);
+    }
+
+    this.emit('stream:interrupted', { reason });
+  }
+
   /**
    * Mute/unmute local stream
    */
@@ -407,14 +490,22 @@ export class AudioService extends EventEmitter {
    * Set output device (speaker) for an audio element
    */
   async setOutputDevice(audioElement: HTMLAudioElement, deviceId: string): Promise<void> {
+    const normalizedId = deviceId ?? '';
+    const nativeRouteId = normalizedId.startsWith('native:') ? normalizedId.slice(7) : null;
+
+    if ((nativeRouteId !== null || normalizedId === '') && isNativeAudioRoutingAvailable()) {
+      await selectNativeAudioRoute(nativeRouteId);
+      return;
+    }
+
     if (typeof audioElement.setSinkId === 'function') {
       try {
-        await audioElement.setSinkId(deviceId);
+        await audioElement.setSinkId(normalizedId);
       } catch (error) {
         console.error('Error setting output device:', error);
         throw new Error('Failed to change output device');
       }
-    } else {
+    } else if (import.meta.env.DEV) {
       console.warn('setSinkId not supported in this browser');
     }
   }
@@ -478,6 +569,10 @@ export class AudioService extends EventEmitter {
   }
 
   supportsOutputDeviceSelection(): boolean {
+    if (isNativeAudioRoutingAvailable()) {
+      return true;
+    }
+
     if (typeof document === 'undefined') {
       return false;
     }

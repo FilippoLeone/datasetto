@@ -3,6 +3,7 @@
  */
 import type { EventMap } from '@/types';
 import { EventEmitter, Storage } from '@/utils';
+import { isNativeAudioRoutingAvailable, selectNativeAudioRoute } from './NativeAudioRouteService';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -666,14 +667,34 @@ export class VoiceService extends EventEmitter<EventMap> {
    * Set output device for all remote audios
    */
   async setOutputDevice(deviceId: string): Promise<void> {
-    this.outputDeviceId = deviceId;
+    const normalizedId = deviceId ?? '';
+    const nativeRouteId = normalizedId.startsWith('native:') ? normalizedId.slice(7) : null;
+    const nativeRoutingAvailable = isNativeAudioRoutingAvailable();
+
+    if (nativeRouteId !== null) {
+      if (!nativeRoutingAvailable) {
+        throw new Error('Native audio routing is not supported on this device.');
+      }
+
+      await selectNativeAudioRoute(nativeRouteId);
+      this.outputDeviceId = normalizedId;
+      return;
+    }
+
+    if (nativeRoutingAvailable && normalizedId === '') {
+      await selectNativeAudioRoute(null);
+      this.outputDeviceId = normalizedId;
+      return;
+    }
+
+    this.outputDeviceId = normalizedId;
 
     const promises: Promise<void>[] = [];
-    
+
     for (const audio of this.remoteAudios.values()) {
       if (typeof audio.setSinkId === 'function') {
         promises.push(
-          audio.setSinkId(deviceId).catch((error) => {
+          audio.setSinkId(normalizedId).catch((error) => {
             console.error('Error setting output device:', error);
           })
         );

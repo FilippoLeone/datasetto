@@ -15,8 +15,6 @@ node_modules/
 desktop/renderer/
 desktop/release/
 desktop/node_modules/
-mobile/android/
-mobile/ios/
 mobile/node_modules/
 mobile/android/app/build/
 mobile/android/build/

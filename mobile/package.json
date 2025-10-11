@@ -5,13 +5,14 @@
   "private": true,
   "scripts": {
     "build:web": "node ./scripts/build-web.mjs",
-    "sync": "npm run build:web && npx cap sync",
-    "copy": "npm run build:web && npx cap copy",
+  "sync": "npm run build:web && npx cap sync && node ./scripts/configure-android-foreground-service.mjs",
+  "copy": "npm run build:web && npx cap copy && node ./scripts/configure-android-foreground-service.mjs",
     "open:ios": "npx cap open ios",
     "open:android": "npx cap open android",
     "doctor": "npx cap doctor"
   },
   "dependencies": {
+    "@capawesome-team/capacitor-android-foreground-service": "^7.0.1",
     "@capacitor/core": "^7.4.3"
   },
   "devDependencies": {
