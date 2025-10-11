@@ -153,7 +153,9 @@ VITE_RTMP_SERVER_URL=rtmp://your-domain:1935/hls
 # VITE_WEBRTC_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"}]'
 
 # Optional: shorthand TURN credentials (appended to defaults)
-# VITE_TURN_URL=turn:turn.example.com:3478
+#   - Multiple TURN URLs can be provided, separated by commas or whitespace
+#   - TCP fallbacks are added automatically when no transport is specified
+# VITE_TURN_URL=turn:turn.example.com:3478,turn:backup.example.com:3478
 # VITE_TURN_USERNAME=turnuser
 # VITE_TURN_CREDENTIAL=turnpass
 ```

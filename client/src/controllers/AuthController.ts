@@ -116,15 +116,6 @@ export class AuthController {
       return;
     }
 
-    const usernameInput = this.elements.regUsername as HTMLInputElement | undefined;
-    const passwordInput = this.elements.regPassword as HTMLInputElement | undefined;
-    const confirmInput = this.elements.regConfirm as HTMLInputElement | undefined;
-    const displayNameInput = this.elements.regDisplayName as HTMLInputElement | undefined;
-    const emailInput = this.elements.regEmail as HTMLInputElement | undefined;
-    const bioInput = this.elements.regBio as HTMLTextAreaElement | undefined;
-    const currentPasswordInput = this.elements.regCurrentPassword as HTMLInputElement | undefined;
-    const newPasswordInput = this.elements.regNewPassword as HTMLInputElement | undefined;
-    const newPasswordConfirmInput = this.elements.regNewPasswordConfirm as HTMLInputElement | undefined;
     const errorEl = this.elements.regError;
 
     if (errorEl) {
@@ -138,19 +129,13 @@ export class AuthController {
       this.deps.soundFX.play('error', 0.5);
     };
 
-    const emailRaw = usernameInput?.value?.trim() ?? '';
-    const emailNormalized = emailRaw.toLowerCase();
-    const password = passwordInput?.value ?? '';
-    const confirm = confirmInput?.value ?? '';
-    const fallbackDisplayName = this.scrubIdentifierForDisplay(emailRaw) || emailRaw;
-    const displayName = displayNameInput?.value?.trim() || fallbackDisplayName;
-    const contactEmail = emailInput?.value?.trim() || null;
-    const bio = bioInput?.value?.trim() || null;
-    const currentPassword = currentPasswordInput?.value ?? '';
-    const newPassword = newPasswordInput?.value ?? '';
-    const newPasswordConfirm = newPasswordConfirmInput?.value ?? '';
-
     if (this.authMode === 'login') {
+      const loginEmailInput = this.elements.authLoginEmail as HTMLInputElement | undefined;
+      const loginPasswordInput = this.elements.authLoginPassword as HTMLInputElement | undefined;
+      const emailRaw = loginEmailInput?.value?.trim() ?? '';
+      const password = loginPasswordInput?.value ?? '';
+      const emailNormalized = emailRaw.toLowerCase();
+
       if (!emailNormalized) {
         showError('Email is required');
         return;
@@ -170,6 +155,18 @@ export class AuthController {
     }
 
     if (this.authMode === 'register') {
+      const registerEmailInput = this.elements.authRegisterEmail as HTMLInputElement | undefined;
+      const registerPasswordInput = this.elements.authRegisterPassword as HTMLInputElement | undefined;
+      const registerConfirmInput = this.elements.authRegisterConfirm as HTMLInputElement | undefined;
+      const registerDisplayNameInput = this.elements.authRegisterDisplayName as HTMLInputElement | undefined;
+
+      const emailRaw = registerEmailInput?.value?.trim() ?? '';
+      const emailNormalized = emailRaw.toLowerCase();
+      const password = registerPasswordInput?.value ?? '';
+      const confirm = registerConfirmInput?.value ?? '';
+      const fallbackDisplayName = this.scrubIdentifierForDisplay(emailRaw) || emailRaw;
+      const displayName = registerDisplayNameInput?.value?.trim() || fallbackDisplayName;
+
       if (!this.isValidEmail(emailRaw)) {
         showError('Enter a valid email address');
         return;
@@ -193,17 +190,39 @@ export class AuthController {
         password,
         profile: {
           displayName: displayName || fallbackDisplayName,
-          email: contactEmail,
-          bio,
         },
       });
+      return;
+    }
+
+    const profileDisplayNameInput = this.elements.authProfileDisplayName as HTMLInputElement | undefined;
+    const profileContactEmailInput = this.elements.authProfileContactEmail as HTMLInputElement | undefined;
+    const profileBioInput = this.elements.authProfileBio as HTMLTextAreaElement | undefined;
+    const profileCurrentPasswordInput = this.elements.authProfileCurrentPassword as HTMLInputElement | undefined;
+    const profileNewPasswordInput = this.elements.authProfileNewPassword as HTMLInputElement | undefined;
+    const profileNewPasswordConfirmInput = this.elements.authProfileNewPasswordConfirm as HTMLInputElement | undefined;
+
+    const displayName = profileDisplayNameInput?.value?.trim() ?? '';
+    const contactEmailRaw = profileContactEmailInput?.value?.trim() ?? '';
+    const contactEmail = contactEmailRaw.length > 0 ? contactEmailRaw : null;
+    const bio = profileBioInput?.value?.trim() ?? '';
+    const currentPassword = profileCurrentPasswordInput?.value ?? '';
+    const newPassword = profileNewPasswordInput?.value ?? '';
+    const newPasswordConfirm = profileNewPasswordConfirmInput?.value ?? '';
+
+    if (contactEmail && !this.isValidEmail(contactEmail)) {
+      showError('Enter a valid backup email address');
+      return;
+    }
+    if (contactEmail && contactEmail.length > 254) {
+      showError('Backup email must be 254 characters or less');
       return;
     }
 
     const updates: Parameters<typeof this.deps.socket.updateAccount>[0] = {};
     updates.displayName = displayName || undefined;
     updates.email = contactEmail;
-    updates.bio = bio;
+    updates.bio = bio || null;
 
     if (newPassword) {
       if (newPassword.length < 8) {
@@ -249,7 +268,7 @@ export class AuthController {
     addListener(this.elements.regCancel, 'click', () => this.hideAuthModal());
     addListener(this.elements.logoutBtn, 'click', () => this.handleLogout());
 
-    const passwordInput = this.elements.regPassword as HTMLInputElement | undefined;
+  const passwordInput = this.elements.authRegisterPassword as HTMLInputElement | undefined;
     if (passwordInput) {
       addListener(passwordInput, 'input', (event) => {
         const target = event.target as HTMLInputElement;
@@ -527,6 +546,7 @@ export class AuthController {
 
     this.updateAccountUI();
     this.updateAuthTabs();
+    this.updateAuthFormVisibility();
     this.emitStateChange();
   }
 
@@ -637,6 +657,12 @@ export class AuthController {
   }
 
   private setAuthMode(mode: AuthMode): void {
+    if (this.isAuthenticated) {
+      mode = 'profile';
+    } else if (mode === 'profile') {
+      mode = 'login';
+    }
+
     this.authMode = mode;
     this.setAuthSubmitting(false);
     this.clearAuthErrors();
@@ -715,59 +741,29 @@ export class AuthController {
   }
 
   private updateAuthFormVisibility(): void {
-    const usernameGroup = (this.elements.regUsername as HTMLInputElement | undefined)?.closest('.form-group') as HTMLElement | null;
-    const passwordGroup = (this.elements.regPassword as HTMLInputElement | undefined)?.closest('.form-group') as HTMLElement | null;
-    const confirmGroup = (this.elements.regConfirm as HTMLInputElement | undefined)?.closest('.form-group') as HTMLElement | null;
-    const displayNameGroup = (this.elements.regDisplayName as HTMLInputElement | undefined)?.closest('.form-group') as HTMLElement | null;
-    const emailGroup = (this.elements.regEmail as HTMLInputElement | undefined)?.closest('.form-group') as HTMLElement | null;
-    const bioGroup = (this.elements.regBio as HTMLTextAreaElement | undefined)?.closest('.form-group') as HTMLElement | null;
-    const currentPasswordGroup = (this.elements.regCurrentPassword as HTMLInputElement | undefined)?.closest('.form-group') as HTMLElement | null;
-    const newPasswordGroup = (this.elements.regNewPassword as HTMLInputElement | undefined)?.closest('.form-group') as HTMLElement | null;
-    const newPasswordConfirmGroup = (this.elements.regNewPasswordConfirm as HTMLInputElement | undefined)?.closest('.form-group') as HTMLElement | null;
+    const loginSection = this.elements.authLoginSection as HTMLElement | undefined;
+    const registerSection = this.elements.authRegisterSection as HTMLElement | undefined;
+    const profileSection = this.elements.authProfileSection as HTMLElement | undefined;
 
-    const show = (el: HTMLElement | null | undefined, visible: boolean) => {
-      if (!el) return;
-      el.classList.toggle('hidden', !visible);
+    const toggleSection = (section: HTMLElement | undefined, visible: boolean) => {
+      if (!section) return;
+      section.classList.toggle('hidden', !visible);
+      section.setAttribute('aria-hidden', visible ? 'false' : 'true');
     };
 
-    show(usernameGroup, true);
+    const canShowAuthForms = !this.isAuthenticated;
+    toggleSection(loginSection, canShowAuthForms && this.authMode === 'login');
+    toggleSection(registerSection, canShowAuthForms && this.authMode === 'register');
+    toggleSection(profileSection, this.isAuthenticated || this.authMode === 'profile');
 
-    if (this.authMode === 'login') {
-      show(passwordGroup, true);
-      show(confirmGroup, false);
-      show(displayNameGroup, false);
-      show(emailGroup, false);
-      show(bioGroup, false);
-      show(currentPasswordGroup, false);
-      show(newPasswordGroup, false);
-      show(newPasswordConfirmGroup, false);
-    } else if (this.authMode === 'register') {
-      show(passwordGroup, true);
-      show(confirmGroup, true);
-      show(displayNameGroup, true);
-      show(emailGroup, false);
-      show(bioGroup, false);
-      show(currentPasswordGroup, false);
-      show(newPasswordGroup, false);
-      show(newPasswordConfirmGroup, false);
-    } else {
-      show(passwordGroup, false);
-      show(confirmGroup, false);
-      show(displayNameGroup, true);
-      show(emailGroup, true);
-      show(bioGroup, true);
-      show(currentPasswordGroup, true);
-      show(newPasswordGroup, true);
-      show(newPasswordConfirmGroup, true);
+    const profileAccountEmailInput = this.elements.authProfileAccountEmail as HTMLInputElement | undefined;
+    if (profileAccountEmailInput) {
+      profileAccountEmailInput.readOnly = true;
+      profileAccountEmailInput.disabled = true;
     }
 
-    const usernameInput = this.elements.regUsername as HTMLInputElement | undefined;
-    if (usernameInput) {
-      usernameInput.disabled = this.authMode === 'profile';
-    }
-
-    const passwordInput = this.elements.regPassword as HTMLInputElement | undefined;
-    this.updatePasswordStrength(this.authMode === 'register' ? (passwordInput?.value ?? '') : '');
+    const registerPasswordInput = this.elements.authRegisterPassword as HTMLInputElement | undefined;
+    this.updatePasswordStrength(this.authMode === 'register' ? (registerPasswordInput?.value ?? '') : '');
 
     this.updateAuthModalCopy();
   }
@@ -955,44 +951,60 @@ export class AuthController {
   }
 
   private populateAuthForm(account: Account | null): void {
-    const usernameInput = this.elements.regUsername as HTMLInputElement | undefined;
-    const passwordInput = this.elements.regPassword as HTMLInputElement | undefined;
-    const confirmInput = this.elements.regConfirm as HTMLInputElement | undefined;
-    const displayNameInput = this.elements.regDisplayName as HTMLInputElement | undefined;
-    const emailInput = this.elements.regEmail as HTMLInputElement | undefined;
-    const bioInput = this.elements.regBio as HTMLTextAreaElement | undefined;
-    const currentPasswordInput = this.elements.regCurrentPassword as HTMLInputElement | undefined;
-    const newPasswordInput = this.elements.regNewPassword as HTMLInputElement | undefined;
-    const newPasswordConfirmInput = this.elements.regNewPasswordConfirm as HTMLInputElement | undefined;
+    const loginEmailInput = this.elements.authLoginEmail as HTMLInputElement | undefined;
+    const loginPasswordInput = this.elements.authLoginPassword as HTMLInputElement | undefined;
+    const registerEmailInput = this.elements.authRegisterEmail as HTMLInputElement | undefined;
+    const registerPasswordInput = this.elements.authRegisterPassword as HTMLInputElement | undefined;
+    const registerConfirmInput = this.elements.authRegisterConfirm as HTMLInputElement | undefined;
+    const registerDisplayNameInput = this.elements.authRegisterDisplayName as HTMLInputElement | undefined;
+    const profileAccountEmailInput = this.elements.authProfileAccountEmail as HTMLInputElement | undefined;
+    const profileDisplayNameInput = this.elements.authProfileDisplayName as HTMLInputElement | undefined;
+    const profileContactEmailInput = this.elements.authProfileContactEmail as HTMLInputElement | undefined;
+    const profileBioInput = this.elements.authProfileBio as HTMLTextAreaElement | undefined;
+    const profileCurrentPasswordInput = this.elements.authProfileCurrentPassword as HTMLInputElement | undefined;
+    const profileNewPasswordInput = this.elements.authProfileNewPassword as HTMLInputElement | undefined;
+    const profileNewPasswordConfirmInput = this.elements.authProfileNewPasswordConfirm as HTMLInputElement | undefined;
 
-    if (usernameInput) {
-      if (this.authMode === 'profile' || this.authMode === 'login') {
-        usernameInput.value = account?.username ?? '';
-      } else {
-        usernameInput.value = '';
-      }
+    if (loginEmailInput) {
+      loginEmailInput.value = this.authMode === 'login' ? (account?.username ?? '') : '';
+    }
+    if (loginPasswordInput) {
+      loginPasswordInput.value = '';
     }
 
-    if (displayNameInput) {
-      if (this.authMode === 'profile') {
-        const preferred = account?.displayName && account.displayName.trim().length > 0
-          ? account.displayName
-          : this.scrubIdentifierForDisplay(account?.username ?? '');
-        displayNameInput.value = preferred || '';
-      } else {
-        displayNameInput.value = '';
-      }
+    if (registerEmailInput) {
+      registerEmailInput.value = '';
+    }
+    if (registerPasswordInput) {
+      registerPasswordInput.value = '';
+    }
+    if (registerConfirmInput) {
+      registerConfirmInput.value = '';
+    }
+    if (registerDisplayNameInput) {
+      registerDisplayNameInput.value = '';
     }
 
-    if (emailInput) {
-      emailInput.value = this.authMode === 'profile' && account?.email ? account.email : '';
+    if (profileAccountEmailInput) {
+      profileAccountEmailInput.value = account?.username ?? '';
     }
 
-    if (bioInput) {
-      bioInput.value = this.authMode === 'profile' && account?.bio ? account.bio : '';
+    if (profileDisplayNameInput) {
+      const preferred = account?.displayName && account.displayName.trim().length > 0
+        ? account.displayName
+        : this.scrubIdentifierForDisplay(account?.username ?? '');
+      profileDisplayNameInput.value = this.authMode === 'profile' ? (preferred || '') : '';
     }
 
-    [passwordInput, confirmInput, currentPasswordInput, newPasswordInput, newPasswordConfirmInput].forEach((input) => {
+    if (profileContactEmailInput) {
+      profileContactEmailInput.value = this.authMode === 'profile' && account?.email ? account.email : '';
+    }
+
+    if (profileBioInput) {
+      profileBioInput.value = this.authMode === 'profile' && account?.bio ? account.bio : '';
+    }
+
+    [profileCurrentPasswordInput, profileNewPasswordInput, profileNewPasswordConfirmInput].forEach((input) => {
       if (input) {
         input.value = '';
       }

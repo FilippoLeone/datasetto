@@ -323,7 +323,11 @@ export class App {
   'voiceGallery',
   'streamLayout', 'streamChatDock', 'streamChatStatus',
   'streamPlayerColumn',
-      'regModal', 'regUsername', 'regPassword', 'regConfirm',
+    'regModal', 'authLoginSection', 'authRegisterSection', 'authProfileSection',
+    'authLoginEmail', 'authLoginPassword',
+    'authRegisterEmail', 'authRegisterPassword', 'authRegisterConfirm', 'authRegisterDisplayName',
+    'authProfileAccountEmail', 'authProfileDisplayName', 'authProfileContactEmail',
+    'authProfileBio', 'authProfileCurrentPassword', 'authProfileNewPassword', 'authProfileNewPasswordConfirm',
   'passwordStrength', 'passwordStrengthFill', 'passwordStrengthLabel',
       'registerBtn', 'regCancel', 'regError', 'echoCancel', 'noiseSuppression',
       'autoGain', 'micGain', 'outputVol', 'pttEnable', 'pttKey', 'pttSetKey',
@@ -361,8 +365,6 @@ export class App {
       'superuserUsersPanel', 'superuserChannelsPanel',
       'superuserUsersList', 'superuserChannelsList',
       'authTabLogin', 'authTabRegister', 'authTabProfile',
-      'regDisplayName', 'regEmail', 'regBio',
-      'regCurrentPassword', 'regNewPassword', 'regNewPasswordConfirm',
       'logoutBtn',
     ];
 

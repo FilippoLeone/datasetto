@@ -3,6 +3,7 @@ import type { Channel, VoicePeerEvent } from '@/types';
 import type { VoicePanelEntry } from '@/ui/VoicePanelController';
 import { MICROPHONE_PERMISSION_HELP_TEXT } from '@/services/AudioService';
 import { generateIdenticonDataUri } from '@/utils/avatarGenerator';
+import { createSpinnerWithText } from '@/components/feedback/Spinner';
 
 const LOCAL_SPEAKING_THRESHOLD = 0.08;
 const LOCAL_SPEAKING_RELEASE_MS = 300;
@@ -148,6 +149,9 @@ export class VoiceController {
       }
 
       this.pendingVoiceJoin = { id: channelId, name: channelName };
+
+      this.voiceUsers.clear();
+      this.renderVoiceUsers();
 
       this.deps.socket.joinChannel(channelId);
       await this.syncMicrophoneState(true);
@@ -619,8 +623,9 @@ export class VoiceController {
     if (!isVoiceChannelActive) {
       this.updateVoiceGalleryLayoutState(gallery, 0);
       gallery.classList.add('hidden');
-      gallery.classList.remove('empty');
+      gallery.classList.remove('empty', 'loading');
       gallery.setAttribute('aria-hidden', 'true');
+      gallery.removeAttribute('aria-busy');
       gallery.replaceChildren();
       return;
     }
@@ -631,16 +636,25 @@ export class VoiceController {
     if (!isVoiceMode) {
       this.updateVoiceGalleryLayoutState(gallery, 0);
       gallery.classList.add('hidden');
+      gallery.classList.remove('empty', 'loading');
       gallery.setAttribute('aria-hidden', 'true');
+      gallery.removeAttribute('aria-busy');
       return;
     }
 
     gallery.classList.remove('hidden');
     gallery.setAttribute('aria-hidden', 'false');
 
+    if (this.pendingVoiceJoin && entries.length === 0) {
+      const channelName = this.pendingVoiceJoin.name?.trim() || 'voice';
+      this.setVoiceGalleryLoadingState(`Connecting to ${channelName}…`);
+      return;
+    }
+
     if (!voiceConnected && entries.length === 0) {
       this.updateVoiceGalleryLayoutState(gallery, 0);
-      gallery.classList.remove('empty');
+      gallery.classList.remove('empty', 'loading');
+      gallery.removeAttribute('aria-busy');
       gallery.replaceChildren();
       return;
     }
@@ -651,7 +665,8 @@ export class VoiceController {
       return;
     }
 
-    gallery.classList.remove('empty');
+    gallery.classList.remove('empty', 'loading');
+    gallery.setAttribute('aria-busy', 'false');
     this.updateVoiceGalleryLayoutState(gallery, entries.length);
 
     const fragment = document.createDocumentFragment();
@@ -837,6 +852,8 @@ export class VoiceController {
     }
 
     gallery.classList.add('empty');
+    gallery.classList.remove('loading');
+    gallery.setAttribute('aria-busy', 'false');
     this.updateVoiceGalleryLayoutState(gallery, 0);
     gallery.replaceChildren();
 
@@ -844,6 +861,23 @@ export class VoiceController {
     messageEl.className = 'voice-gallery-empty-message';
     messageEl.textContent = message;
     gallery.appendChild(messageEl);
+  }
+
+  private setVoiceGalleryLoadingState(message: string): void {
+    const gallery = this.deps.elements.voiceGallery;
+    if (!gallery) {
+      return;
+    }
+
+    gallery.classList.add('loading');
+    gallery.classList.remove('empty');
+    gallery.setAttribute('aria-busy', 'true');
+    this.updateVoiceGalleryLayoutState(gallery, 0);
+    gallery.replaceChildren();
+
+    const spinner = createSpinnerWithText(message, { size: 'medium', variant: 'white' });
+    spinner.classList.add('voice-gallery-loading');
+    gallery.appendChild(spinner);
   }
 
   private updateVoiceGalleryLayoutState(gallery: HTMLElement, participantCount: number): void {

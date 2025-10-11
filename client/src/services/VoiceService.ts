@@ -9,6 +9,105 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
+const splitEnvList = (value: string | undefined): string[] => {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+};
+
+const ensureTurnScheme = (url: string): string => {
+  if (/^turns?:/i.test(url)) {
+    return url;
+  }
+  return `turn:${url}`;
+};
+
+const addTransportVariants = (url: string): string[] => {
+  const result = new Set<string>();
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  result.add(trimmed);
+
+  const lower = trimmed.toLowerCase();
+  const hasTransport = /[?&]transport=/.test(lower);
+
+  if (lower.startsWith('turn:') && !hasTransport) {
+    const separator = trimmed.includes('?') ? '&' : '?';
+    result.delete(trimmed);
+    result.add(`${trimmed}${separator}transport=udp`);
+    result.add(`${trimmed}${separator}transport=tcp`);
+  }
+
+  if (lower.startsWith('turns:') && !hasTransport) {
+    const separator = trimmed.includes('?') ? '&' : '?';
+    result.add(`${trimmed}${separator}transport=tcp`);
+  }
+
+  return Array.from(result);
+};
+
+const expandIceServerUrls = (server: RTCIceServer): RTCIceServer => {
+  const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+  const expanded = new Set<string>();
+
+  for (const url of urls) {
+    if (typeof url !== 'string') {
+      continue;
+    }
+
+    if (/^turns?:/i.test(url.trim())) {
+      const variants = addTransportVariants(url);
+      variants.forEach((variant) => expanded.add(variant));
+    } else {
+      expanded.add(url.trim());
+    }
+  }
+
+  if (expanded.size === 0) {
+    return server;
+  }
+
+  const normalized = Array.from(expanded).filter(Boolean);
+  normalized.sort();
+
+  return {
+    ...server,
+    urls: normalized.length === 1 ? normalized[0] : normalized,
+  };
+};
+
+const dedupeIceServers = (servers: RTCIceServer[]): RTCIceServer[] => {
+  const seen = new Set<string>();
+  const result: RTCIceServer[] = [];
+
+  for (const server of servers) {
+    const expanded = expandIceServerUrls(server);
+    const urls = Array.isArray(expanded.urls) ? expanded.urls : [expanded.urls];
+    const key = JSON.stringify({
+      urls,
+      username: expanded.username ?? '',
+      credential: expanded.credential ?? '',
+    });
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(expanded);
+  }
+
+  return result;
+};
+
 const resolveIceServers = (): RTCIceServer[] => {
   const servers: RTCIceServer[] = [...DEFAULT_ICE_SERVERS];
 
@@ -17,7 +116,7 @@ const resolveIceServers = (): RTCIceServer[] => {
     try {
       const parsed = JSON.parse(customIce);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed as RTCIceServer[];
+        return dedupeIceServers(parsed as RTCIceServer[]);
       }
       console.warn('[VoiceService] VITE_WEBRTC_ICE_SERVERS parsed but not an array, falling back to defaults');
     } catch (error) {
@@ -25,16 +124,22 @@ const resolveIceServers = (): RTCIceServer[] => {
     }
   }
 
-  const turnUrl = import.meta.env.VITE_TURN_URL;
-  if (turnUrl) {
-    servers.push({
-      urls: turnUrl,
-      username: import.meta.env.VITE_TURN_USERNAME,
-      credential: import.meta.env.VITE_TURN_CREDENTIAL,
-    });
+  const turnUrls = splitEnvList(import.meta.env.VITE_TURN_URL);
+  if (turnUrls.length > 0) {
+    const username = import.meta.env.VITE_TURN_USERNAME;
+    const credential = import.meta.env.VITE_TURN_CREDENTIAL;
+
+    for (const turnUrl of turnUrls) {
+      const normalizedUrl = ensureTurnScheme(turnUrl);
+      servers.push({
+        urls: normalizedUrl,
+        username,
+        credential,
+      });
+    }
   }
 
-  return servers;
+  return dedupeIceServers(servers);
 };
 
 const ICE_SERVERS = resolveIceServers();

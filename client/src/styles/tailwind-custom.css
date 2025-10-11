@@ -182,6 +182,7 @@
     margin-bottom: 1.25rem;
   }
 
+
   .form-group:last-of-type {
     margin-bottom: 0;
   }
@@ -442,6 +443,14 @@
   .auth-mode-tabs {
     background: rgba(18, 18, 24, 0.85);
     border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .modal-tabs.auth-mode-tabs {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    overflow: hidden;
+    row-gap: 0.5rem;
   }
 
   .modal-tab {
@@ -1584,6 +1593,26 @@
     letter-spacing: 0.04em;
     padding: clamp(1.5rem, 6vw, 3rem);
     min-height: 100%;
+  }
+
+  .voice-gallery.loading {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: clamp(1.5rem, 6vw, 3rem);
+    min-height: 100%;
+  }
+
+  .voice-gallery-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    color: var(--color-text-muted);
+    font-size: clamp(0.95rem, 2vw, 1.15rem);
   }
 
   .voice-gallery-empty-message {

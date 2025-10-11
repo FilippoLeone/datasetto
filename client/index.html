@@ -401,117 +401,169 @@
             </div>
             <p class="auth-mode-hint" id="auth-mode-hint">Choose how you’d like to continue.</p>
 
-            <div class="form-group">
-              <label for="regUsername">Email</label>
-              <input
-                type="email"
-                id="regUsername"
-                placeholder="name@example.com"
-                aria-label="Email address"
-                maxlength="254"
-                autocomplete="email"
-              />
-              <span class="form-hint">Used to sign in. We’ll just store it — no emails will be sent.</span>
-            </div>
-
-            <div class="form-group">
-              <label for="regPassword">Password</label>
-              <input
-                type="password"
-                id="regPassword"
-                placeholder="Enter your password"
-                aria-label="Password"
-                autocomplete="current-password"
-              />
-              <span class="form-hint">Required to sign in. 8+ characters to create an account.</span>
-              <div class="password-strength" id="passwordStrength" aria-live="polite">
-                <div class="password-strength-bar" role="presentation">
-                  <div class="password-strength-fill" id="passwordStrengthFill"></div>
-                </div>
-                <span class="password-strength-label" id="passwordStrengthLabel">Start typing to check strength</span>
+            <section id="authLoginSection" class="auth-section hidden flex flex-col gap-5 mb-6">
+              <div class="form-group">
+                <label for="authLoginEmail">Email</label>
+                <input
+                  type="email"
+                  id="authLoginEmail"
+                  placeholder="name@example.com"
+                  aria-label="Email address"
+                  maxlength="254"
+                  autocomplete="email"
+                />
               </div>
-            </div>
 
-            <div class="form-group">
-              <label for="regConfirm">Confirm Password</label>
-              <input
-                type="password"
-                id="regConfirm"
-                placeholder="Re-enter your password"
-                aria-label="Confirm password"
-                autocomplete="new-password"
-              />
-            </div>
+              <div class="form-group">
+                <label for="authLoginPassword">Password</label>
+                <input
+                  type="password"
+                  id="authLoginPassword"
+                  placeholder="Enter your password"
+                  aria-label="Password"
+                  autocomplete="current-password"
+                />
+              </div>
+            </section>
 
-            <div class="form-group">
-              <label for="regDisplayName">Display Name</label>
-              <input
-                type="text"
-                id="regDisplayName"
-                placeholder="Pick a display name"
-                aria-label="Display name"
-                maxlength="50"
-              />
-              <span class="form-hint">Shown in chat, voice, and presence lists</span>
-            </div>
+            <section id="authRegisterSection" class="auth-section flex flex-col gap-5 mb-6">
+              <div class="form-group">
+                <label for="authRegisterEmail">Email</label>
+                <input
+                  type="email"
+                  id="authRegisterEmail"
+                  placeholder="name@example.com"
+                  aria-label="Email address"
+                  maxlength="254"
+                  autocomplete="email"
+                />
+                <span class="form-hint">We’ll use this for login. No marketing emails ever.</span>
+              </div>
 
-            <div class="form-group">
-              <label for="regEmail">Contact Email (optional)</label>
-              <input
-                type="email"
-                id="regEmail"
-                placeholder="name@example.com"
-                aria-label="Email address"
-                maxlength="254"
-                autocomplete="email"
-              />
-              <span class="form-hint">Optional: store another email for account recovery or notes.</span>
-            </div>
+              <div class="form-group">
+                <label for="authRegisterPassword">Password</label>
+                <input
+                  type="password"
+                  id="authRegisterPassword"
+                  placeholder="Choose a password"
+                  aria-label="Password"
+                  autocomplete="new-password"
+                />
+                <span class="form-hint">At least 8 characters.</span>
+                <div class="password-strength" id="passwordStrength" aria-live="polite">
+                  <div class="password-strength-bar" role="presentation">
+                    <div class="password-strength-fill" id="passwordStrengthFill"></div>
+                  </div>
+                  <span class="password-strength-label" id="passwordStrengthLabel">Start typing to check strength</span>
+                </div>
+              </div>
 
-            <div class="form-group">
-              <label for="regBio">Bio</label>
-              <textarea
-                id="regBio"
-                placeholder="Tell others about yourself"
-                aria-label="User bio"
-                maxlength="500"
-              ></textarea>
-              <span class="form-hint">Visible on your profile</span>
-            </div>
+              <div class="form-group">
+                <label for="authRegisterConfirm">Confirm Password</label>
+                <input
+                  type="password"
+                  id="authRegisterConfirm"
+                  placeholder="Re-enter your password"
+                  aria-label="Confirm password"
+                  autocomplete="new-password"
+                />
+              </div>
 
-            <div class="form-group">
-              <label for="regCurrentPassword">Current Password</label>
-              <input
-                type="password"
-                id="regCurrentPassword"
-                placeholder="Enter current password"
-                aria-label="Current password"
-                autocomplete="current-password"
-              />
-              <span class="form-hint">Required to set a new password</span>
-            </div>
+              <div class="form-group">
+                <label for="authRegisterDisplayName">Display Name</label>
+                <input
+                  type="text"
+                  id="authRegisterDisplayName"
+                  placeholder="Pick a display name"
+                  aria-label="Display name"
+                  maxlength="50"
+                />
+                <span class="form-hint">Shown in chat, voice, and presence lists.</span>
+              </div>
+            </section>
 
-            <div class="form-group">
-              <label for="regNewPassword">New Password</label>
-              <input
-                type="password"
-                id="regNewPassword"
-                placeholder="Choose a new password"
-                aria-label="New password"
-                autocomplete="new-password"
-              />
-            </div>
+            <section id="authProfileSection" class="auth-section hidden flex flex-col gap-5 mb-6">
+              <div class="form-group">
+                <label for="authProfileAccountEmail">Account Email</label>
+                <input
+                  type="email"
+                  id="authProfileAccountEmail"
+                  aria-label="Account email"
+                  readonly
+                  disabled
+                />
+                <span class="form-hint">Contact support to change your login email.</span>
+              </div>
 
-            <div class="form-group">
-              <label for="regNewPasswordConfirm">Confirm New Password</label>
-              <input
-                type="password"
-                id="regNewPasswordConfirm"
-                placeholder="Confirm new password"
-                aria-label="Confirm new password"
-                autocomplete="new-password"
-              />
-            </div>
+              <div class="form-group">
+                <label for="authProfileDisplayName">Display Name</label>
+                <input
+                  type="text"
+                  id="authProfileDisplayName"
+                  placeholder="Display name"
+                  aria-label="Display name"
+                  maxlength="50"
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="authProfileContactEmail">Backup Email (optional)</label>
+                <input
+                  type="email"
+                  id="authProfileContactEmail"
+                  placeholder="name@example.com"
+                  aria-label="Backup email"
+                  maxlength="254"
+                  autocomplete="email"
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="authProfileBio">Bio</label>
+                <textarea
+                  id="authProfileBio"
+                  placeholder="Tell others about yourself"
+                  aria-label="User bio"
+                  maxlength="500"
+                ></textarea>
+              </div>
+
+              <p class="mt-6 mb-3 text-[0.7rem] font-semibold tracking-[0.12em] uppercase text-text-muted">Change Password</p>
+
+              <div class="form-group">
+                <label for="authProfileCurrentPassword">Current Password</label>
+                <input
+                  type="password"
+                  id="authProfileCurrentPassword"
+                  placeholder="Enter current password"
+                  aria-label="Current password"
+                  autocomplete="current-password"
+                />
+                <span class="form-hint">Required to set a new password.</span>
+              </div>
+
+              <div class="form-group">
+                <label for="authProfileNewPassword">New Password</label>
+                <input
+                  type="password"
+                  id="authProfileNewPassword"
+                  placeholder="Choose a new password"
+                  aria-label="New password"
+                  autocomplete="new-password"
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="authProfileNewPasswordConfirm">Confirm New Password</label>
+                <input
+                  type="password"
+                  id="authProfileNewPasswordConfirm"
+                  placeholder="Confirm new password"
+                  aria-label="Confirm new password"
+                  autocomplete="new-password"
+                />
+              </div>
+            </section>
 
             <div id="regError" class="form-error" aria-live="polite"></div>
           </div>

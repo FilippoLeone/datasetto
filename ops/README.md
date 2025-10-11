@@ -130,9 +130,13 @@ If users are joining from restrictive networks you will need a TURN relay in add
 - Or set the shorthand TURN variables (appends to the default STUN servers):
 
 	```bash
-	export VITE_TURN_URL=turn:turn.yourdomain.com:3478
+	# Multiple TURN URLs allowed (comma or whitespace separated)
+	export VITE_TURN_URL="turn:turn.yourdomain.com:3478 turn:backup.yourdomain.com:3478"
 	export VITE_TURN_USERNAME=user
 	export VITE_TURN_CREDENTIAL=pass
 	```
+
+- When no `transport` query parameter is supplied the client automatically
+  adds both UDP and TCP variants, so you only need to list each host once.
 
 Always rebuild the `client` image after changing these values.
