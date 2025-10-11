@@ -13,6 +13,26 @@ interface AudioRoutePlugin {
 }
 
 let pluginPromise: Promise<AudioRoutePlugin | null> | null = null;
+let corePromise: Promise<typeof import('@capacitor/core') | null> | null = null;
+
+async function loadCapacitorCore(): Promise<typeof import('@capacitor/core') | null> {
+  if (corePromise) {
+    return corePromise;
+  }
+
+  corePromise = (async () => {
+    try {
+      return await import('@capacitor/core');
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[NativeAudioRouteService] Unable to import @capacitor/core:', error);
+      }
+      return null;
+    }
+  })();
+
+  return corePromise;
+}
 
 async function loadPlugin(): Promise<AudioRoutePlugin | null> {
   if (pluginPromise) {
@@ -20,17 +40,22 @@ async function loadPlugin(): Promise<AudioRoutePlugin | null> {
   }
 
   pluginPromise = (async () => {
+    const core = await loadCapacitorCore();
+    if (!core) {
+      return null;
+    }
+
+    const { Capacitor, registerPlugin } = core;
+
+    if (!Capacitor?.isNativePlatform?.()) {
+      return null;
+    }
+
     try {
-      const { Capacitor, registerPlugin } = await import('@capacitor/core');
-
-      if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('AudioRoute')) {
-        return null;
-      }
-
       return registerPlugin<AudioRoutePlugin>('AudioRoute');
     } catch (error) {
       if (import.meta.env.DEV) {
-        console.warn('[NativeAudioRouteService] Unable to load AudioRoute plugin:', error);
+        console.warn('[NativeAudioRouteService] Unable to register AudioRoute plugin:', error);
       }
       return null;
     }
@@ -40,63 +65,42 @@ async function loadPlugin(): Promise<AudioRoutePlugin | null> {
 }
 
 export function isNativeAudioRoutingAvailable(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
   const globalScope = globalThis as unknown as {
     Capacitor?: {
       isNativePlatform?: () => boolean;
-      isPluginAvailable?: (name: string) => boolean;
     };
   };
 
-  const maybeCapacitor = globalScope.Capacitor;
-  if (!maybeCapacitor || typeof maybeCapacitor.isNativePlatform !== 'function') {
-    return false;
-  }
-
-  if (!maybeCapacitor.isNativePlatform()) {
-    return false;
-  }
-
-  if (typeof maybeCapacitor.isPluginAvailable === 'function') {
-    try {
-      return maybeCapacitor.isPluginAvailable('AudioRoute');
-    } catch (error) {
-      if (import.meta.env.DEV) {
-        console.warn('[NativeAudioRouteService] Error checking plugin availability:', error);
-      }
-      return false;
-    }
-  }
-
-  // Assume available when running natively if API is missing; loadPlugin will validate before use.
-  return true;
+  return globalScope.Capacitor?.isNativePlatform?.() === true;
 }
 
 export async function fetchNativeAudioRoutes(): Promise<NativeAudioRoute[]> {
   const plugin = await loadPlugin();
   if (!plugin) {
-    return [];
+    return isNativeAudioRoutingAvailable() ? fallbackRoutes() : [];
   }
 
   try {
     const result = await plugin.listRoutes();
-    if (!result || !Array.isArray(result.routes)) {
-      return [];
+    if (!result || !Array.isArray(result.routes) || result.routes.length === 0) {
+      return fallbackRoutes();
     }
 
-    return result.routes.filter((route): route is NativeAudioRoute =>
+    const filtered = result.routes.filter((route): route is NativeAudioRoute =>
       typeof route?.id === 'string' &&
       typeof route?.label === 'string' &&
       typeof route?.type === 'string'
     );
+
+    ensureRoutePresence(filtered, 'speakerphone', 'Speakerphone', 'speaker');
+    ensureRoutePresence(filtered, 'earpiece', 'Phone Earpiece', 'earpiece');
+
+    return filtered;
   } catch (error) {
     if (import.meta.env.DEV) {
       console.warn('[NativeAudioRouteService] Failed to fetch routes:', error);
     }
-    return [];
+    return fallbackRoutes();
   }
 }
 
@@ -114,4 +118,39 @@ export async function selectNativeAudioRoute(routeId: string | null): Promise<vo
     }
     throw error instanceof Error ? error : new Error('Unable to change audio route.');
   }
+}
+
+function fallbackRoutes(): NativeAudioRoute[] {
+  return [
+    {
+      id: 'speakerphone',
+      label: 'Speakerphone',
+      type: 'speaker',
+      selected: true,
+    },
+    {
+      id: 'earpiece',
+      label: 'Phone Earpiece',
+      type: 'earpiece',
+      selected: false,
+    },
+  ];
+}
+
+function ensureRoutePresence(
+  routes: NativeAudioRoute[],
+  id: string,
+  label: string,
+  type: NativeAudioRouteType
+): void {
+  if (routes.some((route) => route.id === id)) {
+    return;
+  }
+
+  routes.push({
+    id,
+    label,
+    type,
+    selected: id === 'speakerphone',
+  });
 }

@@ -77,15 +77,17 @@ export class SettingsController {
       return;
     }
 
-    // Populate device lists
-    await this.populateDeviceLists();
+    // Show modal immediately so UI isn't blocked by device enumeration
+    this.deps.animator.openModal(modal);
+    this.deps.soundFX.play('click', 0.4);
 
-    // Update UI with current settings
+    // Reflect the last known settings right away
     this.updateSettingsUI();
 
-  // Show modal with animation
-  this.deps.animator.openModal(modal);
-    this.deps.soundFX.play('click', 0.4);
+    // Populate device lists asynchronously; refresh settings when ready
+    void this.populateDeviceLists().then(() => {
+      this.updateSettingsUI();
+    });
   }
 
   /**
@@ -278,32 +280,72 @@ export class SettingsController {
   private async populateDeviceLists(): Promise<void> {
     try {
       // Request permissions first to get device labels
-      await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      
+      let permissionStream: MediaStream | null = null;
+      try {
+        permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch (permissionError) {
+        if (import.meta.env.DEV) {
+          console.warn('⚠️ Unable to prefetch media device labels:', permissionError);
+        }
+      } finally {
+        if (permissionStream) {
+          permissionStream.getTracks().forEach((track) => track.stop());
+        }
+      }
+
       const devices = await this.deps.audio.getDevices();
-      
+
       // Populate microphone dropdown
       const micSelect = this.deps.elements.micSelect as HTMLSelectElement;
-      if (micSelect && devices.mics.length > 0) {
+      if (micSelect) {
         micSelect.innerHTML = '';
-        devices.mics.forEach(device => {
-          const option = document.createElement('option');
-          option.value = device.deviceId;
-          option.textContent = device.label || `Microphone ${device.deviceId.substring(0, 8)}`;
-          micSelect.appendChild(option);
-        });
-        
-        // Select current device
+
+        const defaultMicOption = document.createElement('option');
+        defaultMicOption.value = '';
+        defaultMicOption.textContent = 'System Default Microphone';
+        micSelect.appendChild(defaultMicOption);
+
+        const micMap = new Map<string, string>();
+
+        if (devices.mics.length > 0) {
+          devices.mics.forEach((device) => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.textContent = device.label || `Microphone ${device.deviceId.substring(0, 8)}`;
+            micSelect.appendChild(option);
+            micMap.set(device.deviceId, option.textContent);
+          });
+
+          micSelect.disabled = false;
+          micSelect.removeAttribute('title');
+        } else {
+          micSelect.disabled = false;
+          micSelect.title = 'No dedicated microphones detected. Falling back to system default.';
+        }
+
         const currentMic = this.deps.state.get('settings').micDeviceId;
-        if (currentMic) {
+        if (currentMic && micMap.has(currentMic)) {
           micSelect.value = currentMic;
+        } else {
+          micSelect.value = '';
+
+          if (currentMic) {
+            this.deps.state.updateSettings({ micDeviceId: undefined });
+            try {
+              await this.deps.audio.updateSettings({ micDeviceId: undefined });
+            } catch (resetError) {
+              if (import.meta.env.DEV) {
+                console.warn('⚠️ Failed to reset microphone selection to default:', resetError);
+              }
+            }
+          }
         }
       }
 
       // Populate speaker dropdown
       const spkSelect = this.deps.elements.spkSelect as HTMLSelectElement;
-      const nativeRoutes = await fetchNativeAudioRoutes();
-      const supportsOutputSelection = this.deps.audio.supportsOutputDeviceSelection() || nativeRoutes.length > 0;
+  const nativeRoutes = await fetchNativeAudioRoutes();
+  const supportsOutputSelection = this.deps.audio.supportsOutputDeviceSelection() || nativeRoutes.length > 0;
 
       if (spkSelect) {
         const speakerMap = new Map<string, { deviceId: string; label: string }>();
@@ -362,10 +404,12 @@ export class SettingsController {
           }
 
           spkSelect.value = selectedValue;
-          spkSelect.disabled = !supportsOutputSelection;
+          spkSelect.disabled = !supportsOutputSelection && speakerEntries.length === 0;
 
           if (!supportsOutputSelection) {
             spkSelect.title = 'Switching audio output is not supported by this browser. Use system controls instead.';
+          } else if (speakerEntries.length === 0) {
+            spkSelect.title = 'No alternate speakers detected. Connect a device to switch outputs.';
           } else {
             spkSelect.removeAttribute('title');
           }
