@@ -15,6 +15,22 @@ node_modules/
 desktop/renderer/
 desktop/release/
 desktop/node_modules/
+mobile/android/
+mobile/ios/
+mobile/node_modules/
+mobile/android/app/build/
+mobile/android/build/
+mobile/android/.gradle/
+mobile/android/.cxx/
+mobile/android/.idea/
+mobile/android/capacitor-cordova-android-plugins/
+mobile/android/local.properties
+mobile/ios/App/build/
+mobile/ios/build/
+mobile/ios/Pods/
+mobile/ios/DerivedData/
+mobile/ios/.symlinks/
+mobile/ios/capacitor-cordova-ios-plugins/
 *.log
 
 # OS files

@@ -1,0 +1,24 @@
+{
+  "name": "datasetto-mobile",
+  "version": "0.1.0",
+  "description": "Capacitor wrapper for the Datasetto web client.",
+  "private": true,
+  "scripts": {
+    "build:web": "node ./scripts/build-web.mjs",
+    "sync": "npm run build:web && npx cap sync",
+    "copy": "npm run build:web && npx cap copy",
+    "open:ios": "npx cap open ios",
+    "open:android": "npx cap open android",
+    "doctor": "npx cap doctor"
+  },
+  "dependencies": {
+    "@capacitor/core": "^7.4.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/ios": "^7.4.3",
+    "dotenv": "^16.4.5",
+    "typescript": "^5.4.5"
+  }
+}
