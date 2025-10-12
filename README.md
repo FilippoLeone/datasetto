@@ -10,6 +10,14 @@ A modern, self-hosted streaming platform with RTMP streaming, voice chat, and te
 
 **Perfect for small self-hosted communities**
 
+## 📥 Downloads
+
+Pre-built applications are available in [Releases](../../releases):
+- 🤖 **Android APK** - Install on Android devices
+- 🖥️ **Windows** - `.exe` installer and portable version
+- 🐧 **Linux** - `.AppImage` and `.deb` packages
+- 🍎 **macOS** - `.dmg` installer
+
 ## ✨ Features
 
 ### Core Features
