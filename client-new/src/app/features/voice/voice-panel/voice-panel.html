@@ -1,0 +1,69 @@
+<div class="voice-panel">
+  <!-- Voice Panel Header -->
+  <div class="voice-panel-header">
+    <div class="flex items-center gap-2">
+      <span class="text-lg">🔊</span>
+      <h3 class="text-sm font-semibold text-text-normal">Voice Channel</h3>
+    </div>
+    <button 
+      (click)="leaveVoiceChannel()"
+      class="disconnect-btn"
+      title="Disconnect">
+      ✕
+    </button>
+  </div>
+
+  <!-- Participants List -->
+  <div class="voice-participants">
+    @if (peers$ | async; as peers) {
+      @if (peers.length === 0) {
+        <div class="empty-state">
+          <p class="text-text-muted text-sm">No one else in voice</p>
+        </div>
+      } @else {
+        @for (peer of peers; track peer.id) {
+          <div class="voice-participant">
+            <div class="participant-avatar">
+              {{ peer.name.charAt(0).toUpperCase() }}
+            </div>
+            <div class="participant-info">
+              <div class="participant-name">{{ peer.name }}</div>
+            </div>
+            @if (peer.muted) {
+              <span class="participant-status" title="Muted">🔇</span>
+            }
+            @if (peer.deafened) {
+              <span class="participant-status" title="Deafened">🔇</span>
+            }
+          </div>
+        }
+      }
+    }
+  </div>
+
+  <!-- Voice Controls -->
+  <div class="voice-controls">
+    <button 
+      (click)="toggleMute()"
+      [class.active]="isMuted$ | async"
+      class="voice-control-btn"
+      title="Toggle Mute">
+      @if (isMuted$ | async) {
+        🔇
+      } @else {
+        🎤
+      }
+    </button>
+    <button 
+      (click)="toggleDeafen()"
+      [class.active]="isDeafened$ | async"
+      class="voice-control-btn"
+      title="Toggle Deafen">
+      @if (isDeafened$ | async) {
+        🔇
+      } @else {
+        🔊
+      }
+    </button>
+  </div>
+</div>

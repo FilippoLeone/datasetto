@@ -1,0 +1,88 @@
+<div class="video-player-container">
+  <!-- Video Header -->
+  @if (channelName) {
+    <div class="video-header">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">📺</span>
+        <h3 class="text-lg font-semibold">{{ channelName }}</h3>
+        @if (isLive) {
+          <span class="live-badge">● LIVE</span>
+        }
+      </div>
+    </div>
+  }
+
+  <!-- Video Container -->
+  <div class="video-wrapper" [class.has-error]="hasError">
+    <video 
+      #videoElement
+      class="video-element"
+      [controls]="controls"
+      [muted]="muted"
+      playsinline>
+    </video>
+
+    <!-- Loading Overlay -->
+    @if (isLoading) {
+      <div class="video-overlay">
+        <div class="loading-spinner"></div>
+        <p class="text-text-muted mt-4">Loading stream...</p>
+      </div>
+    }
+
+    <!-- Error Overlay -->
+    @if (hasError) {
+      <div class="video-overlay">
+        <div class="error-container">
+          <span class="text-4xl mb-4">⚠️</span>
+          <p class="text-danger text-lg mb-2">Stream Unavailable</p>
+          <p class="text-text-muted text-sm mb-4">{{ errorMessage }}</p>
+          <button 
+            (click)="retry()"
+            class="retry-btn">
+            Retry
+          </button>
+        </div>
+      </div>
+    }
+
+    <!-- Custom Controls (optional overlay) -->
+    @if (!controls && !isLoading && !hasError) {
+      <div class="custom-controls">
+        <button 
+          (click)="togglePlay()"
+          class="control-btn">
+          @if (isPlaying) {
+            ⏸
+          } @else {
+            ▶
+          }
+        </button>
+        <button 
+          (click)="toggleMute()"
+          class="control-btn">
+          @if (volume === 0) {
+            🔇
+          } @else {
+            🔊
+          }
+        </button>
+        <button 
+          (click)="toggleFullscreen()"
+          class="control-btn">
+          ⛶
+        </button>
+      </div>
+    }
+  </div>
+
+  <!-- Stream Info -->
+  @if (isLive && !hasError) {
+    <div class="video-footer">
+      <div class="flex items-center gap-2 text-sm text-text-muted">
+        <span class="live-indicator">●</span>
+        <span>Live broadcast</span>
+      </div>
+    </div>
+  }
+</div>

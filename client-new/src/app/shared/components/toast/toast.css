@@ -1,0 +1,20 @@
+.toast {
+  @apply bg-bg-floating rounded-lg shadow-strong p-4 mb-3 min-w-[320px] max-w-[480px];
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.close {
+  @apply text-xl leading-none text-text-muted;
+  transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.close:hover {
+  @apply text-text-normal;
+}
+
+@media (max-width: 480px) {
+  .toast {
+    @apply min-w-0 max-w-full mx-4;
+  }
+}

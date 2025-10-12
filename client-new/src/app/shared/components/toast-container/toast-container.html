@@ -1,0 +1,8 @@
+<div class="toast-container">
+  @for (notification of notifications$ | async; track notification.id) {
+    <app-toast 
+      [notification]="notification" 
+      (dismiss)="onDismiss($event)">
+    </app-toast>
+  }
+</div>

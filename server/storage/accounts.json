@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "generatedAt": 1760212383465,
+  "accounts": [
+    {
+      "id": "acct-d87f54713b0b81b24e23",
+      "username": "pasqualeraffaelenobile@gmail.com",
+      "displayName": "Lele",
+      "email": null,
+      "bio": null,
+      "avatarUrl": null,
+      "roles": [
+        "admin"
+      ],
+      "status": "active",
+      "passwordHash": "$2a$10$yn1PNtjCoOY3lsCG6ut8GuMgyAGqdFq7le/mOKxyrvaEJnrPG1Ftq",
+      "createdAt": 1760212382450,
+      "updatedAt": 1760212382450,
+      "metadata": {}
+    }
+  ]
+}

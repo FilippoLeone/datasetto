@@ -1,0 +1,14 @@
+<div 
+  class="skeleton"
+  [class.skeleton-text]="variant === 'text'"
+  [class.skeleton-circular]="variant === 'circular'"
+  [class.skeleton-rectangular]="variant === 'rectangular'"
+  [class.skeleton-pulse]="animation === 'pulse'"
+  [class.skeleton-wave]="animation === 'wave'"
+  [ngStyle]="{
+    width: width,
+    height: height
+  }"
+  role="status"
+  aria-label="Loading">
+</div>

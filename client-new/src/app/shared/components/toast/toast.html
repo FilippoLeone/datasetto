@@ -1,0 +1,21 @@
+<div class="toast anim-slideInDown">
+  <div class="flex items-center gap-3 w-full">
+    <!-- Icon -->
+    <div [class]="'w-8 h-8 rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0 ' + typeBgColor + ' ' + typeTextColor">
+      {{ typeIcon }}
+    </div>
+
+    <!-- Message -->
+    <div class="flex-1 text-text-normal text-base font-medium">
+      {{ notification.message }}
+    </div>
+
+    <!-- Close button -->
+    <button 
+      class="close flex-shrink-0 w-6 h-6 rounded flex items-center justify-center hover:bg-white/10 transition-fast"
+      (click)="onDismiss()"
+      aria-label="Dismiss">
+      ×
+    </button>
+  </div>
+</div>

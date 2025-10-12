@@ -1,0 +1,71 @@
+<div class="auth-container">
+  <div class="auth-card">
+    <!-- Header -->
+    <div class="auth-header">
+      <h1 class="text-3xl font-bold gradient-text mb-2">Datasetto</h1>
+      <p class="text-text-muted">Sign in to your account</p>
+    </div>
+
+    <!-- Error Message -->
+    @if (error$ | async; as error) {
+      <div class="error-message">
+        {{ error }}
+      </div>
+    }
+
+    <!-- Login Form -->
+    <form (ngSubmit)="onSubmit()" class="auth-form">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input
+          type="text"
+          id="username"
+          name="username"
+          [(ngModel)]="username"
+          placeholder="Enter your username"
+          [disabled]="(loading$ | async) || false"
+          required
+          autocomplete="username"
+          class="form-input"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          [(ngModel)]="password"
+          placeholder="Enter your password"
+          [disabled]="(loading$ | async) || false"
+          required
+          autocomplete="current-password"
+          class="form-input"
+        />
+      </div>
+
+      <button
+        type="submit"
+        [disabled]="(loading$ | async) || !username || !password"
+        class="btn-primary w-full"
+      >
+        @if (loading$ | async) {
+          <span>Signing in...</span>
+        } @else {
+          <span>Sign In</span>
+        }
+      </button>
+    </form>
+
+    <!-- Footer -->
+    <div class="auth-footer">
+      <p class="text-text-muted">
+        Don't have an account?
+        <a routerLink="/auth/register" class="text-brand-primary hover:underline">
+          Create one
+        </a>
+      </p>
+    </div>
+  </div>
+</div>

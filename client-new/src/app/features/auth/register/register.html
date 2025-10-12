@@ -1,0 +1,105 @@
+<div class="auth-container">
+  <div class="auth-card">
+    <!-- Header -->
+    <div class="auth-header">
+      <h1 class="text-3xl font-bold gradient-text mb-2">Datasetto</h1>
+      <p class="text-text-muted">Create your account</p>
+    </div>
+
+    <!-- Error Message -->
+    @if (error$ | async; as error) {
+      <div class="error-message">
+        {{ error }}
+      </div>
+    }
+
+    <!-- Register Form -->
+    <form (ngSubmit)="onSubmit()" class="auth-form">
+      <div class="form-group">
+        <label for="displayName">Display Name</label>
+        <input
+          type="text"
+          id="displayName"
+          name="displayName"
+          [(ngModel)]="displayName"
+          placeholder="Enter your display name"
+          [disabled]="(loading$ | async) || false"
+          required
+          class="form-input"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input
+          type="text"
+          id="username"
+          name="username"
+          [(ngModel)]="username"
+          placeholder="Choose a username"
+          [disabled]="(loading$ | async) || false"
+          required
+          autocomplete="username"
+          class="form-input"
+        />
+        <small class="text-text-muted text-xs">3-20 characters, alphanumeric and underscore only</small>
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          [(ngModel)]="password"
+          placeholder="Choose a password"
+          [disabled]="(loading$ | async) || false"
+          required
+          autocomplete="new-password"
+          class="form-input"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="confirmPassword">Confirm Password</label>
+        <input
+          type="password"
+          id="confirmPassword"
+          name="confirmPassword"
+          [(ngModel)]="confirmPassword"
+          placeholder="Confirm your password"
+          [disabled]="(loading$ | async) || false"
+          required
+          autocomplete="new-password"
+          class="form-input"
+          [class.border-danger]="confirmPassword && !passwordsMatch"
+        />
+        @if (confirmPassword && !passwordsMatch) {
+          <small class="text-danger text-xs">Passwords do not match</small>
+        }
+      </div>
+
+      <button
+        type="submit"
+        [disabled]="(loading$ | async) || !isValid"
+        class="btn-primary w-full"
+      >
+        @if (loading$ | async) {
+          <span>Creating account...</span>
+        } @else {
+          <span>Create Account</span>
+        }
+      </button>
+    </form>
+
+    <!-- Footer -->
+    <div class="auth-footer">
+      <p class="text-text-muted">
+        Already have an account?
+        <a routerLink="/auth/login" class="text-brand-primary hover:underline">
+          Sign in
+        </a>
+      </p>
+    </div>
+  </div>
+</div>

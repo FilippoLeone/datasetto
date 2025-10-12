@@ -1,0 +1,113 @@
+<div class="chat-view flex flex-col h-full">
+  @if (currentChannel$ | async; as channel) {
+    <!-- Chat Header -->
+    <div class="chat-header px-4 py-3 border-b border-white/[0.06] flex items-center gap-2.5 min-h-[48px] shadow-sm">
+      <svg class="w-6 h-6 text-interactive-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+      </svg>
+      <h2 class="text-base font-semibold text-white">{{ channel.name }}</h2>
+    </div>
+
+    <!-- Messages Area -->
+    <div #messagesScroller class="messages-scroller flex-1 overflow-y-auto px-4 py-4 custom-scrollbar">
+      @if (messages$ | async; as messages) {
+        @if (messages.length === 0) {
+          <div class="empty-state text-center py-16">
+            <div class="empty-icon w-20 h-20 mx-auto mb-4 rounded-full bg-bg-elevated flex items-center justify-center">
+              <svg class="w-10 h-10 text-interactive-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </div>
+            <h3 class="text-text-normal font-semibold mb-2">Welcome to #{{ channel.name }}</h3>
+            <p class="text-text-muted text-sm">This is the beginning of your conversation.</p>
+          </div>
+        } @else {
+          <div class="messages-list flex flex-col">
+            @for (message of messages; track message.id) {
+              <div class="message-group hover:bg-modifier-hover transition-fast px-3 py-2 -mx-3 rounded group">
+                <div class="message-item flex gap-4">
+                  <div class="avatar w-10 h-10 rounded-full bg-brand-primary flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">
+                    {{ message.from.charAt(0).toUpperCase() }}
+                  </div>
+                  <div class="message-content flex-1 min-w-0">
+                    <div class="message-header flex items-baseline gap-2 mb-1">
+                      <span class="username font-semibold text-white hover:underline cursor-pointer">{{ message.from }}</span>
+                      <span class="timestamp text-xs text-interactive-muted font-medium">{{ message.ts | date:'short' }}</span>
+                    </div>
+                    <div class="message-text text-text-normal leading-relaxed break-words">{{ message.text }}</div>
+                  </div>
+                  <!-- Hover Action Menu -->
+                  <div class="message-actions opacity-0 group-hover:opacity-100 transition-fast flex items-start gap-1 -mr-1">
+                    <button class="action-btn p-1 rounded hover:bg-bg-elevated" title="Add Reaction">
+                      <svg class="w-4 h-4 text-interactive-muted hover:text-interactive-hover" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                        <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                        <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                      </svg>
+                    </button>
+                    <button class="action-btn p-1 rounded hover:bg-bg-elevated" title="Reply">
+                      <svg class="w-4 h-4 text-interactive-muted hover:text-interactive-hover" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 14 4 9 9 4"></polyline>
+                        <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+                      </svg>
+                    </button>
+                    <button class="action-btn p-1 rounded hover:bg-bg-elevated" title="More">
+                      <svg class="w-4 h-4 text-interactive-muted hover:text-interactive-hover" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="1"></circle>
+                        <circle cx="12" cy="5" r="1"></circle>
+                        <circle cx="12" cy="19" r="1"></circle>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      }
+    </div>
+
+    <!-- Chat Input -->
+    <div class="chat-input-area px-4 pb-6 pt-4">
+      <form class="chat-input-wrapper" (submit)="$event.preventDefault(); sendMessage()">
+        <div class="chat-input-container">
+          <button type="button" class="input-icon-btn" title="Add attachment">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+            </svg>
+          </button>
+          <input 
+            type="text" 
+            [(ngModel)]="messageText"
+            name="message"
+            (keydown)="onKeyDown($event)"
+            class="chat-input"
+            placeholder="Message #{{ channel.name }}"
+            autocomplete="off" />
+          <button type="button" class="input-icon-btn" title="Emoji">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+              <line x1="9" y1="9" x2="9.01" y2="9"></line>
+              <line x1="15" y1="9" x2="15.01" y2="9"></line>
+            </svg>
+          </button>
+        </div>
+      </form>
+    </div>
+  } @else {
+    <!-- No Channel Selected -->
+    <div class="flex items-center justify-center h-full flex-col gap-4">
+      <div class="w-24 h-24 rounded-full bg-bg-elevated flex items-center justify-center">
+        <svg class="w-12 h-12 text-interactive-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+      </div>
+      <div class="text-center">
+        <h3 class="text-white font-semibold mb-1">No Channel Selected</h3>
+        <p class="text-text-muted text-sm">Select a channel from the sidebar to start chatting</p>
+      </div>
+    </div>
+  }
+</div>

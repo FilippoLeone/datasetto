@@ -1,0 +1,141 @@
+<div class="settings-container">
+  <div class="settings-header">
+    <h1>Settings</h1>
+  </div>
+
+  <div class="settings-tabs">
+    <button 
+      class="tab-button" 
+      [class.active]="activeTab === 'audio'"
+      (click)="setActiveTab('audio')">
+      Audio
+    </button>
+    <button 
+      class="tab-button" 
+      [class.active]="activeTab === 'profile'"
+      (click)="setActiveTab('profile')">
+      Profile
+    </button>
+  </div>
+
+  <div class="settings-content">
+    <!-- Audio Settings Tab -->
+    <div *ngIf="activeTab === 'audio'" class="settings-section">
+      <h2>Audio Settings</h2>
+
+      <!-- Microphone Selection -->
+      <div class="setting-group">
+        <label for="microphone">Microphone</label>
+        <select 
+          id="microphone" 
+          [(ngModel)]="audioSettings.micDeviceId"
+          (change)="onMicrophoneChange(audioSettings.micDeviceId || '')">
+          <option value="">Default</option>
+          <option *ngFor="let mic of microphones" [value]="mic.deviceId">
+            {{ mic.label }}
+          </option>
+        </select>
+        <button class="test-button" (click)="testMicrophone()">Test</button>
+      </div>
+
+      <!-- Speaker Selection -->
+      <div class="setting-group">
+        <label for="speaker">Speaker</label>
+        <select 
+          id="speaker" 
+          [(ngModel)]="audioSettings.spkDeviceId"
+          (change)="onSpeakerChange(audioSettings.spkDeviceId || '')">
+          <option value="">Default</option>
+          <option *ngFor="let speaker of speakers" [value]="speaker.deviceId">
+            {{ speaker.label }}
+          </option>
+        </select>
+        <button class="test-button" (click)="testSpeaker()">Test</button>
+      </div>
+
+      <!-- Microphone Gain -->
+      <div class="setting-group">
+        <label for="micGain">Microphone Gain: {{ (audioSettings.micGain * 100) | number:'1.0-0' }}%</label>
+        <input 
+          type="range" 
+          id="micGain" 
+          min="0" 
+          max="2" 
+          step="0.1"
+          [(ngModel)]="audioSettings.micGain"
+          (input)="onMicGainChange()">
+      </div>
+
+      <!-- Output Volume -->
+      <div class="setting-group">
+        <label for="outputVol">Output Volume: {{ (audioSettings.outputVol * 100) | number:'1.0-0' }}%</label>
+        <input 
+          type="range" 
+          id="outputVol" 
+          min="0" 
+          max="2" 
+          step="0.1"
+          [(ngModel)]="audioSettings.outputVol"
+          (input)="onOutputVolChange()">
+      </div>
+
+      <!-- Echo Cancellation -->
+      <div class="setting-group checkbox-group">
+        <input 
+          type="checkbox" 
+          id="echoCancel" 
+          [(ngModel)]="audioSettings.echoCancel"
+          (change)="onEchoCancelChange()">
+        <label for="echoCancel">Echo Cancellation</label>
+      </div>
+
+      <!-- Noise Suppression -->
+      <div class="setting-group checkbox-group">
+        <input 
+          type="checkbox" 
+          id="noiseSuppression" 
+          [(ngModel)]="audioSettings.noiseSuppression"
+          (change)="onNoiseSuppressionChange()">
+        <label for="noiseSuppression">Noise Suppression</label>
+      </div>
+
+      <!-- Auto Gain Control -->
+      <div class="setting-group checkbox-group">
+        <input 
+          type="checkbox" 
+          id="autoGain" 
+          [(ngModel)]="audioSettings.autoGain"
+          (change)="onAutoGainChange()">
+        <label for="autoGain">Automatic Gain Control</label>
+      </div>
+    </div>
+
+    <!-- Profile Settings Tab -->
+    <div *ngIf="activeTab === 'profile'" class="settings-section">
+      <h2>Profile Settings</h2>
+      
+      <div *ngIf="user" class="profile-info">
+        <div class="info-item">
+          <span class="label">Username:</span>
+          <span class="value">{{ user.username }}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Display Name:</span>
+          <span class="value">{{ user.displayName }}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Roles:</span>
+          <span class="value">{{ user.roles.join(', ') }}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Superuser:</span>
+          <span class="value">{{ user.isSuperuser ? 'Yes' : 'No' }}</span>
+        </div>
+        <div *ngIf="user.voiceChannel" class="info-item">
+          <span class="label">Voice Channel:</span>
+          <span class="value">{{ user.voiceChannel }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
