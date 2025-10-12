@@ -207,35 +207,7 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
     this.store.select(selectCurrentChannelId).pipe(take(1)).subscribe(channelId => {
       if (!channelId) return;
 
-      const sampleMessages: ChatMessage[] = [
-        {
-          id: 'sample-1',
-          text: 'Welcome to the channel! 👋',
-          from: 'System',
-          fromId: 'system',
-          channelId: channelId,
-          ts: Date.now() - 3600000, // 1 hour ago
-          edited: false
-        },
-        {
-          id: 'sample-2',
-          text: 'This is a sample message to test the chat display.',
-          from: 'Alice',
-          fromId: 'alice',
-          channelId: channelId,
-          ts: Date.now() - 1800000, // 30 minutes ago
-          edited: false
-        },
-        {
-          id: 'sample-3',
-          text: 'Messages should appear here when you send them!',
-          from: 'Bob',
-          fromId: 'bob',
-          channelId: channelId,
-          ts: Date.now() - 600000, // 10 minutes ago
-          edited: false
-        }
-      ];
+      const sampleMessages: ChatMessage[] = [];
 
       sampleMessages.forEach(message => {
         this.store.dispatch(ChatActions.receiveMessage({ message }));
