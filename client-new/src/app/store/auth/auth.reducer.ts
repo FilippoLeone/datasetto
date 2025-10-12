@@ -16,7 +16,7 @@ export const initialState: AuthState = {
   account: null,
   session: null,
   isAuthenticated: false,
-  loading: false,
+  loading: true, // Start as true to wait for initial session check
   error: null,
 };
 
@@ -92,7 +92,10 @@ export const authReducer = createReducer(
     loading: false,
   })),
   
-  on(AuthActions.sessionInvalid, () => initialState),
+  on(AuthActions.sessionInvalid, () => ({
+    ...initialState,
+    loading: false, // Session check complete, no valid session found
+  })),
 
   // Update Account
   on(AuthActions.updateAccount, (state) => ({
