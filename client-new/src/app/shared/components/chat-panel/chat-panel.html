@@ -40,12 +40,15 @@
   <!-- Messages Area -->
   <app-chat-messages 
     [messages]="messages" 
-    [channelName]="channelName">
+    [channelName]="channelName"
+    (replyToMessage)="onReplyToMessage($event)">
   </app-chat-messages>
 
   <!-- Input Area -->
   <app-chat-input 
     [channelName]="channelName"
-    (messageSent)="onMessageSent($event)">
+    [replyingTo]="replyingTo"
+    (messageSent)="onMessageSent($event)"
+    (cancelReply)="cancelReply()">
   </app-chat-input>
 </div>

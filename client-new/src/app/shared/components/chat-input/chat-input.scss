@@ -5,6 +5,7 @@ $bg-input: #383a40;
 
 $text-normal: #dbdee1;
 $text-muted: #949ba4;
+$text-bright: #ffffff;
 
 $interactive-normal: #b5bac1;
 $interactive-hover: #dbdee1;
@@ -19,11 +20,86 @@ $modifier-hover: rgba(79, 84, 92, 0.16);
 }
 
 .chat-input {
-  padding: 16px;
+  padding: 0 16px 16px 16px;
   flex-shrink: 0;
   flex-grow: 0;
   background-color: $bg-primary;
   width: 100%;
+
+  // Reply Preview
+  .reply-preview {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    background-color: rgba(79, 84, 92, 0.2);
+    border-left: 3px solid $interactive-normal;
+    border-radius: 4px;
+    gap: 12px;
+
+    .reply-content {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+
+      .reply-icon {
+        width: 16px;
+        height: 16px;
+        color: $interactive-normal;
+        stroke-width: 2;
+        flex-shrink: 0;
+      }
+
+      .reply-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+
+        .reply-author {
+          font-size: 12px;
+          font-weight: 600;
+          color: $interactive-normal;
+        }
+
+        .reply-message {
+          font-size: 13px;
+          color: $text-muted;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+    }
+
+    .reply-close {
+      background: none;
+      border: none;
+      padding: 4px;
+      cursor: pointer;
+      color: $interactive-normal;
+      border-radius: 4px;
+      transition: all 0.12s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+
+      svg {
+        width: 16px;
+        height: 16px;
+        stroke-width: 2;
+      }
+
+      &:hover {
+        color: $interactive-hover;
+        background-color: $modifier-hover;
+      }
+    }
+  }
 
   .input-wrapper {
     width: 100%;
@@ -91,6 +167,199 @@ $modifier-hover: rgba(79, 84, 92, 0.16);
       &:focus::placeholder {
         color: lighten($text-muted, 10%);
       }
+    }
+  }
+
+  // Emoji Picker
+  .emoji-picker {
+    position: absolute;
+    bottom: calc(100% + 12px);
+    right: 0;
+    width: 380px;
+    max-height: 420px;
+    background-color: $bg-elevated;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    z-index: 100;
+    overflow: hidden;
+    animation: slideUpFadeIn 0.15s ease-out;
+
+    .emoji-picker-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(79, 84, 92, 0.48);
+
+      h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: $text-bright;
+      }
+
+      .close-btn {
+        background: none;
+        border: none;
+        padding: 4px;
+        cursor: pointer;
+        color: $interactive-normal;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.12s ease;
+
+        svg {
+          width: 18px;
+          height: 18px;
+        }
+
+        &:hover {
+          color: $interactive-hover;
+          background-color: $modifier-hover;
+        }
+      }
+    }
+
+    .emoji-picker-content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 12px 8px;
+      min-height: 0;
+
+      // Custom scrollbar - Discord style
+      scrollbar-width: thin;
+      scrollbar-color: rgba(79, 84, 92, 0.4) transparent;
+
+      &::-webkit-scrollbar {
+        width: 10px;
+      }
+
+      &::-webkit-scrollbar-track {
+        background: transparent;
+        margin: 4px 0;
+      }
+
+      &::-webkit-scrollbar-thumb {
+        background-color: rgba(79, 84, 92, 0.4);
+        border-radius: 8px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+
+      &::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(79, 84, 92, 0.6);
+      }
+
+      &::-webkit-scrollbar-thumb:active {
+        background-color: rgba(79, 84, 92, 0.8);
+      }
+    }
+
+    .emoji-category {
+      margin-bottom: 20px;
+
+      &:last-child {
+        margin-bottom: 8px;
+      }
+
+      .category-name {
+        font-size: 11px;
+        font-weight: 700;
+        color: $text-muted;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        padding: 6px 8px 8px 8px;
+        margin-bottom: 4px;
+        position: sticky;
+        top: -12px;
+        background-color: $bg-elevated;
+        z-index: 1;
+      }
+
+      .emoji-grid {
+        display: grid;
+        grid-template-columns: repeat(9, 1fr);
+        gap: 4px;
+        padding: 0 8px;
+
+        .emoji-btn {
+          background: none;
+          border: none;
+          padding: 4px;
+          cursor: pointer;
+          font-size: 26px;
+          line-height: 1;
+          border-radius: 6px;
+          transition: all 0.1s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          position: relative;
+
+          &:hover {
+            background-color: $modifier-hover;
+            transform: scale(1.15);
+          }
+
+          &:active {
+            transform: scale(0.95);
+            transition-duration: 0.05s;
+          }
+        }
+      }
+    }
+  }
+
+  // Loading state
+  .emoji-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    color: $text-muted;
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: $interactive-hover;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 16px;
+    }
+
+    p {
+      font-size: 14px;
+      margin: 0;
+    }
+  }
+
+  // Animation for emoji picker
+  @keyframes slideUpFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
     }
   }
 }

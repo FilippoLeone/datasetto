@@ -29,13 +29,41 @@
                 <span class="message-author">{{ message.author.name }}</span>
                 <span class="message-timestamp">{{ message.timestamp | date:'short' }}</span>
               </div>
-              <div class="message-text">{{ message.content }}</div>
+              
+              @if (hasQuotedMessage(message.content)) {
+                @let parsed = parseQuotedMessage(message.content);
+                @if (parsed.quoted) {
+                  <div class="quoted-message">
+                    <div class="quote-indicator"></div>
+                    <div class="quote-content">{{ parsed.quoted }}</div>
+                  </div>
+                }
+                <div class="message-text">{{ parsed.reply }}</div>
+              } @else {
+                <div class="message-text">{{ message.content }}</div>
+              }
+
+              <!-- Reactions Display -->
+              @if (hasReactions(message.id)) {
+                <div class="message-reactions">
+                  @for (reaction of getReactions(message.id); track reaction.emoji) {
+                    <button 
+                      type="button" 
+                      class="reaction-display"
+                      [title]="reaction.users.join(', ')">
+                      <span class="reaction-emoji">{{ reaction.emoji }}</span>
+                      <span class="reaction-count">{{ reaction.count }}</span>
+                    </button>
+                  }
+                </div>
+              }
             </div>
           </div>
 
           <!-- Hover Actions -->
           <div class="message-actions">
-            <button class="action-btn" aria-label="Add Reaction" type="button">
+            <button class="action-btn" aria-label="Add Reaction" type="button"
+                    (click)="toggleReactionPicker(message.id, $event)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <circle cx="12" cy="12" r="10"></circle>
                 <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
@@ -43,7 +71,8 @@
                 <line x1="15" y1="9" x2="15.01" y2="9"></line>
               </svg>
             </button>
-            <button class="action-btn" aria-label="Reply" type="button">
+            <button class="action-btn" aria-label="Reply" type="button"
+                    (click)="replyTo(message, $event)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <polyline points="9 14 4 9 9 4"></polyline>
                 <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
@@ -56,6 +85,23 @@
                 <circle cx="12" cy="19" r="1"></circle>
               </svg>
             </button>
+
+            <!-- Reaction Picker -->
+            @if (showReactionPicker[message.id]) {
+              <div class="reaction-picker" (click)="$event.stopPropagation()">
+                <div class="reaction-grid">
+                  @for (emoji of quickReactions; track emoji.slug) {
+                    <button 
+                      type="button" 
+                      class="reaction-btn" 
+                      (click)="addReaction(message.id, emoji, $event)"
+                      [title]="emoji.unicodeName">
+                      {{ emoji.character }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
           </div>
         </div>
       }

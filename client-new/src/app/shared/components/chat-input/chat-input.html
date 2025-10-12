@@ -1,4 +1,26 @@
 <div class="chat-input">
+  <!-- Reply Preview -->
+  @if (replyingTo) {
+    <div class="reply-preview">
+      <div class="reply-content">
+        <svg class="reply-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <polyline points="9 14 4 9 9 4"></polyline>
+          <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+        </svg>
+        <div class="reply-text">
+          <span class="reply-author">Replying to {{ replyingTo.author.name }}</span>
+          <span class="reply-message">{{ replyingTo.content }}</span>
+        </div>
+      </div>
+      <button type="button" class="reply-close" (click)="onCancelReply()" aria-label="Cancel reply">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+  }
+
   <form class="input-wrapper" (submit)="$event.preventDefault(); onSubmit()">
     <div class="input-container">
       <!-- Add Attachment Button -->
@@ -19,7 +41,7 @@
         autocomplete="off" />
 
       <!-- Emoji Button -->
-      <button type="button" class="input-icon-btn" aria-label="Emoji">
+      <button type="button" class="input-icon-btn" aria-label="Emoji" (click)="toggleEmojiPicker()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <circle cx="12" cy="12" r="10"></circle>
           <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
@@ -27,6 +49,46 @@
           <line x1="15" y1="9" x2="15.01" y2="9"></line>
         </svg>
       </button>
+
+      <!-- Emoji Picker Popup -->
+      @if (showEmojiPicker) {
+        <div class="emoji-picker">
+          <div class="emoji-picker-header">
+            <h3>Emojis</h3>
+            <button type="button" class="close-btn" (click)="toggleEmojiPicker()" aria-label="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="emoji-picker-content">
+            @if (isLoadingEmojis) {
+              <div class="emoji-loading">
+                <div class="spinner"></div>
+                <p>Loading emojis...</p>
+              </div>
+            } @else {
+              @for (category of emojiCategories; track category) {
+                <div class="emoji-category">
+                  <div class="category-name">{{ category }}</div>
+                  <div class="emoji-grid">
+                    @for (emojiData of getEmojisForCategory(category); track emojiData.slug) {
+                      <button 
+                        type="button" 
+                        class="emoji-btn" 
+                        (click)="insertEmoji(emojiData)"
+                        [title]="emojiData.unicodeName">
+                        {{ emojiData.character }}
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+            }
+          </div>
+        </div>
+      }
 
       <!-- GIF Button -->
       <button type="button" class="input-icon-btn" aria-label="GIF">

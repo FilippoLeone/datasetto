@@ -4,6 +4,15 @@ import { ChatMessagesComponent } from '../chat-messages/chat-messages';
 import { ChatInputComponent } from '../chat-input/chat-input';
 import { Message } from '../../../core/services/data.service';
 
+interface MessageWithReply {
+  content: string;
+  replyTo?: {
+    id: string;
+    author: string;
+    content: string;
+  };
+}
+
 @Component({
   selector: 'app-chat-panel',
   standalone: true,
@@ -14,10 +23,22 @@ import { Message } from '../../../core/services/data.service';
 export class ChatPanelComponent {
   @Input() messages: Message[] = [];
   @Input() channelName: string = '';
-  @Output() messageSent = new EventEmitter<string>();
+  @Output() messageSent = new EventEmitter<MessageWithReply>();
 
-  onMessageSent(content: string): void {
+  replyingTo: Message | null = null;
+
+  onMessageSent(messageData: MessageWithReply): void {
     // Emit the message to parent component
-    this.messageSent.emit(content);
+    this.messageSent.emit(messageData);
+    // Clear reply after sending
+    this.replyingTo = null;
+  }
+
+  onReplyToMessage(message: Message): void {
+    this.replyingTo = message;
+  }
+
+  cancelReply(): void {
+    this.replyingTo = null;
   }
 }

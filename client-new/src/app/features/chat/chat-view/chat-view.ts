@@ -99,7 +99,7 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
     }
 
     // Use the same logic as onMessageSent
-    this.onMessageSent(this.messageText.trim());
+    this.onMessageSent({ content: this.messageText.trim() });
     
     // Clear input
     this.messageText = '';
@@ -108,8 +108,8 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
   /**
    * Handle message sent from Discord chat-panel component
    */
-  onMessageSent(content: string): void {
-    if (!content.trim()) {
+  onMessageSent(messageData: { content: string; replyTo?: { id: string; author: string; content: string } }): void {
+    if (!messageData.content.trim()) {
       return;
     }
 
@@ -127,10 +127,17 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
           return;
         }
 
+        // Create message content with reply if exists
+        let messageText = messageData.content.trim();
+        if (messageData.replyTo) {
+          // Prepend reply context to message (you can customize this format)
+          messageText = `@${messageData.replyTo.author}: "${messageData.replyTo.content.substring(0, 50)}${messageData.replyTo.content.length > 50 ? '...' : ''}"\n\n${messageText}`;
+        }
+
         // Create optimistic message for immediate display
         const optimisticMessage: ChatMessage = {
           id: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          text: content.trim(),
+          text: messageText,
           from: user.displayName || user.username,
           fromId: user.id,
           channelId: channelId,
@@ -139,12 +146,15 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
         };
 
         console.log('Adding message to store:', optimisticMessage);
+        if (messageData.replyTo) {
+          console.log('Replying to message:', messageData.replyTo);
+        }
 
         // Add message to store immediately (optimistic update)
         this.store.dispatch(ChatActions.receiveMessage({ message: optimisticMessage }));
 
         // Send message through socket
-        this.socketService.sendMessage(content.trim());
+        this.socketService.sendMessage(messageText);
         this.shouldScrollToBottom = true;
       });
     });

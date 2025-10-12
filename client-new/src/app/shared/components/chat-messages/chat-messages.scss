@@ -168,6 +168,43 @@ $modifier-hover: rgba(79, 84, 92, 0.16);
             word-break: break-word;
             white-space: pre-wrap;
           }
+
+          // Quoted Message Styling
+          .quoted-message {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            padding: 8px 12px;
+            background-color: rgba(79, 84, 92, 0.2);
+            border-radius: 4px;
+            position: relative;
+
+            .quote-indicator {
+              position: absolute;
+              left: 0;
+              top: 0;
+              bottom: 0;
+              width: 3px;
+              background-color: $interactive-normal;
+              border-radius: 4px 0 0 4px;
+            }
+
+            .quote-content {
+              flex: 1;
+              padding-left: 8px;
+              font-size: 14px;
+              line-height: 1.4;
+              color: $text-muted;
+              font-style: italic;
+              word-wrap: break-word;
+              word-break: break-word;
+
+              // Highlight the @mention
+              &::before {
+                content: '';
+              }
+            }
+          }
         }
       }
 
@@ -210,7 +247,107 @@ $modifier-hover: rgba(79, 84, 92, 0.16);
             background-color: $modifier-hover;
           }
         }
+
+        // Reaction Picker Popup
+        .reaction-picker {
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          background-color: $bg-elevated;
+          border-radius: 8px;
+          box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 0, 0, 0.2);
+          padding: 6px;
+          z-index: 100;
+          animation: slideDownFadeIn 0.15s ease-out;
+
+          .reaction-grid {
+            display: flex;
+            gap: 2px;
+
+            .reaction-btn {
+              background: none;
+              border: none;
+              padding: 4px;
+              cursor: pointer;
+              font-size: 22px;
+              line-height: 1;
+              border-radius: 6px;
+              transition: all 0.1s ease;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              width: 32px;
+              height: 32px;
+
+              &:hover {
+                background-color: $modifier-hover;
+                transform: scale(1.15);
+              }
+
+              &:active {
+                transform: scale(0.95);
+              }
+            }
+          }
+        }
       }
+
+      // Reactions Display under message
+      .message-reactions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 8px;
+
+        .reaction-display {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          background-color: rgba(79, 84, 92, 0.3);
+          border: 1px solid rgba(79, 84, 92, 0.48);
+          border-radius: 6px;
+          padding: 3px 6px;
+          cursor: pointer;
+          transition: all 0.12s ease;
+          font-size: 14px;
+
+          .reaction-emoji {
+            font-size: 16px;
+            line-height: 1;
+          }
+
+          .reaction-count {
+            font-size: 12px;
+            font-weight: 600;
+            color: $text-muted;
+            line-height: 1;
+          }
+
+          &:hover {
+            background-color: rgba(79, 84, 92, 0.4);
+            border-color: rgba(79, 84, 92, 0.6);
+
+            .reaction-count {
+              color: $text-normal;
+            }
+          }
+
+          &:active {
+            transform: scale(0.95);
+          }
+        }
+      }
+    }
+  }
+
+  @keyframes slideDownFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
     }
   }
 }
