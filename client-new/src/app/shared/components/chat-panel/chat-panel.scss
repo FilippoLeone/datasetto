@@ -11,12 +11,22 @@ $interactive-muted: #4e5058;
 
 $modifier-hover: rgba(79, 84, 92, 0.16);
 
+:host {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
 .chat-panel {
   display: flex;
   flex-direction: column;
   height: 100%;
   width: 100%;
   background-color: $bg-primary;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
 
   .chat-header {
     display: flex;

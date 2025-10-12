@@ -149,11 +149,12 @@
   /* Ensure router-outlet content takes full height */
   router-outlet + *,
   .app-container > router-outlet + * {
-    display: flex !important;
-    flex-direction: column !important;
-    flex: 1 !important;
-    height: 100% !important;
-    min-height: 0 !important;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0%;
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
   }
 
   .app-shell {

@@ -45,7 +45,12 @@
     <!-- User Area -->
     @if (user$ | async; as user) {
       <div class="user-area px-2 py-2 bg-bg-elevated border-t border-white/[0.06] flex items-center gap-3">
-        <div class="w-8 h-8 rounded-full bg-brand-primary flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
+        <img 
+          [src]="getUserAvatarUrl(user)" 
+          [alt]="user.displayName + ' avatar'"
+          class="w-8 h-8 rounded-full flex-shrink-0 object-cover"
+          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        <div class="w-8 h-8 rounded-full bg-brand-primary items-center justify-center text-sm font-bold text-white flex-shrink-0 hidden">
           {{ user.displayName.charAt(0).toUpperCase() }}
         </div>
         <div class="flex-1 min-w-0">

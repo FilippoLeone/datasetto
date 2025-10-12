@@ -94,6 +94,30 @@ export class MainLayout implements OnInit {
   }
 
   /**
+   * Get user avatar URL
+   */
+  getUserAvatarUrl(user: User): string {
+    // If user has a custom avatar URL, use it
+    if (user.avatarUrl) {
+      return user.avatarUrl;
+    }
+
+    // Otherwise, generate a placeholder avatar using UI Avatars
+    const name = encodeURIComponent(user.displayName || user.username);
+    
+    // Generate a consistent background color based on username
+    const colors = ['3498db', 'e74c3c', '2ecc71', 'f39c12', '9b59b6', '1abc9c', 'e67e22', '34495e'];
+    let hash = 0;
+    const username = user.displayName || user.username;
+    for (let i = 0; i < username.length; i++) {
+      hash = username.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const bgColor = colors[Math.abs(hash) % colors.length];
+    
+    return `https://ui-avatars.com/api/?name=${name}&background=${bgColor}&color=fff&size=32&bold=true&rounded=true`;
+  }
+
+  /**
    * Transform existing Channel[] into Discord ChannelCategory[] format
    */
   private transformChannelsToCategories(channels: Channel[]): ChannelCategory[] {

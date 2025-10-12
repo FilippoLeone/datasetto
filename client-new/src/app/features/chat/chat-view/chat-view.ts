@@ -3,10 +3,11 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { Store } from '@ngrx/store';
-import { Observable, Subject, takeUntil, switchMap, of, map } from 'rxjs';
-import { Channel, ChatMessage } from '../../../core/models';
+import { Observable, Subject, takeUntil, switchMap, of, map, combineLatest, take } from 'rxjs';
+import { Channel, ChatMessage, User } from '../../../core/models';
 import { selectCurrentChannel, selectCurrentChannelId } from '../../../store/channel/channel.selectors';
 import { selectMessagesForChannel } from '../../../store/chat/chat.selectors';
+import { selectUser } from '../../../store/auth/auth.selectors';
 import { SocketService } from '../../../core/services/socket.service';
 import * as ChannelActions from '../../../store/channel/channel.actions';
 import * as ChatActions from '../../../store/chat/chat.actions';
@@ -26,6 +27,7 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
   messages$: Observable<ChatMessage[]>;
   discordMessages$: Observable<Message[]>;
   channelName$: Observable<string>;
+  currentUser$: Observable<User | null>;
   messageText = '';
   private destroy$ = new Subject<void>();
   private shouldScrollToBottom = false;
@@ -36,6 +38,7 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
     private socketService: SocketService
   ) {
     this.currentChannel$ = this.store.select(selectCurrentChannel);
+    this.currentUser$ = this.store.select(selectUser);
     
     // Get messages for current channel using switchMap to handle the selector factory
     this.messages$ = this.store.select(selectCurrentChannelId).pipe(
@@ -71,6 +74,11 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
       this.store.dispatch(ChatActions.receiveMessage({ message }));
       this.shouldScrollToBottom = true;
     });
+
+    // Add some sample messages for testing
+    setTimeout(() => {
+      this.addSampleMessages();
+    }, 1000);
   }
 
   ngAfterViewChecked(): void {
@@ -90,12 +98,11 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
       return;
     }
 
-    // Send message through socket
-    this.socketService.sendMessage(this.messageText.trim());
+    // Use the same logic as onMessageSent
+    this.onMessageSent(this.messageText.trim());
     
     // Clear input
     this.messageText = '';
-    this.shouldScrollToBottom = true;
   }
 
   /**
@@ -106,9 +113,41 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
       return;
     }
 
-    // Send message through socket
-    this.socketService.sendMessage(content.trim());
-    this.shouldScrollToBottom = true;
+    // Get current channel ID
+    this.store.select(selectCurrentChannelId).pipe(take(1)).subscribe(channelId => {
+      if (!channelId) {
+        console.error('Cannot send message: no channel selected');
+        return;
+      }
+
+      // Get current user
+      this.store.select(selectUser).pipe(take(1)).subscribe(user => {
+        if (!user) {
+          console.error('Cannot send message: no user logged in');
+          return;
+        }
+
+        // Create optimistic message for immediate display
+        const optimisticMessage: ChatMessage = {
+          id: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          text: content.trim(),
+          from: user.displayName || user.username,
+          fromId: user.id,
+          channelId: channelId,
+          ts: Date.now(),
+          edited: false
+        };
+
+        console.log('Adding message to store:', optimisticMessage);
+
+        // Add message to store immediately (optimistic update)
+        this.store.dispatch(ChatActions.receiveMessage({ message: optimisticMessage }));
+
+        // Send message through socket
+        this.socketService.sendMessage(content.trim());
+        this.shouldScrollToBottom = true;
+      });
+    });
   }
 
   onKeyDown(event: KeyboardEvent): void {
@@ -142,15 +181,71 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
 
   /**
    * Generate avatar URL from username
+   * Uses UI Avatars service for consistent, colorful placeholder avatars
    */
   private getAvatarUrl(username: string): string {
-    const colors = ['FF6B6B', '4ECDC4', 'FFE66D', '95E1D3', 'A8E6CF', 'FFDAC1', 'B4A7D6', '9AD1D4'];
+    // Use UI Avatars service for better-looking placeholder avatars
+    // https://ui-avatars.com/
+    const name = encodeURIComponent(username);
+    
+    // Generate a consistent background color based on username
+    const colors = ['3498db', 'e74c3c', '2ecc71', 'f39c12', '9b59b6', '1abc9c', 'e67e22', '34495e'];
     let hash = 0;
     for (let i = 0; i < username.length; i++) {
       hash = username.charCodeAt(i) + ((hash << 5) - hash);
     }
-    const color = colors[Math.abs(hash) % colors.length];
-    const initial = username.charAt(0).toUpperCase();
-    return `https://via.placeholder.com/40/${color}/ffffff?text=${initial}`;
+    const bgColor = colors[Math.abs(hash) % colors.length];
+    
+    // UI Avatars parameters:
+    // - name: The name to display
+    // - background: Background color (hex without #)
+    // - color: Text color (hex without #)
+    // - size: Image size in pixels
+    // - bold: Use bold text
+    // - rounded: Rounded image
+    return `https://ui-avatars.com/api/?name=${name}&background=${bgColor}&color=fff&size=40&bold=true&rounded=true`;
+  }
+
+  /**
+   * Add sample messages for testing
+   */
+  private addSampleMessages(): void {
+    this.store.select(selectCurrentChannelId).pipe(take(1)).subscribe(channelId => {
+      if (!channelId) return;
+
+      const sampleMessages: ChatMessage[] = [
+        {
+          id: 'sample-1',
+          text: 'Welcome to the channel! 👋',
+          from: 'System',
+          fromId: 'system',
+          channelId: channelId,
+          ts: Date.now() - 3600000, // 1 hour ago
+          edited: false
+        },
+        {
+          id: 'sample-2',
+          text: 'This is a sample message to test the chat display.',
+          from: 'Alice',
+          fromId: 'alice',
+          channelId: channelId,
+          ts: Date.now() - 1800000, // 30 minutes ago
+          edited: false
+        },
+        {
+          id: 'sample-3',
+          text: 'Messages should appear here when you send them!',
+          from: 'Bob',
+          fromId: 'bob',
+          channelId: channelId,
+          ts: Date.now() - 600000, // 10 minutes ago
+          edited: false
+        }
+      ];
+
+      sampleMessages.forEach(message => {
+        this.store.dispatch(ChatActions.receiveMessage({ message }));
+      });
+    });
   }
 }
