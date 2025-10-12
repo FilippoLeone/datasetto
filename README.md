@@ -1,4 +1,5 @@
-<img width="1918" height="946" alt="image" src="https://github.com/user-attachments/assets/4fb05e34-bf73-4565-a85c-e51144aec7fb" />
+<img width="1262" height="787" alt="image" src="https://github.com/user-attachments/assets/ecdcc385-77e7-452d-ae56-364308fbd1ea" />
+
 
 # 🎮 Datasetto
 
