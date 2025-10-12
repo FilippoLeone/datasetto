@@ -7,9 +7,21 @@ import { generateId } from '@/utils';
 export class NotificationManager {
   private container: HTMLElement;
   private notifications: Map<string, HTMLElement> = new Map();
+  private desktopAPI: any = null;
 
   constructor() {
     this.container = this.createContainer();
+    this.checkElectronEnvironment();
+  }
+
+  /**
+   * Check if running in Electron and desktop API is available
+   */
+  private checkElectronEnvironment(): void {
+    if (typeof window !== 'undefined' && (window as any).desktopAPI) {
+      this.desktopAPI = (window as any).desktopAPI;
+      console.log('[NotificationManager] Electron desktop API detected');
+    }
   }
 
   /**
@@ -46,12 +58,55 @@ export class NotificationManager {
     this.notifications.set(id, element);
     this.container.appendChild(element);
 
+    // Show native notification if in Electron desktop app
+    this.showNativeNotification(message, type);
+
     // Auto-remove after duration
     if (duration > 0) {
       setTimeout(() => this.remove(id), duration);
     }
 
     return id;
+  }
+
+  /**
+   * Show native OS notification via Electron
+   */
+  private showNativeNotification(message: string, type: NotificationType): void {
+    if (!this.desktopAPI?.showNotification) {
+      console.log('[NotificationManager] Desktop API not available, skipping native notification');
+      return;
+    }
+
+    const title = this.getNotificationTitle(type);
+    console.log('[NotificationManager] Sending native notification:', { title, message, type });
+    
+    this.desktopAPI.showNotification({
+      title,
+      body: message,
+      type,
+      silent: false
+    }).then((result: any) => {
+      console.log('[NotificationManager] Native notification result:', result);
+    }).catch((err: Error) => {
+      console.error('[NotificationManager] Failed to show native notification:', err);
+    });
+  }
+
+  /**
+   * Get notification title based on type
+   */
+  private getNotificationTitle(type: NotificationType): string {
+    switch (type) {
+      case 'error':
+        return 'Datasetto - Error';
+      case 'warning':
+        return 'Datasetto - Warning';
+      case 'success':
+        return 'Datasetto - Success';
+      default:
+        return 'Datasetto';
+    }
   }
 
   /**

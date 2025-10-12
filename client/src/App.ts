@@ -697,8 +697,9 @@ export class App {
       if (session?.token) {
         console.log('🧹 Clearing corrupted session state');
         this.state.clearAccount();
-        this.notifications.error('Unable to connect to server. Please check your connection and try logging in again.');
-        this.authController?.showAuthModal('login');
+        this.notifications.error('Connection lost. Please refresh the page to reconnect.');
+        // Don't auto-open login modal - let user refresh manually
+        // this.authController?.showAuthModal('login');
       }
     });
 

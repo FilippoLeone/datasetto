@@ -16,7 +16,9 @@ defineGlobals();
 function defineGlobals() {
   contextBridge.exposeInMainWorld('desktopAPI', {
     getInfo: () => ipcRenderer.invoke('app:get-info'),
-    getRuntimeConfig: () => runtimeConfig
+    getRuntimeConfig: () => runtimeConfig,
+    showNotification: (options) => ipcRenderer.invoke('notification:show', options),
+    checkNotificationPermission: () => ipcRenderer.invoke('notification:check-permission')
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);
