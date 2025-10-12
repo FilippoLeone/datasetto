@@ -1,25 +1,37 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
 import { Message } from '../../../core/services/data.service';
+import emojisData from '../../../../assets/emojis.json';
 
 interface EmojiData {
-  slug: string;
-  character: string;
-  unicodeName: string;
-  codePoint: string;
-  group: string;
-  subGroup: string;
+  code: string[];
+  emoji: string;
+  name: string;
+  image: string;
 }
 
-interface EmojiGroup {
-  [category: string]: EmojiData[];
+interface EmojisJson {
+  '@version': string;
+  '@author': string;
+  '@copyright': string;
+  '@see': string;
+  '@license': string;
+  emojis: {
+    [category: string]: {
+      [subCategory: string]: EmojiData[];
+    };
+  };
 }
 
 interface MessageReaction {
   emoji: string;
   count: number;
   users: string[];
+}
+
+interface EmojiCategory {
+  name: string;
+  emojis: EmojiData[];
 }
 
 @Component({
@@ -36,37 +48,55 @@ export class ChatMessagesComponent implements OnInit {
 
   showReactionPicker: { [messageId: string]: boolean } = {};
   quickReactions: EmojiData[] = [];
-  isLoadingEmojis: boolean = false;
+  emojiCategories: EmojiCategory[] = [];
+  selectedCategory: string = 'Smileys & Emotion';
   messageReactions: { [messageId: string]: MessageReaction[] } = {};
 
-  constructor(private http: HttpClient) {}
+  constructor() {}
 
   ngOnInit(): void {
     this.loadQuickReactions();
   }
 
   loadQuickReactions(): void {
-    this.isLoadingEmojis = true;
-    const API_KEY = '4a29e28a5ef023f5a6076750dcdcd7b9e1336cc6';
+    // Load emojis from local JSON file
+    const data = emojisData as EmojisJson;
     
-    // Load emojis and pick popular ones for quick reactions
-    this.http.get<EmojiData[]>(`https://emoji-api.com/emojis?access_key=${API_KEY}`)
-      .subscribe({
-        next: (emojis) => {
-          // Select popular reaction emojis
-          const popularReactionChars = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🎉', '🔥'];
-          
-          this.quickReactions = emojis.filter(emoji => 
-            popularReactionChars.includes(emoji.character)
-          ).slice(0, 8);
-          
-          this.isLoadingEmojis = false;
-        },
-        error: (error) => {
-          console.error('Failed to load reactions:', error);
-          this.isLoadingEmojis = false;
-        }
+    // Flatten all emojis from all categories
+    const allEmojis: EmojiData[] = [];
+    for (const category in data.emojis) {
+      for (const subCategory in data.emojis[category]) {
+        allEmojis.push(...data.emojis[category][subCategory]);
+      }
+    }
+    
+    // Select popular reaction emojis
+    const popularReactionChars = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🎉', '🔥'];
+    
+    this.quickReactions = allEmojis.filter(emoji => 
+      popularReactionChars.includes(emoji.emoji)
+    ).slice(0, 8);
+
+    // Organize emojis by category
+    for (const category in data.emojis) {
+      const categoryEmojis: EmojiData[] = [];
+      for (const subCategory in data.emojis[category]) {
+        categoryEmojis.push(...data.emojis[category][subCategory]);
+      }
+      this.emojiCategories.push({
+        name: category,
+        emojis: categoryEmojis
       });
+    }
+  }
+
+  selectCategory(categoryName: string): void {
+    this.selectedCategory = categoryName;
+  }
+
+  getCategoryEmojis(categoryName: string): EmojiData[] {
+    const category = this.emojiCategories.find(c => c.name === categoryName);
+    return category ? category.emojis : [];
   }
 
   getInitials(name: string): string {
@@ -95,7 +125,7 @@ export class ChatMessagesComponent implements OnInit {
 
     // Check if this emoji already exists
     const existingReaction = this.messageReactions[messageId].find(
-      r => r.emoji === emoji.character
+      r => r.emoji === emoji.emoji
     );
 
     if (existingReaction) {
@@ -105,7 +135,7 @@ export class ChatMessagesComponent implements OnInit {
     } else {
       // Add new reaction
       this.messageReactions[messageId].push({
-        emoji: emoji.character,
+        emoji: emoji.emoji,
         count: 1,
         users: ['You']
       });

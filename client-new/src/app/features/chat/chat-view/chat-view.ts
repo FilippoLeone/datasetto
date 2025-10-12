@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef, AfterViewChecked } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, AfterViewChecked, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -9,6 +9,7 @@ import { selectCurrentChannel, selectCurrentChannelId } from '../../../store/cha
 import { selectMessagesForChannel } from '../../../store/chat/chat.selectors';
 import { selectUser } from '../../../store/auth/auth.selectors';
 import { SocketService } from '../../../core/services/socket.service';
+import { AvatarService } from '../../../core/services/avatar.service';
 import * as ChannelActions from '../../../store/channel/channel.actions';
 import * as ChatActions from '../../../store/chat/chat.actions';
 import { ChatPanelComponent } from '../../../shared/components/chat-panel/chat-panel';
@@ -31,6 +32,8 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
   messageText = '';
   private destroy$ = new Subject<void>();
   private shouldScrollToBottom = false;
+
+  private avatarService = inject(AvatarService);
 
   constructor(
     private route: ActivatedRoute,
@@ -194,23 +197,7 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
    * Uses UI Avatars service for consistent, colorful placeholder avatars
    */
   private getAvatarUrl(username: string): string {
-    // Use DiceBear API for random SVG avatars
-    // https://www.dicebear.com/
-    // Available styles: adventurer, avataaars, big-smile, bottts, fun-emoji, pixel-art, thumbs
-    
-    // Generate a consistent seed based on username for consistent avatars per user
-    const seed = encodeURIComponent(username);
-    
-    // Choose from different avatar styles randomly based on username
-    const styles = ['adventurer', 'avataaars', 'bottts', 'fun-emoji', 'pixel-art', 'thumbs'];
-    let hash = 0;
-    for (let i = 0; i < username.length; i++) {
-      hash = username.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const style = styles[Math.abs(hash) % styles.length];
-    
-    // DiceBear API v7 - generates consistent SVG avatars based on seed
-    return `https://api.dicebear.com/7.x/${style}/svg?seed=${seed}&size=40`;
+    return this.avatarService.getAvatarUrl(username, 40);
   }
 
   /**

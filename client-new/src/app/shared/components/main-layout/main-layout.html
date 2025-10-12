@@ -28,6 +28,7 @@
           <app-channels-list 
             [categories]="categories"
             [activeChannelId]="(currentChannelId$ | async) || null"
+            [voiceParticipants]="(voiceParticipants$ | async) || {}"
             (channelSelected)="onChannelSelected($event)">
           </app-channels-list>
         } @else {
@@ -71,4 +72,13 @@
   <main class="flex-1 flex flex-col overflow-hidden bg-bg-primary">
     <router-outlet />
   </main>
+
+  <!-- Voice Panel (conditionally shown when connected to voice channel) -->
+  @if (voiceState$ | async; as voiceState) {
+    @if (voiceState.isConnected) {
+      <aside class="w-64 bg-bg-secondary flex-shrink-0 border-l border-bg-modifier-accent">
+        <app-voice-panel></app-voice-panel>
+      </aside>
+    }
+  }
 </div>

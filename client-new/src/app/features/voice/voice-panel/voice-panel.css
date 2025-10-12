@@ -5,6 +5,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  width: 400px;
 }
 
 .voice-panel-header {
@@ -55,25 +56,86 @@
   gap: 0.75rem;
   padding: 0.75rem;
   border-radius: 6px;
-  transition: background-color var(--transition-fast);
+  transition: all var(--transition-fast);
+  position: relative;
 }
 
 .voice-participant:hover {
   background-color: var(--color-modifier-hover);
 }
 
+.voice-participant.speaking {
+  background-color: rgba(35, 165, 90, 0.15);
+  border-left: 3px solid #23a55a;
+  padding-left: calc(0.75rem - 3px);
+}
+
+/* Avatar wrapper with voice detection ring */
+.participant-avatar-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.voice-detection-ring {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 4px solid transparent;
+  transition: all 0.2s ease;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.voice-detection-ring.active {
+  border-color: #23a55a;
+  box-shadow: 0 0 12px rgba(35, 165, 90, 0.8),
+              inset 0 0 20px rgba(35, 165, 90, 0.2);
+  animation: pulse-voice-ring 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-voice-ring {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(35, 165, 90, 0.8),
+                inset 0 0 20px rgba(35, 165, 90, 0.2),
+                0 0 0 0 rgba(35, 165, 90, 0.9);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(35, 165, 90, 0.8),
+                inset 0 0 20px rgba(35, 165, 90, 0.2),
+                0 0 0 10px rgba(35, 165, 90, 0);
+  }
+}
+
 .participant-avatar {
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-secondary));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  font-size: 1rem;
-  color: white;
-  flex-shrink: 0;
+  display: block;
+  object-fit: cover;
+  background-color: var(--color-bg-tertiary);
+  border: 2px solid var(--color-bg-secondary);
+  box-sizing: border-box;
+  position: relative;
+  z-index: 0;
+}
+
+/* Green overlay when speaking */
+.voice-participant.speaking .participant-avatar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle, 
+    rgba(35, 165, 90, 0.6) 0%, 
+    rgba(35, 165, 90, 0.4) 30%, 
+    rgba(35, 165, 90, 0.2) 60%,
+    transparent 100%
+  );
+  pointer-events: none;
+  animation: pulse-overlay-voice 1.5s ease-in-out infinite;
+  z-index: 2;
+  mix-blend-mode: screen;
 }
 
 .participant-info {
@@ -107,18 +169,82 @@
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
+.speaking-text {
+  font-weight: 500;
+}
+
+/* Audio level bar */
+.audio-level-bar {
+  width: 48px;
+  height: 4px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.audio-level-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #5865f2, #57f287);
+  transition: width 0.1s ease;
+  border-radius: 2px;
+}
+
+.audio-level-fill.audio-level-high {
+  background: linear-gradient(90deg, #57f287, #3ba55d);
+}
+
+.audio-level-fill.audio-level-medium {
+  background: linear-gradient(90deg, #5865f2, #57f287);
+}
+
+.audio-level-fill.audio-level-low {
+  background: linear-gradient(90deg, #4752c4, #5865f2);
+}
+
+/* Status icons */
+.participant-status-icons {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
 .participant-status {
   font-size: 1.125rem;
   opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.participant-status.muted {
+  color: var(--color-danger);
+}
+
+.participant-status.deafened {
+  color: var(--color-text-muted);
 }
 
 .voice-controls {
   padding: 1rem;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+  background-color: var(--color-bg-secondary);
+}
+
+/* Control with indicator (for mute button with audio level) */
+.control-with-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.voice-controls > div:first-child {
+  display: flex;
   gap: 0.75rem;
   justify-content: center;
-  background-color: var(--color-bg-secondary);
 }
 
 .voice-control-btn {
@@ -134,18 +260,67 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .voice-control-btn:hover {
   background-color: var(--color-brand-primary);
   transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(88, 101, 242, 0.4);
 }
 
 .voice-control-btn.active {
   background-color: var(--color-danger);
   color: white;
+  box-shadow: 0 4px 12px rgba(237, 66, 69, 0.4);
 }
 
+.voice-control-btn.active:hover {
+  background-color: #c23c3e;
+}
+
+/* Local audio level indicator */
+.local-audio-level {
+  width: 3rem;
+  height: 4px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.local-audio-level-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #5865f2, #57f287);
+  transition: width 0.1s ease;
+  border-radius: 2px;
+}
+
+/* PTT indicator */
+.ptt-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, rgba(87, 242, 135, 0.2), rgba(88, 101, 242, 0.2));
+  border-radius: 20px;
+  border: 1px solid rgba(87, 242, 135, 0.3);
+  animation: pulse-ptt 2s ease-in-out infinite;
+}
+
+.ptt-icon {
+  font-size: 1rem;
+  animation: pulse-icon 1s ease-in-out infinite;
+}
+
+.ptt-text {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-success);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Animations */
 @keyframes pulse-dot {
   0%, 100% {
     opacity: 1;
@@ -154,5 +329,43 @@
   50% {
     opacity: 0.5;
     transform: scale(0.8);
+  }
+}
+
+@keyframes pulse-ring {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.7;
+  }
+}
+
+@keyframes pulse-ptt {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(87, 242, 135, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(87, 242, 135, 0);
+  }
+}
+
+@keyframes pulse-icon {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+
+@keyframes pulse-overlay-voice {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
   }
 }

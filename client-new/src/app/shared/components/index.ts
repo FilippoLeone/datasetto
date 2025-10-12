@@ -15,4 +15,3 @@ export * from './chat-messages/chat-messages';
 export * from './chat-input/chat-input';
 export * from './chat-panel/chat-panel';
 export * from './user-list/user-list';
-export * from './discord-layout/discord-layout';

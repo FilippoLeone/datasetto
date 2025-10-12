@@ -7,6 +7,21 @@ import { DeviceInfo, AudioSettings } from '../models';
 })
 export class AudioService {
   private audioContext?: AudioContext;
+  private analyzerNode?: AnalyserNode;
+  private audioDataArray?: Uint8Array<ArrayBuffer>;
+  private animationFrameId?: number;
+  
+  // Voice Activity Detection
+  private vadThreshold = 10; // 0-100 scale - Lowered for better sensitivity
+  private isSpeakingSubject$ = new BehaviorSubject<boolean>(false);
+  
+  // Push-to-Talk
+  private pttActive$ = new BehaviorSubject<boolean>(false);
+  private pttKeyListener?: (event: KeyboardEvent) => void;
+  
+  // Audio levels
+  private localAudioLevel$ = new BehaviorSubject<number>(0);
+  private remoteAudioLevels$ = new BehaviorSubject<Map<string, number>>(new Map());
   
   // Public observables for device lists and settings
   microphones$ = new BehaviorSubject<DeviceInfo[]>([]);
@@ -37,6 +52,97 @@ export class AudioService {
 
   getSettings(): Observable<AudioSettings> {
     return this.settings$.asObservable();
+  }
+
+  // Voice Activity Detection
+  getIsSpeaking(): Observable<boolean> {
+    return this.isSpeakingSubject$.asObservable();
+  }
+
+  setVadThreshold(threshold: number): void {
+    this.vadThreshold = Math.max(0, Math.min(100, threshold));
+  }
+
+  getVadThreshold(): number {
+    return this.vadThreshold;
+  }
+
+  // Push-to-Talk
+  getPttActive(): Observable<boolean> {
+    return this.pttActive$.asObservable();
+  }
+
+  isPttActive(): boolean {
+    return this.pttActive$.value;
+  }
+
+  setPttActive(active: boolean): void {
+    this.pttActive$.next(active);
+  }
+
+  enablePtt(key: string = 'Space'): void {
+    this.disablePtt(); // Remove old listener if exists
+
+    this.pttKeyListener = (event: KeyboardEvent) => {
+      if (event.code === key) {
+        if (event.type === 'keydown' && !event.repeat) {
+          this.setPttActive(true);
+        } else if (event.type === 'keyup') {
+          this.setPttActive(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', this.pttKeyListener);
+    window.addEventListener('keyup', this.pttKeyListener);
+    
+    this.updateSettings({ pttEnable: true, pttKey: key });
+  }
+
+  disablePtt(): void {
+    if (this.pttKeyListener) {
+      window.removeEventListener('keydown', this.pttKeyListener);
+      window.removeEventListener('keyup', this.pttKeyListener);
+      this.pttKeyListener = undefined;
+    }
+    this.setPttActive(false);
+    this.updateSettings({ pttEnable: false });
+  }
+
+  // Audio level monitoring
+  getLocalAudioLevel(): Observable<number> {
+    return this.localAudioLevel$.asObservable();
+  }
+
+  getRemoteAudioLevels(): Observable<Map<string, number>> {
+    return this.remoteAudioLevels$.asObservable();
+  }
+
+  updateRemoteAudioLevel(userId: string, level: number): void {
+    const levels = this.remoteAudioLevels$.value;
+    levels.set(userId, level);
+    this.remoteAudioLevels$.next(new Map(levels));
+  }
+
+  removeRemoteAudioLevel(userId: string): void {
+    const levels = this.remoteAudioLevels$.value;
+    levels.delete(userId);
+    this.remoteAudioLevels$.next(new Map(levels));
+  }
+
+  // Determine if user should be transmitting audio
+  shouldTransmit(): boolean {
+    const settings = this.settings$.value;
+    const isVoiceActive = this.isSpeakingSubject$.value;
+    const isPttActive = this.pttActive$.value;
+
+    // If both PTT and VAD are enabled, either can activate transmission
+    if (settings.pttEnable) {
+      return isPttActive || isVoiceActive;
+    }
+
+    // If only VAD is enabled (PTT disabled)
+    return isVoiceActive;
   }
 
   // Initialize Web Audio API context
@@ -126,7 +232,7 @@ export class AudioService {
     }
   }
 
-  // Create audio analyzer for visualizations
+  // Create audio analyzer for visualizations and VAD
   createAnalyzer(stream: MediaStream): AnalyserNode | null {
     if (!this.audioContext) return null;
 
@@ -140,6 +246,92 @@ export class AudioService {
       console.error('Failed to create analyzer:', error);
       return null;
     }
+  }
+
+  // Start monitoring local audio stream for VAD and level
+  startLocalAudioMonitoring(stream: MediaStream): void {
+    this.stopLocalAudioMonitoring();
+
+    const analyzer = this.createAnalyzer(stream);
+    if (!analyzer) return;
+
+    this.analyzerNode = analyzer;
+    this.audioDataArray = new Uint8Array(this.analyzerNode.frequencyBinCount);
+
+    const monitorAudio = () => {
+      if (!this.analyzerNode || !this.audioDataArray) return;
+
+      this.analyzerNode.getByteFrequencyData(this.audioDataArray);
+
+      // Calculate average volume (0-255 scale)
+      const sum = this.audioDataArray.reduce((a, b) => a + b, 0);
+      const average = sum / this.audioDataArray.length;
+
+      // Convert to 0-100 scale
+      const level = Math.round((average / 255) * 100);
+      this.localAudioLevel$.next(level);
+
+      // Voice Activity Detection: compare to threshold
+      const isSpeaking = level > this.vadThreshold;
+      
+      // Log when speaking state changes
+      if (isSpeaking !== this.isSpeakingSubject$.value) {
+        console.log('[AudioService] 🎤 Speaking:', isSpeaking, '| Level:', level, '| Threshold:', this.vadThreshold);
+      }
+      
+      // Periodic logging of audio level (every 60 frames = ~1 second)
+      if (Math.random() < 0.016) { // ~1/60 chance
+        console.log('[AudioService] 📊 Current audio level:', level, '| Threshold:', this.vadThreshold, '| Speaking:', isSpeaking);
+      }
+      
+      this.isSpeakingSubject$.next(isSpeaking);
+
+      this.animationFrameId = requestAnimationFrame(monitorAudio);
+    };
+
+    monitorAudio();
+  }
+
+  // Stop monitoring local audio
+  stopLocalAudioMonitoring(): void {
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = undefined;
+    }
+    this.analyzerNode = undefined;
+    this.audioDataArray = undefined;
+    this.localAudioLevel$.next(0);
+    this.isSpeakingSubject$.next(false);
+  }
+
+  // Play remote audio stream
+  playRemoteAudio(stream: MediaStream, userId: string): HTMLAudioElement {
+    const audio = new Audio();
+    audio.srcObject = stream;
+    audio.autoplay = true;
+    audio.volume = this.settings$.value.outputVol;
+
+    // Monitor remote audio levels
+    const remoteAnalyzer = this.createAnalyzer(stream);
+    if (remoteAnalyzer) {
+      const dataArray = new Uint8Array(remoteAnalyzer.frequencyBinCount);
+      
+      const monitorRemoteAudio = () => {
+        if (!remoteAnalyzer) return;
+
+        remoteAnalyzer.getByteFrequencyData(dataArray);
+        const sum = dataArray.reduce((a, b) => a + b, 0);
+        const average = sum / dataArray.length;
+        const level = Math.round((average / 255) * 100);
+        
+        this.updateRemoteAudioLevel(userId, level);
+        requestAnimationFrame(monitorRemoteAudio);
+      };
+
+      monitorRemoteAudio();
+    }
+
+    return audio;
   }
 
   // Play notification sound

@@ -1,7 +1,7 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
+import emojisData from '../../../../assets/emojis.json';
 
 interface Message {
   id: string;
@@ -14,21 +14,28 @@ interface Message {
 }
 
 interface EmojiData {
-  slug: string;
-  character: string;
-  unicodeName: string;
-  codePoint: string;
-  group: string;
-  subGroup: string;
-}
-
-interface CategoryData {
-  slug: string;
+  code: string[];
+  emoji: string;
   name: string;
+  image: string;
 }
 
-interface EmojiGroup {
-  [category: string]: EmojiData[];
+interface EmojisJson {
+  '@version': string;
+  '@author': string;
+  '@copyright': string;
+  '@see': string;
+  '@license': string;
+  emojis: {
+    [category: string]: {
+      [subCategory: string]: EmojiData[];
+    };
+  };
+}
+
+interface EmojiCategory {
+  name: string;
+  emojis: EmojiData[];
 }
 
 interface MessageWithReply {
@@ -55,64 +62,39 @@ export class ChatInputComponent implements OnInit {
 
   messageText: string = '';
   showEmojiPicker: boolean = false;
-  emojis: EmojiGroup = {};
-  emojiCategories: string[] = [];
-  isLoadingEmojis: boolean = false;
+  emojiCategories: EmojiCategory[] = [];
+  selectedCategory: string = 'Smileys & Emotion';
 
-  constructor(private http: HttpClient) {}
+  constructor() {}
 
   ngOnInit(): void {
     this.loadEmojis();
   }
 
   loadEmojis(): void {
-    this.isLoadingEmojis = true;
-    const API_KEY = '4a29e28a5ef023f5a6076750dcdcd7b9e1336cc6';
+    // Load emojis from local JSON file
+    const data = emojisData as EmojisJson;
     
-    // First, load categories
-    this.http.get<CategoryData[]>(`https://emoji-api.com/categories?access_key=${API_KEY}`)
-      .subscribe({
-        next: (categories) => {
-          // Filter to popular categories (first 8)
-          const popularCategories = categories.slice(0, 8);
-          
-          // Load all emojis
-          this.http.get<EmojiData[]>(`https://emoji-api.com/emojis?access_key=${API_KEY}`)
-            .subscribe({
-              next: (emojis) => {
-                // Group emojis by their group (category)
-                this.emojis = emojis.reduce((acc: EmojiGroup, emoji: EmojiData) => {
-                  const category = emoji.group;
-                  
-                  // Only include emojis from popular categories
-                  const isPopular = popularCategories.some(cat => cat.slug === category);
-                  
-                  if (isPopular) {
-                    if (!acc[category]) {
-                      acc[category] = [];
-                    }
-                    // Limit to 45 emojis per category for better performance
-                    if (acc[category].length < 45) {
-                      acc[category].push(emoji);
-                    }
-                  }
-                  return acc;
-                }, {});
-
-                this.emojiCategories = Object.keys(this.emojis);
-                this.isLoadingEmojis = false;
-              },
-              error: (error) => {
-                console.error('Failed to load emojis:', error);
-                this.isLoadingEmojis = false;
-              }
-            });
-        },
-        error: (error) => {
-          console.error('Failed to load categories:', error);
-          this.isLoadingEmojis = false;
-        }
+    // Organize emojis by category
+    for (const category in data.emojis) {
+      const categoryEmojis: EmojiData[] = [];
+      for (const subCategory in data.emojis[category]) {
+        categoryEmojis.push(...data.emojis[category][subCategory]);
+      }
+      this.emojiCategories.push({
+        name: category,
+        emojis: categoryEmojis
       });
+    }
+  }
+
+  selectCategory(categoryName: string): void {
+    this.selectedCategory = categoryName;
+  }
+
+  getCategoryEmojis(categoryName: string): EmojiData[] {
+    const category = this.emojiCategories.find(c => c.name === categoryName);
+    return category ? category.emojis : [];
   }
 
   onSubmit(): void {
@@ -147,11 +129,8 @@ export class ChatInputComponent implements OnInit {
   }
 
   insertEmoji(emojiData: EmojiData): void {
-    this.messageText += emojiData.character;
-  }
-
-  getEmojisForCategory(category: string): EmojiData[] {
-    return this.emojis[category] || [];
+    this.messageText += emojiData.emoji;
+    this.showEmojiPicker = false;
   }
 
   onCancelReply(): void {

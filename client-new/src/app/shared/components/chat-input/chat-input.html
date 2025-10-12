@@ -62,30 +62,34 @@
               </svg>
             </button>
           </div>
-          <div class="emoji-picker-content">
-            @if (isLoadingEmojis) {
-              <div class="emoji-loading">
-                <div class="spinner"></div>
-                <p>Loading emojis...</p>
-              </div>
-            } @else {
-              @for (category of emojiCategories; track category) {
-                <div class="emoji-category">
-                  <div class="category-name">{{ category }}</div>
-                  <div class="emoji-grid">
-                    @for (emojiData of getEmojisForCategory(category); track emojiData.slug) {
-                      <button 
-                        type="button" 
-                        class="emoji-btn" 
-                        (click)="insertEmoji(emojiData)"
-                        [title]="emojiData.unicodeName">
-                        {{ emojiData.character }}
-                      </button>
-                    }
-                  </div>
-                </div>
-              }
+
+          <!-- Category Tabs -->
+          <div class="category-tabs">
+            @for (category of emojiCategories; track category.name) {
+              <button
+                type="button"
+                class="category-tab"
+                [class.active]="selectedCategory === category.name"
+                (click)="selectCategory(category.name)"
+                [title]="category.name">
+                {{ category.name }}
+              </button>
             }
+          </div>
+
+          <!-- Category Emojis -->
+          <div class="emoji-picker-content">
+            <div class="emoji-grid">
+              @for (emoji of getCategoryEmojis(selectedCategory); track emoji.emoji) {
+                <button 
+                  type="button" 
+                  class="emoji-btn" 
+                  (click)="insertEmoji(emoji)"
+                  [title]="emoji.name">
+                  {{ emoji.emoji }}
+                </button>
+              }
+            </div>
           </div>
         </div>
       }

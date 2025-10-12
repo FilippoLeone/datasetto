@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterOutlet, ActivatedRoute } from '@angular/router';
 import { Store } from '@ngrx/store';
@@ -8,11 +8,14 @@ import { selectUser } from '../../../store/auth/auth.selectors';
 import { selectAllChannels, selectCurrentChannelId } from '../../../store/channel/channel.selectors';
 import * as ChannelActions from '../../../store/channel/channel.actions';
 import { ChannelsListComponent } from '../channels-list/channels-list';
+import { VoicePanel } from '../../../features/voice/voice-panel/voice-panel';
 import { ChannelCategory, DiscordChannel, UserGroup, DiscordUser } from '../../../core/services/data.service';
+import { VoiceController } from '../../../core/controllers/voice.controller';
+import { AvatarService } from '../../../core/services/avatar.service';
 
 @Component({
   selector: 'app-main-layout',
-  imports: [CommonModule, RouterOutlet, ChannelsListComponent],
+  imports: [CommonModule, RouterOutlet, ChannelsListComponent, VoicePanel],
   templateUrl: './main-layout.html',
   styleUrl: './main-layout.css'
 })
@@ -22,12 +25,17 @@ export class MainLayout implements OnInit {
   currentChannelId$: Observable<string | null>;
   categories$: Observable<ChannelCategory[]>;
   userGroups$: Observable<UserGroup[]>;
+  voiceState$: Observable<any>;
+  voiceParticipants$: Observable<{ [channelId: string]: any[] }>;
   sidebarOpen = true;
+
+  private avatarService = inject(AvatarService);
 
   constructor(
     private store: Store,
     private router: Router,
-    private route: ActivatedRoute
+    private route: ActivatedRoute,
+    private voiceController: VoiceController
   ) {
     this.user$ = this.store.select(selectUser);
     this.channels$ = this.store.select(selectAllChannels);
@@ -41,6 +49,22 @@ export class MainLayout implements OnInit {
     // Create user groups from current user (can be expanded with real users list)
     this.userGroups$ = this.user$.pipe(
       map(user => this.createUserGroups(user))
+    );
+    
+    // Get voice state for voice panel visibility
+    this.voiceState$ = this.voiceController.getVoiceState();
+    
+    // Map voice state to participants by channel
+    this.voiceParticipants$ = this.voiceState$.pipe(
+      map(state => {
+        if (!state.isConnected || !state.channelId) {
+          return {};
+        }
+        // Return participants mapped by channel ID
+        return {
+          [state.channelId]: state.connectedUsers || []
+        };
+      })
     );
   }
 
@@ -80,8 +104,13 @@ export class MainLayout implements OnInit {
     if (channelType === 'text') {
       this.router.navigate(['/chat', channelId]);
     } else if (channelType === 'voice') {
-      // For voice channels, stay on the same page but update the voice panel
-      this.router.navigate(['/voice', channelId]);
+      // For voice channels, join the voice channel using VoiceController
+      console.log('[MainLayout] Joining voice channel:', channelId);
+      this.voiceController.joinVoiceChannel(channelId).catch(error => {
+        console.error('[MainLayout] Failed to join voice channel:', error);
+        // Could show error notification here
+      });
+      // Don't navigate away - voice channels work alongside current view
     } else if (channelType === 'stream') {
       this.router.navigate(['/stream', channelId]);
     }
@@ -102,20 +131,9 @@ export class MainLayout implements OnInit {
       return user.avatarUrl;
     }
 
-    // Otherwise, generate a random SVG avatar using DiceBear API
+    // Use avatar service for consistent avatars
     const username = user.displayName || user.username;
-    const seed = encodeURIComponent(username);
-    
-    // Choose from different avatar styles randomly based on username
-    const styles = ['adventurer', 'avataaars', 'bottts', 'fun-emoji', 'pixel-art', 'thumbs'];
-    let hash = 0;
-    for (let i = 0; i < username.length; i++) {
-      hash = username.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const style = styles[Math.abs(hash) % styles.length];
-    
-    // DiceBear API v7 - generates consistent SVG avatars based on seed
-    return `https://api.dicebear.com/7.x/${style}/svg?seed=${seed}&size=32`;
+    return this.avatarService.getAvatarUrl(username, 32);
   }
 
   /**
@@ -181,11 +199,14 @@ export class MainLayout implements OnInit {
   private createUserGroups(user: User | null): UserGroup[] {
     if (!user) return [];
 
+    // Use same name format as everywhere else for consistency
+    const displayName = user.displayName || user.username;
+    
     const currentUserData: DiscordUser = {
       id: user.id,
-      name: user.displayName || user.username,
+      name: displayName,
       status: 'online',
-      avatarUrl: user.avatarUrl || `https://via.placeholder.com/32/${this.getColorFromName(user.username)}/ffffff?text=${user.displayName.charAt(0)}`,
+      avatarUrl: user.avatarUrl || this.avatarService.getAvatarUrl(displayName, 32),
       role: user.isSuperuser ? 'Admin' : undefined
     };
 
@@ -223,9 +244,17 @@ export class MainLayout implements OnInit {
   }
 
   /**
-   * Handle channel selection from Discord UI component
+   * Handle channel selection from channels-list component
    */
-  onChannelSelected(channelId: string): void {
-    this.selectChannel(channelId, 'text');
+  onChannelSelected(event: { channel: any; type: 'text' | 'voice' | 'stream' } | string): void {
+    // Handle both new format (object with channel and type) and old format (just channelId string)
+    if (typeof event === 'string') {
+      // Old format - assume text channel
+      this.selectChannel(event, 'text');
+    } else {
+      // New format - use provided type
+      const { channel, type } = event;
+      this.selectChannel(channel.id, type);
+    }
   }
 }

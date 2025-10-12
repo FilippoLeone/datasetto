@@ -15,26 +15,81 @@
 
   <!-- Participants List -->
   <div class="voice-participants">
-    @if (peers$ | async; as peers) {
-      @if (peers.length === 0) {
+    @if (connectedUsers$ | async; as users) {
+      @if (users.length === 0) {
         <div class="empty-state">
           <p class="text-text-muted text-sm">No one else in voice</p>
         </div>
       } @else {
+        @for (user of users; track user.userId) {
+          <div class="voice-participant" [class.speaking]="user.isSpeaking">
+            <!-- Avatar with voice detection overlay -->
+            <div class="participant-avatar-wrapper">
+              <!-- Voice detection ring (green when speaking) -->
+              <div class="voice-detection-ring" 
+                   [class.active]="user.isSpeaking">
+              </div>
+              <!-- User avatar from DiceBear API -->
+              <img 
+                [src]="getUserAvatar(user.username)" 
+                [alt]="user.username"
+                class="participant-avatar">
+            </div>
+
+            <!-- User info and speaking indicator -->
+            <div class="participant-info">
+              <div class="participant-name">{{ user.username }}</div>
+              @if (isSpeaking(user.userId)) {
+                <div class="speaking-indicator">
+                  <span class="speaking-dot"></span>
+                  <span class="speaking-text">Speaking</span>
+                </div>
+              }
+            </div>
+
+            <!-- Audio level bar -->
+            <div class="audio-level-bar">
+              <div class="audio-level-fill" 
+                   [class]="getAudioLevelClass(getAudioLevel(user.userId))"
+                   [style.width.%]="getAudioLevel(user.userId)">
+              </div>
+            </div>
+
+            <!-- Status icons -->
+            <div class="participant-status-icons">
+              @if (user.isMuted) {
+                <span class="participant-status muted" title="Muted">🔇</span>
+              }
+              @if (user.isDeafened) {
+                <span class="participant-status deafened" title="Deafened">🔇</span>
+              }
+            </div>
+          </div>
+        }
+      }
+    }
+
+    <!-- Fallback to old peers$ for compatibility -->
+    @if ((connectedUsers$ | async)?.length === 0 && (peers$ | async); as peers) {
+      @if (peers.length > 0) {
         @for (peer of peers; track peer.id) {
           <div class="voice-participant">
-            <div class="participant-avatar">
-              {{ peer.name.charAt(0).toUpperCase() }}
+            <div class="participant-avatar-wrapper">
+              <div class="participant-avatar">
+                {{ peer.name.charAt(0).toUpperCase() }}
+              </div>
             </div>
             <div class="participant-info">
               <div class="participant-name">{{ peer.name }}</div>
             </div>
-            @if (peer.muted) {
-              <span class="participant-status" title="Muted">🔇</span>
-            }
-            @if (peer.deafened) {
-              <span class="participant-status" title="Deafened">🔇</span>
-            }
+            <div class="participant-status-icons">
+              @if (peer.muted) {
+                <span class="participant-status muted" title="Muted">🔇</span>
+              }
+              @if (peer.deafened) {
+                <span class="participant-status deafened" title="Deafened">🔇</span>
+              }
+            </div>
           </div>
         }
       }
@@ -43,17 +98,28 @@
 
   <!-- Voice Controls -->
   <div class="voice-controls">
-    <button 
-      (click)="toggleMute()"
-      [class.active]="isMuted$ | async"
-      class="voice-control-btn"
-      title="Toggle Mute">
-      @if (isMuted$ | async) {
-        🔇
-      } @else {
-        🎤
-      }
-    </button>
+    <!-- Mute button with audio level -->
+    <div class="control-with-indicator">
+      <button 
+        (click)="toggleMute()"
+        [class.active]="isMuted$ | async"
+        class="voice-control-btn"
+        title="Toggle Mute">
+        @if (isMuted$ | async) {
+          🔇
+        } @else {
+          🎤
+        }
+      </button>
+      <!-- Local audio level indicator -->
+      <div class="local-audio-level">
+        <div class="local-audio-level-fill" 
+             [style.width.%]="localAudioLevel$ | async">
+        </div>
+      </div>
+    </div>
+
+    <!-- Deafen button -->
     <button 
       (click)="toggleDeafen()"
       [class.active]="isDeafened$ | async"
@@ -65,5 +131,13 @@
         🔊
       }
     </button>
+
+    <!-- PTT Indicator -->
+    @if (isPttActive$ | async) {
+      <div class="ptt-indicator">
+        <span class="ptt-icon">🎤</span>
+        <span class="ptt-text">PTT Active</span>
+      </div>
+    }
   </div>
 </div>

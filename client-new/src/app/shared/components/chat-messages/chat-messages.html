@@ -89,16 +89,51 @@
             <!-- Reaction Picker -->
             @if (showReactionPicker[message.id]) {
               <div class="reaction-picker" (click)="$event.stopPropagation()">
-                <div class="reaction-grid">
-                  @for (emoji of quickReactions; track emoji.slug) {
-                    <button 
-                      type="button" 
-                      class="reaction-btn" 
-                      (click)="addReaction(message.id, emoji, $event)"
-                      [title]="emoji.unicodeName">
-                      {{ emoji.character }}
-                    </button>
-                  }
+                <!-- Quick Reactions -->
+                <div class="quick-reactions">
+                  <h4 class="picker-title">Quick Reactions</h4>
+                  <div class="reaction-grid">
+                    @for (emoji of quickReactions; track emoji.emoji) {
+                      <button 
+                        type="button" 
+                        class="reaction-btn" 
+                        (click)="addReaction(message.id, emoji, $event)"
+                        [title]="emoji.name">
+                        {{ emoji.emoji }}
+                      </button>
+                    }
+                  </div>
+                </div>
+
+                <!-- Category Tabs -->
+                <div class="emoji-categories">
+                  <div class="category-tabs">
+                    @for (category of emojiCategories; track category.name) {
+                      <button
+                        type="button"
+                        class="category-tab"
+                        [class.active]="selectedCategory === category.name"
+                        (click)="selectCategory(category.name)"
+                        [title]="category.name">
+                        {{ category.name }}
+                      </button>
+                    }
+                  </div>
+
+                  <!-- Category Emojis -->
+                  <div class="category-emojis">
+                    <div class="emoji-grid">
+                      @for (emoji of getCategoryEmojis(selectedCategory); track emoji.emoji) {
+                        <button 
+                          type="button" 
+                          class="emoji-btn" 
+                          (click)="addReaction(message.id, emoji, $event)"
+                          [title]="emoji.name">
+                          {{ emoji.emoji }}
+                        </button>
+                      }
+                    </div>
+                  </div>
                 </div>
               </div>
             }

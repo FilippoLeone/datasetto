@@ -221,7 +221,99 @@ $modifier-selected: rgba(79, 84, 92, 0.32);
             color: $text-bright;
           }
         }
+
+        // Voice participants display
+        .voice-participants {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-left: auto;
+
+          .voice-avatars {
+            display: flex;
+            align-items: center;
+            margin-right: -4px; // Overlap avatars slightly
+
+            .voice-avatar {
+              width: 20px;
+              height: 20px;
+              border-radius: 50%;
+              border: 2px solid $bg-sidebar;
+              margin-right: -8px; // Create overlapping effect
+              transition: all 0.2s ease;
+              background-color: $bg-tertiary;
+              box-sizing: border-box;
+              position: relative;
+
+              &:last-child {
+                margin-right: 0;
+              }
+
+              &.speaking {
+                border-width: 3px;
+                border-color: #23a55a; // Discord green when speaking
+                box-shadow: 0 0 8px rgba(35, 165, 90, 0.6);
+                animation: pulse-speaking 1.5s ease-in-out infinite;
+                z-index: 5;
+
+                // Green overlay effect
+                &::after {
+                  content: '';
+                  position: absolute;
+                  inset: 0;
+                  border-radius: 50%;
+                  background: radial-gradient(circle, rgba(35, 165, 90, 0.3) 0%, rgba(35, 165, 90, 0.15) 50%, transparent 100%);
+                  pointer-events: none;
+                  animation: pulse-overlay 1.5s ease-in-out infinite;
+                }
+              }
+
+              &:hover {
+                transform: translateY(-2px) scale(1.15);
+                z-index: 10;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+              }
+            }
+          }
+
+          .voice-count {
+            font-size: 12px;
+            font-weight: 600;
+            color: $text-muted;
+            padding: 2px 6px;
+            background-color: rgba(79, 84, 92, 0.3);
+            border-radius: 12px;
+            min-width: 20px;
+            text-align: center;
+          }
+        }
+
+        &:hover .voice-participants {
+          .voice-count {
+            background-color: rgba(79, 84, 92, 0.5);
+          }
+        }
       }
     }
+  }
+}
+
+@keyframes pulse-speaking {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(35, 165, 90, 0.6),
+                0 0 0 0 rgba(35, 165, 90, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 8px rgba(35, 165, 90, 0.6),
+                0 0 0 5px rgba(35, 165, 90, 0);
+  }
+}
+
+@keyframes pulse-overlay {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.4;
   }
 }

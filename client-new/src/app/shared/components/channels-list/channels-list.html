@@ -46,6 +46,25 @@
             
             <span class="channel-name">{{ channel.name }}</span>
 
+            <!-- Voice Channel Participants (for voice channels only) -->
+            @if (channel.type === 'voice' && hasVoiceParticipants(channel.id)) {
+              <div class="voice-participants">
+                <!-- Show up to 3 avatar thumbnails -->
+                <div class="voice-avatars">
+                  @for (participant of getVoiceParticipants(channel.id).slice(0, 3); track participant.userId) {
+                    <img 
+                      [src]="getAvatarUrl(participant.username)" 
+                      [alt]="participant.username"
+                      [title]="participant.username"
+                      class="voice-avatar"
+                      [class.speaking]="participant.isSpeaking">
+                  }
+                </div>
+                <!-- Participant count -->
+                <span class="voice-count">{{ getParticipantCount(channel.id) }}</span>
+              </div>
+            }
+
             <!-- Channel Actions (visible on hover) -->
             <div class="channel-actions">
               <button class="channel-action-btn" aria-label="Invite" type="button">
