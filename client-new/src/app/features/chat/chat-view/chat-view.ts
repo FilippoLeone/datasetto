@@ -194,26 +194,23 @@ export class ChatView implements OnInit, OnDestroy, AfterViewChecked {
    * Uses UI Avatars service for consistent, colorful placeholder avatars
    */
   private getAvatarUrl(username: string): string {
-    // Use UI Avatars service for better-looking placeholder avatars
-    // https://ui-avatars.com/
-    const name = encodeURIComponent(username);
+    // Use DiceBear API for random SVG avatars
+    // https://www.dicebear.com/
+    // Available styles: adventurer, avataaars, big-smile, bottts, fun-emoji, pixel-art, thumbs
     
-    // Generate a consistent background color based on username
-    const colors = ['3498db', 'e74c3c', '2ecc71', 'f39c12', '9b59b6', '1abc9c', 'e67e22', '34495e'];
+    // Generate a consistent seed based on username for consistent avatars per user
+    const seed = encodeURIComponent(username);
+    
+    // Choose from different avatar styles randomly based on username
+    const styles = ['adventurer', 'avataaars', 'bottts', 'fun-emoji', 'pixel-art', 'thumbs'];
     let hash = 0;
     for (let i = 0; i < username.length; i++) {
       hash = username.charCodeAt(i) + ((hash << 5) - hash);
     }
-    const bgColor = colors[Math.abs(hash) % colors.length];
+    const style = styles[Math.abs(hash) % styles.length];
     
-    // UI Avatars parameters:
-    // - name: The name to display
-    // - background: Background color (hex without #)
-    // - color: Text color (hex without #)
-    // - size: Image size in pixels
-    // - bold: Use bold text
-    // - rounded: Rounded image
-    return `https://ui-avatars.com/api/?name=${name}&background=${bgColor}&color=fff&size=40&bold=true&rounded=true`;
+    // DiceBear API v7 - generates consistent SVG avatars based on seed
+    return `https://api.dicebear.com/7.x/${style}/svg?seed=${seed}&size=40`;
   }
 
   /**
