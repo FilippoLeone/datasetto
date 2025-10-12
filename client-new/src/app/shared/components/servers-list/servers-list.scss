@@ -1,0 +1,199 @@
+// Discord Color Palette
+$bg-primary: #313338;
+$bg-secondary: #2b2d31;
+$bg-tertiary: #1e1f22;
+$bg-sidebar: #1e1f22;
+$bg-elevated: #2b2d31;
+
+$text-normal: #dbdee1;
+$text-muted: #949ba4;
+$text-bright: #ffffff;
+
+$interactive-normal: #b5bac1;
+$interactive-hover: #dbdee1;
+$interactive-active: #ffffff;
+
+$brand-primary: #5865F2;
+$brand-hover: #4752c4;
+
+$success: #23a55a;
+$danger: #f23f43;
+$warning: #f0b232;
+
+.servers-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background-color: $bg-tertiary;
+
+  // Custom scrollbar
+  &::-webkit-scrollbar {
+    width: 0;
+  }
+
+  .server-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    .server-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background-color: $bg-primary;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      overflow: hidden;
+
+      svg {
+        width: 24px;
+        height: 24px;
+        color: $success;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        fill: none;
+      }
+
+      img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+    }
+
+    .server-indicator {
+      position: absolute;
+      left: -4px;
+      width: 8px;
+      height: 0;
+      background-color: $text-bright;
+      border-radius: 0 4px 4px 0;
+      transition: height 0.2s ease;
+    }
+
+    .server-tooltip {
+      position: absolute;
+      left: 60px;
+      background-color: $bg-elevated;
+      color: $text-normal;
+      padding: 8px 12px;
+      border-radius: 4px;
+      white-space: nowrap;
+      font-size: 14px;
+      font-weight: 600;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateX(-10px);
+      transition: all 0.2s ease;
+      z-index: 1000;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24);
+
+      &::before {
+        content: '';
+        position: absolute;
+        left: -4px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 0;
+        height: 0;
+        border-style: solid;
+        border-width: 4px 4px 4px 0;
+        border-color: transparent $bg-elevated transparent transparent;
+      }
+    }
+
+    &:hover {
+      .server-icon {
+        border-radius: 16px;
+        background-color: $brand-primary;
+
+        svg {
+          color: $text-bright;
+        }
+      }
+
+      .server-indicator {
+        height: 20px;
+      }
+
+      .server-tooltip {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    &.active {
+      .server-icon {
+        border-radius: 16px;
+        background-color: $brand-primary;
+
+        svg {
+          color: $text-bright;
+        }
+      }
+
+      .server-indicator {
+        height: 40px;
+      }
+    }
+
+    &.home-server {
+      .server-icon {
+        background-color: $bg-primary;
+
+        svg {
+          fill: currentColor;
+          stroke: none;
+        }
+      }
+
+      &:hover .server-icon,
+      &.active .server-icon {
+        background-color: $brand-primary;
+      }
+    }
+
+    &.add-server {
+      .server-icon {
+        background-color: $bg-primary;
+
+        svg {
+          color: $success;
+          stroke: currentColor;
+          stroke-width: 3;
+        }
+      }
+
+      &:hover .server-icon {
+        background-color: $success;
+
+        svg {
+          color: $text-bright;
+        }
+      }
+    }
+  }
+
+  .server-divider {
+    width: 32px;
+    height: 2px;
+    background-color: rgba($interactive-normal, 0.3);
+    border-radius: 1px;
+    margin: 4px 0;
+  }
+}

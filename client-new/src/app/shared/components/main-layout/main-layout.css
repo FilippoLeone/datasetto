@@ -1,7 +1,25 @@
+/* App Shell - Main Container */
+.app-shell {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--color-bg-primary);
+}
+
+.app-shell main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0; /* Important for flex child overflow */
+}
+
 /* Sidebar */
 .sidebar {
   position: relative;
   transition: transform 200ms ease-in-out;
+  flex-shrink: 0;
 }
 
 .sidebar-header {

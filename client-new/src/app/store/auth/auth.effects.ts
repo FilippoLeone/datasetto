@@ -1,8 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
+import { Store } from '@ngrx/store';
 import { of } from 'rxjs';
-import { map, catchError, switchMap, tap } from 'rxjs/operators';
+import { map, catchError, switchMap, tap, mergeMap } from 'rxjs/operators';
 import * as AuthActions from './auth.actions';
+import * as ChannelActions from '../channel/channel.actions';
 import { SocketService } from '../../core/services';
 import { Router } from '@angular/router';
 
@@ -11,15 +13,21 @@ export class AuthEffects {
   private actions$ = inject(Actions);
   private socketService = inject(SocketService);
   private router = inject(Router);
+  private store = inject(Store);
 
   login$ = createEffect(() =>
     this.actions$.pipe(
       ofType(AuthActions.login),
       switchMap(({ username, password }) =>
         this.socketService.login(username, password).pipe(
-          map(({ user, account, session }) =>
-            AuthActions.loginSuccess({ user, account, session })
-          ),
+          mergeMap(({ user, account, session, channels, groups }) => {
+            const actions: any[] = [AuthActions.loginSuccess({ user, account, session })];
+            // Dispatch channel data if present
+            if (channels && channels.length > 0) {
+              actions.push(ChannelActions.loadChannelsSuccess({ channels, groups: groups || [] }));
+            }
+            return actions;
+          }),
           catchError((error) =>
             of(AuthActions.loginFailure({ error: error.message || 'Login failed' }))
           )
@@ -33,9 +41,14 @@ export class AuthEffects {
       ofType(AuthActions.register),
       switchMap(({ username, password, displayName }) =>
         this.socketService.register(username, password, displayName).pipe(
-          map(({ user, account, session }) =>
-            AuthActions.registerSuccess({ user, account, session })
-          ),
+          mergeMap(({ user, account, session, channels, groups }) => {
+            const actions: any[] = [AuthActions.registerSuccess({ user, account, session })];
+            // Dispatch channel data if present
+            if (channels && channels.length > 0) {
+              actions.push(ChannelActions.loadChannelsSuccess({ channels, groups: groups || [] }));
+            }
+            return actions;
+          }),
           catchError((error) =>
             of(AuthActions.registerFailure({ error: error.message || 'Registration failed' }))
           )
@@ -129,6 +142,20 @@ export class AuthEffects {
           )
         )
       )
+    )
+  );
+
+  // Subscribe to socket channel updates
+  socketChannelUpdates$ = createEffect(() =>
+    this.socketService.onChannelUpdate().pipe(
+      map((data) => {
+        // Handle both formats: Channel[] or { channels: Channel[]; groups?: ChannelGroup[] }
+        if (Array.isArray(data)) {
+          return ChannelActions.loadChannelsSuccess({ channels: data, groups: [] });
+        } else {
+          return ChannelActions.loadChannelsSuccess({ channels: data.channels, groups: data.groups || [] });
+        }
+      })
     )
   );
 }

@@ -21,104 +21,23 @@
       </button>
     </div>
 
-    <!-- Channels Section -->
-    <div class="sidebar-scroller flex-1 overflow-y-auto overflow-x-hidden py-4 px-2 custom-scrollbar">
-      @if (channels$ | async; as channels) {
-        <!-- Text Channels -->
-        <div class="mb-6">
-          <div class="group flex items-center justify-between px-2 py-1 mb-1 cursor-pointer select-none">
-            <span class="text-xs font-semibold text-interactive-muted uppercase tracking-wider">Text Channels</span>
-            <button 
-              class="bg-transparent border-none text-interactive-muted cursor-pointer p-0.5 opacity-0 group-hover:opacity-100 transition-fast rounded hover:text-interactive-hover" 
-              title="Create Text Channel">
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </button>
+    <!-- Channels Section - Using Discord UI Component -->
+    <div class="sidebar-scroller flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+      @if (categories$ | async; as categories) {
+        @if (categories.length > 0) {
+          <app-channels-list 
+            [categories]="categories"
+            [activeChannelId]="(currentChannelId$ | async) || null"
+            (channelSelected)="onChannelSelected($event)">
+          </app-channels-list>
+        } @else {
+          <div class="flex items-center justify-center p-4 text-text-muted text-sm">
+            No channels available
           </div>
-          <div class="channel-list">
-            @for (channel of getChannelsByType(channels, 'text'); track channel.id) {
-              <div 
-                class="channel-item relative"
-                (click)="selectChannel(channel.id, 'text')"
-                [class.active]="isChannelActive(channel.id)">
-                <div class="channel-indicator"></div>
-                <svg class="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                </svg>
-                <span class="channel-name">{{ channel.name }}</span>
-              </div>
-            }
-          </div>
-        </div>
-
-        <!-- Voice Channels -->
-        <div class="mb-6">
-          <div class="group flex items-center justify-between px-2 py-1 mb-1 cursor-pointer select-none">
-            <span class="text-xs font-semibold text-interactive-muted uppercase tracking-wider">Voice Channels</span>
-            <button 
-              class="bg-transparent border-none text-interactive-muted cursor-pointer p-0.5 opacity-0 group-hover:opacity-100 transition-fast rounded hover:text-interactive-hover" 
-              title="Create Voice Channel">
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </button>
-          </div>
-          <div class="channel-list">
-            @for (channel of getChannelsByType(channels, 'voice'); track channel.id) {
-              <div 
-                class="channel-item relative"
-                (click)="selectChannel(channel.id, 'voice')"
-                [class.active]="isChannelActive(channel.id)">
-                <div class="channel-indicator"></div>
-                <svg class="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                  <line x1="12" y1="19" x2="12" y2="23"></line>
-                  <line x1="8" y1="23" x2="16" y2="23"></line>
-                </svg>
-                <span class="channel-name">{{ channel.name }}</span>
-              </div>
-            }
-          </div>
-        </div>
-
-        <!-- Streams -->
-        <div class="mb-6">
-          <div class="group flex items-center justify-between px-2 py-1 mb-1 cursor-pointer select-none">
-            <span class="text-xs font-semibold text-interactive-muted uppercase tracking-wider">Live Streams</span>
-            <button 
-              class="bg-transparent border-none text-interactive-muted cursor-pointer p-0.5 opacity-0 group-hover:opacity-100 transition-fast rounded hover:text-interactive-hover" 
-              title="Create Stream Channel">
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </button>
-          </div>
-          <div class="channel-list">
-            @for (channel of getChannelsByType(channels, 'stream'); track channel.id) {
-              <div 
-                class="channel-item relative"
-                (click)="selectChannel(channel.id, 'stream')"
-                [class.active]="isChannelActive(channel.id)">
-                <div class="channel-indicator"></div>
-                <svg class="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="23 7 16 12 23 17 23 7"></polygon>
-                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-                </svg>
-                <span class="channel-name">{{ channel.name }}</span>
-                @if (channel.isLive) {
-                  <span class="live-badge">
-                    <span class="live-dot"></span>
-                    LIVE
-                  </span>
-                }
-              </div>
-            }
-          </div>
+        }
+      } @else {
+        <div class="flex items-center justify-center p-4 text-text-muted text-sm">
+          Loading channels...
         </div>
       }
     </div>

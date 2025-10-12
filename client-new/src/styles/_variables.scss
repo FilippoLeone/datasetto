@@ -1,0 +1,62 @@
+/**
+ * Discord-inspired Color Palette
+ * Use these variables across all component SCSS files for consistency
+ */
+
+// Background Colors
+$bg-primary: #313338;      // Main chat area background (charcoal)
+$bg-secondary: #2b2d31;    // Secondary panels (dark gray)
+$bg-tertiary: #1e1f22;     // Server list background (darker)
+$bg-sidebar: #1e1f22;      // Sidebar background
+$bg-elevated: #2b2d31;     // Elevated surfaces (modals, tooltips)
+$bg-floating: #111214;     // Floating elements
+$bg-input: #383a40;        // Input field background
+
+// Text Colors
+$text-normal: #dbdee1;     // Normal text (light gray)
+$text-muted: #949ba4;      // Muted text
+$text-bright: #ffffff;     // Bright/white text
+$text-link: #5865f2;       // Link color
+
+// Interactive States
+$interactive-normal: #b5bac1;   // Normal interactive elements
+$interactive-hover: #dbdee1;    // Hover state
+$interactive-active: #ffffff;   // Active/pressed state
+$interactive-muted: #4e5058;    // Muted interactive elements
+
+// Brand & Status Colors
+$brand-primary: #5865F2;   // Primary brand color (Blurple)
+$brand-secondary: #7983f5; // Secondary brand shade
+$brand-hover: #4752c4;     // Brand hover state
+$brand-active: #3c45a5;    // Brand active state
+
+$success: #23a55a;         // Success/online status (green)
+$danger: #f23f43;          // Danger/error/live (red)
+$warning: #f0b232;         // Warning/idle status (yellow)
+
+// Modifier Colors (for hover/selected states)
+$modifier-hover: rgba(79, 84, 92, 0.16);      // Hover overlay
+$modifier-selected: rgba(79, 84, 92, 0.32);   // Selected overlay
+
+// Transitions
+$transition-fast: 0.12s ease;
+$transition-base: 0.2s ease;
+$transition-slow: 0.32s ease;
+
+// Shadows
+$shadow-soft: 0 2px 10px rgba(0, 0, 0, 0.2);
+$shadow-strong: 0 8px 24px rgba(0, 0, 0, 0.4);
+
+// Border Radius
+$radius-sm: 4px;
+$radius-md: 8px;
+$radius-lg: 16px;
+$radius-circle: 50%;
+
+// Z-Index Scale
+$z-base: 1;
+$z-dropdown: 1000;
+$z-sticky: 1100;
+$z-modal: 1300;
+$z-popover: 1400;
+$z-tooltip: 1500;

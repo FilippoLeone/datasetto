@@ -3,3 +3,4 @@ export * from './notification.service';
 export * from './audio.service';
 export * from './voice.service';
 export * from './player.service';
+export * from './data.service';

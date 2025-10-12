@@ -1,0 +1,64 @@
+<div class="chat-messages">
+  @if (messages.length === 0) {
+    <!-- Empty State -->
+    <div class="empty-state">
+      <div class="empty-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+      </div>
+      <h3 class="empty-title">Welcome to #{{ channelName }}</h3>
+      <p class="empty-description">This is the beginning of the #{{ channelName }} channel.</p>
+    </div>
+  } @else {
+    <!-- Messages List -->
+    <div class="messages-list">
+      @for (message of messages; track message.id) {
+        <div class="message-group">
+          <div class="message-content">
+            <!-- Avatar -->
+            <div class="message-avatar">
+              <img [src]="message.author.avatarUrl" 
+                   [alt]="message.author.name"
+                   class="avatar-image" />
+            </div>
+
+            <!-- Message Body -->
+            <div class="message-body">
+              <div class="message-header">
+                <span class="message-author">{{ message.author.name }}</span>
+                <span class="message-timestamp">{{ message.timestamp | date:'short' }}</span>
+              </div>
+              <div class="message-text">{{ message.content }}</div>
+            </div>
+          </div>
+
+          <!-- Hover Actions -->
+          <div class="message-actions">
+            <button class="action-btn" aria-label="Add Reaction" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                <line x1="15" y1="9" x2="15.01" y2="9"></line>
+              </svg>
+            </button>
+            <button class="action-btn" aria-label="Reply" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <polyline points="9 14 4 9 9 4"></polyline>
+                <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+              </svg>
+            </button>
+            <button class="action-btn" aria-label="More Options" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <circle cx="12" cy="12" r="1"></circle>
+                <circle cx="12" cy="5" r="1"></circle>
+                <circle cx="12" cy="19" r="1"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  }
+</div>

@@ -1,0 +1,42 @@
+<div class="discord-layout">
+  <!-- Servers Column -->
+  <div class="servers-column">
+    <app-servers-list 
+      [servers]="servers"
+      [activeServerId]="activeServerId"
+      (serverSelected)="onServerSelected($event)">
+    </app-servers-list>
+  </div>
+
+  <!-- Channels Column -->
+  <div class="channels-column">
+    <div class="server-header">
+      <h1 class="server-name">{{ activeServerId ? 'Datasetto' : 'Select Server' }}</h1>
+      <button class="dropdown-btn" aria-label="Server Menu" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+    </div>
+    <app-channels-list 
+      [categories]="categories"
+      [activeChannelId]="activeChannelId"
+      (channelSelected)="onChannelSelected($event)">
+    </app-channels-list>
+  </div>
+
+  <!-- Chat Column -->
+  <div class="chat-column">
+    <app-chat-panel 
+      [messages]="messages"
+      [channelName]="activeChannelName">
+    </app-chat-panel>
+  </div>
+
+  <!-- User List Column -->
+  <div class="user-list-column">
+    <app-user-list 
+      [userGroups]="userGroups">
+    </app-user-list>
+  </div>
+</div>

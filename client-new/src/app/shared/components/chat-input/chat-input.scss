@@ -1,0 +1,86 @@
+// Discord Color Palette
+$bg-primary: #313338;
+$bg-elevated: #2b2d31;
+$bg-input: #383a40;
+
+$text-normal: #dbdee1;
+$text-muted: #949ba4;
+
+$interactive-normal: #b5bac1;
+$interactive-hover: #dbdee1;
+
+$modifier-hover: rgba(79, 84, 92, 0.16);
+
+.chat-input {
+  padding: 0 16px 24px;
+  flex-shrink: 0;
+
+  .input-wrapper {
+    width: 100%;
+  }
+
+  .input-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background-color: $bg-input;
+    border-radius: 8px;
+    padding: 0 16px;
+    transition: all 0.12s ease;
+
+    &:focus-within {
+      background-color: lighten($bg-input, 3%);
+    }
+
+    .input-icon-btn {
+      background: none;
+      border: none;
+      padding: 8px;
+      cursor: pointer;
+      color: $interactive-normal;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.12s ease;
+      flex-shrink: 0;
+
+      svg {
+        width: 20px;
+        height: 20px;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      &:hover {
+        color: $interactive-hover;
+        background-color: $modifier-hover;
+      }
+
+      &:first-child {
+        margin-left: -8px;
+      }
+    }
+
+    .message-input {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      padding: 12px 8px;
+      font-size: 16px;
+      line-height: 1.375;
+      color: $text-normal;
+      min-width: 0;
+
+      &::placeholder {
+        color: $text-muted;
+      }
+
+      &:focus::placeholder {
+        color: lighten($text-muted, 10%);
+      }
+    }
+  }
+}

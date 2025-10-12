@@ -1,0 +1,196 @@
+// Discord Color Palette
+$bg-secondary: #2b2d31;
+$bg-elevated: #2b2d31;
+
+$text-normal: #dbdee1;
+$text-muted: #949ba4;
+$text-bright: #ffffff;
+
+$interactive-normal: #b5bac1;
+$interactive-hover: #dbdee1;
+$interactive-muted: #4e5058;
+
+$brand-primary: #5865F2;
+$success: #23a55a;
+$warning: #f0b232;
+$danger: #f23f43;
+
+$modifier-hover: rgba(79, 84, 92, 0.16);
+
+.user-list {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  height: 100%;
+  background-color: $bg-secondary;
+  flex-shrink: 0;
+
+  .user-list-header {
+    padding: 16px 16px 8px;
+    border-bottom: 1px solid rgba(79, 84, 92, 0.48);
+    flex-shrink: 0;
+
+    .member-count {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: $interactive-muted;
+    }
+  }
+
+  .user-groups {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 16px 8px;
+
+    // Custom scrollbar
+    scrollbar-width: thin;
+    scrollbar-color: rgba(79, 84, 92, 0.3) transparent;
+
+    &::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background-color: rgba(79, 84, 92, 0.3);
+      border-radius: 3px;
+
+      &:hover {
+        background-color: rgba(79, 84, 92, 0.5);
+      }
+    }
+
+    .user-group {
+      margin-bottom: 24px;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+
+      .group-header {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 8px 8px 4px;
+        cursor: pointer;
+        user-select: none;
+        transition: color 0.12s ease;
+
+        &:hover {
+          color: $interactive-hover;
+        }
+
+        .group-arrow {
+          width: 12px;
+          height: 12px;
+          color: $interactive-muted;
+          stroke-width: 2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+          transition: transform 0.12s ease;
+        }
+
+        .group-name {
+          font-size: 11px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: $interactive-muted;
+        }
+      }
+
+      .group-users {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+
+        .user-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 6px 8px;
+          margin: 0 4px;
+          border-radius: 4px;
+          cursor: pointer;
+          transition: all 0.12s ease;
+          user-select: none;
+
+          &:hover {
+            background-color: $modifier-hover;
+
+            .user-name {
+              color: $text-bright;
+            }
+          }
+
+          .user-avatar-wrapper {
+            position: relative;
+            flex-shrink: 0;
+
+            .user-avatar {
+              width: 32px;
+              height: 32px;
+              border-radius: 50%;
+              object-fit: cover;
+            }
+
+            .status-indicator {
+              position: absolute;
+              bottom: -2px;
+              right: -2px;
+              width: 12px;
+              height: 12px;
+              border-radius: 50%;
+              border: 3px solid $bg-secondary;
+              box-sizing: border-box;
+
+              &.status-online {
+                background-color: $success;
+              }
+
+              &.status-idle {
+                background-color: $warning;
+              }
+
+              &.status-offline {
+                background-color: $interactive-muted;
+              }
+            }
+          }
+
+          .user-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+
+            .user-name {
+              font-size: 14px;
+              font-weight: 500;
+              color: $interactive-normal;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+              transition: color 0.12s ease;
+            }
+
+            .user-role-badge {
+              font-size: 11px;
+              font-weight: 500;
+              color: $brand-primary;
+              text-transform: uppercase;
+              letter-spacing: 0.3px;
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -3,6 +3,7 @@ import { authGuard, guestGuard } from './core/guards';
 import { Login } from './features/auth/login/login';
 import { Register } from './features/auth/register/register';
 import { MainLayout } from './shared/components/main-layout/main-layout';
+import { DiscordLayoutComponent } from './shared/components/discord-layout/discord-layout';
 
 export const routes: Routes = [
   // Auth routes (no layout, only for guests)
@@ -26,6 +27,12 @@ export const routes: Routes = [
     ]
   },
   
+  // Discord UI Demo (no auth required for demo)
+  {
+    path: 'discord-demo',
+    component: DiscordLayoutComponent
+  },
+
   // Main app routes (with layout and auth guard)
   {
     path: '',

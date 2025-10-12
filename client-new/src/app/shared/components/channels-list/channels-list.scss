@@ -1,0 +1,227 @@
+// Discord Color Palette
+$bg-primary: #313338;
+$bg-secondary: #2b2d31;
+$bg-tertiary: #1e1f22;
+$bg-sidebar: #1e1f22;
+
+$text-normal: #dbdee1;
+$text-muted: #949ba4;
+$text-bright: #ffffff;
+
+$interactive-normal: #b5bac1;
+$interactive-hover: #dbdee1;
+$interactive-active: #ffffff;
+$interactive-muted: #4e5058;
+
+$brand-primary: #5865F2;
+$modifier-hover: rgba(79, 84, 92, 0.16);
+$modifier-selected: rgba(79, 84, 92, 0.32);
+
+.channels-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 8px;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  // Custom scrollbar
+  scrollbar-width: thin;
+  scrollbar-color: rgba(79, 84, 92, 0.3) transparent;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(79, 84, 92, 0.3);
+    border-radius: 3px;
+
+    &:hover {
+      background-color: rgba(79, 84, 92, 0.5);
+    }
+  }
+
+  .channel-category {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    .category-header {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 8px 4px 8px;
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.12s ease;
+
+      &:hover {
+        color: $interactive-hover;
+
+        .add-channel-btn {
+          opacity: 1;
+        }
+      }
+
+      .category-arrow {
+        width: 12px;
+        height: 12px;
+        color: $text-muted; // Changed from $interactive-muted for better visibility
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: transform 0.12s ease;
+      }
+
+      .category-name {
+        flex: 1;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: $text-muted; // Changed from $interactive-muted for better visibility
+      }
+
+      .add-channel-btn {
+        opacity: 0;
+        background: none;
+        border: none;
+        padding: 4px;
+        cursor: pointer;
+        color: $interactive-muted;
+        transition: all 0.12s ease;
+        border-radius: 4px;
+
+        svg {
+          width: 16px;
+          height: 16px;
+          stroke-width: 2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+
+        &:hover {
+          color: $interactive-hover;
+          background-color: $modifier-hover;
+        }
+      }
+    }
+
+    .channels {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+
+      .channel-item {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        margin: 0 4px;
+        border-radius: 4px;
+        cursor: pointer;
+        color: $interactive-normal;
+        transition: all 0.12s ease;
+        user-select: none;
+
+        .channel-indicator {
+          position: absolute;
+          left: -4px;
+          width: 4px;
+          height: 0;
+          background-color: $text-bright;
+          border-radius: 0 4px 4px 0;
+          transition: height 0.2s ease;
+          opacity: 0;
+        }
+
+        .channel-icon {
+          width: 20px;
+          height: 20px;
+          color: inherit;
+          stroke-width: 2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+          flex-shrink: 0;
+        }
+
+        .channel-name {
+          flex: 1;
+          font-size: 15px;
+          font-weight: 500;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .channel-actions {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          opacity: 0;
+          transition: opacity 0.12s ease;
+
+          .channel-action-btn {
+            background: none;
+            border: none;
+            padding: 4px;
+            cursor: pointer;
+            color: $interactive-muted;
+            border-radius: 4px;
+            transition: all 0.12s ease;
+
+            svg {
+              width: 16px;
+              height: 16px;
+              stroke-width: 2;
+              stroke-linecap: round;
+              stroke-linejoin: round;
+            }
+
+            &:hover {
+              color: $interactive-hover;
+              background-color: $modifier-hover;
+            }
+          }
+        }
+
+        &:hover {
+          color: $interactive-hover;
+          background-color: $modifier-hover;
+
+          .channel-indicator {
+            height: 8px;
+            opacity: 1;
+          }
+
+          .channel-actions {
+            opacity: 1;
+          }
+        }
+
+        &.active {
+          color: $text-bright;
+          background-color: $modifier-selected;
+          font-weight: 500;
+
+          .channel-indicator {
+            height: 20px;
+            opacity: 1;
+          }
+
+          .channel-icon {
+            color: $text-bright;
+          }
+        }
+      }
+    }
+  }
+}

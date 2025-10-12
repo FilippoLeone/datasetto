@@ -1,0 +1,84 @@
+// Discord Color Palette
+$bg-primary: #313338;
+$bg-elevated: #2b2d31;
+
+$text-normal: #dbdee1;
+$text-bright: #ffffff;
+
+$interactive-normal: #b5bac1;
+$interactive-hover: #dbdee1;
+$interactive-muted: #4e5058;
+
+$modifier-hover: rgba(79, 84, 92, 0.16);
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background-color: $bg-primary;
+
+  .chat-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(79, 84, 92, 0.48);
+    flex-shrink: 0;
+    height: 48px;
+    box-shadow: 0 1px 0 rgba(4, 4, 5, 0.2), 0 1.5px 0 rgba(6, 6, 7, 0.05), 0 2px 0 rgba(4, 4, 5, 0.05);
+
+    .channel-icon {
+      width: 24px;
+      height: 24px;
+      color: $interactive-muted;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex-shrink: 0;
+    }
+
+    .channel-name {
+      flex: 1;
+      font-size: 16px;
+      font-weight: 600;
+      color: $text-bright;
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+
+      .header-btn {
+        background: none;
+        border: none;
+        padding: 4px;
+        cursor: pointer;
+        color: $interactive-normal;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.12s ease;
+
+        svg {
+          width: 24px;
+          height: 24px;
+          stroke-width: 2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+
+        &:hover {
+          color: $interactive-hover;
+          background-color: $modifier-hover;
+        }
+      }
+    }
+  }
+}

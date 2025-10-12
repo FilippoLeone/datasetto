@@ -1,0 +1,47 @@
+<div class="user-list">
+  <!-- Header -->
+  <div class="user-list-header">
+    <span class="member-count">MEMBERS — {{ getTotalUserCount() }}</span>
+  </div>
+
+  <!-- User Groups -->
+  <div class="user-groups">
+    @for (group of userGroups; track group.role) {
+      <div class="user-group">
+        <!-- Group Header -->
+        <div class="group-header">
+          <svg class="group-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+          <span class="group-name">{{ group.role }} — {{ group.users.length }}</span>
+        </div>
+
+        <!-- Users in Group -->
+        <div class="group-users">
+          @for (user of group.users; track user.id) {
+            <div class="user-item" 
+                 [attr.aria-label]="user.name"
+                 role="button"
+                 tabindex="0">
+              <!-- Avatar with Status -->
+              <div class="user-avatar-wrapper">
+                <img [src]="user.avatarUrl" 
+                     [alt]="user.name" 
+                     class="user-avatar" />
+                <div class="status-indicator" [class]="getStatusClass(user.status)"></div>
+              </div>
+
+              <!-- User Info -->
+              <div class="user-info">
+                <span class="user-name">{{ user.name }}</span>
+                @if (user.role) {
+                  <span class="user-role-badge">{{ user.role }}</span>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+</div>

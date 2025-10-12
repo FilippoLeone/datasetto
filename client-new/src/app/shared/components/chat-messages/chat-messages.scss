@@ -1,0 +1,207 @@
+// Discord Color Palette
+$bg-primary: #313338;
+$bg-secondary: #2b2d31;
+$bg-elevated: #2b2d31;
+
+$text-normal: #dbdee1;
+$text-muted: #949ba4;
+$text-bright: #ffffff;
+
+$interactive-normal: #b5bac1;
+$interactive-hover: #dbdee1;
+$interactive-muted: #4e5058;
+
+$modifier-hover: rgba(79, 84, 92, 0.16);
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+
+  // Custom scrollbar
+  scrollbar-width: thin;
+  scrollbar-color: rgba(79, 84, 92, 0.3) transparent;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(79, 84, 92, 0.3);
+    border-radius: 4px;
+
+    &:hover {
+      background-color: rgba(79, 84, 92, 0.5);
+    }
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-end;
+    height: 100%;
+    text-align: left;
+    padding: 0 16px 16px 16px;
+
+    .empty-icon {
+      width: 68px;
+      height: 68px;
+      margin-bottom: 8px;
+      border-radius: 50%;
+      background-color: $bg-elevated;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      svg {
+        width: 36px;
+        height: 36px;
+        color: $text-bright;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+    }
+
+    .empty-title {
+      font-size: 32px;
+      font-weight: 700;
+      color: $text-bright;
+      margin: 0 0 8px 0;
+      line-height: 1.2;
+    }
+
+    .empty-description {
+      font-size: 16px;
+      color: $text-muted;
+      margin: 0;
+      line-height: 1.5;
+    }
+  }
+
+  .messages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .message-group {
+      position: relative;
+      display: flex;
+      padding: 8px 16px;
+      margin: 0 -16px;
+      transition: background-color 0.12s ease;
+
+      &:hover {
+        background-color: $modifier-hover;
+
+        .message-actions {
+          opacity: 1;
+        }
+      }
+
+      .message-content {
+        display: flex;
+        gap: 16px;
+        flex: 1;
+        min-width: 0;
+
+        .message-avatar {
+          flex-shrink: 0;
+          margin-top: 2px;
+
+          .avatar-image {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+          }
+        }
+
+        .message-body {
+          flex: 1;
+          min-width: 0;
+
+          .message-header {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 4px;
+
+            .message-author {
+              font-size: 16px;
+              font-weight: 600;
+              color: $text-bright;
+              cursor: pointer;
+
+              &:hover {
+                text-decoration: underline;
+              }
+            }
+
+            .message-timestamp {
+              font-size: 12px;
+              font-weight: 500;
+              color: $interactive-muted;
+            }
+          }
+
+          .message-text {
+            font-size: 16px;
+            line-height: 1.375;
+            color: $text-normal;
+            word-wrap: break-word;
+            word-break: break-word;
+            white-space: pre-wrap;
+          }
+        }
+      }
+
+      .message-actions {
+        position: absolute;
+        top: -8px;
+        right: 16px;
+        display: flex;
+        gap: 4px;
+        opacity: 0;
+        transition: opacity 0.12s ease;
+        background-color: $bg-secondary;
+        border: 1px solid rgba(79, 84, 92, 0.48);
+        border-radius: 8px;
+        padding: 4px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+
+        .action-btn {
+          background: none;
+          border: none;
+          padding: 6px;
+          cursor: pointer;
+          color: $interactive-normal;
+          border-radius: 4px;
+          transition: all 0.12s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          svg {
+            width: 20px;
+            height: 20px;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+          }
+
+          &:hover {
+            color: $interactive-hover;
+            background-color: $modifier-hover;
+          }
+        }
+      }
+    }
+  }
+}

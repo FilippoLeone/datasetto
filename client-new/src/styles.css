@@ -146,9 +146,32 @@
 }
 
 @layer components {
+  /* Ensure router-outlet content takes full height */
+  router-outlet + *,
+  .app-container > router-outlet + * {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 !important;
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+
   .app-shell {
     background: var(--color-bg-primary);
     color: var(--color-text-normal);
+    overflow: hidden;
+    display: flex;
+    flex-direction: row;
+    height: 100vh;
+    width: 100vw;
+  }
+  
+  .app-shell > main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
     overflow: hidden;
   }
 

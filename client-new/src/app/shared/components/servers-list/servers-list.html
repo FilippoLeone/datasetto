@@ -1,0 +1,49 @@
+<div class="servers-list">
+  <!-- Home/Main Server Button -->
+  <div class="server-item home-server" 
+       [class.active]="activeServerId === null"
+       (click)="onServerClick('home')"
+       role="button"
+       tabindex="0"
+       aria-label="Home">
+    <div class="server-icon">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 3L4 9v12h6v-6h4v6h6V9l-8-6z"/>
+      </svg>
+    </div>
+    <div class="server-indicator"></div>
+  </div>
+
+  <!-- Server Divider -->
+  <div class="server-divider"></div>
+
+  <!-- Server List -->
+  @for (server of servers; track server.id) {
+    <div class="server-item" 
+         [class.active]="isActive(server.id)"
+         (click)="onServerClick(server.id)"
+         [attr.aria-label]="server.name"
+         role="button"
+         tabindex="0">
+      <img [src]="server.imageUrl" 
+           [alt]="server.name" 
+           class="server-icon" />
+      <div class="server-indicator"></div>
+      <div class="server-tooltip">{{ server.name }}</div>
+    </div>
+  }
+
+  <!-- Add Server Button -->
+  <div class="server-item add-server" 
+       (click)="onServerClick('add')"
+       role="button"
+       tabindex="0"
+       aria-label="Add a Server">
+    <div class="server-icon">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 5v14m7-7H5"/>
+      </svg>
+    </div>
+    <div class="server-tooltip">Add a Server</div>
+  </div>
+</div>

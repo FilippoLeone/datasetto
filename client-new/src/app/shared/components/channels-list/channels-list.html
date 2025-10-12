@@ -1,0 +1,71 @@
+<div class="channels-list">
+  @for (category of categories; track category.id) {
+    <div class="channel-category">
+      <!-- Category Header -->
+      <div class="category-header">
+        <svg class="category-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+        <span class="category-name">{{ category.name }}</span>
+        <button class="add-channel-btn" 
+                [attr.aria-label]="'Add channel to ' + category.name"
+                type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Channels -->
+      <div class="channels">
+        @for (channel of category.channels; track channel.id) {
+          <div class="channel-item" 
+               [class.active]="isActive(channel.id)"
+               (click)="onChannelClick(channel)"
+               [attr.aria-label]="channel.name"
+               role="button"
+               tabindex="0">
+            <div class="channel-indicator"></div>
+            
+            <!-- Channel Icon -->
+            @if (channel.type === 'text') {
+              <svg class="channel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M4 11a9 9 0 0 1 9 9"></path>
+                <path d="M4 4a16 16 0 0 1 16 16"></path>
+                <circle cx="5" cy="19" r="1"></circle>
+              </svg>
+            } @else {
+              <svg class="channel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+              </svg>
+            }
+            
+            <span class="channel-name">{{ channel.name }}</span>
+
+            <!-- Channel Actions (visible on hover) -->
+            <div class="channel-actions">
+              <button class="channel-action-btn" aria-label="Invite" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="8.5" cy="7" r="4"></circle>
+                  <line x1="20" y1="8" x2="20" y2="14"></line>
+                  <line x1="23" y1="11" x2="17" y2="11"></line>
+                </svg>
+              </button>
+              <button class="channel-action-btn" aria-label="Settings" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M12 1v6m0 6v6m8.66-15l-3.46 3.46M9.8 9.8 6.34 6.34m12.32 12.32-3.46-3.46M9.8 14.2l-3.46 3.46M23 12h-6M7 12H1"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>

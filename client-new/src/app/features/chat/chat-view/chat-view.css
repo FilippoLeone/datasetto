@@ -1,5 +1,8 @@
 .chat-view {
   background-color: var(--color-bg-chat);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-header {
