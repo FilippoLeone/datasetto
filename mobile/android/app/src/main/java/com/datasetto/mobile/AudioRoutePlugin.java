@@ -98,16 +98,15 @@ public class AudioRoutePlugin extends Plugin {
     return setCommunicationDevice(false, AudioDeviceInfo.TYPE_BUILTIN_EARPIECE);
   }
 
+  @SuppressWarnings("deprecation")
   private boolean setCommunicationDevice(boolean speakerphoneOn, int deviceType) {
     if (audioManager == null) {
       return false;
     }
 
     audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-    audioManager.stopBluetoothSco();
-    audioManager.setBluetoothScoOn(false);
-    audioManager.setSpeakerphoneOn(speakerphoneOn);
-
+    
+    // Use new API for Android 12+ (API 31)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       AudioDeviceInfo device = findDevice(deviceType);
       if (device != null) {
@@ -116,7 +115,13 @@ public class AudioRoutePlugin extends Plugin {
       if (speakerphoneOn) {
         audioManager.clearCommunicationDevice();
       }
+      return true;
     }
+    
+    // Fallback to deprecated API for older Android versions
+    audioManager.stopBluetoothSco();
+    audioManager.setBluetoothScoOn(false);
+    audioManager.setSpeakerphoneOn(speakerphoneOn);
 
     return true;
   }
@@ -133,14 +138,17 @@ public class AudioRoutePlugin extends Plugin {
     return false;
   }
 
+  @SuppressWarnings("deprecation")
   private boolean isSpeakerphoneActive() {
     if (audioManager == null) {
       return false;
     }
+    // Use new API for Android 12+ (API 31)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       AudioDeviceInfo current = audioManager.getCommunicationDevice();
       return current != null && current.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
     }
+    // Fallback to deprecated API for older Android versions
     return audioManager.isSpeakerphoneOn();
   }
 
