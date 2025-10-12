@@ -61,35 +61,133 @@ jobs:
         run: |
           cd mobile
           npm run build:web
+          
+          # Verify the web build succeeded
+          if [ ! -d "../client/dist" ] || [ -z "$(ls -A ../client/dist 2>/dev/null)" ]; then
+            echo "❌ Web build failed - client/dist is missing or empty!"
+            ls -la ../client/ || true
+            exit 1
+          fi
+          
+          echo "✅ Web assets built successfully"
+          echo "📂 Client dist contents:"
+          ls -lh ../client/dist/
+          echo "📊 Total size: $(du -sh ../client/dist | cut -f1)"
 
       - name: Sync Capacitor
         run: |
           cd mobile
           npx cap sync android
+          
+          # Verify assets were copied to Android
+          ANDROID_ASSETS="android/app/src/main/assets/public"
+          if [ ! -d "$ANDROID_ASSETS" ] || [ -z "$(ls -A $ANDROID_ASSETS 2>/dev/null)" ]; then
+            echo "❌ Capacitor sync failed - no assets copied to Android!"
+            exit 1
+          fi
+          
+          echo "✅ Assets synced to Android"
+          echo "📊 Android assets size: $(du -sh $ANDROID_ASSETS | cut -f1)"
 
-      - name: Build Android APK (unsigned)
+      - name: Create debug keystore
+        run: |
+          # Create Android debug keystore for signing
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore ~/.android/debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          
+          echo "✅ Debug keystore created"
+
+      - name: Build Android APK (debug-signed)
         run: |
           cd mobile/android
           chmod +x gradlew
-          ./gradlew assembleRelease
-          echo "✅ Built unsigned APK for testing"
+          ./gradlew clean
+          ./gradlew assembleRelease --stacktrace
+          
+          echo "✅ Gradle build completed"
+          
+          # Check if APK was actually created
+          if [ ! -d "app/build/outputs/apk/release" ]; then
+            echo "❌ Release directory not found!"
+            exit 1
+          fi
+          
+          echo "📂 Contents of release directory:"
+          ls -lah app/build/outputs/apk/release/
 
-      - name: Rename APK
+      - name: List and Rename APK
         run: |
           cd mobile/android/app/build/outputs/apk/release
-          # Rename the unsigned APK
-          if [ -f app-release-unsigned.apk ]; then
-            mv app-release-unsigned.apk datasetto-android-${{ github.event.release.tag_name || inputs.tag }}-unsigned.apk
-          elif [ -f app-release.apk ]; then
-            mv app-release.apk datasetto-android-${{ github.event.release.tag_name || inputs.tag }}-unsigned.apk
+          echo "📂 Files in release directory:"
+          ls -lah
+          
+          # Find the actual APK file (should be app-release-unsigned.apk or app-release.apk)
+          APK_FILE=""
+          
+          if [ -f "app-release-unsigned.apk" ]; then
+            APK_FILE="app-release-unsigned.apk"
+          elif [ -f "app-release.apk" ]; then
+            APK_FILE="app-release.apk"
+          else
+            # Try to find any .apk file
+            APK_FILE=$(find . -maxdepth 1 -name "*.apk" -type f | head -n 1 | sed 's|^\./||')
           fi
-          echo "📦 APK ready: datasetto-android-${{ github.event.release.tag_name || inputs.tag }}-unsigned.apk"
+          
+          if [ -z "$APK_FILE" ] || [ ! -f "$APK_FILE" ]; then
+            echo "❌ No valid APK file found!"
+            echo "Available files:"
+            find . -type f
+            exit 1
+          fi
+          
+          FILE_SIZE=$(stat -c%s "$APK_FILE" 2>/dev/null || stat -f%z "$APK_FILE")
+          echo "📦 Found APK: $APK_FILE"
+          echo "📊 Size: $FILE_SIZE bytes ($(echo "scale=2; $FILE_SIZE/1024/1024" | bc 2>/dev/null || echo '?') MB)"
+          
+          # Verify it's a valid APK/ZIP
+          if ! unzip -t "$APK_FILE" > /dev/null 2>&1; then
+            echo "❌ APK appears to be corrupted (failed unzip test)!"
+            exit 1
+          fi
+          echo "✅ APK integrity check passed"
+          
+          # Rename to our standard name
+          NEW_NAME="datasetto-android-${{ github.event.release.tag_name || inputs.tag }}-debug.apk"
+          cp "$APK_FILE" "$NEW_NAME"
+          
+          echo "✅ Created: $NEW_NAME"
+          ls -lh "$NEW_NAME"
+
+      - name: Verify APK
+        run: |
+          cd mobile/android/app/build/outputs/apk/release
+          APK_FILE="datasetto-android-${{ github.event.release.tag_name || inputs.tag }}-debug.apk"
+          
+          if [ ! -f "$APK_FILE" ]; then
+            echo "❌ APK not found: $APK_FILE"
+            exit 1
+          fi
+          
+          FILE_SIZE=$(stat -c%s "$APK_FILE" 2>/dev/null || stat -f%z "$APK_FILE")
+          echo "📊 APK size: $(numfmt --to=iec $FILE_SIZE 2>/dev/null || echo "$FILE_SIZE bytes")"
+          
+          # Verify it's a valid ZIP/APK (APK is just a ZIP)
+          if file "$APK_FILE" | grep -q "Zip\|Java\|archive"; then
+            echo "✅ APK file format looks valid"
+          else
+            echo "⚠️ APK file format might be invalid"
+            file "$APK_FILE"
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: mobile/android/app/build/outputs/apk/release/datasetto-android-*-unsigned.apk
+          path: mobile/android/app/build/outputs/apk/release/datasetto-android-*-debug.apk
+          if-no-files-found: error
 
   # Build iOS IPA (requires macOS runner)
   # DISABLED: Requires Apple Developer account and code signing certificates
