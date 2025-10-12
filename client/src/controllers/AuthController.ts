@@ -360,6 +360,9 @@ export class AuthController {
   }): void {
     const { account, session, channels, groups, isNewAccount } = payload;
 
+    const wasSessionResume = this.sessionResumePending;
+    const wasAlreadyAuthenticated = this.isAuthenticated;
+
     this.sessionResumePending = false;
     this.setAuthSubmitting(false);
     this.setLogoutSubmitting(false);
@@ -378,9 +381,12 @@ export class AuthController {
     const permissions = mergeRolePermissions(account.roles ?? []);
     this.applyPermissions(permissions);
 
-    const friendlyName = account.displayName || account.username;
-    this.deps.notifications.success(isNewAccount ? `Account created! Welcome, ${friendlyName}.` : `Signed in as ${friendlyName}`);
-    this.deps.soundFX.play('success', 0.6);
+    // Only show notification and play sound for new logins, not reconnections
+    if (!wasAlreadyAuthenticated || !wasSessionResume) {
+      const friendlyName = account.displayName || account.username;
+      this.deps.notifications.success(isNewAccount ? `Account created! Welcome, ${friendlyName}.` : `Signed in as ${friendlyName}`);
+      this.deps.soundFX.play('success', 0.6);
+    }
 
     if (hasPermission(permissions, 'canManageUsers')) {
       this.deps.socket.requestAccountList();

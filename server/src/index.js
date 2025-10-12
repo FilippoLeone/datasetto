@@ -315,8 +315,6 @@ io.on('connection', (socket) => {
    */
   socket.on('auth:session', (payload = {}) => {
     try {
-      requireNoActiveUser();
-
       const { token } = payload;
       if (!token) {
         throw new Error('Session token is required');
@@ -331,6 +329,35 @@ io.on('connection', (socket) => {
       if (!accountRecord || accountRecord.status !== 'active') {
         accountManager.revokeSession(token);
         throw new Error('Account is no longer active');
+      }
+
+      // If user is already authenticated with the same account, just confirm success
+      // This handles mobile app resume scenarios where socket reconnects
+      if (currentUser && currentAccount && currentAccount.id === accountRecord.id) {
+        logger.info(`Session resume for already authenticated user`, {
+          socketId: socket.id,
+          accountId: currentAccount.id,
+          username: currentAccount.username,
+        });
+        
+        // Re-emit auth:success to confirm connection
+        socket.emit('auth:success', {
+          user: userManager.exportUserData(socket.id),
+          account: currentAccount,
+          session: {
+            token: session.token,
+            expiresAt: session.expiresAt,
+          },
+          channels: channelManager.exportChannelsList(false),
+          groups: channelManager.getAllChannelGroups(),
+          isNewAccount: false,
+        });
+        return;
+      }
+
+      // If user exists but it's a different account, require logout first
+      if (currentUser) {
+        throw new Error('User already authenticated with different account');
       }
 
       const account = accountManager.sanitizeAccount(accountRecord);

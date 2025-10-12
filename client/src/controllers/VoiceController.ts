@@ -225,7 +225,7 @@ export class VoiceController {
 
       if (reconnecting) {
         if (import.meta.env.DEV) {
-          console.log('ÔÜá´©Å Voice resources released while attempting to reconnect');
+          console.log('⚠️ Voice resources released while attempting to reconnect');
         }
       } else {
         this.deps.notifications.warning('Voice disconnected due to network issues');
@@ -812,7 +812,7 @@ export class VoiceController {
 
     if (this.pendingVoiceJoin && entries.length === 0) {
       const channelName = this.pendingVoiceJoin.name?.trim() || 'voice';
-      this.setVoiceGalleryLoadingState(`Connecting to ${channelName}ÔÇª`);
+      this.setVoiceGalleryLoadingState(`Connecting to ${channelName}...`);
       return;
     }
 
@@ -923,7 +923,7 @@ export class VoiceController {
 
   const displayName = tile.dataset.displayName ?? 'Participant';
     const labelDescription = labelParts.length > 0 ? labelParts.join(', ') : 'Connected';
-    tile.setAttribute('aria-label', `${displayName} ÔÇö ${labelDescription}`);
+    tile.setAttribute('aria-label', `${displayName} — ${labelDescription}`);
   }
 
   private populateVoiceGalleryMeta(
@@ -970,11 +970,11 @@ export class VoiceController {
 
     if (state.isCurrentUser) {
       if (state.deafened) {
-        label = 'You ┬À Deafened';
+        label = 'You • Deafened';
       } else if (state.muted) {
-        label = 'You ┬À Muted';
+        label = 'You • Muted';
       } else if (state.speaking) {
-        label = 'You ┬À Speaking';
+        label = 'You • Speaking';
       } else {
         label = 'You';
       }
@@ -1186,7 +1186,7 @@ export class VoiceController {
     } catch {
       title = undefined;
     }
-    this.deps.voicePanel.updateSessionTimer(`ÔÅ▒ ${formatted}`, title);
+    this.deps.voicePanel.updateSessionTimer(`⏱️ ${formatted}`, title);
   }
 
   private formatDuration(milliseconds: number): string {
@@ -1304,7 +1304,7 @@ export class VoiceController {
       }
 
       const duration = now - start;
-      el.textContent = `ÔÅ▒ ${this.formatDuration(duration)}`;
+      el.textContent = `⏱️ ${this.formatDuration(duration)}`;
       el.classList.remove('hidden');
       el.classList.add('inline-flex');
     });

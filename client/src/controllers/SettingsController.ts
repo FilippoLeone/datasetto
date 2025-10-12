@@ -351,6 +351,7 @@ export class SettingsController {
       if (spkSelect) {
         const speakerMap = new Map<string, { deviceId: string; label: string }>();
 
+        // Add Web Audio API speakers
         devices.speakers.forEach((device) => {
           speakerMap.set(device.deviceId, {
             deviceId: device.deviceId,
@@ -358,11 +359,12 @@ export class SettingsController {
           });
         });
 
+        // Add native routes (if available) - these take precedence
         nativeRoutes.forEach((route) => {
           const nativeId = `native:${route.id}`;
           speakerMap.set(nativeId, {
             deviceId: nativeId,
-            label: route.label || 'Phone Earpiece',
+            label: `${route.label} (Native)`,
           });
         });
 

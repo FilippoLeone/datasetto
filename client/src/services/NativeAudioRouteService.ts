@@ -56,11 +56,16 @@ async function loadPlugin(): Promise<AudioRoutePlugin | null> {
         const plugin = registerPlugin<AudioRoutePlugin>('AudioRoute');
         // Test if the plugin is actually implemented by calling a method
         // This will throw if the plugin is not implemented on the native side
-        await plugin.listRoutes();
+        const testResult = await plugin.listRoutes();
+        
+        if (import.meta.env.DEV) {
+          console.log('[NativeAudioRouteService] AudioRoute plugin loaded successfully:', testResult);
+        }
+        
         return plugin;
       } catch (error) {
         if (import.meta.env.DEV) {
-          console.warn('[NativeAudioRouteService] AudioRoute plugin not implemented on this platform:', error);
+          console.warn('[NativeAudioRouteService] AudioRoute plugin test call failed:', error);
         }
         return null;
       }
@@ -103,8 +108,9 @@ export async function fetchNativeAudioRoutes(): Promise<NativeAudioRoute[]> {
       typeof route?.type === 'string'
     );
 
+    // Ensure speakerphone is always present as it's the default
     ensureRoutePresence(filtered, 'speakerphone', 'Speakerphone', 'speaker');
-    ensureRoutePresence(filtered, 'earpiece', 'Phone Earpiece', 'earpiece');
+    // Don't force earpiece presence - let the plugin decide if device has one
 
     return filtered;
   } catch (error) {
@@ -116,34 +122,53 @@ export async function fetchNativeAudioRoutes(): Promise<NativeAudioRoute[]> {
 }
 
 export async function selectNativeAudioRoute(routeId: string | null): Promise<void> {
+  if (import.meta.env.DEV) {
+    console.log('[NativeAudioRouteService] selectNativeAudioRoute called with routeId:', routeId);
+  }
+  
   const plugin = await loadPlugin();
+  
+  if (import.meta.env.DEV) {
+    console.log('[NativeAudioRouteService] plugin loaded:', plugin ? 'success' : 'null');
+  }
+  
   if (!plugin) {
-    throw new Error('Native audio routing is not available on this platform.');
+    const isNative = isNativeAudioRoutingAvailable();
+    const errorMsg = isNative 
+      ? 'Native audio routing plugin failed to initialize. Please check app permissions.'
+      : 'Native audio routing is not available on this platform.';
+    
+    if (import.meta.env.DEV) {
+      console.error('[NativeAudioRouteService] Plugin is null. isNative:', isNative);
+    }
+    
+    throw new Error(errorMsg);
   }
 
   try {
+    if (import.meta.env.DEV) {
+      console.log('[NativeAudioRouteService] Calling plugin.setRoute with id:', routeId ?? '');
+    }
     await plugin.setRoute({ id: routeId ?? '' });
+    if (import.meta.env.DEV) {
+      console.log('[NativeAudioRouteService] setRoute succeeded');
+    }
   } catch (error) {
     if (import.meta.env.DEV) {
-      console.warn('[NativeAudioRouteService] Failed to set audio route:', error);
+      console.error('[NativeAudioRouteService] setRoute failed:', error);
     }
     throw error instanceof Error ? error : new Error('Unable to change audio route.');
   }
 }
 
 function fallbackRoutes(): NativeAudioRoute[] {
+  // Only return speakerphone as fallback - earpiece availability varies by device
   return [
     {
       id: 'speakerphone',
       label: 'Speakerphone',
       type: 'speaker',
       selected: true,
-    },
-    {
-      id: 'earpiece',
-      label: 'Phone Earpiece',
-      type: 'earpiece',
-      selected: false,
     },
   ];
 }

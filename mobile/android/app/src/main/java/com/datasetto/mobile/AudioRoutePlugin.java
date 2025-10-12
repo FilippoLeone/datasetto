@@ -33,9 +33,12 @@ public class AudioRoutePlugin extends Plugin {
     }
 
     JSArray routes = new JSArray();
+    // Always include speakerphone as the primary option
     routes.put(makeRoute("speakerphone", "Speakerphone", "speaker", isSpeakerphoneActive()));
 
-    if (hasEarpiece()) {
+    // Only include earpiece if the device actually has one
+    boolean deviceHasEarpiece = hasEarpiece();
+    if (deviceHasEarpiece) {
       routes.put(makeRoute("earpiece", "Phone Earpiece", "earpiece", isEarpieceActive()));
     }
 
@@ -54,9 +57,14 @@ public class AudioRoutePlugin extends Plugin {
     }
 
     boolean success;
-    if ("speakerphone".equals(id)) {
+    if (id == null || id.isEmpty() || "speakerphone".equals(id)) {
+      // Default or explicit speakerphone selection
       success = routeToSpeakerphone();
     } else if ("earpiece".equals(id)) {
+      if (!hasEarpiece()) {
+        call.reject("Earpiece not available on this device");
+        return;
+      }
       success = routeToEarpiece();
     } else {
       call.reject("Unsupported or unavailable audio route: " + id);

@@ -669,24 +669,34 @@ export class VoiceService extends EventEmitter<EventMap> {
   async setOutputDevice(deviceId: string): Promise<void> {
     const normalizedId = deviceId ?? '';
     const nativeRouteId = normalizedId.startsWith('native:') ? normalizedId.slice(7) : null;
-    const nativeRoutingAvailable = isNativeAudioRoutingAvailable();
 
+    // If it's a native route, try to use the native audio routing
     if (nativeRouteId !== null) {
-      if (!nativeRoutingAvailable) {
-        throw new Error('Native audio routing is not supported on this device.');
+      try {
+        await selectNativeAudioRoute(nativeRouteId);
+        this.outputDeviceId = normalizedId;
+        return;
+      } catch (error) {
+        // If native routing fails, throw the error to inform the user
+        throw error;
       }
-
-      await selectNativeAudioRoute(nativeRouteId);
-      this.outputDeviceId = normalizedId;
-      return;
     }
 
-    if (nativeRoutingAvailable && normalizedId === '') {
-      await selectNativeAudioRoute(null);
-      this.outputDeviceId = normalizedId;
-      return;
+    // If empty string and on native platform, try to reset to default native route
+    if (isNativeAudioRoutingAvailable() && normalizedId === '') {
+      try {
+        await selectNativeAudioRoute(null);
+        this.outputDeviceId = normalizedId;
+        return;
+      } catch (error) {
+        // If native routing fails, fall through to web audio routing
+        if (import.meta.env.DEV) {
+          console.warn('[VoiceService] Native audio routing failed, using web audio routing:', error);
+        }
+      }
     }
 
+    // Use standard Web Audio API output device selection
     this.outputDeviceId = normalizedId;
 
     const promises: Promise<void>[] = [];
