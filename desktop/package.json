@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "description": "Electron-based desktop shell for the Datasetto web client.",
   "private": true,
-  "author": "Datasetto",
+  "author": {
+    "name": "Datasetto",
+    "email": "fleonen@gmail.com"
+  },
   "main": "main.js",
   "license": "AGPL-3.0",
   "repository": {
