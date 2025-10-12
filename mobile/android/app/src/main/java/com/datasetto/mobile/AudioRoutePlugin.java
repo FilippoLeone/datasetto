@@ -27,22 +27,16 @@ public class AudioRoutePlugin extends Plugin {
 
   @PluginMethod
   public void listRoutes(PluginCall call) {
-    JSArray routes = new JSArray();
-
     if (audioManager == null) {
-      JSObject result = new JSObject();
-      result.put("routes", routes);
-      call.resolve(result);
+      call.reject("AudioManager unavailable");
       return;
     }
 
-    boolean speakerSelected = isSpeakerphoneActive();
-    boolean earpieceSelected = isEarpieceActive();
-
-    routes.put(makeRoute("speakerphone", "Speakerphone", "speaker", speakerSelected));
+    JSArray routes = new JSArray();
+    routes.put(makeRoute("speakerphone", "Speakerphone", "speaker", isSpeakerphoneActive()));
 
     if (hasEarpiece()) {
-      routes.put(makeRoute("earpiece", "Phone Earpiece", "earpiece", earpieceSelected));
+      routes.put(makeRoute("earpiece", "Phone Earpiece", "earpiece", isEarpieceActive()));
     }
 
     JSObject result = new JSObject();
@@ -60,21 +54,19 @@ public class AudioRoutePlugin extends Plugin {
     }
 
     boolean success;
-
-    if (id == null || id.isEmpty() || "default".equals(id)) {
-      success = routeToSpeakerphone();
-    } else if ("speakerphone".equals(id)) {
+    if ("speakerphone".equals(id)) {
       success = routeToSpeakerphone();
     } else if ("earpiece".equals(id)) {
       success = routeToEarpiece();
     } else {
-      success = false;
+      call.reject("Unsupported or unavailable audio route: " + id);
+      return;
     }
 
     if (success) {
       call.resolve();
     } else {
-      call.reject("Unsupported or unavailable audio route: " + id);
+      call.reject("Failed to set audio route: " + id);
     }
   }
 
@@ -88,6 +80,17 @@ public class AudioRoutePlugin extends Plugin {
   }
 
   private boolean routeToSpeakerphone() {
+    return setCommunicationDevice(true, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER);
+  }
+
+  private boolean routeToEarpiece() {
+    if (!hasEarpiece()) {
+      return false;
+    }
+    return setCommunicationDevice(false, AudioDeviceInfo.TYPE_BUILTIN_EARPIECE);
+  }
+
+  private boolean setCommunicationDevice(boolean speakerphoneOn, int deviceType) {
     if (audioManager == null) {
       return false;
     }
@@ -95,33 +98,15 @@ public class AudioRoutePlugin extends Plugin {
     audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
     audioManager.stopBluetoothSco();
     audioManager.setBluetoothScoOn(false);
-    audioManager.setSpeakerphoneOn(true);
+    audioManager.setSpeakerphoneOn(speakerphoneOn);
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-      AudioDeviceInfo speaker = findDevice(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER);
-      if (speaker != null) {
-        return audioManager.setCommunicationDevice(speaker);
+      AudioDeviceInfo device = findDevice(deviceType);
+      if (device != null) {
+        return audioManager.setCommunicationDevice(device);
       }
-      audioManager.clearCommunicationDevice();
-    }
-
-    return true;
-  }
-
-  private boolean routeToEarpiece() {
-    if (audioManager == null || !hasEarpiece()) {
-      return false;
-    }
-
-    audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-    audioManager.stopBluetoothSco();
-    audioManager.setBluetoothScoOn(false);
-    audioManager.setSpeakerphoneOn(false);
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-      AudioDeviceInfo earpiece = findDevice(AudioDeviceInfo.TYPE_BUILTIN_EARPIECE);
-      if (earpiece != null) {
-        return audioManager.setCommunicationDevice(earpiece);
+      if (speakerphoneOn) {
+        audioManager.clearCommunicationDevice();
       }
     }
 
@@ -129,36 +114,25 @@ public class AudioRoutePlugin extends Plugin {
   }
 
   private boolean hasEarpiece() {
-    if (audioManager == null) {
-      return false;
+    if (getContext().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY)) {
+      return true;
     }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-      AudioDeviceInfo[] devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
-      for (AudioDeviceInfo device : devices) {
-        if (device.getType() == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) {
-          return true;
-        }
-      }
-      return false;
+      return findDevice(AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) != null;
     }
 
-    PackageManager pm = getContext().getPackageManager();
-    return pm.hasSystemFeature(PackageManager.FEATURE_TELEPHONY);
+    return false;
   }
 
   private boolean isSpeakerphoneActive() {
     if (audioManager == null) {
       return false;
     }
-
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       AudioDeviceInfo current = audioManager.getCommunicationDevice();
-      if (current != null) {
-        return current.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
-      }
+      return current != null && current.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
     }
-
     return audioManager.isSpeakerphoneOn();
   }
 
@@ -166,15 +140,11 @@ public class AudioRoutePlugin extends Plugin {
     if (audioManager == null) {
       return false;
     }
-
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       AudioDeviceInfo current = audioManager.getCommunicationDevice();
-      if (current != null) {
-        return current.getType() == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE;
-      }
+      return current != null && current.getType() == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE;
     }
-
-    return !audioManager.isSpeakerphoneOn();
+    return !audioManager.isSpeakerphoneOn() && hasEarpiece();
   }
 
   @Nullable

@@ -31,6 +31,28 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 
+# Generate runtime config from ops/.env if it exists
+OPS_ENV="$PROJECT_ROOT/ops/.env"
+RUNTIME_CONFIG="$DESKTOP_DIR/resources/runtime-config.json"
+if [ -f "$OPS_ENV" ]; then
+  echo "[deploy-desktop] Generating runtime-config.json from ops/.env..."
+  
+  SERVER_URL=$(grep -E '^SERVER_URL=' "$OPS_ENV" | cut -d '=' -f2 | tr -d '\r' || echo 'https://datasetto.com')
+  HLS_URL=$(grep -E '^HLS_BASE_URL=' "$OPS_ENV" | cut -d '=' -f2 | tr -d '\r' || echo "${SERVER_URL}/hls")
+  RTMP_URL=$(grep -E '^RTMP_SERVER_URL=' "$OPS_ENV" | cut -d '=' -f2 | tr -d '\r' || echo 'rtmp://datasetto.com:1935/hls')
+  
+  cat > "$RUNTIME_CONFIG" <<EOF
+{
+  "serverUrl": "$SERVER_URL",
+  "apiBaseUrl": "$SERVER_URL",
+  "hlsBaseUrl": "$HLS_URL",
+  "rtmpServerUrl": "$RTMP_URL"
+}
+EOF
+  
+  echo "[deploy-desktop] Desktop runtime config: $SERVER_URL"
+fi
+
 echo "[deploy-desktop] Copying client build into renderer/"
 node scripts/copy-dist.mjs
 

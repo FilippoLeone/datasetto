@@ -39,6 +39,8 @@ services:
     container_name: backend-server
     restart: unless-stopped
     # No external ports - accessed via reverse proxy
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=4000

@@ -28,8 +28,39 @@ const __dirname = dirname(__filename);
 // Initialize Express app
 const app = express();
 
+const normalizeOrigin = (value = '') => value.replace(/\/$/, '').toLowerCase();
+const allowedOrigins = new Set(appConfig.cors.origins.map(normalizeOrigin));
+const allowAllOrigins = allowedOrigins.has('*');
+
 // Middleware
-app.use(cors({ origin: appConfig.cors.origin, credentials: appConfig.cors.credentials }));
+app.use(cors({
+  origin: (origin, callback) => {
+    logger.debug(`CORS check for origin: ${origin}`);
+    
+    if (!origin || allowAllOrigins) {
+      logger.debug(`Allowing origin: ${origin || '(none)'} - no origin or wildcard`);
+      return callback(null, true);
+    }
+
+    const normalizedOrigin = normalizeOrigin(origin);
+    logger.debug(`Normalized origin: ${normalizedOrigin}, allowed origins: ${Array.from(allowedOrigins).join(', ')}`);
+
+    if (allowedOrigins.has(normalizedOrigin)) {
+      logger.debug(`✅ Allowed origin: ${origin}`);
+      return callback(null, true);
+    }
+
+    logger.warn('❌ Blocked request from disallowed origin', { origin, normalizedOrigin });
+    return callback(new Error(`Origin ${origin} not allowed by CORS`), false);
+  },
+  credentials: appConfig.cors.credentials,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400, // 24 hours
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -984,7 +1015,7 @@ server.listen(appConfig.server.port, appConfig.server.host, () => {
   logger.info(`   Host: ${appConfig.server.host}`);
   logger.info(`   Port: ${appConfig.server.port}`);
   logger.info(`   Environment: ${appConfig.server.env}`);
-  logger.info(`   CORS Origin: ${appConfig.cors.origin}`);
+  logger.info(`   CORS Origins: ${appConfig.cors.origins.join(', ')}`);
   logger.info(`   Log Level: ${appConfig.logging.level}`);
   logger.info(`   Max Channels: ${appConfig.channels.maxChannels}`);
   logger.info(`   Max Users/Channel: ${appConfig.channels.maxUsersPerChannel}`);

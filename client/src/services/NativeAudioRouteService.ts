@@ -40,22 +40,33 @@ async function loadPlugin(): Promise<AudioRoutePlugin | null> {
   }
 
   pluginPromise = (async () => {
-    const core = await loadCapacitorCore();
-    if (!core) {
-      return null;
-    }
-
-    const { Capacitor, registerPlugin } = core;
-
-    if (!Capacitor?.isNativePlatform?.()) {
-      return null;
-    }
-
     try {
-      return registerPlugin<AudioRoutePlugin>('AudioRoute');
+      const core = await loadCapacitorCore();
+      if (!core) {
+        return null;
+      }
+
+      const { Capacitor, registerPlugin } = core;
+
+      if (!Capacitor?.isNativePlatform?.()) {
+        return null;
+      }
+
+      try {
+        const plugin = registerPlugin<AudioRoutePlugin>('AudioRoute');
+        // Test if the plugin is actually implemented by calling a method
+        // This will throw if the plugin is not implemented on the native side
+        await plugin.listRoutes();
+        return plugin;
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[NativeAudioRouteService] AudioRoute plugin not implemented on this platform:', error);
+        }
+        return null;
+      }
     } catch (error) {
       if (import.meta.env.DEV) {
-        console.warn('[NativeAudioRouteService] Unable to register AudioRoute plugin:', error);
+        console.error('[NativeAudioRouteService] Failed to load AudioRoute plugin:', error);
       }
       return null;
     }

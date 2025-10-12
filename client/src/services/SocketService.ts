@@ -35,9 +35,13 @@ export class SocketService extends EventEmitter<EventMap> {
       return;
     }
 
+    // Add cache-busting timestamp for mobile to bypass Cloudflare cache
+    const isMobile = typeof globalThis !== 'undefined' && 
+      (globalThis as typeof globalThis & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() === true;
+    
     this.socket = io(this.serverUrl, {
       path: '/socket.io/',
-      transports: ['polling', 'websocket'], // Start with polling, upgrade to websocket
+      transports: ['polling', 'websocket'],
       withCredentials: true,
       reconnection: true,
       reconnectionDelay: 1000,
@@ -45,6 +49,8 @@ export class SocketService extends EventEmitter<EventMap> {
       reconnectionAttempts: this.maxReconnectAttempts,
       timeout: 20000,
       autoConnect: true,
+      // Add cache-busting query parameter for mobile to bypass Cloudflare
+      query: isMobile ? { _t: Date.now() } : undefined,
     });
 
     this.setupSocketListeners();
@@ -245,40 +251,31 @@ export class SocketService extends EventEmitter<EventMap> {
   private setupSocketListeners(): void {
     if (!this.socket) return;
 
-    // Connection debugging
     this.socket.io.on('reconnect_attempt', () => {
-      console.log('[Socket.IO] Reconnection attempt...', {
-        url: this.serverUrl,
-        transport: this.socket?.io.engine?.transport?.name
-      });
+      console.log('Reconnecting to server...');
     });
 
     this.socket.on('connect', () => {
-      console.log('[Socket.IO] ✅ Connected to server', {
-        id: this.socket?.id,
-        transport: this.socket?.io.engine?.transport?.name,
-        url: this.serverUrl
-      });
+      console.log('Connected to server');
       this.reconnectAttempts = 0;
       this.emit('connection:status', { connected: true, reconnecting: false });
       this.emit('socket:connected', undefined as never);
     });
 
     this.socket.on('disconnect', (reason: string) => {
-      console.log('[Socket.IO] ❌ Disconnected from server:', reason);
+      console.log('Disconnected from server:', reason);
       this.emit('connection:status', { connected: false, reconnecting: false });
       this.emit('socket:disconnected', { reason } as never);
     });
 
     this.socket.on('connect_error', (error: Error) => {
-      console.error('[Socket.IO] ⚠️  Connection error:', error.message, {
-        url: this.serverUrl,
-        attempts: this.reconnectAttempts + 1
-      });
+      console.error('Socket connection error:', error.message);
       this.reconnectAttempts++;
       
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        console.error('Max reconnection attempts reached');
         this.emit('error', new Error('Failed to connect to server after multiple attempts'));
+        this.emit('connection:failed', undefined as never);
       } else {
         this.emit('connection:status', { connected: false, reconnecting: true });
       }

@@ -278,6 +278,21 @@ export class SettingsController {
    * Populate device dropdown lists
    */
   private async populateDeviceLists(): Promise<void> {
+    const micSelect = this.deps.elements.micSelect as HTMLSelectElement;
+    const spkSelect = this.deps.elements.spkSelect as HTMLSelectElement;
+
+    if (micSelect) {
+      micSelect.innerHTML = '<option value="">System Default Microphone</option>';
+      micSelect.disabled = true;
+      micSelect.title = 'Using system default until devices are detected…';
+    }
+
+    if (spkSelect) {
+      spkSelect.innerHTML = '<option>System Default</option>';
+      spkSelect.disabled = true;
+      spkSelect.title = 'Loading available speakers…';
+    }
+
     try {
       // Request permissions first to get device labels
       let permissionStream: MediaStream | null = null;
@@ -295,8 +310,6 @@ export class SettingsController {
 
       const devices = await this.deps.audio.getDevices();
 
-      // Populate microphone dropdown
-      const micSelect = this.deps.elements.micSelect as HTMLSelectElement;
       if (micSelect) {
         micSelect.innerHTML = '';
 
@@ -319,7 +332,7 @@ export class SettingsController {
           micSelect.disabled = false;
           micSelect.removeAttribute('title');
         } else {
-          micSelect.disabled = false;
+          micSelect.disabled = true;
           micSelect.title = 'No dedicated microphones detected. Falling back to system default.';
         }
 
@@ -328,23 +341,11 @@ export class SettingsController {
           micSelect.value = currentMic;
         } else {
           micSelect.value = '';
-
-          if (currentMic) {
-            this.deps.state.updateSettings({ micDeviceId: undefined });
-            try {
-              await this.deps.audio.updateSettings({ micDeviceId: undefined });
-            } catch (resetError) {
-              if (import.meta.env.DEV) {
-                console.warn('⚠️ Failed to reset microphone selection to default:', resetError);
-              }
-            }
-          }
         }
       }
 
       // Populate speaker dropdown
-      const spkSelect = this.deps.elements.spkSelect as HTMLSelectElement;
-  const nativeRoutes = await fetchNativeAudioRoutes();
+      const nativeRoutes = await fetchNativeAudioRoutes();
   const supportsOutputSelection = this.deps.audio.supportsOutputDeviceSelection() || nativeRoutes.length > 0;
 
       if (spkSelect) {
@@ -426,8 +427,16 @@ export class SettingsController {
       // Set fallback options
       const micSelect = this.deps.elements.micSelect as HTMLSelectElement;
       const spkSelect = this.deps.elements.spkSelect as HTMLSelectElement;
-      if (micSelect) micSelect.innerHTML = '<option>No microphones found</option>';
-      if (spkSelect) spkSelect.innerHTML = '<option>No speakers found</option>';
+      if (micSelect) {
+        micSelect.innerHTML = '<option value="">System Default Microphone</option>';
+        micSelect.disabled = true;
+        micSelect.title = 'Unable to enumerate microphones. Using system default.';
+      }
+      if (spkSelect) {
+        spkSelect.innerHTML = '<option>System Default</option>';
+        spkSelect.disabled = true;
+        spkSelect.title = 'Unable to enumerate speakers. Using system default.';
+      }
     }
   }
 

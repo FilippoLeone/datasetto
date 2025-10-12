@@ -44,14 +44,16 @@ if [ "$HAS_DOMAIN" = "yes" ]; then
   SERVER_URL="https://$DOMAIN"
   HLS_BASE_URL="https://$DOMAIN/hls"
   API_BASE_URL="https://$DOMAIN"
-  CORS_ORIGIN="https://$DOMAIN"
+  # Include mobile app origins (Capacitor uses https://localhost and capacitor://localhost)
+  CORS_ORIGIN="https://$DOMAIN,https://localhost,capacitor://localhost,http://localhost"
   echo "Using domain with Docker nginx reverse proxy: $DOMAIN"
 else
   DOMAIN=$SERVER_IP
   SERVER_URL="http://$SERVER_IP"
   HLS_BASE_URL="http://$SERVER_IP/hls"
   API_BASE_URL="http://$SERVER_IP"
-  CORS_ORIGIN="*"
+  # Include mobile app origins for IP-based deployments
+  CORS_ORIGIN="http://$SERVER_IP,https://localhost,capacitor://localhost,http://localhost"
   echo "Using IP address with Docker nginx reverse proxy: $SERVER_IP"
 fi
 

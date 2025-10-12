@@ -121,18 +121,118 @@ export function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString();
 }
 
-const LOCAL_SERVER_FALLBACK = 'http://localhost:4000';
-const LOCAL_HLS_FALLBACK = 'http://localhost/hls';
-const LOCAL_RTMP_FALLBACK = 'rtmp://localhost:1935/hls';
-
 const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
-
-const isBrowserEnvironment = typeof window !== 'undefined';
-const desktopRuntimeConfig = isBrowserEnvironment ? window.datasettoDesktopConfig : undefined;
 
 const isLocalHost = (host?: string): boolean => {
   if (!host) return false;
   return host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0';
+};
+
+const DEFAULT_REMOTE_SERVER = 'https://datasetto.com';
+const DEFAULT_REMOTE_RTMP = 'rtmp://datasetto.com:1935/hls';
+
+const deriveHlsFromServer = (server: string): string => `${stripTrailingSlash(server)}/hls`;
+
+const deriveRtmpFromServer = (server: string): string => {
+  try {
+    const parsed = new URL(server);
+    return `rtmp://${parsed.hostname}:1935/hls`;
+  } catch {
+    return DEFAULT_REMOTE_RTMP;
+  }
+};
+
+const pickRemoteUrl = (candidates: Array<string | undefined>, fallback: string): string => {
+  for (const candidate of candidates) {
+    const value = candidate?.trim();
+    if (!value) continue;
+    try {
+      const parsed = new URL(value);
+      if (isLocalHost(parsed.hostname)) {
+        continue;
+      }
+      return stripTrailingSlash(value);
+    } catch {
+      continue;
+    }
+  }
+
+  return stripTrailingSlash(fallback);
+};
+
+const isBrowserEnvironment = typeof window !== 'undefined';
+const desktopRuntimeConfig = isBrowserEnvironment ? window.datasettoDesktopConfig : undefined;
+
+type CapacitorLike = {
+  isNativePlatform?: () => boolean;
+  getPlatform?: () => string;
+};
+
+const getCapacitor = (): CapacitorLike | undefined => {
+  const globalScope = globalThis as typeof globalThis & { Capacitor?: CapacitorLike };
+  return globalScope.Capacitor;
+};
+
+const resolveLocalFallbacks = () => {
+  const defaults = {
+    server: 'http://localhost:4000',
+    hls: 'http://localhost/hls',
+    rtmp: 'rtmp://localhost:1935/hls',
+  };
+
+  if (!isBrowserEnvironment) {
+    return defaults;
+  }
+
+  const capacitor = getCapacitor();
+  const isNative = capacitor?.isNativePlatform?.() === true;
+  const platform = isNative ? capacitor?.getPlatform?.() : undefined;
+
+  if (!isNative) {
+    return defaults;
+  }
+
+  if (platform === 'android') {
+    const remoteServer = pickRemoteUrl(
+      [
+        import.meta.env.VITE_MOBILE_DEFAULT_SERVER_URL,
+        import.meta.env.VITE_SERVER_URL,
+        desktopRuntimeConfig?.serverUrl,
+      ],
+      DEFAULT_REMOTE_SERVER
+    );
+
+    const remoteHls = pickRemoteUrl(
+      [
+        import.meta.env.VITE_MOBILE_DEFAULT_HLS_URL,
+        import.meta.env.VITE_HLS_BASE_URL,
+        desktopRuntimeConfig?.hlsBaseUrl,
+      ],
+      deriveHlsFromServer(remoteServer)
+    );
+
+    const remoteRtmp = pickRemoteUrl(
+      [
+        import.meta.env.VITE_MOBILE_DEFAULT_RTMP_URL,
+        import.meta.env.VITE_RTMP_SERVER_URL,
+        desktopRuntimeConfig?.rtmpServerUrl,
+      ],
+      deriveRtmpFromServer(remoteServer)
+    );
+
+    return {
+      server: remoteServer,
+      hls: remoteHls,
+      rtmp: remoteRtmp,
+    };
+  }
+
+  if (platform === 'ios') {
+    // iOS simulator can still reach the host via localhost. Physical devices require explicit env URLs.
+    return defaults;
+  }
+
+  return defaults;
 };
 
 export interface RuntimeConfig {
@@ -162,6 +262,8 @@ export function resolveRuntimeConfig(): RuntimeConfig {
     rtmpServerUrl: 'env',
   };
 
+  const localFallbacks = resolveLocalFallbacks();
+
   const origin = isBrowserEnvironment ? window.location.origin : undefined;
   const host = isBrowserEnvironment ? window.location.hostname : undefined;
   const isHttpOrigin = typeof origin === 'string' && origin.startsWith('http');
@@ -180,9 +282,9 @@ export function resolveRuntimeConfig(): RuntimeConfig {
       serverUrl = origin;
       sources.serverUrl = 'origin';
     } else {
-      serverUrl = LOCAL_SERVER_FALLBACK;
+      serverUrl = localFallbacks.server;
       sources.serverUrl = 'fallback';
-      warnings.push(`VITE_SERVER_URL not set; using local fallback ${LOCAL_SERVER_FALLBACK}.`);
+      warnings.push(`VITE_SERVER_URL not set; using local fallback ${localFallbacks.server}.`);
     }
   }
 
@@ -214,9 +316,9 @@ export function resolveRuntimeConfig(): RuntimeConfig {
       hlsBaseUrl = `${stripTrailingSlash(origin)}/hls`;
       sources.hlsBaseUrl = 'origin';
     } else {
-      hlsBaseUrl = LOCAL_HLS_FALLBACK;
+      hlsBaseUrl = localFallbacks.hls;
       sources.hlsBaseUrl = 'fallback';
-      warnings.push(`VITE_HLS_BASE_URL not set; using local fallback ${LOCAL_HLS_FALLBACK}.`);
+      warnings.push(`VITE_HLS_BASE_URL not set; using local fallback ${localFallbacks.hls}.`);
     }
   }
 
@@ -235,14 +337,14 @@ export function resolveRuntimeConfig(): RuntimeConfig {
         rtmpServerUrl = `rtmp://${parsed.hostname}/hls`;
         sources.rtmpServerUrl = 'origin';
       } catch {
-        rtmpServerUrl = LOCAL_RTMP_FALLBACK;
+        rtmpServerUrl = localFallbacks.rtmp;
         sources.rtmpServerUrl = 'fallback';
-        warnings.push(`Unable to derive RTMP ingest URL from origin; using fallback ${LOCAL_RTMP_FALLBACK}.`);
+        warnings.push(`Unable to derive RTMP ingest URL from origin; using fallback ${localFallbacks.rtmp}.`);
       }
     } else {
-      rtmpServerUrl = LOCAL_RTMP_FALLBACK;
+      rtmpServerUrl = localFallbacks.rtmp;
       sources.rtmpServerUrl = 'fallback';
-      warnings.push(`VITE_RTMP_SERVER_URL not set; using local fallback ${LOCAL_RTMP_FALLBACK}.`);
+      warnings.push(`VITE_RTMP_SERVER_URL not set; using local fallback ${localFallbacks.rtmp}.`);
     }
   }
 

@@ -411,14 +411,19 @@ export class App {
    */
   private async initialize(): Promise<void> {
     try {
-      // Check backend availability
-      await this.checkBackendHealth();
-
-      // Load audio devices
-      await this.settingsController?.loadDevices();
-
-      // Connect to server and attempt session resume if available
+      // Connect to server first (most critical)
       const session = this.state.get('session');
+      const storedAccount = this.state.get('account');
+
+      // Detect if storage schema changed (switching between http/https origins on mobile)
+      // If we have an account but no session, it's likely from a different origin
+      const isMobile = typeof globalThis !== 'undefined' && 
+        (globalThis as typeof globalThis & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() === true;
+      
+      if (isMobile && storedAccount && !session?.token) {
+        console.warn('⚠️ Detected orphaned account data without session - clearing storage');
+        this.state.clearAccount();
+      }
 
       this.socket.connect();
 
@@ -428,9 +433,12 @@ export class App {
         this.chatController?.hideChatUI();
       }
 
-      const storedAccount = this.state.get('account');
-      if (!session?.token) {
-        if (storedAccount) {
+      // Re-check after potential cleanup
+      const cleanSession = this.state.get('session');
+      const cleanAccount = this.state.get('account');
+      
+      if (!cleanSession?.token) {
+        if (cleanAccount) {
           this.authController?.showAuthModal('login');
           this.notifications.info('Session expired. Please log in to continue.');
         } else {
@@ -438,6 +446,19 @@ export class App {
           this.notifications.info('Welcome! Create an account to get started.');
         }
       }
+
+      // Defer non-critical operations to avoid blocking the main thread
+      // These will run after the UI is interactive
+      requestIdleCallback(() => {
+        void this.checkBackendHealth();
+      }, { timeout: 2000 });
+
+      // Load audio devices in the background (needed for settings panel)
+      // Use setTimeout to push to next event loop tick
+      setTimeout(() => {
+        void this.settingsController?.loadDevices();
+      }, 100);
+
     } catch (error) {
       console.error('Error initializing app:', error);
       this.soundFX.play('error', 0.5);
@@ -657,6 +678,18 @@ export class App {
 
       if (details?.code) {
         this.voiceController?.handleServerError(details.code);
+      }
+    });
+
+    // Handle permanent connection failure
+    this.socket.on('connection:failed', () => {
+      console.warn('⚠️ Permanent connection failure detected. Clearing stale session...');
+      const session = this.state.get('session');
+      if (session?.token) {
+        console.log('🧹 Clearing corrupted session state');
+        this.state.clearAccount();
+        this.notifications.error('Unable to connect to server. Please check your connection and try logging in again.');
+        this.authController?.showAuthModal('login');
       }
     });
 
@@ -1028,20 +1061,22 @@ export class App {
    */
   private async checkBackendHealth(): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/health`, {
+      // Add cache-busting query parameter to bypass Cloudflare cache on mobile
+      const cacheBuster = `?_t=${Date.now()}`;
+      const response = await fetch(`${API_BASE_URL}/health${cacheBuster}`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
+        cache: 'no-store', // Prevent browser caching
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Backend health check passed:', data);
-      } else {
-        console.warn('⚠️ Backend health check failed:', response.status);
+      if (!response.ok && import.meta.env.DEV) {
+        console.warn('Backend health check failed:', response.status);
       }
     } catch (error) {
       // Silently fail - backend might not be ready yet or CORS not configured
-      console.warn('⚠️ Backend health check failed:', error instanceof Error ? error.message : 'Unknown error');
+      if (import.meta.env.DEV) {
+        console.warn('Backend health check failed:', error instanceof Error ? error.message : 'Unknown error');
+      }
     }
   }
 
@@ -1098,6 +1133,32 @@ export class App {
 
     if (import.meta.env.DEV) {
       console.log('✅ App cleanup complete');
+    }
+  }
+
+  /**
+   * Force clear all app data and reload (useful for debugging stuck states)
+   * Call this from browser console: window.datasettoApp.clearAppData()
+   */
+  clearAppData(): void {
+    console.log('🧹 Clearing all app data...');
+    
+    try {
+      // Disconnect socket
+      this.socket?.disconnect?.();
+      
+      // Clear state
+      this.state?.clearAccount?.();
+      
+      // Clear all localStorage
+      localStorage.clear();
+      
+      console.log('✅ App data cleared. Reloading...');
+      
+      // Reload the page
+      window.location.reload();
+    } catch (error) {
+      console.error('❌ Error clearing app data:', error);
     }
   }
 }

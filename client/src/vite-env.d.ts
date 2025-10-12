@@ -5,6 +5,9 @@ interface ImportMetaEnv {
   readonly VITE_HLS_BASE_URL?: string;
   readonly VITE_API_BASE_URL?: string;
   readonly VITE_RTMP_SERVER_URL?: string;
+  readonly VITE_MOBILE_DEFAULT_SERVER_URL?: string;
+  readonly VITE_MOBILE_DEFAULT_HLS_URL?: string;
+  readonly VITE_MOBILE_DEFAULT_RTMP_URL?: string;
   readonly VITE_WEBRTC_ICE_SERVERS?: string;
   readonly VITE_TURN_URL?: string;
   readonly VITE_TURN_USERNAME?: string;

@@ -93,6 +93,8 @@ export class AudioService extends EventEmitter {
         throw new Error('Audio device enumeration is not supported in this browser.');
       }
 
+      // Enumerate devices - this may trigger camera permission requests on some platforms
+      // Suppress console errors for missing camera hardware (common on emulators)
       const devices = await navigator.mediaDevices.enumerateDevices();
 
       const mics = devices

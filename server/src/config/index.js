@@ -12,6 +12,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 config({ path: join(__dirname, '../../.env') });
 
+const DEFAULT_CORS_ORIGINS = ['http://localhost:5173'];
+const NORMALIZED_DEFAULT_CORS_ORIGINS = DEFAULT_CORS_ORIGINS.map((origin) => origin.replace(/\/$/, '').toLowerCase());
+
+const normalizeOrigin = (origin) => origin.replace(/\/$/, '').toLowerCase();
+
+const parseCorsOrigins = (value) => {
+  if (!value) {
+    return [...NORMALIZED_DEFAULT_CORS_ORIGINS];
+  }
+
+  const entries = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  const normalized = entries.map((entry) => normalizeOrigin(entry));
+  const unique = Array.from(new Set(normalized));
+
+  return unique.length > 0 ? unique : [...NORMALIZED_DEFAULT_CORS_ORIGINS];
+};
+
 /**
  * Validate required environment variables
  */
@@ -39,7 +60,7 @@ export const appConfig = {
 
   // CORS configuration
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    origins: parseCorsOrigins(process.env.CORS_ORIGIN),
     credentials: true,
   },
 

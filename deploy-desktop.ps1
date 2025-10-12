@@ -42,6 +42,29 @@ if (-not $SkipInstall -and -not (Test-Path 'node_modules')) {
   npm install
 }
 
+# Generate runtime config from ops/.env if it exists
+$opsEnv = Join-Path $projectRoot 'ops/.env'
+$runtimeConfigPath = Join-Path $desktopDir 'resources/runtime-config.json'
+if (Test-Path $opsEnv) {
+  Write-Host '[deploy-desktop] Generating runtime-config.json from ops/.env...'
+  
+  $opsContent = Get-Content $opsEnv -Raw
+  $serverUrl = if ($opsContent -match '(?m)^SERVER_URL=(.+)$') { $Matches[1].Trim() } else { 'https://datasetto.com' }
+  $hlsUrl = if ($opsContent -match '(?m)^HLS_BASE_URL=(.+)$') { $Matches[1].Trim() } else { "$serverUrl/hls" }
+  $rtmpUrl = if ($opsContent -match '(?m)^RTMP_SERVER_URL=(.+)$') { $Matches[1].Trim() } else { "rtmp://datasetto.com:1935/hls" }
+  
+  @"
+{
+  "serverUrl": "$serverUrl",
+  "apiBaseUrl": "$serverUrl",
+  "hlsBaseUrl": "$hlsUrl",
+  "rtmpServerUrl": "$rtmpUrl"
+}
+"@ | Set-Content -Path $runtimeConfigPath -NoNewline
+  
+  Write-Host "[deploy-desktop] Desktop runtime config: $serverUrl"
+}
+
 Write-Host '[deploy-desktop] Copying client build into renderer/'
 node scripts/copy-dist.mjs
 
