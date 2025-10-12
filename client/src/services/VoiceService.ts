@@ -173,9 +173,15 @@ export class VoiceService extends EventEmitter<EventMap> {
   private peerAudioPreferences: Map<string, PeerAudioPreference> = new Map();
   private deafened = false;
   private turnWarningShown = false;
+  private voiceBitrate = OPUS_TARGET_BITRATE;
+  private dtxEnabled = false;
+  private vadThreshold = 0.07;
 
-  constructor() {
+  constructor(voiceBitrate = OPUS_TARGET_BITRATE, dtxEnabled = false, vadThreshold = 0.07) {
     super();
+    this.voiceBitrate = voiceBitrate;
+    this.dtxEnabled = dtxEnabled;
+    this.vadThreshold = vadThreshold;
 
     this.loadPeerAudioPreferences();
 
@@ -494,7 +500,7 @@ export class VoiceService extends EventEmitter<EventMap> {
 
       const monitor = new SpeakingMonitor(analyser, (speaking) => {
         this.emit('voice:speaking', { id: peerId, speaking });
-      });
+      }, this.vadThreshold);
 
       monitor.start();
       this.remoteMonitors.set(peerId, monitor);
@@ -715,6 +721,31 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   /**
+   * Update voice quality settings
+   */
+  updateVoiceSettings(voiceBitrate: number, dtxEnabled: boolean, vadThreshold?: number): void {
+    this.voiceBitrate = voiceBitrate;
+    this.dtxEnabled = dtxEnabled;
+    
+    if (vadThreshold !== undefined) {
+      this.vadThreshold = vadThreshold;
+      
+      // Update all existing speaking monitors with new threshold
+      for (const monitor of this.remoteMonitors.values()) {
+        monitor.setThreshold(vadThreshold);
+      }
+    }
+
+    // Update all existing peer connections
+    for (const pc of this.peers.values()) {
+      const sender = pc.getSenders().find((s) => s.track?.kind === 'audio');
+      if (sender) {
+        this.applySenderQualityHints(sender);
+      }
+    }
+  }
+
+  /**
    * Mute/unmute a specific remote peer
    */
   muteRemotePeer(peerId: string, muted: boolean): void {
@@ -854,9 +885,9 @@ export class VoiceService extends EventEmitter<EventMap> {
       }
 
       for (const encoding of parameters.encodings) {
-        encoding.maxBitrate = OPUS_TARGET_BITRATE;
+        encoding.maxBitrate = this.voiceBitrate;
         encoding.priority = 'high';
-        (encoding as RTCRtpEncodingParameters & { dtx?: boolean }).dtx = false;
+        (encoding as RTCRtpEncodingParameters & { dtx?: boolean }).dtx = this.dtxEnabled;
       }
 
       parameters.degradationPreference = 'maintain-framerate';
@@ -912,8 +943,8 @@ export class VoiceService extends EventEmitter<EventMap> {
     params.set('sprop-stereo', '1');
     params.set('useinbandfec', '1');
     params.set('cbr', '0');
-    params.set('dtx', '0');
-        params.set('maxaveragebitrate', String(OPUS_TARGET_BITRATE));
+    params.set('dtx', this.dtxEnabled ? '1' : '0');
+        params.set('maxaveragebitrate', String(this.voiceBitrate));
         params.set('maxplaybackrate', '48000');
         params.set('minptime', '10');
         params.set('maxptime', '60');
@@ -943,12 +974,17 @@ class SpeakingMonitor {
   private analyser: AnalyserNode;
   private callback: (speaking: boolean) => void;
   private rafId: number | null = null;
-  private threshold = 0.07;
+  private threshold: number;
   private isSpeaking = false;
 
-  constructor(analyser: AnalyserNode, callback: (speaking: boolean) => void) {
+  constructor(analyser: AnalyserNode, callback: (speaking: boolean) => void, threshold = 0.07) {
     this.analyser = analyser;
     this.callback = callback;
+    this.threshold = threshold;
+  }
+
+  setThreshold(threshold: number): void {
+    this.threshold = threshold;
   }
 
   start(): void {

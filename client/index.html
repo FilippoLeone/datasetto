@@ -636,6 +636,41 @@
                 </label>
                 <span class="form-hint">Automatically adjusts volume</span>
               </div>
+
+              <div class="form-group">
+                <label for="voiceQuality">Voice Quality</label>
+                <select id="voiceQuality" class="form-input">
+                  <option value="32000">Low (32kbps) - Mobile</option>
+                  <option value="64000">Standard (64kbps)</option>
+                  <option value="96000">High (96kbps)</option>
+                  <option value="128000" selected>Studio (128kbps)</option>
+                </select>
+                <span class="form-hint">Higher quality uses more bandwidth</span>
+              </div>
+
+              <div class="form-group checkbox-group">
+                <label>
+                  <input type="checkbox" id="dtx" checked />
+                  <span>Discontinuous Transmission (DTX)</span>
+                </label>
+                <span class="form-hint">Saves bandwidth when silent</span>
+              </div>
+
+              <div class="form-group">
+                <label for="latencyHint">Audio Latency</label>
+                <select id="latencyHint" class="form-input">
+                  <option value="interactive" selected>Interactive (Lowest)</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="playback">Playback (Highest Quality)</option>
+                </select>
+                <span class="form-hint">Lower latency for real-time chat</span>
+              </div>
+
+              <div class="form-group">
+                <label for="vadThreshold">Voice Activation Sensitivity: <span id="vadThresholdVal">Medium</span></label>
+                <input type="range" id="vadThreshold" min="0.01" max="0.20" step="0.01" value="0.07" />
+                <span class="form-hint">Lower = more sensitive (picks up quieter sounds)</span>
+              </div>
             </div>
 
             <!-- Volume Controls -->

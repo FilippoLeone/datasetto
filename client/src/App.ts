@@ -81,7 +81,8 @@ export class App {
     // Initialize services
     this.socket = new SocketService(SERVER_URL);
     this.audio = new AudioService(this.state.get('settings'));
-    this.voice = new VoiceService();
+    const settings = this.state.get('settings');
+    this.voice = new VoiceService(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
 
     // Cache DOM elements
     this.cacheElements();
@@ -348,6 +349,7 @@ export class App {
       'streamServerUrl', 'streamInfoCancel', 'streamInfoClose',
       'regTitle',
       'emojiPickerBtn', 'emojiPicker', 'emojiGrid',
+      'voiceQuality', 'dtx', 'latencyHint', 'vadThreshold', 'vadThresholdVal',
       'inlineVideoContainer', 'inlineVideo', 'inlinePlayerOverlay',
   'popoutVideo', 'theaterModeToggle', 'mobileStreamTitle', 'popinVideo',
   'mobileStreamChatToggle',
@@ -637,6 +639,13 @@ export class App {
     // Note: Socket event listeners are only set up once during initialization
     // The socket service handles reconnection internally without re-adding listeners
     
+    // State change events
+    this.state.on('state:change', (state) => {
+      // Update voice service when bitrate, DTX, or VAD threshold settings change
+      const settings = state.settings;
+      this.voice.updateVoiceSettings(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
+    });
+
     // Socket events
     this.socket.on('user:update', (users) => this.userListController?.handleUsersUpdate(users));
     this.socket.on('channel:update', (channels) => {

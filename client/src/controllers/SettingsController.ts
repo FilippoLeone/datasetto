@@ -251,7 +251,7 @@ export class SettingsController {
   updateSettingsUI(): void {
     const settings = this.deps.state.get('settings');
     
-    const checkboxIds = ['echoCancel', 'noiseSuppression', 'autoGain', 'pttEnable'];
+    const checkboxIds = ['echoCancel', 'noiseSuppression', 'autoGain', 'pttEnable', 'dtx'];
     checkboxIds.forEach(id => {
       const el = this.deps.elements[id] as HTMLInputElement;
       if (el) el.checked = settings[id as keyof typeof settings] as boolean;
@@ -266,12 +266,35 @@ export class SettingsController {
     const pttKeyInput = this.deps.elements.pttKey as HTMLInputElement;
     if (pttKeyInput) pttKeyInput.value = settings.pttKey;
 
+    const voiceQualitySelect = this.deps.elements.voiceQuality as HTMLSelectElement;
+    if (voiceQualitySelect) voiceQualitySelect.value = String(settings.voiceBitrate);
+
+    const latencyHintSelect = this.deps.elements.latencyHint as HTMLSelectElement;
+    if (latencyHintSelect) latencyHintSelect.value = settings.latencyHint;
+
+    const vadThresholdInput = this.deps.elements.vadThreshold as HTMLInputElement;
+    if (vadThresholdInput) vadThresholdInput.value = String(settings.vadThreshold);
+
     if (this.deps.elements.micGainVal) {
       this.deps.elements.micGainVal.textContent = `${settings.micGain.toFixed(1)}x`;
     }
     if (this.deps.elements.outputVolVal) {
       this.deps.elements.outputVolVal.textContent = `${Math.round(settings.outputVol * 100)}%`;
     }
+    if (this.deps.elements.vadThresholdVal) {
+      this.deps.elements.vadThresholdVal.textContent = this.formatVadThreshold(settings.vadThreshold);
+    }
+  }
+
+  /**
+   * Format VAD threshold value for display
+   */
+  private formatVadThreshold(value: number): string {
+    if (value <= 0.03) return 'Very High';
+    if (value <= 0.05) return 'High';
+    if (value <= 0.09) return 'Medium';
+    if (value <= 0.15) return 'Low';
+    return 'Very Low';
   }
 
   /**
@@ -447,16 +470,25 @@ export class SettingsController {
    */
   private setupSettingsListeners(): void {
     // Checkbox settings (voice processing, PTT)
-    const checkboxIds = ['echoCancel', 'noiseSuppression', 'autoGain', 'pttEnable'];
+    const checkboxIds = ['echoCancel', 'noiseSuppression', 'autoGain', 'pttEnable', 'dtx'];
     for (const id of checkboxIds) {
       this.deps.elements[id]?.addEventListener('change', async () => {
         await this.handleSettingChange(id);
       });
     }
 
-    // Range slider settings (gain, volume)
+    // Select settings (voice quality, latency)
+    const selectIds = ['voiceQuality', 'latencyHint'];
+    for (const id of selectIds) {
+      this.deps.elements[id]?.addEventListener('change', async () => {
+        await this.handleSettingChange(id);
+      });
+    }
+
+    // Range slider settings (gain, volume, VAD threshold)
     const micGainInput = this.deps.elements.micGain as HTMLInputElement;
     const outputVolInput = this.deps.elements.outputVol as HTMLInputElement;
+    const vadThresholdInput = this.deps.elements.vadThreshold as HTMLInputElement;
 
     if (micGainInput) {
       micGainInput.addEventListener('input', () => {
@@ -479,6 +511,18 @@ export class SettingsController {
       });
       outputVolInput.addEventListener('change', async () => {
         await this.handleSettingChange('outputVol');
+      });
+    }
+
+    if (vadThresholdInput) {
+      vadThresholdInput.addEventListener('input', () => {
+        const val = parseFloat(vadThresholdInput.value);
+        if (this.deps.elements.vadThresholdVal) {
+          this.deps.elements.vadThresholdVal.textContent = this.formatVadThreshold(val);
+        }
+      });
+      vadThresholdInput.addEventListener('change', async () => {
+        await this.handleSettingChange('vadThreshold');
       });
     }
 
@@ -546,6 +590,12 @@ export class SettingsController {
       } else if (element.type === 'range') {
         updates[id] = parseFloat(element.value);
       }
+    } else if (element instanceof HTMLSelectElement) {
+      if (id === 'voiceQuality') {
+        updates.voiceBitrate = parseInt(element.value, 10);
+      } else if (id === 'latencyHint') {
+        updates.latencyHint = element.value;
+      }
     }
 
     this.deps.state.updateSettings(updates);
@@ -561,8 +611,16 @@ export class SettingsController {
       if (this.deps.elements.outputVolVal) {
         this.deps.elements.outputVolVal.textContent = `${Math.round((updates[id] as number) * 100)}%`;
       }
-    } else if (['echoCancel', 'noiseSuppression', 'autoGain'].includes(id)) {
+    } else if (id === 'vadThreshold') {
+      if (this.deps.elements.vadThresholdVal) {
+        this.deps.elements.vadThresholdVal.textContent = this.formatVadThreshold(updates[id] as number);
+      }
+      // VAD threshold will be picked up by VoiceService via state change
+    } else if (['echoCancel', 'noiseSuppression', 'autoGain', 'latencyHint'].includes(id)) {
       await this.deps.audio.updateSettings(updates);
+    } else if (id === 'voiceQuality' || id === 'dtx') {
+      // Voice quality settings handled in App.ts via VoiceService
+      // These will be picked up by the state manager and applied to voice service
     }
   }
 }

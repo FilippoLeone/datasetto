@@ -65,7 +65,7 @@ export class AudioService extends EventEmitter {
       try {
         this.audioContext = new AudioContextCtor({
           sampleRate: TARGET_SAMPLE_RATE,
-          latencyHint: 'interactive',
+          latencyHint: this.settings.latencyHint,
         } as AudioContextOptions);
       } catch (error) {
         if (import.meta.env.DEV) {
@@ -362,7 +362,8 @@ export class AudioService extends EventEmitter {
     const constraintsChanged = 
       settings.echoCancel !== undefined ||
       settings.noiseSuppression !== undefined ||
-      settings.autoGain !== undefined;
+      settings.autoGain !== undefined ||
+      settings.latencyHint !== undefined;
 
     if ((deviceChanged || constraintsChanged) && this.localStream) {
       await this.getLocalStream(true);

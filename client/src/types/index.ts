@@ -117,6 +117,10 @@ export interface AudioSettings {
   pttKey: string;
   micDeviceId?: string;
   spkDeviceId?: string;
+  voiceBitrate: number; // Opus bitrate in bps (32000, 64000, 96000, 128000)
+  dtx: boolean; // Discontinuous transmission (saves bandwidth when silent)
+  latencyHint: 'interactive' | 'balanced' | 'playback'; // Audio latency mode
+  vadThreshold: number; // Voice activity detection threshold (0.01-0.2)
 }
 
 export interface AppState {

@@ -26,6 +26,10 @@ const DEFAULT_SETTINGS: AudioSettings = {
   outputVol: 1,
   pttEnable: false,
   pttKey: '',
+  voiceBitrate: 128000, // 128kbps - studio quality
+  dtx: true, // Discontinuous transmission on to save bandwidth
+  latencyHint: 'interactive', // Lowest latency for real-time chat
+  vadThreshold: 0.07, // Voice activity detection threshold
 };
 
 const DEFAULT_STATE: AppState = {
