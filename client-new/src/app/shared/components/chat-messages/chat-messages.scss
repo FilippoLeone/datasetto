@@ -14,19 +14,18 @@ $interactive-muted: #4e5058;
 $modifier-hover: rgba(79, 84, 92, 0.16);
 
 :host {
-  display: flex;
-  flex-direction: column;
+  display: block;
   flex: 1 1 auto;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
 .chat-messages {
-  flex: 1 1 auto;
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
-  min-height: 0;
 
   // Custom scrollbar
   scrollbar-width: thin;

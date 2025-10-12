@@ -20,11 +20,13 @@
   position: relative;
   transition: transform 200ms ease-in-out;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
 }
 
 .sidebar-header {
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: var(--z-sticky);
 }
 
@@ -128,9 +130,11 @@
 
 /* User Area */
 .user-area {
-  position: sticky;
-  bottom: 0;
+  flex-shrink: 0;
+  margin-top: auto;
   z-index: var(--z-sticky);
+  padding: 20px;
+  background-color: #282624;
 }
 
 /* Mobile Responsive */
