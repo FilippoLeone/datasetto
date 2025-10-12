@@ -3,8 +3,8 @@ FROM alfg/nginx-rtmp:latest
 # Install wget for health checks
 RUN apk add --no-cache wget
 
-# Copy our custom nginx configuration
-COPY nginx.dev.conf /etc/nginx/nginx.conf.custom
+# Copy our low-latency nginx configuration
+COPY nginx.lowlatency.conf /etc/nginx/nginx.conf.custom
 
 # Test nginx configuration
 RUN nginx -c /etc/nginx/nginx.conf.custom -t

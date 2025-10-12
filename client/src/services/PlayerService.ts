@@ -63,9 +63,32 @@ export class PlayerService {
     // Check if HLS.js is supported
     if (Hls.isSupported()) {
       this.hls = new Hls({
-        maxLiveSyncPlaybackRate: 1.5,
-        enableWorker: true,
+        // Low-latency configuration
         lowLatencyMode: true,
+        backBufferLength: 90,             // Keep minimal back buffer (90s)
+        
+        // Live sync configuration
+        liveSyncDurationCount: 2,         // Target 2 segments from live edge (was 3 default)
+        liveMaxLatencyDurationCount: 4,   // Max 4 segments behind (was 10 default)
+        liveDurationInfinity: true,       // Handle infinite live streams
+        highBufferWatchdogPeriod: 1,      // Check buffer every 1s (was 2s)
+        
+        // Playback optimization
+        maxLiveSyncPlaybackRate: 1.5,     // Allow 1.5x speed to catch up
+        maxMaxBufferLength: 20,           // Max buffer 20s (was 600s)
+        maxBufferSize: 30 * 1000 * 1000,  // 30MB buffer limit
+        maxBufferLength: 10,              // Target 10s buffer (was 30s)
+        
+        // Network optimization
+        enableWorker: true,
+        maxFragLookUpTolerance: 0.1,      // Tight fragment lookup
+        manifestLoadingTimeOut: 10000,    // 10s manifest timeout
+        manifestLoadingMaxRetry: 3,
+        levelLoadingTimeOut: 10000,       // 10s level timeout
+        fragLoadingTimeOut: 20000,        // 20s fragment timeout
+        
+        // Start position
+        startPosition: -1,                // Start from live edge
       });
 
       this.hls.loadSource(m3u8Url);
