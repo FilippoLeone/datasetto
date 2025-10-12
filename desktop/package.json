@@ -5,7 +5,11 @@
   "private": true,
   "author": "Datasetto",
   "main": "main.js",
-  "license": "MIT",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FilippoLeone/datasetto.git"
+  },
   "scripts": {
     "dev": "concurrently \"npm:dev:client\" \"npm:dev:electron\"",
     "dev:client": "npm run dev --prefix ../client",
@@ -33,6 +37,7 @@
     "artifactName": "Datasetto-${version}-${os}-${arch}.${ext}",
     "compression": "normal",
     "npmRebuild": false,
+    "publish": null,
     "files": [
       "main.js",
       "preload.js",

@@ -32,7 +32,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -89,8 +89,11 @@ jobs:
           path: mobile/android/app/build/outputs/apk/release/datasetto-android-*-unsigned.apk
 
   # Build iOS IPA (requires macOS runner)
+  # DISABLED: Requires Apple Developer account and code signing certificates
+  # Uncomment this job if you have Apple Developer setup
   build-ios:
-    name: Build iOS IPA
+    if: false  # Disabled - requires Apple Developer account
+    name: Build iOS IPA (Disabled)
     runs-on: macos-latest
     steps:
       - name: Checkout code
@@ -271,7 +274,7 @@ jobs:
   # Upload all artifacts to release
   upload-to-release:
     name: Upload to Release
-    needs: [build-android, build-ios, build-desktop]
+    needs: [build-android, build-desktop]  # iOS removed since it's disabled
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     steps:
@@ -290,13 +293,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload iOS IPA to release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: artifacts/ios-ipa/*.ipa
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
+      # iOS upload removed - build is disabled (requires Apple Developer account)
 
       - name: Upload Desktop builds to release
         uses: softprops/action-gh-release@v1
