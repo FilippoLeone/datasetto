@@ -9,7 +9,7 @@ COPY nginx.lowlatency.conf /etc/nginx/nginx.conf.custom
 # Test nginx configuration using a temporary config with local backend placeholder
 RUN cp /etc/nginx/nginx.conf.custom /tmp/nginx.conf.test \
 	&& sed -i 's/backend-server/127.0.0.1/g' /tmp/nginx.conf.test \
-	&& nginx -c /tmp/nginx.conf.test -t \
+	&& nginx -p /etc/nginx -c /tmp/nginx.conf.test -t \
 	&& rm /tmp/nginx.conf.test
 
 # Override the entrypoint to use our config
