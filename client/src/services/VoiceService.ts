@@ -528,13 +528,8 @@ export class VoiceService extends EventEmitter<EventMap> {
       this.peers.set(peerId, pc);
     }
 
-    // Add local tracks
-    if (this.localStream) {
-      for (const track of this.localStream.getAudioTracks()) {
-        const sender = pc.addTrack(track, this.localStream);
-        this.applySenderQualityHints(sender);
-      }
-    }
+    // Ensure local audio track is attached without duplicating senders
+    await this.replaceAudioTrack(peerId, pc);
 
     try {
       await this.createAndSendOffer(peerId, pc);
@@ -561,12 +556,8 @@ export class VoiceService extends EventEmitter<EventMap> {
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
-      if (this.localStream) {
-        for (const track of this.localStream.getAudioTracks()) {
-          const sender = pc.addTrack(track, this.localStream);
-          this.applySenderQualityHints(sender);
-        }
-      }
+      // Reuse existing sender when renegotiating to avoid InvalidAccessError
+      await this.replaceAudioTrack(peerId, pc);
 
       const answer = await pc.createAnswer();
       const enhancedAnswer = this.enhanceOpusSdp(answer);

@@ -353,7 +353,7 @@ export class ChannelController {
 
     const channels = this.deps.state.get('channels');
     const channel = channels.find((ch) => ch.id === channelId);
-    if (!channel || (channel.type !== 'text' && channel.type !== 'stream')) {
+    if (!channel || channel.type !== 'text') {
       return;
     }
 
@@ -372,7 +372,11 @@ export class ChannelController {
   }
 
   private pruneUnreadCounts(channels: Channel[]): void {
-    const validIds = new Set(channels.map((ch) => ch.id));
+    const validIds = new Set(
+      channels
+        .filter((ch) => ch.type === 'text')
+        .map((ch) => ch.id)
+    );
 
     for (const channelId of Array.from(this.unreadCounts.keys())) {
       if (!validIds.has(channelId)) {
@@ -391,7 +395,17 @@ export class ChannelController {
   }
 
   private decorateChannelUnread(item: HTMLElement, channelId: string): void {
+    const channelType = item.getAttribute('data-type');
+    const isTextChannel = channelType === 'text';
     const unread = this.unreadCounts.get(channelId) ?? 0;
+
+    if (!isTextChannel) {
+      item.classList.remove('has-unread');
+      const existing = item.querySelector('.channel-unread-badge');
+      existing?.remove();
+      return;
+    }
+
     item.classList.toggle('has-unread', unread > 0);
 
     let badge = item.querySelector('.channel-unread-badge') as HTMLElement | null;

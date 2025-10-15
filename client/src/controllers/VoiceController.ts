@@ -8,6 +8,8 @@ import { createSpinnerWithText } from '@/components/feedback/Spinner';
 
 const LOCAL_SPEAKING_THRESHOLD = 0.08;
 const LOCAL_SPEAKING_RELEASE_MS = 300;
+const VOICE_JOIN_TIMEOUT_MS = 10_000;
+const VOICE_SESSION_CLOCK_TOLERANCE_MS = 120_000;
 
 interface PendingVoiceJoin {
   id: string;
@@ -30,6 +32,7 @@ export class VoiceController {
   private micRecoveryTimeout: number | null = null;
   private appActive = true;
   private pendingMicRecoverySource: 'stream-interrupted' | 'app-resume' | null = null;
+  private voiceJoinTimeoutHandle: number | null = null;
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps;
@@ -52,6 +55,7 @@ export class VoiceController {
   dispose(): void {
     this.clearVoiceSessionTimer();
     this.clearVoiceChannelTimer();
+    this.clearVoiceJoinTimeout();
 
     if (this.micRecoveryTimeout !== null) {
       window.clearTimeout(this.micRecoveryTimeout);
@@ -154,10 +158,11 @@ export class VoiceController {
       }
 
       if (import.meta.env.DEV) {
-        console.log('­ƒÄñ Joining voice channel:', channelName);
+        console.log('Joining voice channel:', channelName);
       }
 
       this.pendingVoiceJoin = { id: channelId, name: channelName };
+  this.startVoiceJoinTimeout(channelId, channelName);
 
       this.voiceUsers.clear();
       this.renderVoiceUsers();
@@ -235,6 +240,7 @@ export class VoiceController {
 
   handleServerError(code: string): void {
     if (code === 'VOICE_JOIN_FAILED') {
+      this.clearVoiceJoinTimeout();
       this.resetVoiceState();
     }
   }
@@ -248,13 +254,17 @@ export class VoiceController {
     const channel = channels.find((ch) => ch.id === data.channelId);
     const channelName = channel?.name || this.pendingVoiceJoin?.name || data.channelId;
 
+    this.clearVoiceJoinTimeout();
     this.pendingVoiceJoin = null;
 
     this.deps.state.setActiveVoiceChannel(data.channelId, channelName);
     this.deps.state.setVoiceConnected(true);
 
     const sessionId = data.sessionId ?? null;
-    this.startVoiceSessionTimer(data.startedAt ?? null, sessionId);
+    const hasRemotePeers = Array.isArray(data.peers) && data.peers.length > 0;
+    this.startVoiceSessionTimer(data.startedAt ?? null, sessionId, {
+      preferNow: !hasRemotePeers,
+    });
 
     await this.syncMicrophoneState();
     this.announceVoiceState();
@@ -288,6 +298,9 @@ export class VoiceController {
       await this.deps.voice.createOffer(data.id);
     } catch (error) {
       console.error('Error creating offer:', error);
+      this.voiceUsers.delete(data.id);
+      this.deps.voice.removePeer(data.id);
+      this.renderVoiceUsers();
     }
   }
 
@@ -1122,8 +1135,12 @@ export class VoiceController {
     this.updateVoiceGallerySpeakingState(userId, speaking);
   }
 
-  private startVoiceSessionTimer(startedAt: number | null | undefined, sessionId: string | null): void {
-    const startTime = this.sanitizeCallTimestamp(startedAt) ?? Date.now();
+  private startVoiceSessionTimer(
+    startedAt: number | null | undefined,
+    sessionId: string | null,
+    options: { preferNow?: boolean } = {}
+  ): void {
+    const startTime = this.resolveVoiceSessionStart(startedAt, options.preferNow ?? false);
 
     this.clearVoiceSessionTimer();
 
@@ -1165,11 +1182,20 @@ export class VoiceController {
     }
 
     const drift = now - timestamp;
-    if (drift >= 0 && drift < 60_000) {
+    if (drift >= 0 && drift < VOICE_SESSION_CLOCK_TOLERANCE_MS) {
       return now;
     }
 
     return timestamp;
+  }
+
+  private resolveVoiceSessionStart(raw: number | null | undefined, preferNow: boolean): number {
+    if (preferNow) {
+      return Date.now();
+    }
+
+    const sanitized = this.sanitizeCallTimestamp(raw);
+    return sanitized ?? Date.now();
   }
 
   private updateVoiceSessionTimerDisplay(): void {
@@ -1324,6 +1350,7 @@ export class VoiceController {
       this.deps.soundFX.play('disconnect', 0.7);
     }
 
+    this.clearVoiceJoinTimeout();
     this.clearVoiceSessionTimer();
     this.clearVoiceChannelTimer();
 
@@ -1438,6 +1465,34 @@ export class VoiceController {
       if (comboLabel) {
         comboLabel.textContent = bothMuted ? 'Restore All' : 'Mute All';
       }
+    }
+  }
+
+  private startVoiceJoinTimeout(channelId: string, channelName: string): void {
+    this.clearVoiceJoinTimeout();
+
+    this.voiceJoinTimeoutHandle = window.setTimeout(() => {
+      this.voiceJoinTimeoutHandle = null;
+
+      if (!this.pendingVoiceJoin || this.pendingVoiceJoin.id !== channelId) {
+        return;
+      }
+
+      if (import.meta.env.DEV) {
+        console.warn(`[VoiceController] Voice join timed out for ${channelName} (${channelId})`);
+      }
+
+      this.pendingVoiceJoin = null;
+      this.resetVoiceState();
+      this.deps.notifications.error(`Unable to connect to voice in ${channelName}. Please try again.`);
+      this.deps.soundFX.play('error', 0.6);
+    }, VOICE_JOIN_TIMEOUT_MS);
+  }
+
+  private clearVoiceJoinTimeout(): void {
+    if (this.voiceJoinTimeoutHandle !== null) {
+      window.clearTimeout(this.voiceJoinTimeoutHandle);
+      this.voiceJoinTimeoutHandle = null;
     }
   }
 }

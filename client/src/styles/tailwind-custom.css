@@ -742,13 +742,18 @@
   }
 
   .channel-unread-badge {
-    @apply ml-2 px-2 py-0.5 rounded-full font-semibold;
-  background: rgba(15, 164, 165, 0.32);
-    color: var(--color-text-bright);
-    font-size: 0.7rem;
-    line-height: 1.2;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    @apply ml-2 rounded-full font-semibold;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.4rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-danger);
+    color: #fff;
+    font-size: 0.65rem;
+    line-height: 1;
+    letter-spacing: 0.02em;
   }
 
   .channel-timer {
