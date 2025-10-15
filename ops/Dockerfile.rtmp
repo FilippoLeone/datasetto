@@ -6,8 +6,13 @@ RUN apk add --no-cache wget
 # Copy our low-latency nginx configuration
 COPY nginx.lowlatency.conf /etc/nginx/nginx.conf.custom
 
-# Test nginx configuration
-RUN nginx -c /etc/nginx/nginx.conf.custom -t
+# Test nginx configuration (inject temporary host aliases for docker services)
+RUN sh -c "\
+	printf '127.0.0.1 backend-server\n127.0.0.1 server\n' >> /etc/hosts && \
+	nginx -c /etc/nginx/nginx.conf.custom -t && \
+	sed -i '/127.0.0.1 backend-server/d' /etc/hosts && \
+	sed -i '/127.0.0.1 server/d' /etc/hosts \
+"
 
 # Override the entrypoint to use our config
 CMD ["nginx", "-c", "/etc/nginx/nginx.conf.custom", "-g", "daemon off;"]

@@ -15,7 +15,7 @@ function createDefaultPermissions() {
     view: { roles: [ALL_ROLES], accounts: [] },
     chat: { roles: [ALL_ROLES], accounts: [] },
     voice: { roles: [ALL_ROLES], accounts: [] },
-    stream: { roles: ['admin', 'streamer'], accounts: [] },
+    stream: { roles: [ALL_ROLES], accounts: [] },
     manage: { roles: ['admin'], accounts: [] },
   };
 }
@@ -118,6 +118,18 @@ export class ChannelManager {
       PERMISSION_ACTIONS.forEach((action) => {
         permissions[action].roles = ['superuser'];
       });
+    }
+
+    const streamRoles = permissions.stream?.roles || [];
+    const streamAccounts = permissions.stream?.accounts || [];
+    const legacyStreamRoleSet = new Set(streamRoles.map((role) => role.toLowerCase()));
+    if (
+      streamAccounts.length === 0 &&
+      legacyStreamRoleSet.size === 2 &&
+      legacyStreamRoleSet.has('admin') &&
+      legacyStreamRoleSet.has('streamer')
+    ) {
+      permissions.stream.roles = [ALL_ROLES];
     }
 
     return permissions;
