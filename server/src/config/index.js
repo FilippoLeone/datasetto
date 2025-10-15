@@ -70,6 +70,8 @@ export const appConfig = {
     rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
     maxConnectionsPerIp: parseInt(process.env.MAX_CONNECTIONS_PER_IP || '50', 10),
     passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8', 10),
+    streamAuthWindowMs: parseInt(process.env.STREAM_AUTH_WINDOW_MS || '60000', 10),
+    streamAuthMaxAttempts: parseInt(process.env.STREAM_AUTH_MAX_ATTEMPTS || '20', 10),
   },
 
   // Channel limits

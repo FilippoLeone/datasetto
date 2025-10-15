@@ -80,6 +80,9 @@ export interface Channel {
   groupId?: string | null;
   streamKey?: string;
   isLive?: boolean;
+  liveStartedAt?: number | null;
+  liveDisplayName?: string | null;
+  liveAccountId?: string | null;
   voiceStartedAt?: number | null;
   voiceSessionId?: string | null;
   permissions?: ChannelPermissions;

@@ -13,7 +13,7 @@ import { dirname, join } from 'path';
 // Configuration and utilities
 import { appConfig, ROLES } from './config/index.js';
 import logger from './utils/logger.js';
-import { formatError, getClientIp } from './utils/helpers.js';
+import { formatError, getClientIp, checkRateLimit, cleanupRateLimitStore } from './utils/helpers.js';
 
 // Models/Managers
 import channelManager from './models/ChannelManager.js';
@@ -28,9 +28,110 @@ const __dirname = dirname(__filename);
 // Initialize Express app
 const app = express();
 
+const streamAuthRateStore = new Map();
+const streamAuthCleanupHandle = setInterval(
+  () => cleanupRateLimitStore(streamAuthRateStore),
+  appConfig.security.streamAuthWindowMs,
+);
+streamAuthCleanupHandle.unref?.();
+
 const normalizeOrigin = (value = '') => value.replace(/\/$/, '').toLowerCase();
 const allowedOrigins = new Set(appConfig.cors.origins.map(normalizeOrigin));
 const allowAllOrigins = allowedOrigins.has('*');
+
+const pickFirstString = (...values) => {
+  for (const value of values) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      const nested = pickFirstString(...value);
+      if (nested) {
+        return nested;
+      }
+      continue;
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    } else if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
+      return String(value);
+    }
+  }
+
+  return '';
+};
+
+const parseStreamAuthRequest = (req) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const query = req.query && typeof req.query === 'object' ? req.query : {};
+
+  const argsString = pickFirstString(body.args, query.args);
+  const args = new URLSearchParams(typeof argsString === 'string' ? argsString : '');
+
+  const channelName = pickFirstString(
+    query.channel,
+    body.channel,
+    body.name,
+    query.name,
+    args.get('channel'),
+    args.get('name'),
+  );
+
+  const username = pickFirstString(
+    body.username,
+    body.user,
+    query.username,
+    query.user,
+    args.get('username'),
+    args.get('user'),
+  );
+
+  const password = pickFirstString(
+    body.password,
+    body.pass,
+    body.pswd,
+    query.password,
+    query.pass,
+    args.get('password'),
+    args.get('pass'),
+  );
+
+  const clientId = pickFirstString(
+    body.clientid,
+    body.clientId,
+    query.clientid,
+    query.clientId,
+    args.get('clientid'),
+    args.get('clientId'),
+  );
+
+  const requestIp = pickFirstString(
+    query.ip,
+    body.ip,
+    body.addr,
+    args.get('ip'),
+    req.headers['cf-connecting-ip'],
+    req.headers['x-real-ip'],
+    req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0] : '',
+  ) || req.ip;
+
+  const appName = pickFirstString(body.app, query.app, args.get('app'));
+
+  return {
+    channelName,
+    username,
+    password,
+    clientId,
+    ip: requestIp,
+    appName,
+    args: Object.fromEntries(args.entries()),
+  };
+};
 
 // Middleware
 app.use(cors({
@@ -122,6 +223,150 @@ app.get('/api/stream/:channelName/status', (req, res) => {
     logger.error(`Stream status error: ${error.message}`);
     res.status(500).json({ error: 'Failed to check stream status', isLive: false });
   }
+});
+
+app.post('/api/stream/auth', async (req, res) => {
+  const { channelName, username, password, clientId, ip } = parseStreamAuthRequest(req);
+
+  if (!channelName || !username || !password) {
+    logger.warn('Stream auth missing required fields', { channelName, usernamePresent: Boolean(username) });
+    return res.status(400).json({
+      allowed: false,
+      code: 'STREAM_AUTH_INVALID',
+      message: 'Missing channel name or credentials',
+    });
+  }
+
+  const rateKey = `${ip || 'unknown'}:${username.toLowerCase()}`;
+  const allowed = checkRateLimit(
+    streamAuthRateStore,
+    rateKey,
+    appConfig.security.streamAuthMaxAttempts,
+    appConfig.security.streamAuthWindowMs,
+  );
+
+  if (!allowed) {
+    logger.warn('Stream auth rate limit exceeded', { channelName, username, ip });
+    return res.status(429).json({
+      allowed: false,
+      code: 'STREAM_AUTH_RATE_LIMITED',
+      message: 'Too many authentication attempts',
+    });
+  }
+
+  try {
+    const account = await accountManager.authenticate(username, password);
+    const channel = channelManager.getChannelByName(channelName);
+
+    if (!channel || channel.type !== 'stream') {
+      logger.warn('Stream auth failed: channel not stream-capable', { channelName, username: account.username });
+      return res.status(403).json({
+        allowed: false,
+        code: 'STREAM_AUTH_CHANNEL_INVALID',
+        message: 'Channel is not available for streaming',
+      });
+    }
+
+    const pseudoUser = {
+      id: account.id,
+      accountId: account.id,
+      username: account.username,
+      displayName: account.displayName,
+      roles: Array.isArray(account.roles) ? account.roles : ['user'],
+      isSuperuser: Array.isArray(account.roles) ? account.roles.includes('superuser') : false,
+    };
+
+    if (!channelManager.canAccess(channel, pseudoUser, 'stream')) {
+      logger.warn('Stream auth failed: insufficient permissions', { channelName, username: account.username });
+      return res.status(403).json({
+        allowed: false,
+        code: 'STREAM_AUTH_FORBIDDEN',
+        message: 'You are not allowed to stream to this channel',
+      });
+    }
+
+    try {
+      const activeStream = channelManager.startStream(channel.id, {
+        accountId: account.id,
+        username: account.username,
+        displayName: account.displayName,
+        clientId: clientId || null,
+        sourceIp: ip || null,
+      });
+
+      broadcastChannels();
+
+      logger.info('Stream authenticated successfully', {
+        channelId: channel.id,
+        channelName,
+        accountId: account.id,
+        username: account.username,
+        clientId: clientId || null,
+      });
+
+      return res.status(200).json({
+        allowed: true,
+        channelId: channel.id,
+        channel: channelName,
+        startedAt: activeStream.startedAt,
+      });
+    } catch (error) {
+      if (error && error.message === 'Channel already has an active stream') {
+        logger.warn('Stream auth denied: channel already live', { channelName, username: account.username });
+        return res.status(409).json({
+          allowed: false,
+          code: 'STREAM_ALREADY_LIVE',
+          message: 'Channel already has an active stream',
+        });
+      }
+
+      throw error;
+    }
+  } catch (error) {
+    if (error && typeof error.message === 'string' && error.message.toLowerCase().includes('invalid credentials')) {
+      logger.warn('Stream auth failed: invalid credentials', { channelName, username });
+      return res.status(403).json({
+        allowed: false,
+        code: 'STREAM_AUTH_INVALID_CREDENTIALS',
+        message: 'Invalid username or password',
+      });
+    }
+
+    logger.error(`Stream auth error: ${error.message}`, { channelName, username });
+    return res.status(500).json({
+      allowed: false,
+      code: 'STREAM_AUTH_ERROR',
+      message: 'Failed to validate stream authentication',
+    });
+  }
+});
+
+app.post('/api/stream/end', (req, res) => {
+  const { channelName, clientId } = parseStreamAuthRequest(req);
+
+  if (!channelName) {
+    return res.status(200).json({ released: false, reason: 'missing channel' });
+  }
+
+  const channel = channelManager.getChannelByName(channelName);
+  if (!channel || channel.type !== 'stream') {
+    return res.status(200).json({ released: false, reason: 'invalid channel' });
+  }
+
+  if (!channel.activeStream) {
+    return res.status(200).json({ released: false, reason: 'not live' });
+  }
+
+  channelManager.endStream(channel.id, { clientId: clientId || null });
+  broadcastChannels();
+
+  logger.info('Stream ended', {
+    channelId: channel.id,
+    channelName,
+    clientId: clientId || null,
+  });
+
+  return res.status(200).json({ released: true });
 });
 
 // Create HTTP server

@@ -3,7 +3,7 @@
  * Handles all channel-related operations
  */
 
-import { generateId, generateStreamKey, validateChannelName, isValidChannelType } from '../utils/helpers.js';
+import { generateId, validateChannelName, isValidChannelType } from '../utils/helpers.js';
 import { appConfig } from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -218,7 +218,7 @@ export class ChannelManager {
       }
 
       const id = `channel-${generateId()}`;
-      const streamKey = type === 'stream' ? generateStreamKey(nameValidation.value) : null;
+  const streamKey = type === 'stream' ? nameValidation.value : null;
 
       const channel = {
         id,
@@ -232,6 +232,7 @@ export class ChannelManager {
         streamKey,
         permissions: this.normalizePermissions(permissions, type),
         isLive: false,
+        activeStream: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -350,9 +351,9 @@ export class ChannelManager {
       throw new Error('Channel is not a stream channel');
     }
 
-    channel.streamKey = generateStreamKey(channel.name);
+    channel.streamKey = channel.name;
     channel.updatedAt = Date.now();
-    logger.info(`Stream key regenerated for: ${channel.name}`, { channelId });
+    logger.info(`Stream key reset to channel name for: ${channel.name}`, { channelId });
 
     return channel.streamKey;
   }
@@ -565,6 +566,10 @@ export class ChannelManager {
       throw new Error('Channel not found');
     }
 
+    if (channel.isLive === isLive) {
+      return channel;
+    }
+
     channel.isLive = isLive;
     channel.updatedAt = Date.now();
 
@@ -575,6 +580,79 @@ export class ChannelManager {
     }
 
     return channel;
+  }
+
+  startStream(channelId, streamInfo = {}) {
+    const channel = this.getChannel(channelId);
+    if (!channel) {
+      throw new Error('Channel not found');
+    }
+
+    if (channel.type !== 'stream') {
+      throw new Error('Channel is not configured for streaming');
+    }
+
+    const existing = channel.activeStream;
+    const incomingAccount = streamInfo.accountId || null;
+    if (existing && existing.accountId && existing.accountId !== incomingAccount) {
+      throw new Error('Channel already has an active stream');
+    }
+
+    const sessionId = `stream-${generateId(16)}`;
+
+    channel.activeStream = {
+      sessionId,
+      accountId: streamInfo.accountId || null,
+      username: streamInfo.username || null,
+      displayName: streamInfo.displayName || null,
+      clientId: streamInfo.clientId || null,
+      sourceIp: streamInfo.sourceIp || null,
+      startedAt: Date.now(),
+      metadata: streamInfo.metadata || null,
+    };
+
+    channel.updatedAt = Date.now();
+
+    this.setChannelLiveStatus(channelId, true);
+    return channel.activeStream;
+  }
+
+  endStream(channelId, match = {}) {
+    const channel = this.getChannel(channelId);
+    if (!channel) {
+      throw new Error('Channel not found');
+    }
+
+    if (channel.type !== 'stream') {
+      throw new Error('Channel is not configured for streaming');
+    }
+
+    const { clientId, sessionId, accountId } = match;
+    const active = channel.activeStream;
+
+    if (active) {
+      const matchesClient = clientId && active.clientId && clientId === active.clientId;
+      const matchesSession = sessionId && active.sessionId && sessionId === active.sessionId;
+      const matchesAccount = accountId && active.accountId && accountId === active.accountId;
+
+      if (!clientId && !sessionId && !accountId) {
+        logger.warn(`Ending stream for ${channel.name} without match data`, { channelId });
+      } else if (!(matchesClient || matchesSession || matchesAccount)) {
+        logger.warn(`Stream end request did not match active stream`, {
+          channelId,
+          expected: {
+            clientId: active.clientId,
+            sessionId: active.sessionId,
+            accountId: active.accountId,
+          },
+          received: { clientId, sessionId, accountId },
+        });
+      }
+    }
+
+    channel.activeStream = null;
+    this.setChannelLiveStatus(channelId, false);
+    return true;
   }
 
   /**
@@ -668,6 +746,9 @@ export class ChannelManager {
         : channel.users.size,
       streamKey: channel.streamKey, // Only expose to authorized users
       isLive: channel.isLive,
+      liveStartedAt: channel.activeStream ? channel.activeStream.startedAt : null,
+      liveAccountId: channel.activeStream ? channel.activeStream.accountId : null,
+      liveDisplayName: channel.activeStream ? channel.activeStream.displayName : null,
       permissions: clonePermissions(channel.permissions),
       createdAt: channel.createdAt,
       updatedAt: channel.updatedAt,
@@ -689,6 +770,8 @@ export class ChannelManager {
         ? (channel.voiceUsers ? channel.voiceUsers.size : 0)
         : channel.users.size,
       isLive: channel.isLive,
+      liveStartedAt: channel.activeStream ? channel.activeStream.startedAt : null,
+      liveDisplayName: channel.activeStream ? channel.activeStream.displayName : null,
       voiceStartedAt: channel.type === 'voice' ? channel.voiceStartedAt ?? null : null,
       voiceSessionId: channel.type === 'voice' ? channel.voiceSessionId ?? null : null,
       ...(includeStreamKeys && channel.streamKey && { streamKey: channel.streamKey }),
