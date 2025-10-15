@@ -9,7 +9,8 @@ COPY nginx.lowlatency.conf /etc/nginx/nginx.conf.custom
 # Test nginx configuration using a temporary config with local backend placeholder
 RUN cp /etc/nginx/nginx.conf.custom /tmp/nginx.conf.test \
 	&& sed -i 's/backend-server/127.0.0.1/g' /tmp/nginx.conf.test \
-	&& nginx -p /etc/nginx -c /tmp/nginx.conf.test -t \
+	&& sed -i 's|include mime.types;|include /etc/nginx/mime.types;|' /tmp/nginx.conf.test \
+	&& nginx -g 'error_log stderr notice;' -c /tmp/nginx.conf.test -t \
 	&& rm /tmp/nginx.conf.test
 
 # Override the entrypoint to use our config
