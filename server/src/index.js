@@ -39,12 +39,36 @@ const normalizeOrigin = (value = '') => value.replace(/\/$/, '').toLowerCase();
 const allowedOrigins = new Set(appConfig.cors.origins.map(normalizeOrigin));
 const allowAllOrigins = allowedOrigins.has('*');
 
-const pickFirstString = (...values) => {
-  for (const value of values) {
-    if (value === undefined || value === null) {
-      continue;
+const PLACEHOLDER_PATTERN = /^\$[A-Za-z0-9_]+$/;
+
+const normalizeCandidate = (value) => {
+  if (value === undefined || value === null) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+
+    if (!trimmed || trimmed === 'undefined' || trimmed === 'null') {
+      return '';
     }
 
+    if (PLACEHOLDER_PATTERN.test(trimmed)) {
+      return '';
+    }
+
+    return trimmed;
+  }
+
+  if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return '';
+};
+
+const pickFirstString = (...values) => {
+  for (const value of values) {
     if (Array.isArray(value)) {
       const nested = pickFirstString(...value);
       if (nested) {
@@ -53,17 +77,58 @@ const pickFirstString = (...values) => {
       continue;
     }
 
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (trimmed.length > 0) {
-        return trimmed;
-      }
-    } else if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
-      return String(value);
+    const candidate = normalizeCandidate(value);
+    if (candidate) {
+      return candidate;
     }
   }
 
   return '';
+};
+
+const extractCredentialsFromUrl = (rawUrl = '') => {
+  const trimmed = normalizeCandidate(rawUrl);
+  if (!trimmed) {
+    return { username: '', password: '' };
+  }
+
+  try {
+    const normalized = trimmed.replace(/^rtmps?:\/\//i, 'http://');
+    const parsed = new URL(normalized);
+    const username = normalizeCandidate(decodeURIComponent(parsed.username || ''));
+    const password = normalizeCandidate(decodeURIComponent(parsed.password || ''));
+    return { username, password };
+  } catch (error) {
+    logger.debug('Failed to parse auth from tcurl', { rawUrl: trimmed, error: error?.message });
+    return { username: '', password: '' };
+  }
+};
+
+const extractCredentialsFromHeader = (headerValue = '') => {
+  if (typeof headerValue !== 'string') {
+    return { username: '', password: '' };
+  }
+
+  const value = headerValue.trim();
+  if (!value.toLowerCase().startsWith('basic ')) {
+    return { username: '', password: '' };
+  }
+
+  try {
+    const decoded = Buffer.from(value.slice(6), 'base64').toString('utf8');
+    const separatorIndex = decoded.indexOf(':');
+
+    if (separatorIndex === -1) {
+      return { username: '', password: '' };
+    }
+
+    const username = normalizeCandidate(decoded.slice(0, separatorIndex));
+    const password = normalizeCandidate(decoded.slice(separatorIndex + 1));
+    return { username, password };
+  } catch (error) {
+    logger.debug('Failed to parse credentials from Authorization header', { error: error?.message });
+    return { username: '', password: '' };
+  }
 };
 
 const parseStreamAuthRequest = (req) => {
@@ -82,7 +147,7 @@ const parseStreamAuthRequest = (req) => {
     args.get('name'),
   );
 
-  const username = pickFirstString(
+  let username = pickFirstString(
     body.username,
     body.user,
     query.username,
@@ -91,7 +156,7 @@ const parseStreamAuthRequest = (req) => {
     args.get('user'),
   );
 
-  const password = pickFirstString(
+  let password = pickFirstString(
     body.password,
     body.pass,
     body.pswd,
@@ -109,6 +174,36 @@ const parseStreamAuthRequest = (req) => {
     args.get('clientid'),
     args.get('clientId'),
   );
+
+  const tcUrl = pickFirstString(
+    body.tcurl,
+    body.tcUrl,
+    query.tcurl,
+    query.tcUrl,
+    args.get('tcurl'),
+    args.get('tcUrl'),
+  );
+
+  if (!username || !password) {
+    const fromTcurl = extractCredentialsFromUrl(tcUrl);
+    if (!username && fromTcurl.username) {
+      username = fromTcurl.username;
+    }
+    if (!password && fromTcurl.password) {
+      password = fromTcurl.password;
+    }
+  }
+
+  if (!username || !password) {
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+    const fromHeader = extractCredentialsFromHeader(authHeader);
+    if (!username && fromHeader.username) {
+      username = fromHeader.username;
+    }
+    if (!password && fromHeader.password) {
+      password = fromHeader.password;
+    }
+  }
 
   const requestIp = pickFirstString(
     query.ip,
@@ -129,6 +224,7 @@ const parseStreamAuthRequest = (req) => {
     clientId,
     ip: requestIp,
     appName,
+    tcUrl,
     args: Object.fromEntries(args.entries()),
   };
 };

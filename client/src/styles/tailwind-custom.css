@@ -1609,6 +1609,10 @@
     display: none;
   }
 
+  .main-content.voice-mode .stream-layout {
+    display: none;
+  }
+
   .voice-gallery {
     --voice-gallery-avatar-size: clamp(72px, 12vw, 96px);
     --voice-gallery-name-size: clamp(0.9rem, 1.6vw, 1.05rem);
