@@ -1578,7 +1578,7 @@ io.on('connection', (socket) => {
   socket.on('voice:game:start', (payload = {}) => {
     try {
       const channelId = ensureVoiceGameAccess();
-      const type = typeof payload.type === 'string' ? payload.type : 'snake';
+  const type = typeof payload.type === 'string' ? payload.type : 'slither';
       minigameManager.startGame({
         channelId,
         hostId: socket.id,
@@ -1627,11 +1627,13 @@ io.on('connection', (socket) => {
   socket.on('voice:game:input', (payload = {}) => {
     try {
       const channelId = ensureVoiceGameAccess();
-      const direction = typeof payload.direction === 'string' ? payload.direction : null;
-      if (!direction) {
-        throw new Error('Direction is required');
+      const vector = payload?.vector;
+      const x = typeof vector?.x === 'number' ? vector.x : null;
+      const y = typeof vector?.y === 'number' ? vector.y : null;
+      if (x === null || y === null || Number.isNaN(x) || Number.isNaN(y)) {
+        throw new Error('Movement vector is required');
       }
-      minigameManager.handleInput(channelId, socket.id, direction);
+      minigameManager.handleInput(channelId, socket.id, { x, y });
     } catch (error) {
       socket.emit('voice:game:error', {
         message: error.message || 'Unable to register input',

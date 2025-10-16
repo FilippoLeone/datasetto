@@ -1,23 +1,34 @@
-/**
- * Minigame Manager
- * Orchestrates lightweight voice-channel minigames (initially Snake)
- */
 import { generateId } from '../utils/helpers.js';
 import logger from '../utils/logger.js';
 
-const DIRECTIONS = {
-  up: { x: 0, y: -1 },
-  down: { x: 0, y: 1 },
-  left: { x: -1, y: 0 },
-  right: { x: 1, y: 0 },
-};
+const WORLD_WIDTH = 2600;
+const WORLD_HEIGHT = 2000;
+const TICK_INTERVAL_MS = 50; // 20 updates per second
 
-const OPPOSITE_DIRECTION = {
-  up: 'down',
-  down: 'up',
-  left: 'right',
-  right: 'left',
-};
+const PLAYER_START_LENGTH = 420;
+const PLAYER_MIN_LENGTH = 240;
+const PLAYER_MAX_LENGTH = 4600;
+const PLAYER_RESPAWN_DELAY_MS = 3200;
+
+const BASE_SPEED = 210;
+const MIN_SPEED = 135;
+const LENGTH_SLOWDOWN_FACTOR = 0.00032;
+const TURN_RATE_RADIANS = Math.PI * 1.35;
+
+const SEGMENT_SPACING = 14;
+const SELF_COLLISION_SKIP = 10;
+const MAX_SERIALIZED_SEGMENTS = 120;
+
+const PELLET_COUNT = 260;
+const PELLET_VALUE_MIN = 26;
+const PELLET_VALUE_MAX = 62;
+const PELLET_RADIUS_MIN = 7;
+const PELLET_RADIUS_MAX = 11;
+const PELLET_RESPAWN_BATCH = 16;
+
+const DROP_PELLET_INTERVAL = 3;
+const WORLD_PADDING = 120;
+const INPUT_EPSILON = 0.02;
 
 const COLOR_PALETTE = [
   '#ff6b6b',
@@ -28,17 +39,83 @@ const COLOR_PALETTE = [
   '#ff9ff3',
   '#54a0ff',
   '#00d2d3',
+  '#ff9b00',
+  '#ff8b94',
 ];
 
-const INITIAL_BOARD = { width: 24, height: 24 };
-const INITIAL_TICK_INTERVAL_MS = 160;
-const MIN_TICK_INTERVAL_MS = 70;
-const SPEEDUP_PER_FOOD_MS = 6;
-const HYPERFOOD_CHANCE = 0.18;
-const HYPERFOOD_EXPIRE_MS = 8_000;
-const COMBO_WINDOW_MS = 4_500;
-const SUDDEN_DEATH_DELAY_MS = 45_000;
-const SUDDEN_DEATH_INTERVAL_MS = 6_500;
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const randomBetween = (min, max) => Math.random() * (max - min) + min;
+
+const distanceBetween = (a, b) => {
+  if (!a || !b) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.hypot(a.x - b.x, a.y - b.y);
+};
+
+const normalizeAngle = (angle) => {
+  let value = angle;
+  while (value <= -Math.PI) {
+    value += Math.PI * 2;
+  }
+  while (value > Math.PI) {
+    value -= Math.PI * 2;
+  }
+  return value;
+};
+
+const rotateTowards = (current, target, maxDelta) => {
+  const diff = normalizeAngle(target - current);
+  if (Math.abs(diff) <= maxDelta) {
+    return normalizeAngle(target);
+  }
+  return normalizeAngle(current + Math.sign(diff) * maxDelta);
+};
+
+const normalizeVector = (vector) => {
+  const length = Math.hypot(vector?.x ?? 0, vector?.y ?? 0);
+  if (!length || length < INPUT_EPSILON) {
+    return { x: 0, y: 0 };
+  }
+  return { x: vector.x / length, y: vector.y / length };
+};
+
+const computeSpeed = (length) => {
+  const slowdown = Math.max(length, PLAYER_MIN_LENGTH) - PLAYER_START_LENGTH;
+  const reduction = slowdown * LENGTH_SLOWDOWN_FACTOR * BASE_SPEED;
+  return clamp(BASE_SPEED - reduction, MIN_SPEED, BASE_SPEED);
+};
+
+const computeThickness = (length) => {
+  const growth = Math.max(length, PLAYER_MIN_LENGTH) - PLAYER_START_LENGTH;
+  return Math.max(12, 12 + growth * 0.018);
+};
+
+const sampleSegments = (segments, limit = MAX_SERIALIZED_SEGMENTS) => {
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return [];
+  }
+  if (segments.length <= limit) {
+    return segments.slice();
+  }
+  const stride = Math.ceil(segments.length / limit);
+  const sampled = [];
+  for (let index = 0; index < segments.length; index += stride) {
+    sampled.push(segments[index]);
+  }
+  const last = segments[segments.length - 1];
+  const tail = sampled[sampled.length - 1];
+  if (!tail || tail.x !== last.x || tail.y !== last.y) {
+    sampled.push(last);
+  }
+  return sampled;
+};
+
+const scaledPoint = (point) => ({
+  x: Number(point.x.toFixed(2)),
+  y: Number(point.y.toFixed(2)),
+});
 
 export default class MinigameManager {
   constructor({ io, channelManager, onChannelUpdate }) {
@@ -48,10 +125,7 @@ export default class MinigameManager {
     this.sessions = new Map(); // channelId -> session
   }
 
-  /**
-   * Start a new game session in the given voice channel
-   */
-  startGame({ channelId, hostId, hostName, type = 'snake' }) {
+  startGame({ channelId, hostId, hostName, type = 'slither' }) {
     if (!channelId) {
       throw new Error('Channel is required to start a minigame');
     }
@@ -61,7 +135,7 @@ export default class MinigameManager {
       throw new Error('A minigame is already running in this channel');
     }
 
-    if (type !== 'snake') {
+    if (type !== 'slither') {
       throw new Error('Unsupported minigame type');
     }
 
@@ -75,19 +149,13 @@ export default class MinigameManager {
       createdAt: Date.now(),
       startedAt: Date.now(),
       updatedAt: Date.now(),
-      board: { ...INITIAL_BOARD },
-      tickIntervalMs: INITIAL_TICK_INTERVAL_MS,
+      world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
+      tickIntervalMs: TICK_INTERVAL_MS,
       sequence: 0,
-      food: null,
-      hazards: new Set(),
-      hazardRing: 0,
-      suddenDeathAt: Date.now() + SUDDEN_DEATH_DELAY_MS,
-      nextHazardAt: Date.now() + SUDDEN_DEATH_DELAY_MS,
-      lastSpeedupAt: Date.now(),
+      pellets: new Map(),
       players: new Map(),
       spectators: new Set(),
       intervalHandle: null,
-      lastAliveCount: 0,
     };
 
     this.sessions.set(channelId, session);
@@ -101,12 +169,12 @@ export default class MinigameManager {
     });
 
     try {
-      this.spawnFood(session);
-      this.ensurePlayer(session, hostId, hostName);
+      this.populatePellets(session, PELLET_COUNT);
+      this.ensurePlayer(session, hostId, hostName, true);
     } catch (error) {
       this.sessions.delete(channelId);
       this.channelManager.clearChannelMinigame(channelId);
-      this.notifyChannelUpdate();
+      logger.error('Failed to start slither arena', { error });
       throw error;
     }
 
@@ -115,33 +183,27 @@ export default class MinigameManager {
 
     const state = this.serialize(session);
     this.io.to(channelId).emit('voice:game:started', state);
-    logger.info('Minigame started', { channelId, gameId: session.id, type });
+    logger.info('Slither arena started', { channelId, gameId: session.id });
     return state;
   }
 
-  /**
-   * Player joins the current minigame session
-   */
   joinGame(channelId, playerId, playerName) {
     const session = this.sessions.get(channelId);
     if (!session || session.status !== 'running') {
       throw new Error('No active minigame in this channel');
     }
 
-    this.ensurePlayer(session, playerId, playerName);
+    const player = this.ensurePlayer(session, playerId, playerName, true);
     const state = this.serialize(session);
     this.io.to(channelId).emit('voice:game:update', state);
-    logger.debug('Minigame player joined', { channelId, gameId: session.id, playerId });
+    logger.debug('Slither player joined', { channelId, gameId: session.id, playerId });
     return state;
   }
 
-  /**
-   * Player leaves the current minigame session
-   */
   leaveGame(channelId, playerId) {
     const session = this.sessions.get(channelId);
     if (!session) {
-      return null;
+      throw new Error('Minigame not found');
     }
 
     const removed = session.players.delete(playerId);
@@ -152,66 +214,43 @@ export default class MinigameManager {
     }
 
     if (session.hostId === playerId) {
-      const [nextHost] = Array.from(session.players.values());
-      if (nextHost) {
-        session.hostId = nextHost.id;
-        session.hostName = nextHost.name;
-        this.channelManager.setChannelMinigame(channelId, {
-          gameId: session.id,
-          type: session.type,
-          status: session.status,
-          startedAt: session.startedAt,
-          hostId: session.hostId,
-          hostName: session.hostName,
-        });
-        this.notifyChannelUpdate();
+      const nextHost = session.players.keys().next();
+      if (!nextHost.done) {
+        session.hostId = nextHost.value;
+        session.hostName = session.players.get(nextHost.value)?.name ?? session.hostName;
       }
     }
 
-    const aliveCount = this.countAlivePlayers(session);
-    if (aliveCount === 0) {
+    if (session.players.size === 0) {
       return this.endGame(channelId, 'all_players_left');
     }
 
     const state = this.serialize(session);
     this.io.to(channelId).emit('voice:game:update', state);
-    logger.debug('Minigame player left', { channelId, gameId: session.id, playerId });
+    logger.debug('Slither player left', { channelId, gameId: session.id, playerId });
     return state;
   }
 
-  /**
-   * Handle queued direction input from a player
-   */
-  handleInput(channelId, playerId, direction) {
+  handleInput(channelId, playerId, vector) {
     const session = this.sessions.get(channelId);
     if (!session || session.status !== 'running') {
       throw new Error('No active minigame in this channel');
     }
 
-    if (!DIRECTIONS[direction]) {
-      throw new Error('Invalid direction');
-    }
-
     const player = session.players.get(playerId);
-    if (!player || !player.alive) {
+    if (!player) {
       throw new Error('Player is not part of this game');
     }
 
-    if (direction === player.direction || OPPOSITE_DIRECTION[direction] === player.direction) {
-      return;
-    }
-
-    player.pendingDirection = direction;
+    const { x, y } = normalizeVector(vector);
+    player.input = { x, y };
     player.lastInputAt = Date.now();
   }
 
-  /**
-   * Host or server requested game termination
-   */
   endGame(channelId, reason = 'ended_by_host') {
     const session = this.sessions.get(channelId);
     if (!session) {
-      return null;
+      throw new Error('Minigame not found');
     }
 
     if (session.intervalHandle) {
@@ -229,14 +268,11 @@ export default class MinigameManager {
     this.sessions.delete(channelId);
 
     this.io.to(channelId).emit('voice:game:ended', { reason, state });
-    logger.info('Minigame ended', { channelId, gameId: session.id, reason });
+    logger.info('Slither arena ended', { channelId, gameId: session.id, reason });
     this.notifyChannelUpdate();
     return state;
   }
 
-  /**
-   * Remove player when their voice connection closes
-   */
   handleVoiceMemberLeft(channelId, playerId) {
     const session = this.sessions.get(channelId);
     if (!session) {
@@ -250,20 +286,14 @@ export default class MinigameManager {
     this.leaveGame(channelId, playerId);
   }
 
-  /**
-   * Get serialized state snapshot for consumers
-   */
   getState(channelId) {
     const session = this.sessions.get(channelId);
     if (!session) {
-      return null;
+      throw new Error('Minigame not found');
     }
     return this.serialize(session);
   }
 
-  /**
-   * Schedule the main game loop for the session
-   */
   scheduleTick(session) {
     if (session.intervalHandle) {
       clearInterval(session.intervalHandle);
@@ -273,11 +303,7 @@ export default class MinigameManager {
       try {
         this.tick(session);
       } catch (error) {
-        logger.error('Minigame tick error', {
-          channelId: session.channelId,
-          gameId: session.id,
-          error: error?.message,
-        });
+        logger.error('Slither tick failed', { error, channelId: session.channelId });
         this.endGame(session.channelId, 'error');
       }
     };
@@ -286,145 +312,30 @@ export default class MinigameManager {
     session.intervalHandle.unref?.();
   }
 
-  /**
-   * Advance game state by one tick
-   */
   tick(session) {
     if (session.status !== 'running') {
       return;
     }
 
-    session.sequence += 1;
-    session.updatedAt = Date.now();
-
-    this.expireFoodIfNeeded(session);
-    if (this.applySuddenDeath(session)) {
-      // Game may have ended inside sudden death logic
-      if (!this.sessions.has(session.channelId)) {
-        return;
-      }
-    }
-
     const now = Date.now();
-    session.players.forEach((player) => {
-      if (!player.lastFoodAt) {
-        return;
-      }
-      if (player.combo && now - player.lastFoodAt > COMBO_WINDOW_MS) {
-        player.combo = 0;
-      }
-    });
+    const deltaSeconds = session.tickIntervalMs / 1000;
 
-    const currentFood = session.food;
-    const moves = [];
-    const occupied = new Map();
+    session.sequence += 1;
+    session.updatedAt = now;
 
-    for (const player of session.players.values()) {
-      if (!player.alive) {
-        continue;
-      }
+    this.attemptRespawns(session, now);
+    this.movePlayers(session, deltaSeconds);
+    const pelletsConsumed = this.resolvePelletCollisions(session);
+    const eliminations = this.resolvePlayerCollisions(session, now);
 
-      player.body.forEach((segment, index) => {
-        occupied.set(this.cellKey(segment), { playerId: player.id, segmentIndex: index });
-      });
+    if (pelletsConsumed > 0 || eliminations > 0) {
+      this.populatePellets(session, Math.max(PELLET_RESPAWN_BATCH, pelletsConsumed));
+    } else {
+      this.populatePellets(session);
     }
 
-    for (const player of session.players.values()) {
-      if (!player.alive) {
-        continue;
-      }
-
-      if (player.pendingDirection && player.pendingDirection !== OPPOSITE_DIRECTION[player.direction]) {
-        player.direction = player.pendingDirection;
-      }
-
-      const delta = DIRECTIONS[player.direction] || DIRECTIONS.right;
-      const head = player.body[0];
-      const newHead = { x: head.x + delta.x, y: head.y + delta.y };
-      const tail = player.body[player.body.length - 1];
-      const willEatFood = Boolean(currentFood && newHead.x === currentFood.x && newHead.y === currentFood.y);
-
-      if (!willEatFood) {
-        occupied.delete(this.cellKey(tail));
-      }
-
-      moves.push({
-        player,
-        newHead,
-        newHeadKey: this.cellKey(newHead),
-        willEatFood,
-        collision: false,
-      });
-    }
-
-    const headCounts = new Map();
-
-    for (const move of moves) {
-      if (this.isOutOfBounds(session, move.newHead)) {
-        move.collision = true;
-        continue;
-      }
-
-      if (this.isHazard(session, move.newHead)) {
-        move.collision = true;
-        continue;
-      }
-
-      const occupant = occupied.get(move.newHeadKey);
-      if (occupant) {
-        if (occupant.playerId !== move.player.id) {
-          move.collision = true;
-          continue;
-        }
-
-        if (occupant.segmentIndex > 0) {
-          move.collision = true;
-          continue;
-        }
-      }
-
-      headCounts.set(move.newHeadKey, (headCounts.get(move.newHeadKey) || 0) + 1);
-    }
-
-    for (const move of moves) {
-      if (move.collision) {
-        move.player.alive = false;
-        continue;
-      }
-
-      const headCount = headCounts.get(move.newHeadKey);
-      if (headCount && headCount > 1) {
-        move.player.alive = false;
-        continue;
-      }
-
-      move.player.body.unshift(move.newHead);
-      if (move.willEatFood) {
-        // keep tail to grow when food is eaten
-      } else {
-        move.player.body.pop();
-      }
-
-      move.player.pendingDirection = null;
-    }
-
-    if (moves.some((move) => move.willEatFood && move.player.alive) && currentFood) {
-      const eater = moves.find((move) => move.willEatFood && move.player.alive);
-      if (eater) {
-        this.handleFoodConsumption(session, eater.player, currentFood);
-      }
-    }
-
-    const aliveCount = this.countAlivePlayers(session);
-    session.lastAliveCount = aliveCount;
-
-    if (aliveCount === 0) {
-      this.endGame(session.channelId, 'everyone_crashed');
-      return;
-    }
-
-    if (aliveCount === 1 && session.players.size > 1) {
-      this.endGame(session.channelId, 'winner');
+    if (session.players.size === 0) {
+      this.endGame(session.channelId, 'all_players_left');
       return;
     }
 
@@ -432,40 +343,246 @@ export default class MinigameManager {
     this.io.to(session.channelId).emit('voice:game:update', state);
   }
 
-  /**
-   * Ensure a player entity exists inside the session
-   */
-  ensurePlayer(session, playerId, playerName) {
+  attemptRespawns(session, now) {
+    session.players.forEach((player) => {
+      if (player.alive) {
+        return;
+      }
+      if (!player.respawnAt || now < player.respawnAt) {
+        return;
+      }
+      this.forceRespawn(session, player);
+    });
+  }
+
+  movePlayers(session, deltaSeconds) {
+    session.players.forEach((player) => {
+      if (!player.alive) {
+        return;
+      }
+
+      const vector = player.input ?? { x: 0, y: 0 };
+      const hasInput = Math.hypot(vector.x, vector.y) >= INPUT_EPSILON;
+      const targetAngle = hasInput ? Math.atan2(vector.y, vector.x) : player.heading;
+      const maxTurn = TURN_RATE_RADIANS * deltaSeconds;
+      player.heading = rotateTowards(player.heading, targetAngle, maxTurn);
+
+      const speed = computeSpeed(player.length);
+      player.speed = speed;
+
+      const dx = Math.cos(player.heading) * speed * deltaSeconds;
+      const dy = Math.sin(player.heading) * speed * deltaSeconds;
+
+      let newHead = {
+        x: player.head.x + dx,
+        y: player.head.y + dy,
+      };
+
+      newHead = this.clampToArena(session.world, newHead, player.thickness ?? computeThickness(player.length));
+
+      player.head = newHead;
+      player.segments.unshift(newHead);
+      this.trimSegments(player);
+      player.thickness = computeThickness(player.length);
+    });
+  }
+
+  resolvePelletCollisions(session) {
+    const consumedIds = new Set();
+
+    session.players.forEach((player) => {
+      if (!player.alive) {
+        return;
+      }
+
+      const head = player.head;
+      const collisionRadius = (player.thickness ?? computeThickness(player.length)) * 0.6;
+
+      session.pellets.forEach((pellet, pelletId) => {
+        if (consumedIds.has(pelletId)) {
+          return;
+        }
+        const distance = distanceBetween(head, pellet);
+        if (distance <= collisionRadius + pellet.radius) {
+          consumedIds.add(pelletId);
+          player.length = clamp(player.length + pellet.value, PLAYER_MIN_LENGTH, PLAYER_MAX_LENGTH);
+          player.score += pellet.value;
+          player.thickness = computeThickness(player.length);
+          player.speed = computeSpeed(player.length);
+        }
+      });
+    });
+
+    consumedIds.forEach((pelletId) => {
+      session.pellets.delete(pelletId);
+    });
+
+    return consumedIds.size;
+  }
+
+  resolvePlayerCollisions(session, now) {
+    const pendingDeaths = new Set();
+    const alivePlayers = Array.from(session.players.values()).filter((player) => player.alive);
+
+    const world = session.world;
+
+    alivePlayers.forEach((player) => {
+      const head = player.head;
+      const margin = (player.thickness ?? computeThickness(player.length)) * 0.55;
+      if (
+        head.x <= WORLD_PADDING - margin ||
+        head.x >= world.width - (WORLD_PADDING - margin) ||
+        head.y <= WORLD_PADDING - margin ||
+        head.y >= world.height - (WORLD_PADDING - margin)
+      ) {
+        pendingDeaths.add(player.id);
+      }
+
+      if (pendingDeaths.has(player.id)) {
+        return;
+      }
+
+      for (let i = SELF_COLLISION_SKIP; i < player.segments.length; i += 1) {
+        const point = player.segments[i];
+        if (distanceBetween(head, point) <= margin) {
+          pendingDeaths.add(player.id);
+          break;
+        }
+      }
+    });
+
+    for (let i = 0; i < alivePlayers.length; i += 1) {
+      const a = alivePlayers[i];
+      if (pendingDeaths.has(a.id)) {
+        continue;
+      }
+      for (let j = i + 1; j < alivePlayers.length; j += 1) {
+        const b = alivePlayers[j];
+        if (pendingDeaths.has(b.id)) {
+          continue;
+        }
+
+        const headDistance = distanceBetween(a.head, b.head);
+        const headThreshold = (a.thickness + b.thickness) * 0.45;
+        if (headDistance <= headThreshold) {
+          if (a.length === b.length) {
+            pendingDeaths.add(a.id);
+            pendingDeaths.add(b.id);
+          } else if (a.length > b.length) {
+            pendingDeaths.add(b.id);
+          } else {
+            pendingDeaths.add(a.id);
+          }
+          continue;
+        }
+
+        if (!pendingDeaths.has(a.id) && this.intersectsSegments(a.head, b.segments, 1, (a.thickness + b.thickness) * 0.45)) {
+          pendingDeaths.add(a.id);
+        }
+        if (!pendingDeaths.has(b.id) && this.intersectsSegments(b.head, a.segments, 1, (a.thickness + b.thickness) * 0.45)) {
+          pendingDeaths.add(b.id);
+        }
+      }
+    }
+
+    pendingDeaths.forEach((playerId) => {
+      const player = session.players.get(playerId);
+      if (!player || !player.alive) {
+        return;
+      }
+      this.handleDeath(session, player, now);
+    });
+
+    return pendingDeaths.size;
+  }
+
+  intersectsSegments(head, segments, skip, threshold) {
+    if (!segments || segments.length === 0) {
+      return false;
+    }
+
+    const limit = segments.length;
+    for (let index = skip; index < limit; index += 1) {
+      const point = segments[index];
+      if (distanceBetween(head, point) <= threshold) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  handleDeath(session, player, now) {
+    player.alive = false;
+    player.respawnAt = now + PLAYER_RESPAWN_DELAY_MS;
+    player.input = { x: 0, y: 0 };
+    this.dropPellets(session, player);
+  }
+
+  dropPellets(session, player) {
+    const segments = player.segments;
+    if (!segments || segments.length === 0) {
+      return;
+    }
+
+    const dropSpacing = Math.max(DROP_PELLET_INTERVAL, Math.floor(segments.length / 40));
+    for (let index = 0; index < segments.length; index += dropSpacing) {
+      const point = segments[index];
+      const pellet = this.createPellet(point.x, point.y, randomBetween(PELLET_VALUE_MIN, PELLET_VALUE_MAX));
+      session.pellets.set(pellet.id, pellet);
+      if (session.pellets.size > PELLET_COUNT * 2) {
+        break;
+      }
+    }
+  }
+
+  forceRespawn(session, player) {
+    const spawn = this.findSpawnPoint(session);
+    const heading = randomBetween(-Math.PI, Math.PI);
+    const segments = this.buildInitialSegments(spawn, heading, PLAYER_START_LENGTH);
+
+    player.alive = true;
+    player.length = PLAYER_START_LENGTH;
+    player.thickness = computeThickness(player.length);
+    player.speed = computeSpeed(player.length);
+    player.head = segments[0];
+    player.segments = segments;
+    player.heading = heading;
+    player.input = { x: 0, y: 0 };
+    player.respawnAt = null;
+  }
+
+  ensurePlayer(session, playerId, playerName, spawnOnCreate = false) {
     let player = session.players.get(playerId);
-    if (player && player.alive) {
+    if (player) {
       player.name = playerName;
+      if (spawnOnCreate && !player.alive) {
+        this.forceRespawn(session, player);
+      }
+      session.spectators.delete(playerId);
       return player;
     }
 
-    if (player && !player.alive) {
-      session.players.delete(playerId);
-    }
-
     const spawn = this.findSpawnPoint(session);
-    if (!spawn) {
-      throw new Error('Unable to place player on the board');
-    }
-
+    const heading = randomBetween(-Math.PI, Math.PI);
+    const segments = this.buildInitialSegments(spawn, heading, PLAYER_START_LENGTH);
     const color = this.assignColor(session, playerId);
+
     player = {
       id: playerId,
       name: playerName,
       color,
-      direction: spawn.direction,
-      pendingDirection: null,
-      body: spawn.body,
-      alive: true,
       score: 0,
-      joinedAt: Date.now(),
+      alive: true,
+      length: PLAYER_START_LENGTH,
+      thickness: computeThickness(PLAYER_START_LENGTH),
+      speed: computeSpeed(PLAYER_START_LENGTH),
+      head: segments[0],
+      segments,
+      heading,
+      input: { x: 0, y: 0 },
+      respawnAt: null,
       lastInputAt: Date.now(),
-      combo: 0,
-      longestCombo: 0,
-      lastFoodAt: 0,
+      joinedAt: Date.now(),
     };
 
     session.players.set(playerId, player);
@@ -473,295 +590,182 @@ export default class MinigameManager {
     return player;
   }
 
-  /**
-   * Find a free spawn location for a new player
-   */
+  buildInitialSegments(spawn, heading, length) {
+    const segments = [];
+    const count = Math.max(8, Math.ceil(length / SEGMENT_SPACING));
+    for (let i = 0; i <= count; i += 1) {
+      const offset = i * SEGMENT_SPACING;
+      const point = {
+        x: spawn.x - Math.cos(heading) * offset,
+        y: spawn.y - Math.sin(heading) * offset,
+      };
+      segments.push(point);
+    }
+    return segments;
+  }
+
+  trimSegments(player) {
+    const desiredLength = clamp(player.length, PLAYER_MIN_LENGTH, PLAYER_MAX_LENGTH);
+    let accumulated = 0;
+
+    for (let i = 0; i < player.segments.length - 1; i += 1) {
+      const current = player.segments[i];
+      const next = player.segments[i + 1];
+      const segmentDistance = distanceBetween(current, next);
+      if (accumulated + segmentDistance >= desiredLength) {
+        const excess = accumulated + segmentDistance - desiredLength;
+        if (segmentDistance > 0) {
+          const ratio = (segmentDistance - excess) / segmentDistance;
+          player.segments[i + 1] = {
+            x: current.x + (next.x - current.x) * ratio,
+            y: current.y + (next.y - current.y) * ratio,
+          };
+        }
+        player.segments.length = i + 2;
+        return;
+      }
+      accumulated += segmentDistance;
+    }
+
+    const tail = player.segments[player.segments.length - 1];
+    while (accumulated < desiredLength) {
+      player.segments.push({ x: tail.x, y: tail.y });
+      accumulated += SEGMENT_SPACING;
+    }
+  }
+
+  clampToArena(world, point, thickness) {
+    const margin = WORLD_PADDING + thickness * 0.5;
+    return {
+      x: clamp(point.x, margin, world.width - margin),
+      y: clamp(point.y, margin, world.height - margin),
+    };
+  }
+
   findSpawnPoint(session) {
-    const { width, height } = session.board;
-    const occupied = new Set();
+    const { world } = session;
 
-    for (const player of session.players.values()) {
-      if (!player.alive) {
-        continue;
+    const attempts = 60;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const candidate = {
+        x: randomBetween(WORLD_PADDING, world.width - WORLD_PADDING),
+        y: randomBetween(WORLD_PADDING, world.height - WORLD_PADDING),
+      };
+
+      const safe = Array.from(session.players.values()).every((player) => {
+        if (!player.alive) {
+          return true;
+        }
+        const minDistance = (player.thickness ?? computeThickness(player.length)) + 120;
+        return distanceBetween(player.head, candidate) > minDistance;
+      });
+
+      if (safe) {
+        return candidate;
       }
-      player.body.forEach((segment) => occupied.add(this.cellKey(segment)));
     }
 
-    const attemptLimit = width * height;
-    for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
-      const x = Math.floor(Math.random() * width);
-      const y = Math.floor(Math.random() * height);
-      const direction = this.pickRandomDirection();
-      const body = this.buildBodyFromHead({ x, y }, direction, 3, session.board);
-      if (!body) {
-        continue;
-      }
-
-      const collision = body.some((segment) => occupied.has(this.cellKey(segment)));
-      if (collision) {
-        continue;
-      }
-
-      return { body, direction };
-    }
-
-    return null;
-  }
-
-  /**
-   * Construct snake body segments from a head position
-   */
-  buildBodyFromHead(head, direction, length, board) {
-    const delta = DIRECTIONS[direction];
-    if (!delta) {
-      return null;
-    }
-
-    const body = [];
-    for (let i = 0; i < length; i += 1) {
-      const x = head.x - delta.x * i;
-      const y = head.y - delta.y * i;
-      if (x < 0 || y < 0 || x >= board.width || y >= board.height) {
-        return null;
-      }
-      body.push({ x, y });
-    }
-    return body;
-  }
-
-  pickRandomDirection() {
-    const keys = Object.keys(DIRECTIONS);
-    return keys[Math.floor(Math.random() * keys.length)] || 'right';
+    return {
+      x: world.width / 2,
+      y: world.height / 2,
+    };
   }
 
   assignColor(session, playerId) {
-    const used = new Set();
-    for (const player of session.players.values()) {
-      if (player.color) {
-        used.add(player.color);
-      }
-    }
-
-    for (const color of COLOR_PALETTE) {
-      if (!used.has(color)) {
-        return color;
-      }
-    }
-
-    const index = Math.floor(Math.random() * COLOR_PALETTE.length);
-    return COLOR_PALETTE[index] || '#ffffff';
+    const index = session.players.size % COLOR_PALETTE.length;
+    return COLOR_PALETTE[index] ?? '#ffffff';
   }
 
-  spawnFood(session) {
-    const { width, height } = session.board;
-    const occupied = new Set();
+  populatePellets(session, targetBatch = 0) {
+    const target = Math.max(PELLET_COUNT, session.pellets.size);
+    const desired = Math.min(target + targetBatch, PELLET_COUNT * 2);
+    while (session.pellets.size < desired) {
+      const pellet = this.spawnPellet(session);
+      session.pellets.set(pellet.id, pellet);
+    }
+  }
 
-    for (const player of session.players.values()) {
-      if (!player.alive) {
+  spawnPellet(session) {
+    const { world } = session;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const x = randomBetween(WORLD_PADDING, world.width - WORLD_PADDING);
+      const y = randomBetween(WORLD_PADDING, world.height - WORLD_PADDING);
+      const point = { x, y };
+
+      const nearPlayer = Array.from(session.players.values()).some((player) => {
+        if (!player.alive) {
+          return false;
+        }
+        return distanceBetween(player.head, point) < (player.thickness ?? computeThickness(player.length)) + 45;
+      });
+
+      if (nearPlayer) {
         continue;
       }
-      player.body.forEach((segment) => occupied.add(this.cellKey(segment)));
+
+      return this.createPellet(x, y, randomBetween(PELLET_VALUE_MIN, PELLET_VALUE_MAX));
     }
 
-    session.hazards.forEach((key) => occupied.add(key));
-
-    let candidate = null;
-    const attemptLimit = width * height;
-
-    for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
-      const x = Math.floor(Math.random() * width);
-      const y = Math.floor(Math.random() * height);
-      const key = this.cellKey({ x, y });
-      if (!occupied.has(key)) {
-        candidate = { x, y };
-        break;
-      }
-    }
-
-    if (!candidate) {
-      candidate = {
-        x: Math.floor(width / 2),
-        y: Math.floor(height / 2),
-      };
-    }
-
-    const isHyper = Math.random() < HYPERFOOD_CHANCE;
-    const food = {
-      x: candidate.x,
-      y: candidate.y,
-      type: isHyper ? 'hyper' : 'normal',
-      value: isHyper ? 3 : 1,
-      expiresAt: isHyper ? Date.now() + HYPERFOOD_EXPIRE_MS : null,
-    };
-
-    session.food = food;
-    return food;
-  }
-
-  expireFoodIfNeeded(session) {
-    const food = session.food;
-    if (!food || !food.expiresAt) {
-      return false;
-    }
-
-    if (Date.now() < food.expiresAt) {
-      return false;
-    }
-
-    session.food = null;
-    this.spawnFood(session);
-    return true;
-  }
-
-  handleFoodConsumption(session, player, food) {
-    if (!food) {
-      return;
-    }
-
-    session.food = null;
-
-    const now = Date.now();
-    if (player.lastFoodAt && now - player.lastFoodAt <= COMBO_WINDOW_MS) {
-      player.combo = (player.combo || 0) + 1;
-    } else {
-      player.combo = 1;
-    }
-    player.lastFoodAt = now;
-    player.longestCombo = Math.max(player.longestCombo || 0, player.combo);
-
-    const comboBonus = Math.max(0, (player.combo || 1) - 1);
-    const reward = (food.value || 1) + comboBonus;
-    player.score += reward;
-
-    const speedGain = SPEEDUP_PER_FOOD_MS * (food.type === 'hyper' ? 2 : 1);
-    const newInterval = Math.max(MIN_TICK_INTERVAL_MS, session.tickIntervalMs - speedGain);
-    if (newInterval !== session.tickIntervalMs) {
-      session.tickIntervalMs = newInterval;
-      this.scheduleTick(session);
-    }
-
-    session.food = this.spawnFood(session);
-  }
-
-  applySuddenDeath(session) {
-    if (!session.nextHazardAt || Date.now() < session.nextHazardAt) {
-      return false;
-    }
-
-    const ring = session.hazardRing + 1;
-    const added = this.addHazardRing(session, ring);
-    if (!added) {
-      this.endGame(session.channelId, 'arena_closed');
-      return true;
-    }
-
-  session.hazardRing = ring;
-  session.nextHazardAt = Date.now() + SUDDEN_DEATH_INTERVAL_MS;
-  session.suddenDeathAt = session.nextHazardAt;
-
-    let eliminated = false;
-    for (const player of session.players.values()) {
-      if (!player.alive) {
-        continue;
-      }
-      const hitHazard = player.body.some((segment) => this.isHazard(session, segment));
-      if (hitHazard) {
-        player.alive = false;
-        eliminated = true;
-      }
-    }
-
-    if (session.food && this.isHazard(session, session.food)) {
-      session.food = this.spawnFood(session);
-    }
-
-    return eliminated;
-  }
-
-  addHazardRing(session, ring) {
-    const { width, height } = session.board;
-    const minX = ring - 1;
-    const maxX = width - ring;
-    const minY = ring - 1;
-    const maxY = height - ring;
-
-    if (minX >= maxX || minY >= maxY) {
-      return false;
-    }
-
-    for (let x = minX; x <= maxX; x += 1) {
-      session.hazards.add(this.cellKey({ x, y: minY }));
-      session.hazards.add(this.cellKey({ x, y: maxY }));
-    }
-
-    for (let y = minY; y <= maxY; y += 1) {
-      session.hazards.add(this.cellKey({ x: minX, y }));
-      session.hazards.add(this.cellKey({ x: maxX, y }));
-    }
-
-    return true;
-  }
-
-  countAlivePlayers(session) {
-    let count = 0;
-    session.players.forEach((player) => {
-      if (player.alive) {
-        count += 1;
-      }
-    });
-    return count;
-  }
-
-  cellKey(position) {
-    return `${position.x}:${position.y}`;
-  }
-
-  isOutOfBounds(session, position) {
-    return (
-      position.x < 0 ||
-      position.y < 0 ||
-      position.x >= session.board.width ||
-      position.y >= session.board.height
+    return this.createPellet(
+      clamp(world.width / 2, WORLD_PADDING, world.width - WORLD_PADDING),
+      clamp(world.height / 2, WORLD_PADDING, world.height - WORLD_PADDING),
+      randomBetween(PELLET_VALUE_MIN, PELLET_VALUE_MAX),
     );
   }
 
-  isHazard(session, position) {
-    return session.hazards.has(this.cellKey(position));
+  createPellet(x, y, value) {
+    return {
+      id: `pellet-${generateId(10)}`,
+      x,
+      y,
+      value,
+      radius: randomBetween(PELLET_RADIUS_MIN, PELLET_RADIUS_MAX),
+      color: COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)] ?? '#ffffff',
+    };
   }
 
-  /**
-   * Convert session state into a client-friendly payload
-   */
   serialize(session) {
     if (!session) {
       return null;
     }
 
-    const players = Array.from(session.players.values()).map((player) => ({
-      id: player.id,
-      name: player.name,
-      color: player.color,
-      score: player.score,
-      alive: player.alive,
-      direction: player.direction,
-      body: player.body.map(({ x, y }) => ({ x, y })),
-      lastInputAt: player.lastInputAt,
-      joinedAt: player.joinedAt,
-      combo: player.combo || 0,
-      longestCombo: player.longestCombo || 0,
-    }));
+    const now = Date.now();
+
+    const players = Array.from(session.players.values()).map((player) => {
+      const segments = sampleSegments(player.segments);
+      return {
+        id: player.id,
+        name: player.name,
+        color: player.color,
+        score: Math.round(player.score),
+        alive: player.alive,
+        length: Number(player.length.toFixed(1)),
+        thickness: Number((player.thickness ?? computeThickness(player.length)).toFixed(2)),
+        speed: Number((player.speed ?? computeSpeed(player.length)).toFixed(2)),
+        head: scaledPoint(player.head),
+        segments: segments.map(scaledPoint),
+        respawning: !player.alive,
+        respawnInMs: !player.alive && player.respawnAt ? Math.max(0, player.respawnAt - now) : 0,
+        lastInputAt: player.lastInputAt,
+        joinedAt: player.joinedAt,
+      };
+    });
 
     players.sort((a, b) => {
-      if (a.score === b.score) {
-        return a.name.localeCompare(b.name);
+      if (a.length === b.length) {
+        return b.score - a.score;
       }
-      return b.score - a.score;
+      return b.length - a.length;
     });
 
-    const hazards = Array.from(session.hazards.values()).map((key) => {
-      const [x, y] = key.split(':').map(Number);
-      return { x, y };
-    });
+    const pellets = Array.from(session.pellets.values()).map((pellet) => ({
+      id: pellet.id,
+      x: Number(pellet.x.toFixed(2)),
+      y: Number(pellet.y.toFixed(2)),
+      value: Number(pellet.value.toFixed(1)),
+      radius: Number(pellet.radius.toFixed(2)),
+      color: pellet.color,
+    }));
 
     return {
       gameId: session.id,
@@ -773,33 +777,22 @@ export default class MinigameManager {
       startedAt: session.startedAt,
       updatedAt: session.updatedAt,
       sequence: session.sequence,
-      board: { ...session.board },
-      food: session.food
-        ? {
-            x: session.food.x,
-            y: session.food.y,
-            type: session.food.type,
-            value: session.food.value,
-            expiresAt: session.food.expiresAt,
-          }
-        : null,
+      world: { ...session.world },
+      pellets,
       players,
+      leaderboard: players.slice(0, 5).map(({ id, name, score, length }) => ({ id, name, score, length })),
       spectators: Array.from(session.spectators.values()),
-      lastAliveCount: session.lastAliveCount,
       tickIntervalMs: session.tickIntervalMs,
-      hazards,
-      hazardRing: session.hazardRing,
-      suddenDeathAt: session.suddenDeathAt,
     };
   }
 
   notifyChannelUpdate() {
-    try {
-      this.onChannelUpdate?.();
-    } catch (error) {
-      logger.warn('Failed to notify channel update after minigame change', {
-        error: error?.message,
-      });
+    if (this.onChannelUpdate) {
+      try {
+        this.onChannelUpdate();
+      } catch (error) {
+        logger.warn('Failed to notify channel update after slither change', { error });
+      }
     }
   }
 }

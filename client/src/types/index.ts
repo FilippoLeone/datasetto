@@ -182,27 +182,24 @@ export interface VoiceMinigamePlayerState {
   color: string;
   score: number;
   alive: boolean;
-  direction: 'up' | 'down' | 'left' | 'right';
-  body: Array<{ x: number; y: number }>;
+  length: number;
+  thickness: number;
+  speed: number;
+  head: { x: number; y: number };
+  segments: Array<{ x: number; y: number }>;
+  respawning: boolean;
+  respawnInMs: number;
   lastInputAt?: number;
   joinedAt?: number;
-  combo?: number;
-  longestCombo?: number;
 }
 
-export type VoiceMinigameFoodType = 'normal' | 'hyper';
-
-export interface VoiceMinigameFood {
+export interface VoiceMinigamePellet {
+  id: string;
   x: number;
   y: number;
-  type: VoiceMinigameFoodType;
   value: number;
-  expiresAt: number | null;
-}
-
-export interface VoiceMinigameHazard {
-  x: number;
-  y: number;
+  color: string;
+  radius: number;
 }
 
 export interface VoiceMinigameState {
@@ -215,15 +212,12 @@ export interface VoiceMinigameState {
   startedAt: number;
   updatedAt: number;
   sequence: number;
-  board: { width: number; height: number };
-  food: VoiceMinigameFood | null;
+  world: { width: number; height: number };
+  pellets: VoiceMinigamePellet[];
   players: VoiceMinigamePlayerState[];
+  leaderboard: Array<{ id: string; name: string; score: number; length: number }>;
   spectators: string[];
-  lastAliveCount: number;
   tickIntervalMs: number;
-  hazards: VoiceMinigameHazard[];
-  hazardRing: number;
-  suddenDeathAt: number;
 }
 
 export interface DeviceInfo {

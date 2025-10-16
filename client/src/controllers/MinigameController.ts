@@ -1,25 +1,21 @@
 /**
- * Voice minigame coordinator (Snake)
+ * Voice minigame coordinator for the Slither arena
  */
 import type { MinigameControllerDeps } from './types';
-import type {
-  VoiceMinigamePlayerState,
-  VoiceMinigameState,
-  VoicePeerEvent,
-  VoiceMinigameFood,
-  VoiceMinigameHazard,
-} from '@/types';
-const INPUT_COOLDOWN_MS = 45;
-const DEFAULT_STATUS = 'No game running. Start a round to play with the channel!';
-const HYPER_FOOD_LIFETIME_MS = 8_000;
+import type { VoiceMinigamePlayerState, VoiceMinigameState, VoicePeerEvent } from '@/types';
+
+const INPUT_SEND_INTERVAL_MS = 60;
+const DEFAULT_STATUS = 'No slither arena open. Start a round to glide together!';
+const GRID_SPACING = 120;
+const BACKGROUND_COLOR = '#080c16';
 
 const END_REASON_LABELS: Record<string, string> = {
   ended_by_host: 'ended by host',
-  all_players_left: 'all players left',
+  all_players_left: 'everyone left the arena',
   everyone_crashed: 'everyone crashed',
   winner: 'winner decided',
   error: 'unexpected error',
-  arena_closed: 'arena collapsed',
+  arena_closed: 'arena closed',
 };
 
 const describeEndReason = (reason: string): string => {
@@ -30,15 +26,12 @@ const describeEndReason = (reason: string): string => {
   return END_REASON_LABELS[reason] ?? reason.replace(/_/g, ' ');
 };
 
-const KEY_DIRECTION_MAP: Record<string, 'up' | 'down' | 'left' | 'right'> = {
-  ArrowUp: 'up',
-  KeyW: 'up',
-  ArrowDown: 'down',
-  KeyS: 'down',
-  ArrowLeft: 'left',
-  KeyA: 'left',
-  ArrowRight: 'right',
-  KeyD: 'right',
+type MovementVector = { x: number; y: number };
+
+type ViewTransform = {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
 };
 
 export class MinigameController {
@@ -59,23 +52,30 @@ export class MinigameController {
   private currentState: VoiceMinigameState | null = null;
   private lastEndReason: string | null = null;
   private renderHandle: number | null = null;
+  private inputTimeout: number | null = null;
   private lastInputAt = 0;
+  private lastSentVector: MovementVector = { x: 0, y: 0 };
+  private pendingVector: MovementVector | null = null;
   private canUseMinigame = false;
   private isViewPinned = false;
   private voiceParticipants: Map<string, { id: string; name: string }> = new Map();
-  private cursorTarget: { x: number; y: number } | null = null;
-  private lastCursorDirection: 'up' | 'down' | 'left' | 'right' | null = null;
+  private pointerTarget: { x: number; y: number } | null = null;
+  private pointerActive = false;
+  private viewTransform: ViewTransform | null = null;
+  private viewCenter: { x: number; y: number } | null = null;
+  private currentScale = 1;
+  private keyboardInput = { up: false, down: false, left: false, right: false };
 
   constructor(deps: MinigameControllerDeps) {
     this.deps = deps;
   }
 
   initialize(): void {
-  this.stage = this.deps.elements['voice-call-stage'] ?? null;
-  this.container = this.deps.elements['voice-minigame-container'] ?? null;
+    this.stage = this.deps.elements['voice-call-stage'] ?? null;
+    this.container = this.deps.elements['voice-minigame-container'] ?? null;
     this.canvas = (this.deps.elements['voice-minigame-canvas'] as HTMLCanvasElement) ?? null;
-  this.openButton = (this.deps.elements['voice-minigame-open'] as HTMLButtonElement) ?? null;
-  this.closeButton = (this.deps.elements['voice-minigame-close'] as HTMLButtonElement) ?? null;
+    this.openButton = (this.deps.elements['voice-minigame-open'] as HTMLButtonElement) ?? null;
+    this.closeButton = (this.deps.elements['voice-minigame-close'] as HTMLButtonElement) ?? null;
     this.startButton = (this.deps.elements['voice-minigame-start'] as HTMLButtonElement) ?? null;
     this.endButton = (this.deps.elements['voice-minigame-end'] as HTMLButtonElement) ?? null;
     this.joinButton = (this.deps.elements['voice-minigame-join'] as HTMLButtonElement) ?? null;
@@ -86,7 +86,7 @@ export class MinigameController {
     if (this.canvas) {
       this.ctx = this.canvas.getContext('2d', { alpha: false });
       if (this.ctx) {
-        this.ctx.imageSmoothingEnabled = false;
+        this.ctx.imageSmoothingEnabled = true;
       }
     }
 
@@ -114,6 +114,11 @@ export class MinigameController {
       this.renderHandle = null;
     }
 
+    if (this.inputTimeout !== null) {
+      window.clearTimeout(this.inputTimeout);
+      this.inputTimeout = null;
+    }
+
     for (const dispose of this.disposers.splice(0)) {
       try {
         dispose();
@@ -126,133 +131,63 @@ export class MinigameController {
   }
 
   handleKeyDown(event: KeyboardEvent): boolean {
-    const direction = KEY_DIRECTION_MAP[event.code];
-    if (!direction) {
-      return false;
-    }
-    const handled = this.attemptDirectionChange(direction);
+    const handled = this.applyKeyboardState(event.code, true);
     if (handled) {
       event.preventDefault();
     }
     return handled;
   }
 
-  handleKeyUp(_event: KeyboardEvent): boolean {
-    return false;
+  handleKeyUp(event: KeyboardEvent): boolean {
+    return this.applyKeyboardState(event.code, false);
   }
 
-  private attemptDirectionChange(direction: 'up' | 'down' | 'left' | 'right'): boolean {
-    if (!this.currentState || this.currentState.status !== 'running') {
+  private applyKeyboardState(code: string, pressed: boolean): boolean {
+    let matched = true;
+    switch (code) {
+      case 'ArrowUp':
+      case 'KeyW':
+        this.keyboardInput.up = pressed;
+        break;
+      case 'ArrowDown':
+      case 'KeyS':
+        this.keyboardInput.down = pressed;
+        break;
+      case 'ArrowLeft':
+      case 'KeyA':
+        this.keyboardInput.left = pressed;
+        break;
+      case 'ArrowRight':
+      case 'KeyD':
+        this.keyboardInput.right = pressed;
+        break;
+      default:
+        matched = false;
+        break;
+    }
+
+    if (!matched) {
       return false;
     }
 
-    const localId = this.deps.socket.getId();
-    if (!localId) {
-      return false;
+    if (this.pointerActive) {
+      return true;
     }
 
-    const player = this.currentState.players.find((entry) => entry.id === localId);
-    if (!player) {
-      return false;
-    }
-
-    const now = Date.now();
-    if (now - this.lastInputAt < INPUT_COOLDOWN_MS) {
-      return false;
-    }
-
-    if (player.direction === direction) {
-      return false;
-    }
-
-    this.deps.socket.sendVoiceMinigameInput(direction);
-    this.lastInputAt = now;
-    if (this.cursorTarget) {
-      this.lastCursorDirection = direction;
-    }
+    const vector = this.getKeyboardVector();
+    this.queueInputVector(vector);
     return true;
   }
 
-  private handlePointerMove(event: PointerEvent): void {
-    if (!this.canvas) {
-      return;
+  private getKeyboardVector(): MovementVector {
+    const x = (this.keyboardInput.right ? 1 : 0) - (this.keyboardInput.left ? 1 : 0);
+    const y = (this.keyboardInput.down ? 1 : 0) - (this.keyboardInput.up ? 1 : 0);
+    if (x === 0 && y === 0) {
+      return { x: 0, y: 0 };
     }
 
-    this.cursorTarget = {
-      x: event.offsetX,
-      y: event.offsetY,
-    };
-
-    this.evaluateCursorSteering();
-  }
-
-  private handlePointerLeave(): void {
-    this.cursorTarget = null;
-    this.lastCursorDirection = null;
-  }
-
-  private evaluateCursorSteering(): void {
-    if (!this.canvas || !this.cursorTarget) {
-      return;
-    }
-
-    const state = this.currentState;
-    if (!state || state.status !== 'running') {
-      return;
-    }
-
-    const localId = this.deps.socket.getId();
-    if (!localId) {
-      return;
-    }
-
-    const player = state.players.find((entry) => entry.id === localId);
-    if (!player || !player.alive || player.body.length === 0) {
-      return;
-    }
-
-    const head = player.body[0];
-    if (!head) {
-      return;
-    }
-
-    const cellWidth = this.canvas.width / state.board.width;
-    const cellHeight = this.canvas.height / state.board.height;
-
-    const headX = (head.x + 0.5) * cellWidth;
-    const headY = (head.y + 0.5) * cellHeight;
-
-    const dx = this.cursorTarget.x - headX;
-    const dy = this.cursorTarget.y - headY;
-
-    const minDistance = Math.max(cellWidth, cellHeight) * 0.2;
-    if (Math.abs(dx) < minDistance && Math.abs(dy) < minDistance) {
-      return;
-    }
-
-    let desired: 'up' | 'down' | 'left' | 'right';
-    if (Math.abs(dx) > Math.abs(dy)) {
-      desired = dx >= 0 ? 'right' : 'left';
-    } else {
-      desired = dy >= 0 ? 'down' : 'up';
-    }
-
-    if (desired === this.lastCursorDirection) {
-      return;
-    }
-
-    const opposite: Record<'up' | 'down' | 'left' | 'right', 'up' | 'down' | 'left' | 'right'> = {
-      up: 'down',
-      down: 'up',
-      left: 'right',
-      right: 'left',
-    };
-
-    if (player.direction === opposite[desired]) {
-      return;
-    }
-
-    this.attemptDirectionChange(desired);
+    const length = Math.hypot(x, y) || 1;
+    return { x: x / length, y: y / length };
   }
 
   private bindUi(): void {
@@ -272,7 +207,7 @@ export class MinigameController {
 
     this.deps.addListener(this.startButton, 'click', () => {
       this.lastEndReason = null;
-      this.deps.socket.startVoiceMinigame({ type: 'snake' });
+  this.deps.socket.startVoiceMinigame({ type: 'slither' });
     });
 
     this.deps.addListener(this.endButton, 'click', () => {
@@ -296,9 +231,25 @@ export class MinigameController {
       this.handlePointerMove(event as PointerEvent);
     });
 
+    this.deps.addListener(this.canvas, 'pointerdown', (event) => {
+      this.handlePointerMove(event as PointerEvent);
+    });
+
     this.deps.addListener(this.canvas, 'pointerleave', () => {
       this.handlePointerLeave();
     });
+  }
+
+  private getHeadDirection(points: Array<{ x: number; y: number }> | undefined): { x: number; y: number } {
+    if (!points || points.length === 0) {
+      return { x: 1, y: 0 };
+    }
+    const head = points[0];
+    const neck = points[1] ?? { x: head.x + 1, y: head.y };
+    const dx = head.x - neck.x;
+    const dy = head.y - neck.y;
+    const length = Math.hypot(dx, dy) || 1;
+    return { x: dx / length, y: dy / length };
   }
 
   private registerSocketListeners(): void {
@@ -327,7 +278,7 @@ export class MinigameController {
         const data = payload as { reason: string; state?: VoiceMinigameState | null };
         const humanReason = describeEndReason(data?.reason ?? 'ended');
         this.lastEndReason = humanReason;
-        this.deps.notifications.info(`Minigame finished — ${humanReason}`, 4500);
+        this.deps.notifications.info(`Arena closed — ${humanReason}`, 4500);
         if (data?.state) {
           this.applyState(data.state as VoiceMinigameState);
         } else {
@@ -398,7 +349,6 @@ export class MinigameController {
       this.lastEndReason = null;
       this.updateLauncherState();
       this.syncStageMode();
-      this.updateControls();
       return;
     }
 
@@ -410,8 +360,10 @@ export class MinigameController {
   private applyState(state: VoiceMinigameState | null): void {
     this.currentState = state;
     if (!state || state.status !== 'running') {
-      this.lastInputAt = 0;
-      this.lastCursorDirection = null;
+      this.resetInputState();
+      this.viewCenter = null;
+      this.currentScale = 1;
+      this.viewTransform = null;
     }
 
     if (state?.status === 'running') {
@@ -441,6 +393,18 @@ export class MinigameController {
     this.syncStageMode();
   }
 
+  private resetInputState(): void {
+    this.pointerActive = false;
+    this.pointerTarget = null;
+    this.keyboardInput = { up: false, down: false, left: false, right: false };
+    this.pendingVector = null;
+    this.lastSentVector = { x: 0, y: 0 };
+    if (this.inputTimeout !== null) {
+      window.clearTimeout(this.inputTimeout);
+      this.inputTimeout = null;
+    }
+  }
+
   private updateControls(): void {
     const state = this.currentState;
     const localId = this.deps.socket.getId();
@@ -450,12 +414,14 @@ export class MinigameController {
     const isHost = Boolean(state && localId && state.hostId === localId);
     const playerEntry = state?.players.find((entry) => entry.id === localId);
     const isRegistered = Boolean(playerEntry);
-    const isAlive = Boolean(playerEntry?.alive);
 
     if (this.startButton) {
       const canStart = this.canUseMinigame && voiceConnected && !isRunning;
       this.startButton.classList.toggle('hidden', !this.canUseMinigame);
       this.startButton.toggleAttribute('disabled', !canStart);
+      if (this.startButton.textContent !== 'Start Slither Arena') {
+        this.startButton.textContent = 'Start Slither Arena';
+      }
     }
 
     if (this.endButton) {
@@ -465,13 +431,9 @@ export class MinigameController {
     }
 
     if (this.joinButton) {
-      const shouldShowJoin = Boolean(state && state.status === 'running' && (!isRegistered || !isAlive));
+      const shouldShowJoin = Boolean(state && state.status === 'running' && !isRegistered);
       this.joinButton.classList.toggle('hidden', !shouldShowJoin);
-      if (shouldShowJoin && !isAlive && isRegistered) {
-        this.joinButton.textContent = 'Respawn';
-      } else {
-        this.joinButton.textContent = 'Join';
-      }
+      this.joinButton.textContent = 'Join';
     }
 
     if (this.leaveButton) {
@@ -487,40 +449,24 @@ export class MinigameController {
 
     const state = this.currentState;
     if (!state) {
-      this.statusEl.textContent = this.lastEndReason ? `Last round: ${this.lastEndReason}` : DEFAULT_STATUS;
+      this.statusEl.textContent = this.lastEndReason ? `Last arena: ${this.lastEndReason}` : DEFAULT_STATUS;
       return;
     }
 
     if (state.status === 'running') {
       const alive = state.players.filter((player) => player.alive).length;
       const total = state.players.length;
-      const parts: string[] = [`${alive}/${total} snakes alive`];
-      if (state.tickIntervalMs) {
-        const movesPerSecond = 1000 / state.tickIntervalMs;
-        parts.push(`${movesPerSecond.toFixed(1)} moves/s`);
+      const pellets = state.pellets.length;
+      const top = state.leaderboard?.[0];
+      const parts: string[] = [`${alive}/${total} snakes slithering`, `${pellets} pellets`];
+      if (top) {
+        parts.push(`Top length ${Math.round(top.length)}`);
       }
-
-      if (state.hazardRing > 0) {
-        parts.push(`Sudden death ring ${state.hazardRing}`);
-      } else if (state.suddenDeathAt) {
-        const remainingMs = Math.max(0, state.suddenDeathAt - Date.now());
-        const remainingSeconds = Math.ceil(remainingMs / 1000);
-        if (remainingSeconds > 0) {
-          parts.push(`Sudden death in ${remainingSeconds}s`);
-        }
-      }
-
-      if (state.food?.type === 'hyper') {
-        parts.push('Hyper fruit on field');
-      }
-
-      this.statusEl.textContent = `Game in progress — ${parts.join(' · ')}`;
+      this.statusEl.textContent = `Arena live — ${parts.join(' · ')}`;
       return;
     }
 
-    this.statusEl.textContent = this.lastEndReason
-      ? `Round ended — ${this.lastEndReason}`
-      : 'Round ended';
+    this.statusEl.textContent = this.lastEndReason ? `Arena finished — ${this.lastEndReason}` : 'Arena finished';
   }
 
   private renderScores(): void {
@@ -562,7 +508,13 @@ export class MinigameController {
       return;
     }
 
-    state.players.forEach((player, index) => {
+    const byId = new Map<string, VoiceMinigamePlayerState>(state.players.map((player) => [player.id, player]));
+    const leaderboard = state.leaderboard?.length ? state.leaderboard : state.players;
+
+    leaderboard.forEach((entry, index) => {
+      const player = typeof entry === 'object' && 'id' in entry ? byId.get(entry.id) ?? (entry as VoiceMinigamePlayerState) : undefined;
+      const resolved = player ?? (entry as VoiceMinigamePlayerState);
+
       const item = document.createElement('li');
       item.className = 'flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-2xs';
 
@@ -574,67 +526,52 @@ export class MinigameController {
       rank.textContent = `${index + 1}.`;
 
       const marker = document.createElement('span');
-      marker.className = 'inline-block h-2.5 w-2.5 rounded-full flex-shrink-0';
-      marker.style.backgroundColor = player.color;
+      marker.className = 'inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full';
+      marker.style.backgroundColor = resolved.color;
 
       const name = document.createElement('span');
       name.className = 'truncate font-semibold text-text-normal';
-      name.textContent = player.name;
-      if (player.id === localId) {
+      name.textContent = resolved.name;
+      if (resolved.id === localId) {
         name.classList.add('text-brand-primary');
       }
 
-      if (!player.alive) {
+      if (!resolved.alive) {
         name.classList.add('opacity-70');
       }
 
       nameWrap.append(rank, marker, name);
 
-      const scoresWrap = document.createElement('div');
-      scoresWrap.className = 'flex items-center gap-2';
+      const statsWrap = document.createElement('div');
+      statsWrap.className = 'flex items-center gap-2';
 
       const score = document.createElement('span');
       score.className = 'font-semibold text-text-normal tabular-nums';
-      score.textContent = `${player.score} pts`;
-      if (!player.alive) {
-        score.classList.add('opacity-60');
-      }
+      score.textContent = `${Math.round(resolved.score)} pts`;
+      statsWrap.append(score);
 
-      scoresWrap.append(score);
+  const lengthBadge = document.createElement('span');
+  lengthBadge.className = 'rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted tabular-nums';
+  lengthBadge.textContent = `Length ${Math.round(resolved.length)}`;
+  statsWrap.append(lengthBadge);
 
-      const combo = document.createElement('span');
-      combo.className = 'hidden rounded-full border border-brand-primary/40 bg-brand-primary/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider';
-      const currentCombo = player.combo ?? 0;
-      if (currentCombo > 1) {
-        combo.textContent = `Combo x${currentCombo}`;
-        combo.classList.remove('hidden');
-        combo.classList.add('text-brand-primary');
+  const speedBadge = document.createElement('span');
+  speedBadge.className = 'hidden rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted tabular-nums sm:inline-flex';
+  speedBadge.textContent = `Speed ${Math.round(resolved.speed)}`;
+  statsWrap.append(speedBadge);
+
+      const status = document.createElement('span');
+      if (resolved.alive) {
+        status.className = 'rounded-full bg-success/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-success';
+        status.textContent = 'Active';
       } else {
-        const longestCombo = player.longestCombo ?? 0;
-        if (longestCombo > 1) {
-          combo.textContent = `Best x${longestCombo}`;
-          combo.classList.remove('hidden');
-          combo.classList.add('text-text-muted');
-        }
+        status.className = 'rounded-full bg-warning/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning';
+        const remaining = Math.ceil(resolved.respawnInMs / 1000);
+        status.textContent = remaining > 0 ? `Respawning ${remaining}s` : 'Respawning';
       }
+      statsWrap.append(status);
 
-      if (!player.alive) {
-        combo.classList.add('border-white/15');
-      }
-
-      if (!combo.classList.contains('hidden')) {
-        scoresWrap.append(combo);
-      }
-
-      const aliveBadge = document.createElement('span');
-      aliveBadge.className = player.alive
-        ? 'rounded-full bg-success/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-success'
-        : 'rounded-full bg-danger/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-danger';
-      aliveBadge.textContent = player.alive ? 'Alive' : 'Out';
-
-      scoresWrap.append(aliveBadge);
-
-      item.append(nameWrap, scoresWrap);
+      item.append(nameWrap, statsWrap);
       list.appendChild(item);
     });
   }
@@ -694,8 +631,8 @@ export class MinigameController {
       return;
     }
 
-    const width = Math.max(this.canvas.clientWidth, 200);
-    const height = Math.max(this.canvas.clientHeight || width, 200);
+    const width = Math.max(this.canvas.clientWidth, 240);
+    const height = Math.max(this.canvas.clientHeight || width, 240);
     const size = Math.floor(Math.min(width, height));
 
     if (size > 0 && (this.canvas.width !== size || this.canvas.height !== size)) {
@@ -717,7 +654,7 @@ export class MinigameController {
       return;
     }
 
-    const label = this.currentState?.status === 'running' ? 'Return to Minigame' : 'Minigame';
+    const label = this.currentState?.status === 'running' ? 'Return to Arena' : 'Minigame';
     this.openButton.textContent = label;
   }
 
@@ -758,11 +695,98 @@ export class MinigameController {
     if (this.renderHandle !== null) {
       return;
     }
-
     this.renderHandle = window.requestAnimationFrame(() => {
       this.renderHandle = null;
       this.drawState();
     });
+  }
+
+  private getLocalPlayer(state: VoiceMinigameState | null): VoiceMinigamePlayerState | null {
+    if (!state) {
+      return null;
+    }
+    const localId = this.deps.socket.getId();
+    if (!localId) {
+      return null;
+    }
+    return state.players.find((player) => player.id === localId) ?? null;
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    if (Number.isNaN(value)) {
+      return min;
+    }
+    if (value < min) {
+      return min;
+    }
+    if (value > max) {
+      return max;
+    }
+    return value;
+  }
+
+  private lerp(from: number, to: number, alpha: number): number {
+    const t = this.clamp(alpha, 0, 1);
+    return from + (to - from) * t;
+  }
+
+  private computeZoom(player: VoiceMinigamePlayerState | null): number {
+    if (!player) {
+      return 1;
+    }
+
+    const baseLength = 620;
+    const lengthRatio = Math.max(player.length, 1) / baseLength;
+    const curve = Math.log10(lengthRatio + 1);
+    return this.clamp(1.28 - curve * 0.34, 0.58, 1.46);
+  }
+
+  private calculateViewTransform(
+    state: VoiceMinigameState,
+    canvasWidth: number,
+    canvasHeight: number
+  ): ViewTransform {
+    const { world } = state;
+    const baseScale = Math.min(canvasWidth / world.width, canvasHeight / world.height) || 1;
+    const localPlayer = this.getLocalPlayer(state);
+
+    const playerHead = localPlayer?.head ?? localPlayer?.segments?.[0];
+    const targetCenter = playerHead ?? { x: world.width / 2, y: world.height / 2 };
+    if (!this.viewCenter) {
+      this.viewCenter = { ...targetCenter };
+    }
+
+    const currentCenter = this.viewCenter ?? targetCenter;
+    const centerLerp = localPlayer ? 0.2 : 0.1;
+    this.viewCenter = {
+      x: this.lerp(currentCenter.x, targetCenter.x, centerLerp),
+      y: this.lerp(currentCenter.y, targetCenter.y, centerLerp),
+    };
+
+    const targetScale = baseScale * this.computeZoom(localPlayer ?? null);
+    this.currentScale = this.lerp(this.currentScale || targetScale, targetScale, 0.15);
+    const scale = this.currentScale || targetScale;
+
+    const halfViewWidth = canvasWidth / (scale * 2);
+    const halfViewHeight = canvasHeight / (scale * 2);
+
+    const maxCenterX = world.width - halfViewWidth;
+    const maxCenterY = world.height - halfViewHeight;
+
+    const clampedCenterX = halfViewWidth > maxCenterX
+      ? world.width / 2
+      : this.clamp(this.viewCenter.x, halfViewWidth, maxCenterX);
+    const clampedCenterY = halfViewHeight > maxCenterY
+      ? world.height / 2
+      : this.clamp(this.viewCenter.y, halfViewHeight, maxCenterY);
+
+    this.viewCenter = { x: clampedCenterX, y: clampedCenterY };
+
+    const offsetX = canvasWidth / 2 - clampedCenterX * scale;
+    const offsetY = canvasHeight / 2 - clampedCenterY * scale;
+
+    this.viewTransform = { scale, offsetX, offsetY };
+    return this.viewTransform;
   }
 
   private drawState(): void {
@@ -773,177 +797,310 @@ export class MinigameController {
     const ctx = this.ctx;
     const width = this.canvas.width;
     const height = this.canvas.height;
-    ctx.fillStyle = '#050a14';
+
+    ctx.fillStyle = BACKGROUND_COLOR;
     ctx.fillRect(0, 0, width, height);
 
     const state = this.currentState;
-    if (!state) {
+    if (!state || !state.world) {
+      this.viewTransform = null;
       this.drawPlaceholder(ctx, width, height);
       return;
     }
 
-    const { board } = state;
-    const cellWidth = width / board.width;
-    const cellHeight = height / board.height;
+    const transform = this.calculateViewTransform(state, width, height);
+    const { scale, offsetX, offsetY } = transform;
 
-    this.drawGrid(ctx, board, cellWidth, cellHeight, width, height);
-
-    if (state.hazards?.length) {
-      this.drawHazards(ctx, state.hazards, cellWidth, cellHeight);
-    }
-
-    if (state.food) {
-      this.drawFood(ctx, state.food, cellWidth, cellHeight);
-    }
-
-    state.players.forEach((player) => {
-      this.drawPlayer(ctx, player, cellWidth, cellHeight);
-    });
-
-    this.evaluateCursorSteering();
+    this.drawGrid(ctx, state.world, scale, offsetX, offsetY);
+    this.drawPellets(ctx, state, scale, offsetX, offsetY);
+    this.drawPlayers(ctx, state, scale, offsetX, offsetY);
   }
 
   private drawPlaceholder(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     ctx.fillStyle = '#0f1727';
     ctx.fillRect(0, 0, width, height);
 
-    ctx.fillStyle = '#334866';
+    ctx.fillStyle = '#3a5277';
     const fontSize = Math.max(Math.floor(Math.min(width, height) / 18), 14);
     ctx.font = `600 ${fontSize}px system-ui`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Launch the turbo snake arena to get started', width / 2, height / 2);
-  }
-
-  private drawPlayer(
-    ctx: CanvasRenderingContext2D,
-    player: VoiceMinigamePlayerState,
-    cellWidth: number,
-    cellHeight: number
-  ): void {
-    ctx.save();
-    ctx.fillStyle = player.color;
-    const alive = Boolean(player.alive);
-    const combo = player.combo ?? 0;
-
-    if (alive && combo > 1) {
-      ctx.shadowColor = 'rgba(255, 200, 40, 0.55)';
-      ctx.shadowBlur = Math.max(cellWidth, cellHeight) * 0.65;
-    }
-
-    player.body.forEach((segment, index) => {
-      const x = segment.x * cellWidth;
-      const y = segment.y * cellHeight;
-      const inset = index === 0 ? Math.max(1, Math.min(cellWidth, cellHeight) * 0.08) : Math.max(2, Math.min(cellWidth, cellHeight) * 0.18);
-      const segmentAlpha = index === 0 ? 1 : 0.78;
-      ctx.globalAlpha = alive ? segmentAlpha : segmentAlpha * 0.35;
-
-      const drawWidth = Math.max(cellWidth - inset * 2, 2);
-      const drawHeight = Math.max(cellHeight - inset * 2, 2);
-
-      ctx.fillRect(x + inset, y + inset, drawWidth, drawHeight);
-
-      if (index === 0) {
-        ctx.globalAlpha = alive ? 0.9 : 0.45;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-        ctx.lineWidth = Math.max(1, Math.min(cellWidth, cellHeight) * 0.1);
-        ctx.strokeRect(x + inset, y + inset, drawWidth, drawHeight);
-
-        if (combo > 1 && alive) {
-          ctx.globalAlpha = 0.9;
-          ctx.strokeStyle = 'rgba(255, 200, 60, 0.85)';
-          ctx.lineWidth = Math.max(1, Math.min(cellWidth, cellHeight) * 0.15);
-          ctx.strokeRect(x + inset + 1, y + inset + 1, Math.max(drawWidth - 2, 1), Math.max(drawHeight - 2, 1));
-        }
-      }
-    });
-
-    ctx.restore();
+    ctx.fillText('Launch the slither arena to get started', width / 2, height / 2);
   }
 
   private drawGrid(
     ctx: CanvasRenderingContext2D,
-    board: { width: number; height: number },
-    cellWidth: number,
-    cellHeight: number,
-    width: number,
-    height: number
+    world: { width: number; height: number },
+    scale: number,
+    offsetX: number,
+    offsetY: number
   ): void {
     ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
     ctx.lineWidth = 1;
 
-    for (let x = 1; x < board.width; x += 1) {
-      const pos = x * cellWidth;
+    for (let x = GRID_SPACING; x < world.width; x += GRID_SPACING) {
+      const pos = offsetX + x * scale;
       ctx.beginPath();
-      ctx.moveTo(Math.round(pos) + 0.5, 0);
-      ctx.lineTo(Math.round(pos) + 0.5, height);
+      ctx.moveTo(Math.round(pos) + 0.5, offsetY);
+      ctx.lineTo(Math.round(pos) + 0.5, offsetY + world.height * scale);
       ctx.stroke();
     }
 
-    for (let y = 1; y < board.height; y += 1) {
-      const pos = y * cellHeight;
+    for (let y = GRID_SPACING; y < world.height; y += GRID_SPACING) {
+      const pos = offsetY + y * scale;
       ctx.beginPath();
-      ctx.moveTo(0, Math.round(pos) + 0.5);
-      ctx.lineTo(width, Math.round(pos) + 0.5);
+      ctx.moveTo(offsetX, Math.round(pos) + 0.5);
+      ctx.lineTo(offsetX + world.width * scale, Math.round(pos) + 0.5);
       ctx.stroke();
     }
 
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(offsetX + 1, offsetY + 1, world.width * scale - 2, world.height * scale - 2);
     ctx.restore();
   }
 
-  private drawHazards(
+  private drawPellets(
     ctx: CanvasRenderingContext2D,
-    hazards: VoiceMinigameHazard[],
-    cellWidth: number,
-    cellHeight: number
+    state: VoiceMinigameState,
+    scale: number,
+    offsetX: number,
+    offsetY: number
   ): void {
     ctx.save();
-    ctx.fillStyle = 'rgba(255, 90, 90, 0.24)';
-    hazards.forEach(({ x, y }) => {
-      ctx.fillRect(x * cellWidth, y * cellHeight, cellWidth, cellHeight);
+    state.pellets.forEach((pellet) => {
+      const radius = Math.max(pellet.radius * scale, 3);
+      ctx.beginPath();
+      ctx.fillStyle = pellet.color;
+      const x = offsetX + pellet.x * scale;
+      const y = offsetY + pellet.y * scale;
+      ctx.globalAlpha = 0.9;
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
     });
-
     ctx.restore();
   }
 
-  private drawFood(
+  private drawPlayers(
     ctx: CanvasRenderingContext2D,
-    food: VoiceMinigameFood,
-    cellWidth: number,
-    cellHeight: number
+    state: VoiceMinigameState,
+    scale: number,
+    offsetX: number,
+    offsetY: number
   ): void {
-    const x = food.x * cellWidth;
-    const y = food.y * cellHeight;
-    const inset = Math.max(2, Math.min(cellWidth, cellHeight) * 0.18);
-    const w = Math.max(cellWidth - inset * 2, 2);
-    const h = Math.max(cellHeight - inset * 2, 2);
+    const localId = this.deps.socket.getId();
 
-    if (food.type === 'hyper') {
-      const cx = x + cellWidth / 2;
-      const cy = y + cellHeight / 2;
-      const gradient = ctx.createRadialGradient(cx, cy, Math.min(inset, 6), cx, cy, Math.max(cellWidth, cellHeight) / 2);
-      gradient.addColorStop(0, 'rgba(255, 220, 90, 0.95)');
-      gradient.addColorStop(1, 'rgba(255, 220, 90, 0.05)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(x, y, cellWidth, cellHeight);
-
-      ctx.fillStyle = '#ffe066';
-      ctx.fillRect(x + inset, y + inset, w, h);
-
-      if (food.expiresAt) {
-        const remaining = Math.max(0, food.expiresAt - Date.now());
-        const ratio = Math.max(0, Math.min(1, remaining / HYPER_FOOD_LIFETIME_MS));
-        ctx.strokeStyle = 'rgba(255, 236, 153, 0.9)';
-        ctx.lineWidth = Math.max(1, Math.min(cellWidth, cellHeight) * 0.18);
-        ctx.beginPath();
-        const radius = Math.max(cellWidth, cellHeight) / 2 - ctx.lineWidth / 2;
-        ctx.arc(cx, cy, Math.max(radius, 2), -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio, false);
-        ctx.stroke();
+    state.players.forEach((player) => {
+      const points = player.segments ?? [];
+      if (!points.length) {
+        return;
       }
-    } else {
-      ctx.fillStyle = '#ff4757';
-      ctx.fillRect(x + inset, y + inset, w, h);
+
+      const head = player.head ?? points[0];
+      const strokeWidth = Math.max(player.thickness * scale, 6);
+
+      ctx.save();
+      ctx.globalAlpha = player.alive ? 0.96 : 0.45;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = strokeWidth;
+      ctx.strokeStyle = player.color;
+
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const px = offsetX + point.x * scale;
+        const py = offsetY + point.y * scale;
+        if (index === 0) {
+          ctx.moveTo(px, py);
+        } else {
+          ctx.lineTo(px, py);
+        }
+      });
+      ctx.stroke();
+
+      const headX = offsetX + head.x * scale;
+      const headY = offsetY + head.y * scale;
+      const headRadius = Math.max(strokeWidth * 0.55, 6);
+
+      ctx.fillStyle = player.color;
+      ctx.beginPath();
+      ctx.arc(headX, headY, headRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.lineWidth = Math.max(1.2, headRadius * 0.32);
+      ctx.strokeStyle = player.id === localId ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.55)';
+      ctx.stroke();
+
+      const heading = this.getHeadDirection(points);
+      const dirX = heading.x;
+      const dirY = heading.y;
+      const perpX = -dirY;
+      const perpY = dirX;
+      const eyeOffset = headRadius * 0.65;
+      const eyeRadius = Math.max(1.8, headRadius * 0.24);
+
+      const drawEye = (offset: number) => {
+        const centerX = headX + dirX * eyeOffset + perpX * eyeRadius * offset;
+        const centerY = headY + dirY * eyeOffset + perpY * eyeRadius * offset;
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.arc(centerX, centerY, eyeRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(18, 24, 32, 0.95)';
+        ctx.arc(centerX + dirX * eyeRadius * 0.35, centerY + dirY * eyeRadius * 0.35, eyeRadius * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+      };
+
+      drawEye(0.85);
+      drawEye(-0.85);
+
+      ctx.font = `${Math.max(11, headRadius * 0.42)}px system-ui`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.globalAlpha = 0.92;
+      ctx.fillText(player.name, headX, headY - headRadius - Math.max(12, headRadius * 0.25));
+
+      ctx.font = `${Math.max(12, headRadius * 0.5)}px system-ui`;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillText(`${Math.round(player.length)}`, headX, headY);
+
+      if (!player.alive) {
+        const remaining = Math.ceil(player.respawnInMs / 1000);
+        if (remaining > 0) {
+          ctx.font = `${Math.max(10, headRadius * 0.4)}px system-ui`;
+          ctx.fillStyle = 'rgba(255, 208, 128, 0.85)';
+          ctx.fillText(`Respawn ${remaining}`, headX, headY + headRadius + Math.max(10, headRadius * 0.2));
+        }
+      }
+
+      ctx.restore();
+    });
+  }
+
+  private handlePointerMove(event: PointerEvent): void {
+    if (!this.canvas) {
+      return;
     }
+
+    const rect = this.canvas.getBoundingClientRect();
+    this.pointerTarget = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+    this.pointerActive = true;
+
+    const vector = this.getPointerVector();
+    if (vector) {
+      this.queueInputVector(vector);
+    }
+  }
+
+  private handlePointerLeave(): void {
+    this.pointerTarget = null;
+    this.pointerActive = false;
+    if (this.keyboardInput.up || this.keyboardInput.down || this.keyboardInput.left || this.keyboardInput.right) {
+      this.queueInputVector(this.getKeyboardVector());
+    } else {
+      this.queueInputVector({ x: 0, y: 0 });
+    }
+  }
+
+  private getPointerVector(): MovementVector | null {
+    if (!this.pointerTarget || !this.viewTransform || !this.currentState) {
+      return null;
+    }
+
+    const localId = this.deps.socket.getId();
+    if (!localId) {
+      return null;
+    }
+
+    const player = this.currentState.players.find((entry) => entry.id === localId);
+    if (!player || !player.alive) {
+      return null;
+    }
+
+    const head = player.head ?? player.segments?.[0];
+    if (!head) {
+      return null;
+    }
+
+    const worldX = (this.pointerTarget.x - this.viewTransform.offsetX) / this.viewTransform.scale;
+    const worldY = (this.pointerTarget.y - this.viewTransform.offsetY) / this.viewTransform.scale;
+
+    const dx = worldX - head.x;
+    const dy = worldY - head.y;
+    const distance = Math.hypot(dx, dy);
+
+    if (!Number.isFinite(distance) || distance < 1) {
+      return { x: 0, y: 0 };
+    }
+
+    return { x: dx / distance, y: dy / distance };
+  }
+
+  private queueInputVector(vector: MovementVector): void {
+    if (!this.currentState || this.currentState.status !== 'running') {
+      return;
+    }
+
+    const localId = this.deps.socket.getId();
+    if (!localId) {
+      return;
+    }
+
+    const player = this.currentState.players.find((entry) => entry.id === localId);
+    if (!player || !player.alive) {
+      return;
+    }
+
+    const normalized = this.normalizeVector(vector);
+    if (this.vectorsAreClose(normalized, this.lastSentVector)) {
+      return;
+    }
+
+    this.pendingVector = normalized;
+    this.flushInputVector();
+  }
+
+  private normalizeVector(vector: MovementVector): MovementVector {
+    const length = Math.hypot(vector.x, vector.y);
+    if (!length) {
+      return { x: 0, y: 0 };
+    }
+    return { x: vector.x / length, y: vector.y / length };
+  }
+
+  private vectorsAreClose(a: MovementVector, b: MovementVector): boolean {
+    return Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01;
+  }
+
+  private flushInputVector(): void {
+    if (!this.pendingVector) {
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - this.lastInputAt;
+    if (elapsed < INPUT_SEND_INTERVAL_MS) {
+      if (this.inputTimeout !== null) {
+        return;
+      }
+      const delay = Math.max(0, INPUT_SEND_INTERVAL_MS - elapsed);
+      this.inputTimeout = window.setTimeout(() => {
+        this.inputTimeout = null;
+        this.flushInputVector();
+      }, delay);
+      return;
+    }
+
+    const vector = this.pendingVector;
+    this.pendingVector = null;
+    this.deps.socket.sendVoiceMinigameInput({ vector });
+    this.lastInputAt = now;
+    this.lastSentVector = vector;
   }
 }

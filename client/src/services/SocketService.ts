@@ -170,8 +170,13 @@ export class SocketService extends EventEmitter<EventMap> {
     this.socket?.emit('voice:game:leave');
   }
 
-  sendVoiceMinigameInput(direction: string): void {
-    this.socket?.emit('voice:game:input', { direction });
+  sendVoiceMinigameInput(payload: { vector: { x: number; y: number } }): void {
+    const vector = payload?.vector ?? { x: 0, y: 0 };
+    const safeVector = {
+      x: Number.isFinite(vector.x) ? vector.x : 0,
+      y: Number.isFinite(vector.y) ? vector.y : 0,
+    };
+    this.socket?.emit('voice:game:input', { vector: safeVector });
   }
 
   endVoiceMinigame(): void {
