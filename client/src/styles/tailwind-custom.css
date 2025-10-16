@@ -730,6 +730,24 @@
     @apply flex-1 min-w-0 flex items-center gap-2;
   }
 
+  .channel-actions {
+    @apply inline-flex items-center gap-1;
+  }
+
+  .stream-key-button {
+    @apply inline-flex items-center justify-center text-xs font-medium rounded transition-colors duration-150;
+    padding: 0.2rem 0.45rem;
+    background: rgba(169, 112, 255, 0.15);
+    color: var(--color-text-muted);
+    border: 1px solid transparent;
+  }
+
+  .stream-key-button:hover {
+    color: var(--color-text-normal);
+    background: rgba(169, 112, 255, 0.25);
+    border-color: rgba(169, 112, 255, 0.35);
+  }
+
   .channel-name {
     @apply text-sm font-medium truncate block;
     color: var(--color-text-muted);

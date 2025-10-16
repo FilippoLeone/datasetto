@@ -1057,6 +1057,89 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('stream:key:request', (payload = {}) => {
+    const { channelId, channelName } = payload;
+    let resolvedChannel = null;
+
+    try {
+      if (!currentUser) {
+        const error = new Error('Not authenticated');
+        error.code = 'STREAM_KEY_UNAUTHENTICATED';
+        throw error;
+      }
+
+      const identifier = typeof channelId === 'string' && channelId.trim().length > 0
+        ? channelId.trim()
+        : typeof channelName === 'string'
+          ? channelName.trim()
+          : '';
+
+      if (!identifier) {
+        const error = new Error('Channel identifier is required');
+        error.code = 'STREAM_KEY_INVALID_REQUEST';
+        throw error;
+      }
+
+      const channel = channelId
+        ? channelManager.getChannel(channelId)
+        : channelManager.getChannelByName(identifier);
+
+      if (!channel || channel.type !== 'stream') {
+        const error = new Error('Stream channel not found');
+        error.code = 'STREAM_KEY_CHANNEL_NOT_FOUND';
+        throw error;
+      }
+
+      resolvedChannel = channel;
+
+      if (!channel.streamKey) {
+        const error = new Error('Stream key unavailable');
+        error.code = 'STREAM_KEY_MISSING';
+        throw error;
+      }
+
+      const hasGlobalKeyAccess = userManager.hasPermission(socket.id, 'canViewAllKeys') ||
+        userManager.hasPermission(socket.id, 'canStreamAnywhere');
+      const hasChannelAccess = channelManager.canAccess(channel, currentUser, 'stream');
+
+      if (!hasGlobalKeyAccess && !hasChannelAccess) {
+        const error = new Error('You do not have permission to view this stream key');
+        error.code = 'STREAM_KEY_FORBIDDEN';
+        throw error;
+      }
+
+      socket.emit('stream:key:response', {
+        channelId: channel.id,
+        channelName: channel.name,
+        streamKey: channel.streamKey,
+      });
+
+      logger.info('Stream key provided to user', {
+        socketId: socket.id,
+        channelId: channel.id,
+        accountId: currentAccount?.id,
+      });
+    } catch (error) {
+      const message = error?.code === 'STREAM_KEY_FORBIDDEN'
+        ? 'You do not have access to this stream key'
+        : (error?.message || 'Unable to retrieve stream key');
+
+      logger.warn('Stream key request failed', {
+        socketId: socket.id,
+        channelId: channelId || resolvedChannel?.id || null,
+        code: error?.code || 'STREAM_KEY_ERROR',
+        reason: error?.message,
+      });
+
+      socket.emit('stream:key:error', {
+        channelId: channelId || resolvedChannel?.id || null,
+        channelName: resolvedChannel?.name || (typeof channelName === 'string' ? channelName.trim() : null),
+        message,
+        code: error?.code || 'STREAM_KEY_ERROR',
+      });
+    }
+  });
+
   /**
    * Join channel
    */

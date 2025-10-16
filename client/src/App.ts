@@ -87,7 +87,7 @@ export class App {
     // Cache DOM elements
     this.cacheElements();
     this.updateMobileProfileButton();
-  this.updateStreamingInstructions();
+    this.updateStreamingInstructions();
 
     applyDeviceClasses(document.documentElement);
 
@@ -298,6 +298,15 @@ export class App {
     });
 
     this.updateMobileToolbarState();
+
+    if (!this.isAuthenticated) {
+      const streamKeyDisplay = this.elements.streamKeyDisplay;
+      if (streamKeyDisplay) {
+        streamKeyDisplay.textContent = 'Tap 🔑 to fetch key';
+      }
+
+      this.hideStreamInfoModal();
+    }
   }
 
   private handleAuthSessionInvalidated(): void {
@@ -406,6 +415,48 @@ export class App {
     if (ingestEl) {
       ingestEl.textContent = RTMP_SERVER_URL;
     }
+
+    const streamKeyDisplay = this.elements.streamKeyDisplay;
+    if (streamKeyDisplay) {
+      streamKeyDisplay.textContent = 'Tap 🔑 to fetch key';
+    }
+    const channelNameEl = this.elements.streamChannelName;
+    if (channelNameEl) {
+      channelNameEl.textContent = 'Select a stream channel';
+    }
+  }
+
+  private showStreamInfoModal(channelName: string, streamKey: string): void {
+    const modal = this.elements.streamInfoModal;
+    if (!modal) {
+      return;
+    }
+
+    this.closeMobilePanels();
+
+    const streamKeyDisplay = this.elements.streamKeyDisplay;
+    if (streamKeyDisplay) {
+      streamKeyDisplay.textContent = streamKey;
+    }
+
+    const channelNameEl = this.elements.streamChannelName;
+    if (channelNameEl) {
+      channelNameEl.textContent = channelName;
+    }
+
+    this.animator.openModal(modal);
+    this.soundFX.play('success', 0.55);
+    this.updateMobileToolbarState();
+  }
+
+  private hideStreamInfoModal(): void {
+    const modal = this.elements.streamInfoModal;
+    if (!modal) {
+      return;
+    }
+
+    this.animator.closeModal(modal);
+    this.updateMobileToolbarState();
   }
 
   /**
@@ -544,6 +595,13 @@ export class App {
     this.addTrackedListener(this.elements['createChannelBtn'], 'click', () => this.channelController?.handleCreateChannel());
     this.addTrackedListener(this.elements['createChannelCancel'], 'click', () => this.channelController?.hideCreateChannelModal());
 
+    this.addTrackedListener(this.elements.streamInfoCancel, 'click', () => {
+      this.hideStreamInfoModal();
+    });
+    this.addTrackedListener(this.elements.streamInfoClose, 'click', () => {
+      this.hideStreamInfoModal();
+    });
+
     // Emoji picker
     this.addTrackedListener(this.elements.emojiPickerBtn, 'click', (e) => {
       (e as Event).stopPropagation();
@@ -677,6 +735,41 @@ export class App {
         // Refresh channel list to show stream key buttons
         setTimeout(() => this.socket.requestChannelsList(), 500);
       }
+    });
+    this.socket.on('stream:key', ({ channelName, streamKey }) => {
+      if (import.meta.env.DEV) {
+        console.log('🔑 Stream key received for channel:', channelName);
+      }
+      this.showStreamInfoModal(channelName, streamKey);
+    });
+    this.socket.on('stream:key:error', ({ channelId, channelName, message, code }) => {
+      if (import.meta.env.DEV) {
+        console.warn('⚠️ Stream key request failed', { channelId, channelName, message, code });
+      }
+
+      const streamKeyDisplay = this.elements.streamKeyDisplay;
+      if (streamKeyDisplay) {
+        streamKeyDisplay.textContent = 'Tap 🔑 to fetch key';
+      }
+
+      let resolvedChannelName = channelName ?? null;
+      if (!resolvedChannelName && channelId) {
+        const channels = this.state.get('channels');
+        if (Array.isArray(channels)) {
+          const match = channels.find((ch) => ch.id === channelId);
+          if (match) {
+            resolvedChannelName = match.name;
+          }
+        }
+      }
+
+      const channelNameEl = this.elements.streamChannelName;
+      if (channelNameEl && resolvedChannelName) {
+        channelNameEl.textContent = resolvedChannelName;
+      }
+
+      this.soundFX.play('error', 0.5);
+      this.notifications.error(message || 'Unable to retrieve stream key');
     });
     this.socket.on('error', (error) => {
       const details = error as { message?: string; code?: string };
@@ -1005,6 +1098,11 @@ export class App {
         this.authController?.hideAuthModal();
         this.updateMobileToolbarState();
       }
+    );
+
+    register(
+      this.elements.streamInfoModal,
+      () => this.hideStreamInfoModal()
     );
 
     this.updateMobileToolbarState();

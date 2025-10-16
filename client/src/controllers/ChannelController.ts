@@ -56,8 +56,14 @@ export class ChannelController {
     this.deps.state.setChannel(channel);
     this.deps.socket.joinChannel(channel);
     
-    if (this.deps.elements.streamKey) {
-      this.deps.elements.streamKey.textContent = channel;
+    const streamChannelNameEl = this.deps.elements.streamChannelName as HTMLElement | undefined;
+    if (streamChannelNameEl) {
+      streamChannelNameEl.textContent = channel;
+    }
+
+    const streamKeyDisplayEl = this.deps.elements.streamKeyDisplay as HTMLElement | undefined;
+    if (streamKeyDisplayEl) {
+      streamKeyDisplayEl.textContent = 'Tap 🔑 to fetch key';
     }
   }
 
@@ -247,6 +253,54 @@ export class ChannelController {
       item.appendChild(icon);
       item.appendChild(content);
 
+      if (type === 'stream') {
+        const isAuthenticated = this.deps.isAuthenticated();
+
+        if (isAuthenticated) {
+          const actions = document.createElement('div');
+          actions.className = 'channel-actions';
+
+          const streamKeyBtn = document.createElement('button');
+          streamKeyBtn.type = 'button';
+          streamKeyBtn.className = 'stream-key-button';
+          streamKeyBtn.title = `Show stream key for ${ch.name}`;
+          streamKeyBtn.setAttribute('aria-label', `Show stream key for ${ch.name}`);
+          streamKeyBtn.textContent = '🔑';
+
+          streamKeyBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            event.preventDefault();
+
+            if (!this.deps.isAuthenticated()) {
+              this.deps.notifications.warning('Please log in to view stream keys');
+              this.deps.soundFX.play('error', 0.5);
+              return;
+            }
+
+            this.deps.soundFX.play('click', 0.45);
+
+            if (import.meta.env.DEV) {
+              console.log('🔑 Requesting stream key for channel:', ch.name);
+            }
+
+            const streamChannelNameEl = this.deps.elements.streamChannelName as HTMLElement | undefined;
+            if (streamChannelNameEl) {
+              streamChannelNameEl.textContent = ch.name;
+            }
+
+            const streamKeyDisplayEl = this.deps.elements.streamKeyDisplay as HTMLElement | undefined;
+            if (streamKeyDisplayEl) {
+              streamKeyDisplayEl.textContent = 'Fetching key...';
+            }
+
+            this.deps.socket.requestStreamKey(ch.id, ch.name);
+          });
+
+          actions.appendChild(streamKeyBtn);
+          item.appendChild(actions);
+        }
+      }
+
       // User count for voice channels
       if (type === 'voice' && ch.count > 0) {
         const count = document.createElement('span');
@@ -328,6 +382,18 @@ export class ChannelController {
     const headerIcon = document.querySelector('.chat-header .channel-icon');
     if (headerIcon) {
       headerIcon.textContent = channelIcon;
+    }
+
+    if (type === 'stream') {
+      const streamChannelNameEl = this.deps.elements.streamChannelName as HTMLElement | undefined;
+      if (streamChannelNameEl) {
+        streamChannelNameEl.textContent = channelName;
+      }
+
+      const streamKeyDisplayEl = this.deps.elements.streamKeyDisplay as HTMLElement | undefined;
+      if (streamKeyDisplayEl) {
+        streamKeyDisplayEl.textContent = 'Tap 🔑 to fetch key';
+      }
     }
 
     // Update state

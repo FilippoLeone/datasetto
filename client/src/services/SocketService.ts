@@ -122,6 +122,21 @@ export class SocketService extends EventEmitter<EventMap> {
   }
 
   /**
+   * Request the stream key for a specific channel
+   */
+  requestStreamKey(channelId: string, channelName?: string): void {
+    const safeChannelId = channelId.trim();
+    if (!safeChannelId) {
+      return;
+    }
+
+    this.socket?.emit('stream:key:request', {
+      channelId: safeChannelId,
+      ...(channelName ? { channelName } : {}),
+    });
+  }
+
+  /**
    * Send WebRTC signaling data
    */
   sendSignal(to: string, data: unknown): void {
@@ -311,6 +326,14 @@ export class SocketService extends EventEmitter<EventMap> {
         console.log('📡 Socket received channels:update:', data);
       }
       this.emit('channel:update', data);
+    });
+
+    this.socket.on('stream:key:response', (payload: { channelId: string; channelName: string; streamKey: string }) => {
+      this.emit('stream:key', payload as never);
+    });
+
+    this.socket.on('stream:key:error', (payload: { channelId?: string | null; channelName?: string | null; message: string; code?: string }) => {
+      this.emit('stream:key:error', payload as never);
     });
 
     this.socket.on('channels:permissionsUpdated', (data: { channelId: string; permissions: ChannelPermissions }) => {
