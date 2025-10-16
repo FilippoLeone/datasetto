@@ -103,7 +103,7 @@ See `desktop/README.md` for full details on development and packaging.
 1. Open OBS Studio → Settings → Stream
 2. **Service:** Custom
 3. **Server:** `rtmp://YOUR_SERVER/live`
-4. **Stream Key:** Get from web interface (e.g., `main-stream+ABC123xyz456...`)
+4. **Stream Key:** Get from web interface (e.g., `main-stream?key=ABC123xyz456...`)
 5. Start Streaming
 
 ### 2. Watch & Chat

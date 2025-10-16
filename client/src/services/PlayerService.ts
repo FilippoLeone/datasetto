@@ -2,6 +2,7 @@
  * HLS Video Player Service
  */
 import Hls from 'hls.js';
+import { buildHlsUrlCandidates } from '@/utils/streaming';
 
 export class PlayerService {
   private hls: Hls | null = null;
@@ -9,6 +10,7 @@ export class PlayerService {
   private baseUrl: string;
   private currentChannel = '';
   private overlayElement: HTMLElement | null = null;
+  private candidateUrls: string[] = [];
 
   constructor(videoElement: HTMLVideoElement, baseUrl: string, overlayElement?: HTMLElement) {
     this.videoElement = videoElement;
@@ -50,85 +52,105 @@ export class PlayerService {
     }
 
     this.currentChannel = channel;
-    this.showOverlay('Connecting to stream...');
+    this.candidateUrls = buildHlsUrlCandidates(this.baseUrl, channel);
 
-    const m3u8Url = `${this.baseUrl}/${encodeURIComponent(channel)}/index.m3u8`;
-
-    // Clean up existing HLS instance
-    if (this.hls) {
-      this.hls.destroy();
-      this.hls = null;
+    if (this.candidateUrls.length === 0) {
+      this.showOverlay('Unable to resolve stream path');
+      return;
     }
 
-    // Check if HLS.js is supported
-    if (Hls.isSupported()) {
-      this.hls = new Hls({
-        // Low-latency configuration
-        lowLatencyMode: true,
-        backBufferLength: 90,             // Keep minimal back buffer (90s)
-        
-        // Live sync configuration
-        liveSyncDurationCount: 2,         // Target 2 segments from live edge (was 3 default)
-        liveMaxLatencyDurationCount: 4,   // Max 4 segments behind (was 10 default)
-        liveDurationInfinity: true,       // Handle infinite live streams
-        highBufferWatchdogPeriod: 1,      // Check buffer every 1s (was 2s)
-        
-        // Playback optimization
-        maxLiveSyncPlaybackRate: 1.5,     // Allow 1.5x speed to catch up
-        maxMaxBufferLength: 20,           // Max buffer 20s (was 600s)
-        maxBufferSize: 30 * 1000 * 1000,  // 30MB buffer limit
-        maxBufferLength: 10,              // Target 10s buffer (was 30s)
-        
-        // Network optimization
-        enableWorker: true,
-        maxFragLookUpTolerance: 0.1,      // Tight fragment lookup
-        manifestLoadingTimeOut: 10000,    // 10s manifest timeout
-        manifestLoadingMaxRetry: 3,
-        levelLoadingTimeOut: 10000,       // 10s level timeout
-        fragLoadingTimeOut: 20000,        // 20s fragment timeout
-        
-        // Start position
-        startPosition: -1,                // Start from live edge
-      });
+    const tryCandidate = (index: number): void => {
+      if (index >= this.candidateUrls.length) {
+        this.showOverlay('Stream unavailable');
+        return;
+      }
 
-      this.hls.loadSource(m3u8Url);
-      this.hls.attachMedia(this.videoElement);
+      const source = this.candidateUrls[index];
+      this.showOverlay('Connecting to stream...');
 
-      this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      if (this.hls) {
+        this.hls.destroy();
+        this.hls = null;
+      }
+
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          lowLatencyMode: true,
+          backBufferLength: 90,
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 4,
+          liveDurationInfinity: true,
+          highBufferWatchdogPeriod: 1,
+          maxLiveSyncPlaybackRate: 1.5,
+          maxMaxBufferLength: 20,
+          maxBufferSize: 30 * 1000 * 1000,
+          maxBufferLength: 10,
+          enableWorker: true,
+          maxFragLookUpTolerance: 0.1,
+          manifestLoadingTimeOut: 10000,
+          manifestLoadingMaxRetry: 3,
+          levelLoadingTimeOut: 10000,
+          fragLoadingTimeOut: 20000,
+          startPosition: -1,
+        });
+
+        this.hls = hls;
+        hls.loadSource(source);
+        hls.attachMedia(this.videoElement);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          this.videoElement.play().catch((error) => {
+            console.error('Error auto-playing video:', error);
+          });
+        });
+
+        hls.on(Hls.Events.ERROR, (_event: string, data: any) => {
+          console.error('HLS error:', data);
+
+          if (!data?.fatal) {
+            return;
+          }
+
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            this.showOverlay('Retrying stream path...');
+            hls.destroy();
+            this.hls = null;
+            tryCandidate(index + 1);
+            return;
+          }
+
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            this.showOverlay('Media error. Recovering...');
+            this.hls?.recoverMediaError();
+            return;
+          }
+
+          this.showOverlay('Fatal error loading stream');
+          this.hls?.destroy();
+          this.hls = null;
+        });
+        return;
+      }
+
+      if (this.videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+        const handleError = (): void => {
+          this.videoElement.removeEventListener('error', handleError);
+          this.showOverlay('Retrying stream path...');
+          tryCandidate(index + 1);
+        };
+
+        this.videoElement.addEventListener('error', handleError, { once: true });
+        this.videoElement.src = source;
         this.videoElement.play().catch((error) => {
           console.error('Error auto-playing video:', error);
         });
-      });
+        return;
+      }
 
-      this.hls.on(Hls.Events.ERROR, (_event: string, data: any) => {
-        console.error('HLS error:', data);
-        
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              this.showOverlay('Network error. Retrying...');
-              setTimeout(() => this.hls?.startLoad(), 3000);
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              this.showOverlay('Media error. Recovering...');
-              this.hls?.recoverMediaError();
-              break;
-            default:
-              this.showOverlay('Fatal error loading stream');
-              this.hls?.destroy();
-              break;
-          }
-        }
-      });
-    } else if (this.videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-      // Native HLS support (Safari)
-      this.videoElement.src = m3u8Url;
-      this.videoElement.play().catch((error) => {
-        console.error('Error auto-playing video:', error);
-      });
-    } else {
       this.showOverlay('HLS not supported in this browser');
-    }
+    };
+
+    tryCandidate(0);
   }
 
   /**

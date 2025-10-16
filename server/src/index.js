@@ -13,7 +13,14 @@ import { dirname, join } from 'path';
 // Configuration and utilities
 import { appConfig, ROLES } from './config/index.js';
 import logger from './utils/logger.js';
-import { formatError, getClientIp, checkRateLimit, cleanupRateLimitStore } from './utils/helpers.js';
+import {
+  formatError,
+  getClientIp,
+  checkRateLimit,
+  cleanupRateLimitStore,
+  extractStreamKeyToken,
+  formatStreamKey,
+} from './utils/helpers.js';
 
 // Models/Managers
 import channelManager from './models/ChannelManager.js';
@@ -347,25 +354,40 @@ app.post('/api/stream/auth', async (req, res) => {
     streamKey: streamKeyCandidate,
   } = parseStreamAuthRequest(req);
 
-  const resolvedChannelName = rawChannelName?.includes('+')
-    ? rawChannelName.slice(0, rawChannelName.indexOf('+'))
-    : rawChannelName;
+  const truncateChannelName = (value) => {
+    if (!value || typeof value !== 'string') {
+      return value;
+    }
 
-  let streamKey = streamKeyCandidate;
-  if (!streamKey && rawChannelName && rawChannelName.includes('+')) {
-    streamKey = rawChannelName;
+    let endIndex = value.length;
+    const plusIndex = value.indexOf('+');
+    const questionIndex = value.indexOf('?');
+    if (plusIndex !== -1) {
+      endIndex = Math.min(endIndex, plusIndex);
+    }
+    if (questionIndex !== -1) {
+      endIndex = Math.min(endIndex, questionIndex);
+    }
+    return value.slice(0, endIndex);
+  };
+
+  let resolvedChannelName = truncateChannelName(rawChannelName);
+
+  const extractToken = (value) => extractStreamKeyToken(value);
+
+  let streamKeyToken = extractToken(streamKeyCandidate);
+  if (!streamKeyToken && rawChannelName) {
+    streamKeyToken = extractToken(rawChannelName);
   }
-  if (!streamKey && password && password.includes('+')) {
-    streamKey = password;
+  if (!streamKeyToken && password) {
+    streamKeyToken = extractToken(password);
   }
 
-  streamKey = streamKey?.trim();
-
-  const hasStreamKey = Boolean(streamKey);
+  const hasStreamKey = Boolean(streamKeyToken);
   const hasCredentials = Boolean(username && password);
 
   const rateKey = hasStreamKey
-    ? `${ip || 'unknown'}:key:${streamKey?.slice(-8) || 'none'}`
+    ? `${ip || 'unknown'}:key:${streamKeyToken?.slice(-8) || 'none'}`
     : `${ip || 'unknown'}:${(username || '').toLowerCase()}`;
 
   const allowed = checkRateLimit(
@@ -390,12 +412,12 @@ app.post('/api/stream/auth', async (req, res) => {
   }
 
   if (hasStreamKey) {
-    const channel = channelManager.getChannelByStreamKey(streamKey);
+    const channel = channelManager.getChannelByStreamKey(streamKeyToken);
 
     if (!channel || channel.type !== 'stream') {
       logger.warn('Stream auth failed: invalid stream key', {
         providedChannel: rawChannelName || null,
-        streamKeyTail: streamKey.slice(-6),
+        streamKeyTail: streamKeyToken.slice(-6),
         ip,
       });
 
@@ -407,13 +429,15 @@ app.post('/api/stream/auth', async (req, res) => {
     }
 
     try {
+      resolvedChannelName = channel.name;
+
       const activeStream = channelManager.startStream(channel.id, {
         accountId: null,
         username: 'stream-key',
         displayName: `${channel.name} Stream`,
         clientId: clientId || null,
         sourceIp: ip || null,
-        metadata: { authMode: 'stream-key' },
+        metadata: { authMode: 'stream-key', streamKeyTail: streamKeyToken.slice(-6) },
       });
 
       broadcastChannels();
@@ -568,18 +592,17 @@ app.post('/api/stream/end', (req, res) => {
   } = parseStreamAuthRequest(req);
 
   let resolvedChannelName = rawChannelName;
-  let streamKey = streamKeyCandidate;
-  if (!streamKey && rawChannelName && rawChannelName.includes('+')) {
-    streamKey = rawChannelName;
-  }
-  streamKey = streamKey?.trim();
+  const extractToken = (value) => extractStreamKeyToken(value);
+  const streamKeyToken = extractToken(streamKeyCandidate) || extractToken(rawChannelName);
 
-  let channel = streamKey ? channelManager.getChannelByStreamKey(streamKey) : null;
+  let channel = streamKeyToken ? channelManager.getChannelByStreamKey(streamKeyToken) : null;
 
   if (!channel && rawChannelName) {
     const baseName = rawChannelName.includes('+')
       ? rawChannelName.slice(0, rawChannelName.indexOf('+'))
-      : rawChannelName;
+      : rawChannelName.includes('?')
+        ? rawChannelName.slice(0, rawChannelName.indexOf('?'))
+        : rawChannelName;
     resolvedChannelName = baseName;
     channel = baseName ? channelManager.getChannelByName(baseName) : null;
   }
@@ -1250,7 +1273,7 @@ io.on('connection', (socket) => {
       socket.emit('stream:key:response', {
         channelId: channel.id,
         channelName: channel.name,
-        streamKey: channel.streamKey,
+        streamKey: formatStreamKey(channel.name, channel.streamKey),
       });
 
       logger.info('Stream key provided to user', {

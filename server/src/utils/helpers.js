@@ -15,23 +15,76 @@ export function generateId(length = 16) {
   return crypto.randomBytes(length / 2).toString('hex');
 }
 
+const STREAM_KEY_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
 /**
- * Generate a secure stream key
- * Format: channelName+24charAlphanumeric
- * @param {string} channelName - Name of the channel
- * @returns {string} Stream key
+ * Generate a secure stream key token
+ * @returns {string} Randomized token
  */
-export function generateStreamKey(channelName) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+export function generateStreamKeyToken() {
   const length = appConfig.streaming.streamKeyLength;
   let token = '';
   const bytes = crypto.randomBytes(length);
-  
+
   for (let i = 0; i < length; i++) {
-    token += chars[bytes[i] % chars.length];
+    token += STREAM_KEY_CHARSET[bytes[i] % STREAM_KEY_CHARSET.length];
   }
-  
-  return `${channelName}+${token}`;
+
+  return token;
+}
+
+/**
+ * Format a stream key for display/use in RTMP clients without exposing implementation details elsewhere
+ * @param {string} channelName - Channel name
+ * @param {string} token - Stream key token
+ * @returns {string} Formatted string for OBS/etc.
+ */
+export function formatStreamKey(channelName, token) {
+  const cleanChannel = typeof channelName === 'string' ? channelName.trim() : '';
+  const cleanToken = typeof token === 'string' ? token.trim() : '';
+  if (!cleanChannel || !cleanToken) {
+    return cleanChannel || cleanToken;
+  }
+
+  return `${cleanChannel}?key=${cleanToken}`;
+}
+
+/**
+ * Extract the token component from a provided stream key value.
+ * Accepts legacy formats like `channel+token` as well as `channel?key=token` and bare tokens.
+ * @param {string} value - Incoming stream key value
+ * @returns {string} Token
+ */
+export function extractStreamKeyToken(value = '') {
+  if (!value || typeof value !== 'string') {
+    return '';
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const queryIndex = trimmed.indexOf('?');
+  if (queryIndex !== -1) {
+    const query = trimmed.slice(queryIndex + 1);
+    try {
+      const params = new URLSearchParams(query);
+      const keyParam = params.get('key') || params.get('token') || params.get('k');
+      if (keyParam) {
+        return keyParam.trim();
+      }
+    } catch (error) {
+      // Ignore parsing errors and fall back below
+    }
+  }
+
+  const plusIndex = trimmed.indexOf('+');
+  if (plusIndex !== -1 && plusIndex < trimmed.length - 1) {
+    return trimmed.slice(plusIndex + 1).trim();
+  }
+
+  return trimmed;
 }
 
 /**

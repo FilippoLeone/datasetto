@@ -3,7 +3,14 @@
  * Handles all channel-related operations
  */
 
-import { generateId, validateChannelName, isValidChannelType, generateStreamKey } from '../utils/helpers.js';
+import {
+  generateId,
+  validateChannelName,
+  isValidChannelType,
+  generateStreamKeyToken,
+  extractStreamKeyToken,
+  formatStreamKey,
+} from '../utils/helpers.js';
 import { appConfig } from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -230,7 +237,7 @@ export class ChannelManager {
       }
 
       const id = `channel-${generateId()}`;
-      const streamKey = type === 'stream' ? generateStreamKey(nameValidation.value) : null;
+    const streamKey = type === 'stream' ? generateStreamKeyToken() : null;
 
       const channel = {
         id,
@@ -282,7 +289,18 @@ export class ChannelManager {
    * Get channel by stream key
    */
   getChannelByStreamKey(streamKey) {
+    const token = extractStreamKeyToken(streamKey);
+
     for (const channel of this.channels.values()) {
+      if (!channel.streamKey) {
+        continue;
+      }
+
+      const candidate = extractStreamKeyToken(channel.streamKey);
+      if (candidate && token && candidate === token) {
+        return channel;
+      }
+
       if (channel.streamKey === streamKey) {
         return channel;
       }
@@ -363,9 +381,12 @@ export class ChannelManager {
       throw new Error('Channel is not a stream channel');
     }
 
-  channel.streamKey = generateStreamKey(channel.name);
+    channel.streamKey = generateStreamKeyToken();
     channel.updatedAt = Date.now();
-  logger.info(`Stream key regenerated for: ${channel.name}`, { channelId });
+    logger.info(`Stream key regenerated for: ${channel.name}`, {
+      channelId,
+      preview: channel.streamKey ? channel.streamKey.slice(0, 4) : null,
+    });
 
     return channel.streamKey;
   }
@@ -816,6 +837,7 @@ export class ChannelManager {
     });
 
     logger.info('Default channels initialized');
+      logger.info(`🔑 Stream Key for ${name}: ${formatStreamKey(channel.name, channel.streamKey)}`);
   }
 
   /**

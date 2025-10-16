@@ -310,7 +310,7 @@ LOG_FILE_PATH=./logs        # Log file directory
 
 ### Stream Key Security
 - Secure random generation (24 alphanumeric characters)
-- Format: `channelName+ABC123xyz456...`
+- Format: `channelName?key=ABC123xyz456...`
 - Permission-based access control
 
 ## 🔧 Maintenance

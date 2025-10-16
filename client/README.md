@@ -117,7 +117,7 @@ npm run preview
 
 Configure OBS with:
 - **Server**: `rtmp://your-domain/live` (or `rtmp://localhost:1935/live` when running everything locally)
-- **Stream Key**: Use the stream key shown in the app for the channel
+- **Stream Key**: Use the value shown in the app (e.g., `main-stream?key=ABC123...`)
 
 ### Voice Chat
 

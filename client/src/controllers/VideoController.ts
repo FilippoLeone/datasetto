@@ -1,4 +1,5 @@
 import Hls from 'hls.js';
+import { buildHlsUrlCandidates } from '@/utils/streaming';
 import type { VideoControllerDeps } from './types';
 
 const STREAM_RETRY_DELAY_MS = 5000;
@@ -252,132 +253,233 @@ export class VideoController {
       }
     }
 
-    const streamUrl = `${this.deps.hlsBaseUrl}/${channelName}/index.m3u8`;
+    const streamCandidates = buildHlsUrlCandidates(this.deps.hlsBaseUrl, channelName);
 
-    if (import.meta.env.DEV) {
-      console.log('Loading inline stream:', streamUrl);
+    if (streamCandidates.length === 0) {
+      if (overlay) {
+        overlay.classList.add('visible');
+        const message = overlay.querySelector('.message');
+        if (message) {
+          message.textContent = 'Stream path unavailable';
+        }
+      }
+      this.updateLiveIndicator('offline');
+      return;
     }
 
-    if (Hls.isSupported()) {
-      if (this.inlineHls) {
-        this.inlineHls.destroy();
-      }
+    if (import.meta.env.DEV) {
+      console.log('Loading inline stream candidates:', streamCandidates);
+    }
 
-      this.inlineHls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: false,
-        debug: false,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 30,
-        maxBufferSize: 60 * 1000 * 1000,
-        maxBufferHole: 0.5,
-        highBufferWatchdogPeriod: 2,
-        nudgeOffset: 0.1,
-        nudgeMaxRetry: 5,
-        liveSyncDuration: 3,
-        liveMaxLatencyDuration: 10,
-        liveDurationInfinity: true,
-      });
-
-      this.inlineHls.loadSource(streamUrl);
-      this.inlineHls.attachMedia(video);
-
-      this.inlineHls.on(Hls.Events.MANIFEST_PARSED, () => {
-        if (overlay) {
-          overlay.classList.remove('visible');
-          overlay.style.cursor = '';
-          overlay.onclick = null;
-        }
-
-        this.updateLiveIndicator('live');
-
-        this.updateStreamWatchingIndicator();
-        this.deps.refreshChannels();
-
-        video.play().catch((err: Error) => {
-          console.warn('Autoplay blocked:', err);
-          if (overlay) {
-            overlay.classList.add('visible');
-            const message = overlay.querySelector('.message');
-            if (message) {
-              message.textContent = 'Click to play';
-            }
-            overlay.style.cursor = 'pointer';
-            overlay.onclick = () => {
-              video.play();
-              overlay.classList.remove('visible');
-              overlay.onclick = null;
-              overlay.style.cursor = '';
-            };
-          }
-        });
-      });
-
-      this.inlineHls.on(Hls.Events.ERROR, (_event: unknown, data: any) => {
-        console.error('❌ HLS error:', data);
-        if (!data?.fatal) {
-          return;
-        }
-
+    const tryCandidate = (index: number): void => {
+      if (index >= streamCandidates.length) {
         if (overlay) {
           overlay.classList.add('visible');
           const message = overlay.querySelector('.message');
           if (message) {
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-              message.textContent = 'Stream Offline - Waiting for stream...';
-              if (this.streamRetryTimer) {
-                clearTimeout(this.streamRetryTimer);
+            message.textContent = 'Stream unavailable';
+          }
+        }
+        this.updateLiveIndicator('offline');
+        return;
+      }
+
+      const streamUrl = streamCandidates[index];
+
+      if (overlay) {
+        overlay.classList.add('visible');
+        const message = overlay.querySelector('.message');
+        if (message) {
+          message.textContent = 'Connecting to stream...';
+        }
+      }
+
+      if (this.streamRetryTimer) {
+        clearTimeout(this.streamRetryTimer);
+        this.streamRetryTimer = null;
+      }
+
+      if (this.inlineHls) {
+        try {
+          this.inlineHls.destroy();
+        } catch (error) {
+          if (import.meta.env.DEV) {
+            console.error('Error destroying HLS instance:', error);
+          }
+        } finally {
+          this.inlineHls = null;
+        }
+      }
+
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          debug: false,
+          maxBufferLength: 10,
+          maxMaxBufferLength: 30,
+          maxBufferSize: 60 * 1000 * 1000,
+          maxBufferHole: 0.5,
+          highBufferWatchdogPeriod: 2,
+          nudgeOffset: 0.1,
+          nudgeMaxRetry: 5,
+          liveSyncDuration: 3,
+          liveMaxLatencyDuration: 10,
+          liveDurationInfinity: true,
+        });
+
+        this.inlineHls = hls;
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (overlay) {
+            overlay.classList.remove('visible');
+            overlay.style.cursor = '';
+            overlay.onclick = null;
+          }
+
+          this.updateLiveIndicator('live');
+
+          this.updateStreamWatchingIndicator();
+          this.deps.refreshChannels();
+
+          video.play().catch((err: Error) => {
+            console.warn('Autoplay blocked:', err);
+            if (overlay) {
+              overlay.classList.add('visible');
+              const message = overlay.querySelector('.message');
+              if (message) {
+                message.textContent = 'Click to play';
               }
-              this.streamRetryTimer = window.setTimeout(() => {
-                if (this.inlineHls && this.deps.state.get('currentChannelType') === 'stream') {
-                  console.log('🔄 Retrying stream connection...');
-                  this.inlineHls.loadSource(streamUrl);
+              overlay.style.cursor = 'pointer';
+              overlay.onclick = () => {
+                video.play();
+                overlay.classList.remove('visible');
+                overlay.onclick = null;
+                overlay.style.cursor = '';
+              };
+            }
+          });
+        });
+
+        hls.on(Hls.Events.ERROR, (_event: unknown, data: any) => {
+          console.error('❌ HLS error:', data);
+          if (!data?.fatal) {
+            return;
+          }
+
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            if (index + 1 < streamCandidates.length) {
+              if (overlay) {
+                const message = overlay.querySelector('.message');
+                if (message) {
+                  message.textContent = 'Retrying alternate stream path...';
                 }
-                this.streamRetryTimer = null;
-              }, STREAM_RETRY_DELAY_MS);
-            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-              message.textContent = 'Media error - Recovering...';
-              this.inlineHls?.recoverMediaError();
-            } else {
+              }
+              try {
+                hls.destroy();
+              } catch (destroyError) {
+                if (import.meta.env.DEV) {
+                  console.error('Error destroying HLS instance:', destroyError);
+                }
+              } finally {
+                this.inlineHls = null;
+              }
+              window.setTimeout(() => tryCandidate(index + 1), 0);
+              return;
+            }
+
+            if (overlay) {
+              const message = overlay.querySelector('.message');
+              if (message) {
+                message.textContent = 'Stream Offline - Waiting for stream...';
+              }
+            }
+
+            if (this.streamRetryTimer) {
+              clearTimeout(this.streamRetryTimer);
+            }
+            try {
+              hls.destroy();
+            } catch (destroyError) {
+              if (import.meta.env.DEV) {
+                console.error('Error destroying HLS instance:', destroyError);
+              }
+            } finally {
+              this.inlineHls = null;
+            }
+            this.streamRetryTimer = window.setTimeout(() => {
+              if (this.deps.state.get('currentChannelType') === 'stream') {
+                console.log('🔄 Retrying stream connection...');
+                tryCandidate(0);
+              }
+              this.streamRetryTimer = null;
+            }, STREAM_RETRY_DELAY_MS);
+            this.updateLiveIndicator('offline');
+            return;
+          }
+
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            if (overlay) {
+              const message = overlay.querySelector('.message');
+              if (message) {
+                message.textContent = 'Media error - Recovering...';
+              }
+            }
+            this.inlineHls?.recoverMediaError();
+            return;
+          }
+
+          if (overlay) {
+            const message = overlay.querySelector('.message');
+            if (message) {
               message.textContent = 'Stream error';
             }
           }
+          this.updateLiveIndicator('offline');
+        });
+
+        return;
+      }
+
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        if (import.meta.env.DEV) {
+          console.log('Using native HLS support');
         }
 
-        this.updateLiveIndicator('offline');
-      });
+        const handleError = () => {
+          video.removeEventListener('error', handleError);
+          tryCandidate(index + 1);
+        };
 
-      return;
-    }
-
-    if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      if (import.meta.env.DEV) {
-        console.log('Using native HLS support');
+        video.addEventListener('error', handleError, { once: true });
+        video.src = streamUrl;
+        video.addEventListener('loadeddata', () => {
+          if (overlay) {
+            overlay.classList.remove('visible');
+            overlay.style.cursor = '';
+            overlay.onclick = null;
+          }
+          this.updateLiveIndicator('live');
+        }, { once: true });
+        video.play().catch((err: Error) => {
+          console.warn('Autoplay blocked:', err);
+        });
+        return;
       }
-      video.src = streamUrl;
-      video.addEventListener('loadeddata', () => {
-        if (overlay) {
-          overlay.classList.remove('visible');
-          overlay.style.cursor = '';
-          overlay.onclick = null;
+
+      console.error('HLS not supported in this browser');
+      if (overlay) {
+        const message = overlay.querySelector('.message');
+        if (message) {
+          message.textContent = 'HLS not supported';
         }
-        this.updateLiveIndicator('live');
-      }, { once: true });
-      video.play().catch((err: Error) => {
-        console.warn('Autoplay blocked:', err);
-      });
-      return;
-    }
-
-    console.error('HLS not supported in this browser');
-    if (overlay) {
-      const message = overlay.querySelector('.message');
-      if (message) {
-        message.textContent = 'HLS not supported';
       }
-    }
+      this.updateLiveIndicator('offline');
+    };
 
-    this.updateLiveIndicator('offline');
+    tryCandidate(0);
   }
 
   closeInlineVideo(): void {
