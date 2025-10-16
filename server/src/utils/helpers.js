@@ -300,7 +300,9 @@ export function sanitizeUserData(user) {
 
 export default {
   generateId,
-  generateStreamKey,
+  generateStreamKeyToken,
+  extractStreamKeyToken,
+  formatStreamKey,
   sanitizeInput,
   validateChannelName,
   validateUsername,
