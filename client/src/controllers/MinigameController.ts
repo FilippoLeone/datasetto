@@ -732,13 +732,13 @@ export class MinigameController {
 
   private computeZoom(player: VoiceMinigamePlayerState | null): number {
     if (!player) {
-      return 1;
+      return 2.15;
     }
 
-    const baseLength = 620;
-    const lengthRatio = Math.max(player.length, 1) / baseLength;
-    const curve = Math.log10(lengthRatio + 1);
-    return this.clamp(1.28 - curve * 0.34, 0.58, 1.46);
+    const excessLength = Math.max(player.length - 520, 0);
+    const falloff = Math.log10(excessLength / 900 + 1);
+    const zoom = 2.2 - falloff * 0.55;
+    return this.clamp(zoom, 1.6, 2.2);
   }
 
   private calculateViewTransform(
@@ -869,16 +869,28 @@ export class MinigameController {
     offsetY: number
   ): void {
     ctx.save();
-    state.pellets.forEach((pellet) => {
+    const width = ctx.canvas.width;
+    const height = ctx.canvas.height;
+    const margin = 140;
+    for (const pellet of state.pellets) {
       const radius = Math.max(pellet.radius * scale, 3);
-      ctx.beginPath();
-      ctx.fillStyle = pellet.color;
       const x = offsetX + pellet.x * scale;
       const y = offsetY + pellet.y * scale;
+      if (
+        x + radius < -margin ||
+        x - radius > width + margin ||
+        y + radius < -margin ||
+        y - radius > height + margin
+      ) {
+        continue;
+      }
+
+      ctx.beginPath();
+      ctx.fillStyle = pellet.color;
       ctx.globalAlpha = 0.9;
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();
-    });
+    }
     ctx.restore();
   }
 
@@ -890,6 +902,8 @@ export class MinigameController {
     offsetY: number
   ): void {
     const localId = this.deps.socket.getId();
+    const width = ctx.canvas.width;
+    const height = ctx.canvas.height;
 
     state.players.forEach((player) => {
       const points = player.segments ?? [];
@@ -897,8 +911,25 @@ export class MinigameController {
         return;
       }
 
-      const head = player.head ?? points[0];
-      const strokeWidth = Math.max(player.thickness * scale, 6);
+      const strokeWidth = Math.max((player.thickness ?? 12) * scale, 6);
+      const screenPoints = points.map((point) => ({
+        x: offsetX + point.x * scale,
+        y: offsetY + point.y * scale,
+      }));
+      const visibilityMargin = Math.max(strokeWidth * 3, 180);
+      const isVisible = screenPoints.some((point) => (
+        point.x >= -visibilityMargin &&
+        point.x <= width + visibilityMargin &&
+        point.y >= -visibilityMargin &&
+        point.y <= height + visibilityMargin
+      ));
+
+      if (!isVisible) {
+        return;
+      }
+
+      const headScreen = screenPoints[0];
+      const headRadius = Math.max(strokeWidth * 0.55, 6);
 
       ctx.save();
       ctx.globalAlpha = player.alive ? 0.96 : 0.45;
@@ -908,24 +939,18 @@ export class MinigameController {
       ctx.strokeStyle = player.color;
 
       ctx.beginPath();
-      points.forEach((point, index) => {
-        const px = offsetX + point.x * scale;
-        const py = offsetY + point.y * scale;
+      screenPoints.forEach((point, index) => {
         if (index === 0) {
-          ctx.moveTo(px, py);
+          ctx.moveTo(point.x, point.y);
         } else {
-          ctx.lineTo(px, py);
+          ctx.lineTo(point.x, point.y);
         }
       });
       ctx.stroke();
 
-      const headX = offsetX + head.x * scale;
-      const headY = offsetY + head.y * scale;
-      const headRadius = Math.max(strokeWidth * 0.55, 6);
-
       ctx.fillStyle = player.color;
       ctx.beginPath();
-      ctx.arc(headX, headY, headRadius, 0, Math.PI * 2);
+      ctx.arc(headScreen.x, headScreen.y, headRadius, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.lineWidth = Math.max(1.2, headRadius * 0.32);
@@ -941,12 +966,13 @@ export class MinigameController {
       const eyeRadius = Math.max(1.8, headRadius * 0.24);
 
       const drawEye = (offset: number) => {
-        const centerX = headX + dirX * eyeOffset + perpX * eyeRadius * offset;
-        const centerY = headY + dirY * eyeOffset + perpY * eyeRadius * offset;
+        const centerX = headScreen.x + dirX * eyeOffset + perpX * eyeRadius * offset;
+        const centerY = headScreen.y + dirY * eyeOffset + perpY * eyeRadius * offset;
         ctx.beginPath();
         ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
         ctx.arc(centerX, centerY, eyeRadius, 0, Math.PI * 2);
         ctx.fill();
+
         ctx.beginPath();
         ctx.fillStyle = 'rgba(18, 24, 32, 0.95)';
         ctx.arc(centerX + dirX * eyeRadius * 0.35, centerY + dirY * eyeRadius * 0.35, eyeRadius * 0.45, 0, Math.PI * 2);
@@ -961,18 +987,18 @@ export class MinigameController {
       ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
       ctx.globalAlpha = 0.92;
-      ctx.fillText(player.name, headX, headY - headRadius - Math.max(12, headRadius * 0.25));
+      ctx.fillText(player.name, headScreen.x, headScreen.y - headRadius - Math.max(12, headRadius * 0.25));
 
       ctx.font = `${Math.max(12, headRadius * 0.5)}px system-ui`;
       ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.fillText(`${Math.round(player.length)}`, headX, headY);
+      ctx.fillText(`${Math.round(player.length)}`, headScreen.x, headScreen.y);
 
       if (!player.alive) {
         const remaining = Math.ceil(player.respawnInMs / 1000);
         if (remaining > 0) {
           ctx.font = `${Math.max(10, headRadius * 0.4)}px system-ui`;
           ctx.fillStyle = 'rgba(255, 208, 128, 0.85)';
-          ctx.fillText(`Respawn ${remaining}`, headX, headY + headRadius + Math.max(10, headRadius * 0.2));
+          ctx.fillText(`Respawn ${remaining}`, headScreen.x, headScreen.y + headRadius + Math.max(10, headRadius * 0.2));
         }
       }
 
