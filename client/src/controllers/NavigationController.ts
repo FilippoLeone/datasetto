@@ -70,7 +70,8 @@ export class NavigationController {
     
     // Hide chat for voice channels
     this.deps.chatHideChatUI();
-  this.deps.videoHandleVoiceChannelSelected();
+    this.deps.videoHandleVoiceChannelSelected();
+    this.deps.voiceRefreshInterface?.();
 
     this.deps.soundFX.play('channelVoice', 0.55);
     

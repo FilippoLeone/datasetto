@@ -325,8 +325,8 @@ export class ChatController {
     const voiceGallery = this.deps.elements.voiceGallery;
     if (voiceGallery) {
       voiceGallery.classList.remove('hidden');
-      voiceGallery.classList.add('empty');
-      voiceGallery.textContent = 'Join the voice channel to see who\'s hanging out.';
+      voiceGallery.classList.remove('empty', 'loading');
+      voiceGallery.removeAttribute('aria-busy');
       voiceGallery.setAttribute('aria-hidden', 'false');
     }
   }
