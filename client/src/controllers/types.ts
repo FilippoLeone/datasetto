@@ -135,7 +135,7 @@ export interface NavigationControllerDeps {
   videoHandleMobileChannelSwitch: (type: 'text' | 'voice' | 'stream') => void;
   videoHandleTextChannelSelected: (params: { voiceConnected: boolean }) => void;
   videoHandleVoiceChannelSelected: () => void;
-  videoHandleStreamChannelSelected: (channelName: string) => void;
+  videoHandleStreamChannelSelected: (channelId: string, channelName: string) => void;
   voiceRefreshInterface?: () => void;
   mobileClosePanels?: () => void;
 }

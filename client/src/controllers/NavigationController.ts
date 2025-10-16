@@ -175,7 +175,7 @@ export class NavigationController {
       // This works seamlessly with voice - users can be in voice and watch streams
       this.deps.socketJoinChannel(channelId);
 
-      this.deps.videoHandleStreamChannelSelected(channelName);
+  this.deps.videoHandleStreamChannelSelected(channelId, channelName);
     }
 
     this.deps.mobileClosePanels?.();

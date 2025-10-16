@@ -259,7 +259,7 @@ export class App {
       videoHandleMobileChannelSwitch: (type) => this.videoController?.handleMobileChannelSwitch(type),
       videoHandleTextChannelSelected: (params) => this.videoController?.handleTextChannelSelected(params),
       videoHandleVoiceChannelSelected: () => this.videoController?.handleVoiceChannelSelected(),
-      videoHandleStreamChannelSelected: (channelName) => this.videoController?.handleStreamChannelSelected(channelName),
+  videoHandleStreamChannelSelected: (channelId, channelName) => this.videoController?.handleStreamChannelSelected(channelId, channelName),
       voiceRefreshInterface: () => this.voiceController?.refreshVoiceInterface(),
       mobileClosePanels: () => this.closeMobilePanels(),
     });
@@ -413,7 +413,7 @@ export class App {
   private updateStreamingInstructions(): void {
     const ingestEl = this.elements['streamServerUrl'];
     if (ingestEl) {
-      ingestEl.textContent = this.buildIngestUrl();
+      ingestEl.textContent = RTMP_SERVER_URL;
     }
 
     const streamKeyDisplay = this.elements.streamKeyDisplay;
@@ -427,22 +427,7 @@ export class App {
     }
   }
 
-  private buildIngestUrl(streamKeyToken?: string): string {
-    if (!streamKeyToken) {
-      return RTMP_SERVER_URL;
-    }
-
-    try {
-      const url = new URL(RTMP_SERVER_URL);
-      url.searchParams.set('key', streamKeyToken);
-      return url.toString();
-    } catch {
-      const separator = RTMP_SERVER_URL.includes('?') ? '&' : '?';
-      return `${RTMP_SERVER_URL}${separator}key=${encodeURIComponent(streamKeyToken)}`;
-    }
-  }
-
-  private showStreamInfoModal(channelName: string, streamKey: string, streamKeyToken?: string, streamKeyChannel?: string): void {
+  private showStreamInfoModal(channelName: string, streamKey: string): void {
     const modal = this.elements.streamInfoModal;
     if (!modal) {
       return;
@@ -452,12 +437,12 @@ export class App {
 
     const ingestEl = this.elements['streamServerUrl'];
     if (ingestEl) {
-      ingestEl.textContent = this.buildIngestUrl(streamKeyToken);
+      ingestEl.textContent = RTMP_SERVER_URL;
     }
 
     const streamKeyDisplay = this.elements.streamKeyDisplay;
     if (streamKeyDisplay) {
-      streamKeyDisplay.textContent = streamKeyChannel ?? streamKey;
+      streamKeyDisplay.textContent = streamKey;
     }
 
     const channelNameEl = this.elements.streamChannelName;
@@ -757,15 +742,11 @@ export class App {
         setTimeout(() => this.socket.requestChannelsList(), 500);
       }
     });
-    this.socket.on('stream:key', ({ channelName, streamKey, streamKeyToken, streamKeyChannel }) => {
+    this.socket.on('stream:key', ({ channelName, streamKey }) => {
       if (import.meta.env.DEV) {
-        console.log('🔑 Stream key received for channel:', channelName, {
-          token: streamKeyToken,
-          channel: streamKeyChannel,
-          legacy: streamKey,
-        });
+        console.log('🔑 Stream key received for channel:', channelName);
       }
-      this.showStreamInfoModal(channelName, streamKey, streamKeyToken, streamKeyChannel);
+      this.showStreamInfoModal(channelName, streamKey);
     });
     this.socket.on('stream:key:error', ({ channelId, channelName, message, code }) => {
       if (import.meta.env.DEV) {
@@ -774,7 +755,7 @@ export class App {
 
       const ingestEl = this.elements['streamServerUrl'];
       if (ingestEl) {
-        ingestEl.textContent = this.buildIngestUrl();
+        ingestEl.textContent = RTMP_SERVER_URL;
       }
 
       const streamKeyDisplay = this.elements.streamKeyDisplay;

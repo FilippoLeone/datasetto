@@ -123,9 +123,9 @@ export class VideoController {
     this.closePopout();
   }
 
-  handleStreamChannelSelected(channelName: string): void {
+  handleStreamChannelSelected(channelId: string, channelName: string): void {
     this.closePopout();
-    void this.showInlineVideo(channelName);
+    void this.showInlineVideo(channelId, channelName);
     this.updateStreamWatchingIndicator();
   }
 
@@ -152,7 +152,7 @@ export class VideoController {
         const channels = this.deps.state.get('channels') ?? [];
         const match = channels.find((channel) => channel.id === channelId);
         if (match) {
-          this.deps.player.loadChannel(match.name);
+          this.deps.player.loadChannel(match);
         }
       }
     } else {
@@ -194,11 +194,15 @@ export class VideoController {
     popout.classList.remove('minimized');
   }
 
-  async showInlineVideo(channelName: string): Promise<void> {
+  async showInlineVideo(channelId: string, channelName: string): Promise<void> {
     const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
     const video = this.deps.elements.inlineVideo as HTMLVideoElement | undefined;
     const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
     const playerColumn = this.deps.elements['streamPlayerColumn'] as HTMLElement | undefined;
+
+    const channels = this.deps.state.get('channels') ?? [];
+    const channel = channels.find((ch) => ch.id === channelId) || channels.find((ch) => ch.name === channelName);
+    const streamKeyToken = channel?.streamKey;
 
     if (!container || !video) {
       console.error('Inline video elements not found');
@@ -213,9 +217,11 @@ export class VideoController {
 
     playerColumn?.classList.remove('hidden');
 
+    const resolvedName = channel?.name ?? channelName;
+
     const mobileTitle = this.deps.elements.mobileStreamTitle as HTMLElement | undefined;
     if (mobileTitle) {
-      mobileTitle.textContent = `Live: ${channelName}`;
+      mobileTitle.textContent = `Live: ${resolvedName}`;
     }
 
     if (this.isMobileLayout() && !this.mobileStreamMode) {
@@ -253,7 +259,7 @@ export class VideoController {
       }
     }
 
-    const streamCandidates = buildHlsUrlCandidates(this.deps.hlsBaseUrl, channelName);
+    const streamCandidates = buildHlsUrlCandidates(this.deps.hlsBaseUrl, resolvedName, streamKeyToken);
 
     if (streamCandidates.length === 0) {
       if (overlay) {

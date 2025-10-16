@@ -46,7 +46,7 @@ export function formatStreamKey(channelName, token) {
     return cleanChannel || cleanToken;
   }
 
-  return `${cleanChannel}?key=${cleanToken}`;
+  return `${cleanChannel}+${cleanToken}`;
 }
 
 /**

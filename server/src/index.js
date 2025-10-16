@@ -669,7 +669,7 @@ io.engine.on("connection_error", (err) => {
  * Broadcast channel updates to all clients
  */
 function broadcastChannels() {
-  const channels = channelManager.exportChannelsList(false);
+  const channels = channelManager.exportChannelsList(true);
   const groups = channelManager.getAllChannelGroups();
   io.emit('channels:update', { channels, groups });
 }
@@ -746,7 +746,7 @@ io.on('connection', (socket) => {
         token: session.token,
         expiresAt: session.expiresAt,
       },
-      channels: channelManager.exportChannelsList(false),
+  channels: channelManager.exportChannelsList(true),
       groups: channelManager.getAllChannelGroups(),
       isNewAccount,
     });
@@ -851,7 +851,7 @@ io.on('connection', (socket) => {
             token: session.token,
             expiresAt: session.expiresAt,
           },
-          channels: channelManager.exportChannelsList(false),
+          channels: channelManager.exportChannelsList(true),
           groups: channelManager.getAllChannelGroups(),
           isNewAccount: false,
         });

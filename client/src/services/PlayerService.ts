@@ -3,12 +3,13 @@
  */
 import Hls from 'hls.js';
 import { buildHlsUrlCandidates } from '@/utils/streaming';
+import type { Channel } from '@/types';
 
 export class PlayerService {
   private hls: Hls | null = null;
   private videoElement: HTMLVideoElement;
   private baseUrl: string;
-  private currentChannel = '';
+  private currentChannelId: string | null = null;
   private overlayElement: HTMLElement | null = null;
   private candidateUrls: string[] = [];
 
@@ -46,13 +47,13 @@ export class PlayerService {
   /**
    * Load and play a channel stream
    */
-  loadChannel(channel: string): void {
-    if (this.currentChannel === channel && this.hls) {
+  loadChannel(channel: Channel): void {
+    if (this.currentChannelId === channel.id && this.hls) {
       return; // Already playing this channel
     }
 
-    this.currentChannel = channel;
-    this.candidateUrls = buildHlsUrlCandidates(this.baseUrl, channel);
+    this.currentChannelId = channel.id;
+    this.candidateUrls = buildHlsUrlCandidates(this.baseUrl, channel.name, channel.streamKey);
 
     if (this.candidateUrls.length === 0) {
       this.showOverlay('Unable to resolve stream path');
@@ -65,7 +66,7 @@ export class PlayerService {
         return;
       }
 
-      const source = this.candidateUrls[index];
+  const source = this.candidateUrls[index];
       this.showOverlay('Connecting to stream...');
 
       if (this.hls) {
