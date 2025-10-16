@@ -791,6 +791,7 @@ export class VoiceController {
 
   private renderVoiceGallery(entries: VoicePanelEntry[], voiceConnected: boolean): void {
     const gallery = this.deps.elements.voiceGallery;
+    const stage = this.deps.elements['voice-call-stage'] ?? null;
     if (!gallery) {
       return;
     }
@@ -799,6 +800,7 @@ export class VoiceController {
     const isVoiceChannelActive = activeChannelType === 'voice';
 
     if (!isVoiceChannelActive) {
+      stage?.classList.add('hidden');
       this.updateVoiceGalleryLayoutState(gallery, 0);
       gallery.classList.add('hidden');
       gallery.classList.remove('empty', 'loading');
@@ -812,6 +814,7 @@ export class VoiceController {
     const isVoiceMode = mainContent?.classList.contains('voice-mode');
 
     if (!isVoiceMode) {
+      stage?.classList.add('hidden');
       this.updateVoiceGalleryLayoutState(gallery, 0);
       gallery.classList.add('hidden');
       gallery.classList.remove('empty', 'loading');
@@ -820,6 +823,7 @@ export class VoiceController {
       return;
     }
 
+    stage?.classList.remove('hidden');
     gallery.classList.remove('hidden');
     gallery.setAttribute('aria-hidden', 'false');
 
@@ -830,6 +834,7 @@ export class VoiceController {
     }
 
     if (!voiceConnected && entries.length === 0) {
+      stage?.classList.remove('hidden');
       this.updateVoiceGalleryLayoutState(gallery, 0);
       gallery.classList.remove('empty', 'loading');
       gallery.removeAttribute('aria-busy');

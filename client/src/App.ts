@@ -15,6 +15,7 @@ import { ChannelController } from '@/controllers/ChannelController';
 import { SettingsController } from '@/controllers/SettingsController';
 import { UserListController } from '@/controllers/UserListController';
 import { NavigationController } from '@/controllers/NavigationController';
+import { MinigameController } from '@/controllers/MinigameController';
 import type {
   Channel,
   RolePermissions,
@@ -60,6 +61,7 @@ export class App {
   private settingsController: SettingsController | null = null;
   private userListController: UserListController | null = null;
   private navigationController: NavigationController | null = null;
+  private minigameController: MinigameController | null = null;
 
   // Cleanup tracking
   private eventListeners: Array<{
@@ -106,6 +108,7 @@ export class App {
     this.initializeVideoController();
     this.initializeUserListController();
     this.initializeVoiceController();
+  this.initializeMinigameController();
     this.initializeChatController();
     this.initializeChannelController();
     this.initializeSettingsController();
@@ -181,6 +184,20 @@ export class App {
     });
 
     this.voiceController.initialize();
+  }
+
+  private initializeMinigameController(): void {
+    this.minigameController = new MinigameController({
+      elements: this.elements,
+      state: this.state,
+      socket: this.socket,
+      notifications: this.notifications,
+      soundFX: this.soundFX,
+      registerCleanup: (cleanup) => this.cleanupCallbacks.push(cleanup),
+      addListener: (element, event, handler, options) => this.addTrackedListener(element, event, handler, options),
+    });
+
+    this.minigameController.initialize();
   }
 
   private initializeChatController(): void {
@@ -350,6 +367,10 @@ export class App {
     'user-avatar', 'user-status-text', 'voice-status-panel',
     'connected-voice-channel',
   'voice-users-panel', 'voice-users-list', 'voice-user-count', 'voice-session-timer',
+  'voice-minigame-open', 'voice-minigame-close',
+  'voice-minigame-container', 'voice-minigame-canvas', 'voice-minigame-start', 'voice-minigame-end',
+  'voice-minigame-join', 'voice-minigame-leave', 'voice-minigame-status', 'voice-minigame-scores',
+  'voice-call-stage',
       'text-channels', 'stream-channels', 'member-count',
       'create-text-channel', 'create-voice-channel', 'create-stream-channel',
       'createChannelModal', 'newChannelName', 'newChannelType',
@@ -904,6 +925,10 @@ export class App {
       this.videoController?.handlePlaybackShortcut(e);
     }
 
+    if (this.minigameController?.handleKeyDown(e)) {
+      return;
+    }
+
     // Handle PTT via VoiceController
     await this.voiceController?.handleKeyDown(e);
   }
@@ -912,6 +937,10 @@ export class App {
    * Handle key up
    */
   private async handleKeyUp(e: KeyboardEvent): Promise<void> {
+    if (this.minigameController?.handleKeyUp(e)) {
+      return;
+    }
+
     // Handle PTT via VoiceController
     await this.voiceController?.handleKeyUp(e);
   }

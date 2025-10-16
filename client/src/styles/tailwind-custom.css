@@ -1631,6 +1631,27 @@
     display: none;
   }
 
+  .voice-call-stage {
+    width: 100%;
+  }
+
+  .voice-call-stage .voice-stage-toolbar {
+    width: 100%;
+  }
+
+  .voice-call-stage.minigame-active .voice-stage-toolbar {
+    display: none;
+  }
+
+  .voice-call-stage.minigame-active .voice-gallery {
+    display: none !important;
+  }
+
+  .voice-minigame-screen {
+    width: 100%;
+    min-height: clamp(360px, 60vh, 720px);
+  }
+
   .voice-gallery {
     --voice-gallery-avatar-size: clamp(72px, 12vw, 96px);
     --voice-gallery-name-size: clamp(0.9rem, 1.6vw, 1.05rem);
@@ -1651,7 +1672,6 @@
     justify-items: center;
     overflow-y: auto;
     overscroll-behavior: contain;
-    min-height: 100%;
     margin-inline: auto;
     max-width: min(1200px, 100%);
   }
@@ -1666,7 +1686,7 @@
     color: var(--color-text-muted);
     letter-spacing: 0.04em;
     padding: clamp(1.5rem, 6vw, 3rem);
-    min-height: 100%;
+    min-height: clamp(220px, 48vh, 360px);
   }
 
   .voice-gallery.loading {
@@ -1676,7 +1696,7 @@
     justify-content: center;
     gap: 1.5rem;
     padding: clamp(1.5rem, 6vw, 3rem);
-    min-height: 100%;
+    min-height: clamp(220px, 48vh, 360px);
   }
 
   .voice-gallery-loading {

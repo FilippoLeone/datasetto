@@ -140,3 +140,18 @@ export interface NavigationControllerDeps {
   mobileClosePanels?: () => void;
 }
 
+export interface MinigameControllerDeps {
+  elements: ElementMap;
+  state: StateManager;
+  socket: SocketService;
+  notifications: NotificationManager;
+  soundFX: AudioNotificationService;
+  registerCleanup: (cleanup: () => void) => void;
+  addListener: (
+    element: EventTarget | null | undefined,
+    event: string,
+    handler: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions
+  ) => void;
+}
+

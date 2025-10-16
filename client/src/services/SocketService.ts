@@ -158,6 +158,26 @@ export class SocketService extends EventEmitter<EventMap> {
     this.socket?.emit('voice:state', payload);
   }
 
+  startVoiceMinigame(payload: { type: string }): void {
+    this.socket?.emit('voice:game:start', payload);
+  }
+
+  joinVoiceMinigame(): void {
+    this.socket?.emit('voice:game:join');
+  }
+
+  leaveVoiceMinigame(): void {
+    this.socket?.emit('voice:game:leave');
+  }
+
+  sendVoiceMinigameInput(direction: string): void {
+    this.socket?.emit('voice:game:input', { direction });
+  }
+
+  endVoiceMinigame(): void {
+    this.socket?.emit('voice:game:end');
+  }
+
   /**
    * Register a new account
    */
@@ -442,6 +462,26 @@ export class SocketService extends EventEmitter<EventMap> {
 
     this.socket.on('voice:state', (data: { id: string; muted: boolean; deafened: boolean }) => {
       this.emit('voice:state' as keyof EventMap, data as never);
+    });
+
+    this.socket.on('voice:game:state', (data) => {
+      this.emit('voice:game:state' as keyof EventMap, data as never);
+    });
+
+    this.socket.on('voice:game:update', (data) => {
+      this.emit('voice:game:update' as keyof EventMap, data as never);
+    });
+
+    this.socket.on('voice:game:started', (data) => {
+      this.emit('voice:game:started' as keyof EventMap, data as never);
+    });
+
+    this.socket.on('voice:game:ended', (data) => {
+      this.emit('voice:game:ended' as keyof EventMap, data as never);
+    });
+
+    this.socket.on('voice:game:error', (data) => {
+      this.emit('voice:game:error' as keyof EventMap, data as never);
     });
   }
 }

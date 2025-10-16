@@ -88,6 +88,15 @@ export interface Channel {
   permissions?: ChannelPermissions;
   createdAt?: number;
   updatedAt?: number;
+  currentMinigame?: {
+    gameId: string;
+    type: string;
+    status: string;
+    startedAt?: number | null;
+    hostId?: string | null;
+    hostName?: string | null;
+    updatedAt?: number;
+  } | null;
 }
 
 export interface ChannelGroup {
@@ -146,6 +155,7 @@ export interface AppState {
   deafened: boolean;
   voiceSessionStartedAt?: number | null;
   voiceSessionId?: string | null;
+  voiceMinigame?: VoiceMinigameState | null;
 }
 
 export interface WebRTCSignal {
@@ -162,6 +172,37 @@ export interface VoicePeerEvent {
   name: string;
   muted: boolean;
   deafened: boolean;
+}
+
+export type VoiceMinigameStatus = 'running' | 'ended';
+
+export interface VoiceMinigamePlayerState {
+  id: string;
+  name: string;
+  color: string;
+  score: number;
+  alive: boolean;
+  direction: 'up' | 'down' | 'left' | 'right';
+  body: Array<{ x: number; y: number }>;
+  lastInputAt?: number;
+  joinedAt?: number;
+}
+
+export interface VoiceMinigameState {
+  gameId: string;
+  channelId: string;
+  type: string;
+  status: VoiceMinigameStatus;
+  hostId: string;
+  hostName: string;
+  startedAt: number;
+  updatedAt: number;
+  sequence: number;
+  board: { width: number; height: number };
+  food: { x: number; y: number } | null;
+  players: VoiceMinigamePlayerState[];
+  spectators: string[];
+  lastAliveCount: number;
 }
 
 export interface DeviceInfo {
@@ -226,6 +267,11 @@ export type EventMap = {
   'voice:peer-leave': { id: string };
   'voice:signal': { from: string; data: unknown };
   'voice:state': { id: string; muted: boolean; deafened: boolean };
+  'voice:game:state': VoiceMinigameState;
+  'voice:game:update': VoiceMinigameState;
+  'voice:game:started': VoiceMinigameState;
+  'voice:game:ended': { reason: string; state?: VoiceMinigameState | null };
+  'voice:game:error': { message: string; code?: string };
   [key: string]: unknown;
 };
 

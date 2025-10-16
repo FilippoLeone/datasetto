@@ -253,6 +253,7 @@ export class ChannelManager {
         activeStream: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        currentMinigame: null,
       };
 
       this.channels.set(id, channel);
@@ -527,6 +528,38 @@ export class ChannelManager {
     };
   }
 
+  getChannelMinigame(channelId) {
+    const channel = this.getChannel(channelId);
+    if (!channel || channel.type !== 'voice') {
+      return null;
+    }
+
+    return channel.currentMinigame ? { ...channel.currentMinigame } : null;
+  }
+
+  setChannelMinigame(channelId, metadata = null) {
+    const channel = this.getChannel(channelId);
+    if (!channel || channel.type !== 'voice') {
+      return null;
+    }
+
+    if (metadata) {
+      channel.currentMinigame = {
+        ...metadata,
+        updatedAt: Date.now(),
+      };
+    } else {
+      channel.currentMinigame = null;
+    }
+
+    channel.updatedAt = Date.now();
+    return channel.currentMinigame ? { ...channel.currentMinigame } : null;
+  }
+
+  clearChannelMinigame(channelId) {
+    return this.setChannelMinigame(channelId, null);
+  }
+
   updateVoiceUserState(channelId, userId, state = {}) {
     const channel = this.getChannel(channelId);
     if (!channel) {
@@ -786,6 +819,9 @@ export class ChannelManager {
       updatedAt: channel.updatedAt,
       voiceStartedAt: channel.type === 'voice' ? channel.voiceStartedAt ?? null : null,
       voiceSessionId: channel.type === 'voice' ? channel.voiceSessionId ?? null : null,
+      currentMinigame: channel.type === 'voice' && channel.currentMinigame
+        ? { ...channel.currentMinigame }
+        : null,
     };
   }
 
@@ -806,6 +842,9 @@ export class ChannelManager {
       liveDisplayName: channel.activeStream ? channel.activeStream.displayName : null,
       voiceStartedAt: channel.type === 'voice' ? channel.voiceStartedAt ?? null : null,
       voiceSessionId: channel.type === 'voice' ? channel.voiceSessionId ?? null : null,
+      currentMinigame: channel.type === 'voice' && channel.currentMinigame
+        ? { ...channel.currentMinigame }
+        : null,
       ...(includeStreamKeys && channel.streamKey && { streamKey: channel.streamKey }),
     }));
   }

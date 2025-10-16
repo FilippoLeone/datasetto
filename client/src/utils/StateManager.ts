@@ -10,6 +10,7 @@ import type {
   EventMap,
   SessionInfo,
   ChannelPermissions,
+  VoiceMinigameState,
 } from '@/types';
 import { EventEmitter, Storage } from '@/utils';
 
@@ -52,6 +53,7 @@ const DEFAULT_STATE: AppState = {
   deafened: false,
   voiceSessionStartedAt: null,
   voiceSessionId: null,
+  voiceMinigame: null,
 };
 
 type PersistedAuth = {
@@ -248,6 +250,10 @@ export class StateManager extends EventEmitter<EventMap> {
       voiceSessionStartedAt: startedAt,
       voiceSessionId: sessionId,
     });
+  }
+
+  setVoiceMinigameState(minigame: VoiceMinigameState | null): void {
+    this.updateState({ voiceMinigame: minigame });
   }
 
   /**

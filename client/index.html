@@ -121,19 +121,58 @@
       <main class="main-content chat-content flex-1 flex flex-col bg-bg-chat overflow-hidden" role="main">
         <h1 id="current-channel-name" class="hidden">general</h1>
 
-        <div
-          id="voiceGallery"
-          class="voice-gallery hidden"
-          role="list"
-          aria-live="polite"
-          aria-label="Voice channel participants"
-        ></div>
+        <section id="voice-call-stage" class="voice-call-stage hidden w-full max-w-6xl self-center flex flex-col gap-6 px-6 py-8 lg:px-10">
+          <div class="voice-stage-toolbar flex w-full justify-end">
+            <button id="voice-minigame-open" class="rounded-md bg-bg-floating px-4 py-2 text-2xs font-semibold uppercase tracking-wide text-text-muted transition-fast hover:bg-brand-primary hover:text-white" type="button">Minigame</button>
+          </div>
+
+          <div
+            id="voiceGallery"
+            class="voice-gallery hidden"
+            role="list"
+            aria-live="polite"
+            aria-label="Voice channel participants"
+          ></div>
+
+          <div id="voice-minigame-container" class="voice-minigame-screen hidden rounded-2xl border border-white/10 bg-black/30 p-6 lg:p-10">
+            <div class="flex flex-col gap-8">
+              <header class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div class="flex flex-col gap-1">
+                  <h2 class="text-lg font-semibold text-white">Snake Arena</h2>
+                  <p id="voice-minigame-status" class="text-sm leading-relaxed text-text-muted">Loading...</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 text-2xs font-semibold uppercase">
+                  <button id="voice-minigame-close" class="hidden rounded-md border border-white/20 bg-transparent px-4 py-2 text-text-muted transition-fast hover:border-white/40 hover:text-white" type="button">Back to Voice</button>
+                  <button id="voice-minigame-start" class="rounded-md bg-brand-primary px-4 py-2 text-white transition-fast hover:bg-brand-hover" type="button">Start Snake</button>
+                  <button id="voice-minigame-end" class="hidden rounded-md bg-danger/10 px-4 py-2 text-danger transition-fast hover:bg-danger hover:text-white" type="button">End</button>
+                </div>
+              </header>
+
+              <div class="flex flex-col gap-8 lg:flex-row lg:items-start">
+                <aside class="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-white/10 bg-black/25 p-5">
+                  <div class="text-xs font-semibold uppercase tracking-widest text-text-muted">Players</div>
+                  <ul id="voice-minigame-scores" class="space-y-2 text-xs text-text-muted"></ul>
+                  <div class="flex items-center gap-2 text-xs font-semibold">
+                    <button id="voice-minigame-join" class="rounded-md bg-brand-primary px-4 py-2 text-white transition-fast hover:bg-brand-hover" type="button">Join</button>
+                    <button id="voice-minigame-leave" class="hidden rounded-md bg-bg-floating px-4 py-2 transition-fast hover:bg-brand-primary hover:text-white" type="button">Leave</button>
+                  </div>
+                </aside>
+
+                <div class="flex flex-1 items-center justify-center">
+                  <div class="w-full max-w-2xl">
+                    <canvas id="voice-minigame-canvas" class="w-full aspect-square rounded-xl border border-white/10 bg-black/60" width="512" height="512"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <div id="streamLayout" class="stream-layout">
           <!-- Stream Player Column -->
           <section id="streamPlayerColumn" class="stream-player-column hidden">
             <!-- Inline Video Container (for stream channels - Theater Mode) -->
-      <div id="inlineVideoContainer" class="inline-video-container flex-shrink-0 bg-black relative hidden">
+            <div id="inlineVideoContainer" class="inline-video-container flex-shrink-0 bg-black relative hidden">
               <!-- Top Controls -->
               <div class="inline-video-header absolute top-0 left-0 right-0 p-4 flex items-center gap-4 bg-gradient-to-b from-black/70 to-transparent z-10">
                 <button

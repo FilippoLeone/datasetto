@@ -27,6 +27,7 @@ import channelManager from './models/ChannelManager.js';
 import userManager from './models/UserManager.js';
 import messageManager from './models/MessageManager.js';
 import accountManager from './models/AccountManager.js';
+import MinigameManager from './services/MinigameManager.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -665,6 +666,14 @@ io.engine.on("connection_error", (err) => {
   });
 });
 
+const minigameManager = new MinigameManager({
+  io,
+  channelManager,
+  onChannelUpdate: () => {
+    broadcastChannels();
+  },
+});
+
 /**
  * Broadcast channel updates to all clients
  */
@@ -709,6 +718,18 @@ io.on('connection', (socket) => {
   let currentSession = null;
   let currentChannel = null;
   let currentVoiceChannel = null;
+  const getUserDisplayName = () => currentUser?.displayName || currentUser?.name || currentUser?.username || 'Player';
+  const ensureVoiceGameAccess = () => {
+    if (!currentUser) {
+      throw new Error('User not registered');
+    }
+
+    if (!currentVoiceChannel) {
+      throw new Error('Join a voice channel first');
+    }
+
+    return currentVoiceChannel;
+  };
   
   // Log transport upgrades
   socket.conn.on('upgrade', (transport) => {
@@ -1421,6 +1442,11 @@ io.on('connection', (socket) => {
         sessionId: sessionMetadata.sessionId,
       });
 
+      const minigameState = minigameManager.getState(channelId);
+      if (minigameState) {
+        socket.emit('voice:game:state', minigameState);
+      }
+
       broadcastUserUpdate(channelId);
       broadcastChannels();
 
@@ -1444,6 +1470,7 @@ io.on('connection', (socket) => {
       socket.leave(currentVoiceChannel);
       channelManager.removeVoiceParticipant(currentVoiceChannel, socket.id);
       channelManager.removeUserFromChannel(currentVoiceChannel, socket.id);
+      minigameManager.handleVoiceMemberLeft(currentVoiceChannel, socket.id);
       userManager.setVoiceChannel(socket.id, null);
 
       broadcastUserUpdate(currentVoiceChannel);
@@ -1548,6 +1575,93 @@ io.on('connection', (socket) => {
     logger.trace(`Voice state broadcast`, { socketId: socket.id, ...state });
   });
 
+  socket.on('voice:game:start', (payload = {}) => {
+    try {
+      const channelId = ensureVoiceGameAccess();
+      const type = typeof payload.type === 'string' ? payload.type : 'snake';
+      minigameManager.startGame({
+        channelId,
+        hostId: socket.id,
+        hostName: getUserDisplayName(),
+        type,
+      });
+    } catch (error) {
+      logger.warn(`Minigame start failed: ${error.message}`, { socketId: socket.id });
+      socket.emit('voice:game:error', {
+        message: error.message || 'Unable to start minigame',
+        code: 'GAME_START_FAILED',
+      });
+    }
+  });
+
+  socket.on('voice:game:join', () => {
+    try {
+      const channelId = ensureVoiceGameAccess();
+      const state = minigameManager.joinGame(channelId, socket.id, getUserDisplayName());
+      if (state) {
+        socket.emit('voice:game:state', state);
+      }
+    } catch (error) {
+      socket.emit('voice:game:error', {
+        message: error.message || 'Unable to join minigame',
+        code: 'GAME_JOIN_FAILED',
+      });
+    }
+  });
+
+  socket.on('voice:game:leave', () => {
+    try {
+      const channelId = ensureVoiceGameAccess();
+      const state = minigameManager.leaveGame(channelId, socket.id);
+      if (state) {
+        socket.emit('voice:game:state', state);
+      }
+    } catch (error) {
+      socket.emit('voice:game:error', {
+        message: error.message || 'Unable to leave minigame',
+        code: 'GAME_LEAVE_FAILED',
+      });
+    }
+  });
+
+  socket.on('voice:game:input', (payload = {}) => {
+    try {
+      const channelId = ensureVoiceGameAccess();
+      const direction = typeof payload.direction === 'string' ? payload.direction : null;
+      if (!direction) {
+        throw new Error('Direction is required');
+      }
+      minigameManager.handleInput(channelId, socket.id, direction);
+    } catch (error) {
+      socket.emit('voice:game:error', {
+        message: error.message || 'Unable to register input',
+        code: 'GAME_INPUT_FAILED',
+      });
+    }
+  });
+
+  socket.on('voice:game:end', () => {
+    try {
+      const channelId = ensureVoiceGameAccess();
+      const state = minigameManager.getState(channelId);
+      if (!state) {
+        throw new Error('No active minigame to end');
+      }
+
+      const isHost = state.hostId === socket.id;
+      if (!isHost && !currentUser?.isSuperuser) {
+        throw new Error('Only the host can end this minigame');
+      }
+
+      minigameManager.endGame(channelId, 'ended_by_host');
+    } catch (error) {
+      socket.emit('voice:game:error', {
+        message: error.message || 'Unable to end minigame',
+        code: 'GAME_END_FAILED',
+      });
+    }
+  });
+
   /**
    * Disconnect handler
    */
@@ -1568,6 +1682,7 @@ io.on('connection', (socket) => {
         socket.to(currentVoiceChannel).emit('voice:peer-leave', { id: socket.id });
         channelManager.removeVoiceParticipant(currentVoiceChannel, socket.id);
         channelManager.removeUserFromChannel(currentVoiceChannel, socket.id);
+        minigameManager.handleVoiceMemberLeft(currentVoiceChannel, socket.id);
         broadcastUserUpdate(currentVoiceChannel);
       }
 
