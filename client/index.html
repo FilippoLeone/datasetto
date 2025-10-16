@@ -336,8 +336,8 @@
                 <li>Open OBS Studio (or your preferred streaming software)</li>
                 <li>Go to <strong>Settings → Stream</strong></li>
                 <li>Select <strong>Custom</strong> as the service</li>
-                <li>Copy the Server URL above (it now includes your secure <code>?key=</code> token)</li>
-                <li><strong>⚠️ IMPORTANT:</strong> Copy the <strong>Stream Key</strong> above (it should just be the channel name, e.g., <code>main-stream</code>)</li>
+                <li>Copy the Server URL above and paste it</li>
+                <li><strong>⚠️ IMPORTANT:</strong> Copy the <strong>FULL Stream Key</strong> above (including everything after <code>+</code>) and paste it exactly</li>
                 <li>Click <strong>OK</strong> to save settings</li>
                 <li>Click <strong>Start Streaming</strong> in OBS</li>
                 <li>Your stream will appear in the channel within 3-10 seconds!</li>
@@ -356,9 +356,9 @@
             </div>
 
             <div class="stream-info-section alert-info">
-              <strong>⚠️ CRITICAL:</strong> Your <em>Server URL</em> in OBS must include the token (e.g., <code>rtmp://datasetto.com/live?key=ABC123XYZ...</code>).
-              The <em>Stream Key</em> field should be the plain channel name (<span id="streamChannelName">Select a stream channel</span>).
-              Without the token in the Server URL, publishing will fail.
+              <strong>⚠️ CRITICAL:</strong> You MUST use the FULL stream key shown above (e.g., <code>main-stream+ABC123XYZ...</code>).
+              Using just the channel name (<span id="streamChannelName">Select a stream channel</span>) will NOT work!
+              The stream key contains a security token after the + sign.
             </div>
           </div>
           <div class="modal-footer">

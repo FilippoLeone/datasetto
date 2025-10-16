@@ -442,7 +442,7 @@ export class App {
     }
   }
 
-  private showStreamInfoModal(channelName: string, streamKey: string, streamKeyToken?: string): void {
+  private showStreamInfoModal(channelName: string, streamKey: string, streamKeyToken?: string, streamKeyChannel?: string): void {
     const modal = this.elements.streamInfoModal;
     if (!modal) {
       return;
@@ -457,7 +457,7 @@ export class App {
 
     const streamKeyDisplay = this.elements.streamKeyDisplay;
     if (streamKeyDisplay) {
-      streamKeyDisplay.textContent = streamKey;
+      streamKeyDisplay.textContent = streamKeyChannel ?? streamKey;
     }
 
     const channelNameEl = this.elements.streamChannelName;
@@ -760,13 +760,12 @@ export class App {
     this.socket.on('stream:key', ({ channelName, streamKey, streamKeyToken, streamKeyChannel }) => {
       if (import.meta.env.DEV) {
         console.log('🔑 Stream key received for channel:', channelName, {
-          legacy: streamKey,
           token: streamKeyToken,
-          label: streamKeyChannel ?? channelName,
+          channel: streamKeyChannel,
+          legacy: streamKey,
         });
       }
-      const displayKey = streamKeyChannel ?? channelName;
-      this.showStreamInfoModal(channelName, displayKey, streamKeyToken);
+      this.showStreamInfoModal(channelName, streamKey, streamKeyToken, streamKeyChannel);
     });
     this.socket.on('stream:key:error', ({ channelId, channelName, message, code }) => {
       if (import.meta.env.DEV) {

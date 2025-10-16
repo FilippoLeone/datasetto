@@ -34,8 +34,6 @@ export function generateStreamKeyToken() {
 }
 
 /**
- * @deprecated Use a plain channel name for the stream key and append the token to the RTMP ingest URL.
- *             This helper is retained for backward compatibility with legacy clients.
  * Format a stream key for display/use in RTMP clients without exposing implementation details elsewhere
  * @param {string} channelName - Channel name
  * @param {string} token - Stream key token

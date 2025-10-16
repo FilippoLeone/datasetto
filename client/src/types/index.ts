@@ -201,7 +201,13 @@ export type EventMap = {
   'account:data': { account: Account; user?: User };
   'account:rolesUpdated': { account: Account; user?: User };
   'account:error': { message: string; code?: string };
-  'stream:key': { channelId: string; channelName: string; streamKey: string; streamKeyToken?: string; streamKeyChannel?: string };
+  'stream:key': {
+    channelId: string;
+    channelName: string;
+    streamKey: string;
+    streamKeyChannel?: string;
+    streamKeyToken?: string;
+  };
   'stream:key:error': { channelId?: string | null; channelName?: string | null; message: string; code?: string };
   'admin:accounts:list': { accounts: Account[] };
   'admin:accounts:rolesUpdated': { account: Account };
