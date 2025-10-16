@@ -187,10 +187,10 @@ else
   echo "  Backend API: http://$DOMAIN"
   echo "  HLS Streams: http://$DOMAIN/hls"
 fi
-echo "  RTMP Server: rtmp://$DOMAIN/hls"
+echo "  RTMP Server: rtmp://$DOMAIN/live"
 echo ""
 echo "OBS Streaming Setup:"
-echo "  Server: rtmp://$DOMAIN/hls"
+echo "  Server: rtmp://$DOMAIN/live"
 echo "  Stream Key: Generated in app (admin feature)"
 echo ""
 echo "Useful commands:"

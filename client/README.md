@@ -116,8 +116,8 @@ npm run preview
 ### Streaming (Broadcaster)
 
 Configure OBS with:
-- **Server**: `rtmp://your-domain/hls` (or `rtmp://localhost:1935/hls` when running everything locally)
-- **Stream Key**: Use the channel name (e.g., `lobby`)
+- **Server**: `rtmp://your-domain/live` (or `rtmp://localhost:1935/live` when running everything locally)
+- **Stream Key**: Use the stream key shown in the app for the channel
 
 ### Voice Chat
 
@@ -147,7 +147,7 @@ VITE_SERVER_URL=http://localhost:4000
 VITE_HLS_BASE_URL=http://localhost/hls
 
 # Optional: override RTMP ingest URL (shown in the UI)
-VITE_RTMP_SERVER_URL=rtmp://your-domain:1935/hls
+VITE_RTMP_SERVER_URL=rtmp://your-domain:1935/live
 
 # Optional: override ICE servers (JSON array)
 # VITE_WEBRTC_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"}]'

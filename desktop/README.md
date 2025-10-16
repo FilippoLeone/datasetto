@@ -102,7 +102,7 @@ If you need to override them for staging or self-hosted environments, use one of
     "serverUrl": "https://staging.datasetto.com",
     "apiBaseUrl": "https://staging.datasetto.com",
     "hlsBaseUrl": "https://staging.datasetto.com/hls",
-    "rtmpServerUrl": "rtmp://staging.datasetto.com/hls"
+    "rtmpServerUrl": "rtmp://staging.datasetto.com/live"
   }
   ```
 

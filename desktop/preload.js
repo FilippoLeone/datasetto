@@ -6,7 +6,7 @@ const DEFAULT_RUNTIME_CONFIG = Object.freeze({
   serverUrl: 'https://datasetto.com',
   apiBaseUrl: 'https://datasetto.com',
   hlsBaseUrl: 'https://datasetto.com/hls',
-  rtmpServerUrl: 'rtmp://datasetto.com/hls'
+  rtmpServerUrl: 'rtmp://datasetto.com/live'
 });
 
 const runtimeConfig = Object.freeze(resolveRuntimeConfig());

@@ -3,7 +3,7 @@
  * Handles all channel-related operations
  */
 
-import { generateId, validateChannelName, isValidChannelType } from '../utils/helpers.js';
+import { generateId, validateChannelName, isValidChannelType, generateStreamKey } from '../utils/helpers.js';
 import { appConfig } from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -230,7 +230,7 @@ export class ChannelManager {
       }
 
       const id = `channel-${generateId()}`;
-  const streamKey = type === 'stream' ? nameValidation.value : null;
+      const streamKey = type === 'stream' ? generateStreamKey(nameValidation.value) : null;
 
       const channel = {
         id,
@@ -363,9 +363,9 @@ export class ChannelManager {
       throw new Error('Channel is not a stream channel');
     }
 
-    channel.streamKey = channel.name;
+  channel.streamKey = generateStreamKey(channel.name);
     channel.updatedAt = Date.now();
-    logger.info(`Stream key reset to channel name for: ${channel.name}`, { channelId });
+  logger.info(`Stream key regenerated for: ${channel.name}`, { channelId });
 
     return channel.streamKey;
   }

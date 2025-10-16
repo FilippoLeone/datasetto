@@ -13,6 +13,27 @@ function Require-Command {
   }
 }
 
+function Get-FirstNonEmptyValue {
+  param([string[]]$Values)
+  foreach ($value in $Values) {
+    if (-not [string]::IsNullOrWhiteSpace($value)) {
+      return $value.Trim()
+    }
+  }
+  return $null
+}
+
+function Get-RtmpFromServer {
+  param([string]$ServerUrl)
+  if (-not [string]::IsNullOrWhiteSpace($ServerUrl)) {
+    $uri = $null
+    if ([Uri]::TryCreate($ServerUrl, [UriKind]::Absolute, [ref]$uri)) {
+      return "rtmp://$($uri.Host):1935/live"
+    }
+  }
+  return 'rtmp://localhost:1935/live'
+}
+
 Require-Command npm
 
 if (-not (Test-Path $clientDir) -or -not (Test-Path $desktopDir)) {
@@ -49,9 +70,33 @@ if (Test-Path $opsEnv) {
   Write-Host '[deploy-desktop] Generating runtime-config.json from ops/.env...'
   
   $opsContent = Get-Content $opsEnv -Raw
-  $serverUrl = if ($opsContent -match '(?m)^SERVER_URL=(.+)$') { $Matches[1].Trim() } else { 'https://datasetto.com' }
-  $hlsUrl = if ($opsContent -match '(?m)^HLS_BASE_URL=(.+)$') { $Matches[1].Trim() } else { "$serverUrl/hls" }
-  $rtmpUrl = if ($opsContent -match '(?m)^RTMP_SERVER_URL=(.+)$') { $Matches[1].Trim() } else { "rtmp://datasetto.com:1935/hls" }
+  $defaultServerUrl = Get-FirstNonEmptyValue @(
+    $env:DATASETTO_SERVER_URL,
+    $env:VITE_SERVER_URL,
+    'http://localhost:4000'
+  )
+  $serverUrl = if ($opsContent -match '(?m)^SERVER_URL=(.+)$') { $Matches[1].Trim() } else { $defaultServerUrl }
+  if (-not $serverUrl) {
+    $serverUrl = 'http://localhost:4000'
+  }
+
+  $defaultHlsUrl = Get-FirstNonEmptyValue @(
+    $env:DATASETTO_HLS_BASE_URL,
+    $env:VITE_HLS_BASE_URL
+  )
+  if (-not $defaultHlsUrl) {
+    $defaultHlsUrl = "$($serverUrl.TrimEnd('/'))/hls"
+  }
+  $hlsUrl = if ($opsContent -match '(?m)^HLS_BASE_URL=(.+)$') { $Matches[1].Trim() } else { $defaultHlsUrl }
+
+  $defaultRtmpUrl = Get-FirstNonEmptyValue @(
+    $env:DATASETTO_RTMP_SERVER_URL,
+    $env:VITE_RTMP_SERVER_URL
+  )
+  if (-not $defaultRtmpUrl) {
+    $defaultRtmpUrl = Get-RtmpFromServer $serverUrl
+  }
+  $rtmpUrl = if ($opsContent -match '(?m)^RTMP_SERVER_URL=(.+)$') { $Matches[1].Trim() } else { $defaultRtmpUrl }
   
   @"
 {

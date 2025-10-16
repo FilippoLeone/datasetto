@@ -102,7 +102,7 @@ See `desktop/README.md` for full details on development and packaging.
 ### 1. Stream with OBS
 1. Open OBS Studio → Settings → Stream
 2. **Service:** Custom
-3. **Server:** `rtmp://YOUR_SERVER/hls`
+3. **Server:** `rtmp://YOUR_SERVER/live`
 4. **Stream Key:** Get from web interface (e.g., `main-stream+ABC123xyz456...`)
 5. Start Streaming
 

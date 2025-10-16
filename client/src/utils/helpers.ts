@@ -129,14 +129,14 @@ const isLocalHost = (host?: string): boolean => {
 };
 
 const DEFAULT_REMOTE_SERVER = 'https://datasetto.com';
-const DEFAULT_REMOTE_RTMP = 'rtmp://datasetto.com:1935/hls';
+const DEFAULT_REMOTE_RTMP = 'rtmp://datasetto.com:1935/live';
 
 const deriveHlsFromServer = (server: string): string => `${stripTrailingSlash(server)}/hls`;
 
 const deriveRtmpFromServer = (server: string): string => {
   try {
     const parsed = new URL(server);
-    return `rtmp://${parsed.hostname}:1935/hls`;
+  return `rtmp://${parsed.hostname}:1935/live`;
   } catch {
     return DEFAULT_REMOTE_RTMP;
   }
@@ -177,7 +177,7 @@ const resolveLocalFallbacks = () => {
   const defaults = {
     server: 'http://localhost:4000',
     hls: 'http://localhost/hls',
-    rtmp: 'rtmp://localhost:1935/hls',
+  rtmp: 'rtmp://localhost:1935/live',
   };
 
   if (!isBrowserEnvironment) {
@@ -334,7 +334,7 @@ export function resolveRuntimeConfig(): RuntimeConfig {
     if (isHttpOrigin && !runningOnLocalhost) {
       try {
         const parsed = new URL(origin);
-        rtmpServerUrl = `rtmp://${parsed.hostname}/hls`;
+  rtmpServerUrl = `rtmp://${parsed.hostname}/live`;
         sources.rtmpServerUrl = 'origin';
       } catch {
         rtmpServerUrl = localFallbacks.rtmp;

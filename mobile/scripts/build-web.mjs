@@ -66,7 +66,7 @@ const resolvedRtmpUrl = resolveValue(
   clientProdEnv.VITE_RTMP_SERVER_URL,
   opsEnv.VITE_RTMP_SERVER_URL,
   resolvedServerUrl
-    ? `rtmp://${resolvedServerUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}:1935/hls`
+    ? `rtmp://${resolvedServerUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}:1935/live`
     : undefined
 );
 
