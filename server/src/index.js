@@ -1274,6 +1274,8 @@ io.on('connection', (socket) => {
         channelId: channel.id,
         channelName: channel.name,
         streamKey: formatStreamKey(channel.name, channel.streamKey),
+        streamKeyChannel: channel.name,
+        streamKeyToken: channel.streamKey,
       });
 
       logger.info('Stream key provided to user', {

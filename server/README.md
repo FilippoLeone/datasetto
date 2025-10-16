@@ -310,7 +310,8 @@ LOG_FILE_PATH=./logs        # Log file directory
 
 ### Stream Key Security
 - Secure random generation (24 alphanumeric characters)
-- Format: `channelName?key=ABC123xyz456...`
+- Token is appended to the ingest URL (e.g., `rtmp://host/live?key=ABC123xyz456...`)
+- The RTMP stream name remains the plain channel name (e.g., `main-stream`)
 - Permission-based access control
 
 ## 🔧 Maintenance

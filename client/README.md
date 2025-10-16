@@ -116,8 +116,8 @@ npm run preview
 ### Streaming (Broadcaster)
 
 Configure OBS with:
-- **Server**: `rtmp://your-domain/live` (or `rtmp://localhost:1935/live` when running everything locally)
-- **Stream Key**: Use the value shown in the app (e.g., `main-stream?key=ABC123...`)
+- **Server**: `rtmp://your-domain/live?key=<TOKEN_FROM_APP>` (append the token shown in the dashboard)
+- **Stream Key**: Use the channel name displayed in the app (e.g., `main-stream`)
 
 ### Voice Chat
 

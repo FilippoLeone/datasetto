@@ -328,7 +328,7 @@ export class SocketService extends EventEmitter<EventMap> {
       this.emit('channel:update', data);
     });
 
-    this.socket.on('stream:key:response', (payload: { channelId: string; channelName: string; streamKey: string }) => {
+    this.socket.on('stream:key:response', (payload: { channelId: string; channelName: string; streamKey: string; streamKeyToken?: string; streamKeyChannel?: string }) => {
       this.emit('stream:key', payload as never);
     });
 

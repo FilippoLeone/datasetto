@@ -9,7 +9,6 @@ import {
   isValidChannelType,
   generateStreamKeyToken,
   extractStreamKeyToken,
-  formatStreamKey,
 } from '../utils/helpers.js';
 import { appConfig } from '../config/index.js';
 import logger from '../utils/logger.js';
@@ -833,7 +832,10 @@ export class ChannelManager {
     // Create default stream channels (restricted to stream-capable roles)
     appConfig.channels.defaultStreamChannels.forEach(name => {
       const channel = this.createChannel(name, 'stream', streamGroup.id);
-      logger.info(`🔑 Stream Key for ${name}: ${channel.streamKey}`);
+      logger.info(`🔑 Stream token generated for ${name}`, {
+        channelId: channel.id,
+        tokenPreview: channel.streamKey ? `${channel.streamKey.slice(0, 4)}…${channel.streamKey.slice(-4)}` : null,
+      });
     });
 
     logger.info('Default channels initialized');

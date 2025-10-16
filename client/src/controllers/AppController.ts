@@ -413,7 +413,7 @@ export class App {
   private updateStreamingInstructions(): void {
     const ingestEl = this.elements['streamServerUrl'];
     if (ingestEl) {
-      ingestEl.textContent = RTMP_SERVER_URL;
+      ingestEl.textContent = this.buildIngestUrl();
     }
 
     const streamKeyDisplay = this.elements.streamKeyDisplay;
@@ -427,13 +427,33 @@ export class App {
     }
   }
 
-  private showStreamInfoModal(channelName: string, streamKey: string): void {
+  private buildIngestUrl(streamKeyToken?: string): string {
+    if (!streamKeyToken) {
+      return RTMP_SERVER_URL;
+    }
+
+    try {
+      const url = new URL(RTMP_SERVER_URL);
+      url.searchParams.set('key', streamKeyToken);
+      return url.toString();
+    } catch {
+      const separator = RTMP_SERVER_URL.includes('?') ? '&' : '?';
+      return `${RTMP_SERVER_URL}${separator}key=${encodeURIComponent(streamKeyToken)}`;
+    }
+  }
+
+  private showStreamInfoModal(channelName: string, streamKey: string, streamKeyToken?: string): void {
     const modal = this.elements.streamInfoModal;
     if (!modal) {
       return;
     }
 
     this.closeMobilePanels();
+
+    const ingestEl = this.elements['streamServerUrl'];
+    if (ingestEl) {
+      ingestEl.textContent = this.buildIngestUrl(streamKeyToken);
+    }
 
     const streamKeyDisplay = this.elements.streamKeyDisplay;
     if (streamKeyDisplay) {
@@ -737,15 +757,25 @@ export class App {
         setTimeout(() => this.socket.requestChannelsList(), 500);
       }
     });
-    this.socket.on('stream:key', ({ channelName, streamKey }) => {
+    this.socket.on('stream:key', ({ channelName, streamKey, streamKeyToken, streamKeyChannel }) => {
       if (import.meta.env.DEV) {
-        console.log('🔑 Stream key received for channel:', channelName);
+        console.log('🔑 Stream key received for channel:', channelName, {
+          legacy: streamKey,
+          token: streamKeyToken,
+          label: streamKeyChannel ?? channelName,
+        });
       }
-      this.showStreamInfoModal(channelName, streamKey);
+      const displayKey = streamKeyChannel ?? channelName;
+      this.showStreamInfoModal(channelName, displayKey, streamKeyToken);
     });
     this.socket.on('stream:key:error', ({ channelId, channelName, message, code }) => {
       if (import.meta.env.DEV) {
         console.warn('⚠️ Stream key request failed', { channelId, channelName, message, code });
+      }
+
+      const ingestEl = this.elements['streamServerUrl'];
+      if (ingestEl) {
+        ingestEl.textContent = this.buildIngestUrl();
       }
 
       const streamKeyDisplay = this.elements.streamKeyDisplay;

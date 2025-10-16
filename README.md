@@ -102,8 +102,8 @@ See `desktop/README.md` for full details on development and packaging.
 ### 1. Stream with OBS
 1. Open OBS Studio → Settings → Stream
 2. **Service:** Custom
-3. **Server:** `rtmp://YOUR_SERVER/live`
-4. **Stream Key:** Get from web interface (e.g., `main-stream?key=ABC123xyz456...`)
+3. **Server:** `rtmp://YOUR_SERVER/live?key=<TOKEN_FROM_APP>`
+4. **Stream Key:** Use the channel name shown in the app (e.g., `main-stream`)
 5. Start Streaming
 
 ### 2. Watch & Chat
