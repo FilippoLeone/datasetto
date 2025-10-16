@@ -837,7 +837,6 @@ export class ChannelManager {
     });
 
     logger.info('Default channels initialized');
-      logger.info(`🔑 Stream Key for ${name}: ${formatStreamKey(channel.name, channel.streamKey)}`);
   }
 
   /**
