@@ -9,7 +9,7 @@ import type {
   VoiceMinigameFood,
   VoiceMinigameHazard,
 } from '@/types';
-const INPUT_COOLDOWN_MS = 90;
+const INPUT_COOLDOWN_MS = 45;
 const DEFAULT_STATUS = 'No game running. Start a round to play with the channel!';
 const HYPER_FOOD_LIFETIME_MS = 8_000;
 
@@ -63,6 +63,8 @@ export class MinigameController {
   private canUseMinigame = false;
   private isViewPinned = false;
   private voiceParticipants: Map<string, { id: string; name: string }> = new Map();
+  private cursorTarget: { x: number; y: number } | null = null;
+  private lastCursorDirection: 'up' | 'down' | 'left' | 'right' | null = null;
 
   constructor(deps: MinigameControllerDeps) {
     this.deps = deps;
@@ -128,7 +130,18 @@ export class MinigameController {
     if (!direction) {
       return false;
     }
+    const handled = this.attemptDirectionChange(direction);
+    if (handled) {
+      event.preventDefault();
+    }
+    return handled;
+  }
 
+  handleKeyUp(_event: KeyboardEvent): boolean {
+    return false;
+  }
+
+  private attemptDirectionChange(direction: 'up' | 'down' | 'left' | 'right'): boolean {
     if (!this.currentState || this.currentState.status !== 'running') {
       return false;
     }
@@ -145,17 +158,101 @@ export class MinigameController {
 
     const now = Date.now();
     if (now - this.lastInputAt < INPUT_COOLDOWN_MS) {
-      return true;
+      return false;
+    }
+
+    if (player.direction === direction) {
+      return false;
     }
 
     this.deps.socket.sendVoiceMinigameInput(direction);
     this.lastInputAt = now;
-    event.preventDefault();
+    if (this.cursorTarget) {
+      this.lastCursorDirection = direction;
+    }
     return true;
   }
 
-  handleKeyUp(_event: KeyboardEvent): boolean {
-    return false;
+  private handlePointerMove(event: PointerEvent): void {
+    if (!this.canvas) {
+      return;
+    }
+
+    this.cursorTarget = {
+      x: event.offsetX,
+      y: event.offsetY,
+    };
+
+    this.evaluateCursorSteering();
+  }
+
+  private handlePointerLeave(): void {
+    this.cursorTarget = null;
+    this.lastCursorDirection = null;
+  }
+
+  private evaluateCursorSteering(): void {
+    if (!this.canvas || !this.cursorTarget) {
+      return;
+    }
+
+    const state = this.currentState;
+    if (!state || state.status !== 'running') {
+      return;
+    }
+
+    const localId = this.deps.socket.getId();
+    if (!localId) {
+      return;
+    }
+
+    const player = state.players.find((entry) => entry.id === localId);
+    if (!player || !player.alive || player.body.length === 0) {
+      return;
+    }
+
+    const head = player.body[0];
+    if (!head) {
+      return;
+    }
+
+    const cellWidth = this.canvas.width / state.board.width;
+    const cellHeight = this.canvas.height / state.board.height;
+
+    const headX = (head.x + 0.5) * cellWidth;
+    const headY = (head.y + 0.5) * cellHeight;
+
+    const dx = this.cursorTarget.x - headX;
+    const dy = this.cursorTarget.y - headY;
+
+    const minDistance = Math.max(cellWidth, cellHeight) * 0.2;
+    if (Math.abs(dx) < minDistance && Math.abs(dy) < minDistance) {
+      return;
+    }
+
+    let desired: 'up' | 'down' | 'left' | 'right';
+    if (Math.abs(dx) > Math.abs(dy)) {
+      desired = dx >= 0 ? 'right' : 'left';
+    } else {
+      desired = dy >= 0 ? 'down' : 'up';
+    }
+
+    if (desired === this.lastCursorDirection) {
+      return;
+    }
+
+    const opposite: Record<'up' | 'down' | 'left' | 'right', 'up' | 'down' | 'left' | 'right'> = {
+      up: 'down',
+      down: 'up',
+      left: 'right',
+      right: 'left',
+    };
+
+    if (player.direction === opposite[desired]) {
+      return;
+    }
+
+    this.attemptDirectionChange(desired);
   }
 
   private bindUi(): void {
@@ -193,6 +290,14 @@ export class MinigameController {
     this.deps.addListener(window, 'resize', () => {
       this.resizeCanvas();
       this.requestRender();
+    });
+
+    this.deps.addListener(this.canvas, 'pointermove', (event) => {
+      this.handlePointerMove(event as PointerEvent);
+    });
+
+    this.deps.addListener(this.canvas, 'pointerleave', () => {
+      this.handlePointerLeave();
     });
   }
 
@@ -304,8 +409,9 @@ export class MinigameController {
 
   private applyState(state: VoiceMinigameState | null): void {
     this.currentState = state;
-    if (!state) {
+    if (!state || state.status !== 'running') {
       this.lastInputAt = 0;
+      this.lastCursorDirection = null;
     }
 
     if (state?.status === 'running') {
@@ -693,6 +799,8 @@ export class MinigameController {
     state.players.forEach((player) => {
       this.drawPlayer(ctx, player, cellWidth, cellHeight);
     });
+
+    this.evaluateCursorSteering();
   }
 
   private drawPlaceholder(ctx: CanvasRenderingContext2D, width: number, height: number): void {
