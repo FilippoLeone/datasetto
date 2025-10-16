@@ -184,6 +184,21 @@ const parseStreamAuthRequest = (req) => {
     args.get('tcUrl'),
   );
 
+  const streamKey = pickFirstString(
+    body.streamKey,
+    body['stream-key'],
+    body.stream_key,
+    body.key,
+    query.streamKey,
+    query['stream-key'],
+    query.stream_key,
+    query.key,
+    args.get('streamKey'),
+    args.get('stream-key'),
+    args.get('stream_key'),
+    args.get('key'),
+  );
+
   if (!username || !password) {
     const fromTcurl = extractCredentialsFromUrl(tcUrl);
     if (!username && fromTcurl.username) {
@@ -225,6 +240,7 @@ const parseStreamAuthRequest = (req) => {
     ip: requestIp,
     appName,
     tcUrl,
+    streamKey,
     args: Object.fromEntries(args.entries()),
   };
 };
@@ -322,18 +338,36 @@ app.get('/api/stream/:channelName/status', (req, res) => {
 });
 
 app.post('/api/stream/auth', async (req, res) => {
-  const { channelName, username, password, clientId, ip } = parseStreamAuthRequest(req);
+  const {
+    channelName: rawChannelName,
+    username,
+    password,
+    clientId,
+    ip,
+    streamKey: streamKeyCandidate,
+  } = parseStreamAuthRequest(req);
 
-  if (!channelName || !username || !password) {
-    logger.warn('Stream auth missing required fields', { channelName, usernamePresent: Boolean(username) });
-    return res.status(400).json({
-      allowed: false,
-      code: 'STREAM_AUTH_INVALID',
-      message: 'Missing channel name or credentials',
-    });
+  const resolvedChannelName = rawChannelName?.includes('+')
+    ? rawChannelName.slice(0, rawChannelName.indexOf('+'))
+    : rawChannelName;
+
+  let streamKey = streamKeyCandidate;
+  if (!streamKey && rawChannelName && rawChannelName.includes('+')) {
+    streamKey = rawChannelName;
+  }
+  if (!streamKey && password && password.includes('+')) {
+    streamKey = password;
   }
 
-  const rateKey = `${ip || 'unknown'}:${username.toLowerCase()}`;
+  streamKey = streamKey?.trim();
+
+  const hasStreamKey = Boolean(streamKey);
+  const hasCredentials = Boolean(username && password);
+
+  const rateKey = hasStreamKey
+    ? `${ip || 'unknown'}:key:${streamKey?.slice(-8) || 'none'}`
+    : `${ip || 'unknown'}:${(username || '').toLowerCase()}`;
+
   const allowed = checkRateLimit(
     streamAuthRateStore,
     rateKey,
@@ -342,7 +376,12 @@ app.post('/api/stream/auth', async (req, res) => {
   );
 
   if (!allowed) {
-    logger.warn('Stream auth rate limit exceeded', { channelName, username, ip });
+    logger.warn('Stream auth rate limit exceeded', {
+      channelName: resolvedChannelName || rawChannelName || null,
+      username: hasStreamKey ? undefined : username,
+      ip,
+      mode: hasStreamKey ? 'stream-key' : 'credentials',
+    });
     return res.status(429).json({
       allowed: false,
       code: 'STREAM_AUTH_RATE_LIMITED',
@@ -350,9 +389,93 @@ app.post('/api/stream/auth', async (req, res) => {
     });
   }
 
+  if (hasStreamKey) {
+    const channel = channelManager.getChannelByStreamKey(streamKey);
+
+    if (!channel || channel.type !== 'stream') {
+      logger.warn('Stream auth failed: invalid stream key', {
+        providedChannel: rawChannelName || null,
+        streamKeyTail: streamKey.slice(-6),
+        ip,
+      });
+
+      return res.status(403).json({
+        allowed: false,
+        code: 'STREAM_KEY_INVALID',
+        message: 'Invalid or expired stream key',
+      });
+    }
+
+    try {
+      const activeStream = channelManager.startStream(channel.id, {
+        accountId: null,
+        username: 'stream-key',
+        displayName: `${channel.name} Stream`,
+        clientId: clientId || null,
+        sourceIp: ip || null,
+        metadata: { authMode: 'stream-key' },
+      });
+
+      broadcastChannels();
+
+      logger.info('Stream authenticated via stream key', {
+        channelId: channel.id,
+        channelName: channel.name,
+        clientId: clientId || null,
+        ip: ip || null,
+      });
+
+      return res.status(200).json({
+        allowed: true,
+        channelId: channel.id,
+        channel: channel.name,
+        startedAt: activeStream.startedAt,
+      });
+    } catch (error) {
+      if (error && error.message === 'Channel already has an active stream') {
+        logger.warn('Stream auth denied: channel already live', {
+          channelName: channel.name,
+          mode: 'stream-key',
+        });
+
+        return res.status(409).json({
+          allowed: false,
+          code: 'STREAM_ALREADY_LIVE',
+          message: 'Channel already has an active stream',
+        });
+      }
+
+      logger.error('Stream auth error during stream-key start', {
+        channelId: channel.id,
+        channelName: channel.name,
+        error: error?.message,
+      });
+
+      return res.status(500).json({
+        allowed: false,
+        code: 'STREAM_AUTH_ERROR',
+        message: 'Failed to validate stream authentication',
+      });
+    }
+  }
+
+  if (!resolvedChannelName || !hasCredentials) {
+    logger.warn('Stream auth missing required fields', {
+      channelName: resolvedChannelName || rawChannelName,
+      usernamePresent: Boolean(username),
+      hasStreamKey,
+    });
+
+    return res.status(400).json({
+      allowed: false,
+      code: 'STREAM_AUTH_INVALID',
+      message: 'Missing channel name or credentials',
+    });
+  }
+
   try {
     const account = await accountManager.authenticate(username, password);
-    const channel = channelManager.getChannelByName(channelName);
+    const channel = channelManager.getChannelByName(resolvedChannelName);
 
     if (!channel || channel.type !== 'stream') {
       logger.warn('Stream auth failed: channel not stream-capable', { channelName, username: account.username });
@@ -394,7 +517,7 @@ app.post('/api/stream/auth', async (req, res) => {
 
       logger.info('Stream authenticated successfully', {
         channelId: channel.id,
-        channelName,
+        channelName: resolvedChannelName,
         accountId: account.id,
         username: account.username,
         clientId: clientId || null,
@@ -403,7 +526,7 @@ app.post('/api/stream/auth', async (req, res) => {
       return res.status(200).json({
         allowed: true,
         channelId: channel.id,
-        channel: channelName,
+        channel: resolvedChannelName,
         startedAt: activeStream.startedAt,
       });
     } catch (error) {
@@ -420,7 +543,7 @@ app.post('/api/stream/auth', async (req, res) => {
     }
   } catch (error) {
     if (error && typeof error.message === 'string' && error.message.toLowerCase().includes('invalid credentials')) {
-      logger.warn('Stream auth failed: invalid credentials', { channelName, username });
+      logger.warn('Stream auth failed: invalid credentials', { channelName: resolvedChannelName, username });
       return res.status(403).json({
         allowed: false,
         code: 'STREAM_AUTH_INVALID_CREDENTIALS',
@@ -428,7 +551,7 @@ app.post('/api/stream/auth', async (req, res) => {
       });
     }
 
-    logger.error(`Stream auth error: ${error.message}`, { channelName, username });
+    logger.error(`Stream auth error: ${error.message}`, { channelName: resolvedChannelName, username });
     return res.status(500).json({
       allowed: false,
       code: 'STREAM_AUTH_ERROR',
@@ -438,13 +561,29 @@ app.post('/api/stream/auth', async (req, res) => {
 });
 
 app.post('/api/stream/end', (req, res) => {
-  const { channelName, clientId } = parseStreamAuthRequest(req);
+  const {
+    channelName: rawChannelName,
+    streamKey: streamKeyCandidate,
+    clientId,
+  } = parseStreamAuthRequest(req);
 
-  if (!channelName) {
-    return res.status(200).json({ released: false, reason: 'missing channel' });
+  let resolvedChannelName = rawChannelName;
+  let streamKey = streamKeyCandidate;
+  if (!streamKey && rawChannelName && rawChannelName.includes('+')) {
+    streamKey = rawChannelName;
+  }
+  streamKey = streamKey?.trim();
+
+  let channel = streamKey ? channelManager.getChannelByStreamKey(streamKey) : null;
+
+  if (!channel && rawChannelName) {
+    const baseName = rawChannelName.includes('+')
+      ? rawChannelName.slice(0, rawChannelName.indexOf('+'))
+      : rawChannelName;
+    resolvedChannelName = baseName;
+    channel = baseName ? channelManager.getChannelByName(baseName) : null;
   }
 
-  const channel = channelManager.getChannelByName(channelName);
   if (!channel || channel.type !== 'stream') {
     return res.status(200).json({ released: false, reason: 'invalid channel' });
   }
@@ -458,7 +597,7 @@ app.post('/api/stream/end', (req, res) => {
 
   logger.info('Stream ended', {
     channelId: channel.id,
-    channelName,
+    channelName: channel.name,
     clientId: clientId || null,
   });
 
