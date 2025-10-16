@@ -30,6 +30,16 @@ const COLOR_PALETTE = [
   '#00d2d3',
 ];
 
+const INITIAL_BOARD = { width: 24, height: 24 };
+const INITIAL_TICK_INTERVAL_MS = 220;
+const MIN_TICK_INTERVAL_MS = 90;
+const SPEEDUP_PER_FOOD_MS = 8;
+const HYPERFOOD_CHANCE = 0.18;
+const HYPERFOOD_EXPIRE_MS = 8_000;
+const COMBO_WINDOW_MS = 4_500;
+const SUDDEN_DEATH_DELAY_MS = 45_000;
+const SUDDEN_DEATH_INTERVAL_MS = 6_500;
+
 export default class MinigameManager {
   constructor({ io, channelManager, onChannelUpdate }) {
     this.io = io;
@@ -65,10 +75,15 @@ export default class MinigameManager {
       createdAt: Date.now(),
       startedAt: Date.now(),
       updatedAt: Date.now(),
-      board: { width: 20, height: 20 },
-      tickIntervalMs: 220,
+      board: { ...INITIAL_BOARD },
+      tickIntervalMs: INITIAL_TICK_INTERVAL_MS,
       sequence: 0,
       food: null,
+      hazards: new Set(),
+      hazardRing: 0,
+      suddenDeathAt: Date.now() + SUDDEN_DEATH_DELAY_MS,
+      nextHazardAt: Date.now() + SUDDEN_DEATH_DELAY_MS,
+      lastSpeedupAt: Date.now(),
       players: new Map(),
       spectators: new Set(),
       intervalHandle: null,
@@ -282,6 +297,25 @@ export default class MinigameManager {
     session.sequence += 1;
     session.updatedAt = Date.now();
 
+    this.expireFoodIfNeeded(session);
+    if (this.applySuddenDeath(session)) {
+      // Game may have ended inside sudden death logic
+      if (!this.sessions.has(session.channelId)) {
+        return;
+      }
+    }
+
+    const now = Date.now();
+    session.players.forEach((player) => {
+      if (!player.lastFoodAt) {
+        return;
+      }
+      if (player.combo && now - player.lastFoodAt > COMBO_WINDOW_MS) {
+        player.combo = 0;
+      }
+    });
+
+    const currentFood = session.food;
     const moves = [];
     const occupied = new Map();
 
@@ -308,7 +342,7 @@ export default class MinigameManager {
       const head = player.body[0];
       const newHead = { x: head.x + delta.x, y: head.y + delta.y };
       const tail = player.body[player.body.length - 1];
-      const willEatFood = session.food && newHead.x === session.food.x && newHead.y === session.food.y;
+      const willEatFood = Boolean(currentFood && newHead.x === currentFood.x && newHead.y === currentFood.y);
 
       if (!willEatFood) {
         occupied.delete(this.cellKey(tail));
@@ -327,6 +361,11 @@ export default class MinigameManager {
 
     for (const move of moves) {
       if (this.isOutOfBounds(session, move.newHead)) {
+        move.collision = true;
+        continue;
+      }
+
+      if (this.isHazard(session, move.newHead)) {
         move.collision = true;
         continue;
       }
@@ -361,13 +400,19 @@ export default class MinigameManager {
 
       move.player.body.unshift(move.newHead);
       if (move.willEatFood) {
-        move.player.score += 1;
-        this.spawnFood(session);
+        // keep tail to grow when food is eaten
       } else {
         move.player.body.pop();
       }
 
       move.player.pendingDirection = null;
+    }
+
+    if (moves.some((move) => move.willEatFood && move.player.alive) && currentFood) {
+      const eater = moves.find((move) => move.willEatFood && move.player.alive);
+      if (eater) {
+        this.handleFoodConsumption(session, eater.player, currentFood);
+      }
     }
 
     const aliveCount = this.countAlivePlayers(session);
@@ -418,6 +463,9 @@ export default class MinigameManager {
       score: 0,
       joinedAt: Date.now(),
       lastInputAt: Date.now(),
+      combo: 0,
+      longestCombo: 0,
+      lastFoodAt: 0,
     };
 
     session.players.set(playerId, player);
@@ -515,6 +563,8 @@ export default class MinigameManager {
       player.body.forEach((segment) => occupied.add(this.cellKey(segment)));
     }
 
+    session.hazards.forEach((key) => occupied.add(key));
+
     let candidate = null;
     const attemptLimit = width * height;
 
@@ -535,8 +585,121 @@ export default class MinigameManager {
       };
     }
 
-    session.food = candidate;
-    return candidate;
+    const isHyper = Math.random() < HYPERFOOD_CHANCE;
+    const food = {
+      x: candidate.x,
+      y: candidate.y,
+      type: isHyper ? 'hyper' : 'normal',
+      value: isHyper ? 3 : 1,
+      expiresAt: isHyper ? Date.now() + HYPERFOOD_EXPIRE_MS : null,
+    };
+
+    session.food = food;
+    return food;
+  }
+
+  expireFoodIfNeeded(session) {
+    const food = session.food;
+    if (!food || !food.expiresAt) {
+      return false;
+    }
+
+    if (Date.now() < food.expiresAt) {
+      return false;
+    }
+
+    session.food = null;
+    this.spawnFood(session);
+    return true;
+  }
+
+  handleFoodConsumption(session, player, food) {
+    if (!food) {
+      return;
+    }
+
+    session.food = null;
+
+    const now = Date.now();
+    if (player.lastFoodAt && now - player.lastFoodAt <= COMBO_WINDOW_MS) {
+      player.combo = (player.combo || 0) + 1;
+    } else {
+      player.combo = 1;
+    }
+    player.lastFoodAt = now;
+    player.longestCombo = Math.max(player.longestCombo || 0, player.combo);
+
+    const comboBonus = Math.max(0, (player.combo || 1) - 1);
+    const reward = (food.value || 1) + comboBonus;
+    player.score += reward;
+
+    const speedGain = SPEEDUP_PER_FOOD_MS * (food.type === 'hyper' ? 2 : 1);
+    const newInterval = Math.max(MIN_TICK_INTERVAL_MS, session.tickIntervalMs - speedGain);
+    if (newInterval !== session.tickIntervalMs) {
+      session.tickIntervalMs = newInterval;
+      this.scheduleTick(session);
+    }
+
+    session.food = this.spawnFood(session);
+  }
+
+  applySuddenDeath(session) {
+    if (!session.nextHazardAt || Date.now() < session.nextHazardAt) {
+      return false;
+    }
+
+    const ring = session.hazardRing + 1;
+    const added = this.addHazardRing(session, ring);
+    if (!added) {
+      this.endGame(session.channelId, 'arena_closed');
+      return true;
+    }
+
+  session.hazardRing = ring;
+  session.nextHazardAt = Date.now() + SUDDEN_DEATH_INTERVAL_MS;
+  session.suddenDeathAt = session.nextHazardAt;
+
+    let eliminated = false;
+    for (const player of session.players.values()) {
+      if (!player.alive) {
+        continue;
+      }
+      const hitHazard = player.body.some((segment) => this.isHazard(session, segment));
+      if (hitHazard) {
+        player.alive = false;
+        eliminated = true;
+      }
+    }
+
+    if (session.food && this.isHazard(session, session.food)) {
+      session.food = this.spawnFood(session);
+    }
+
+    return eliminated;
+  }
+
+  addHazardRing(session, ring) {
+    const { width, height } = session.board;
+    const minX = ring - 1;
+    const maxX = width - ring;
+    const minY = ring - 1;
+    const maxY = height - ring;
+
+    if (minX >= maxX || minY >= maxY) {
+      return false;
+    }
+
+    for (let x = minX; x <= maxX; x += 1) {
+      session.hazards.add(this.cellKey({ x, y: minY }));
+      session.hazards.add(this.cellKey({ x, y: maxY }));
+    }
+
+    for (let y = minY; y <= maxY; y += 1) {
+      session.hazards.add(this.cellKey({ x: minX, y }));
+      session.hazards.add(this.cellKey({ x: maxX, y }));
+    }
+
+    return true;
   }
 
   countAlivePlayers(session) {
@@ -562,6 +725,10 @@ export default class MinigameManager {
     );
   }
 
+  isHazard(session, position) {
+    return session.hazards.has(this.cellKey(position));
+  }
+
   /**
    * Convert session state into a client-friendly payload
    */
@@ -580,6 +747,8 @@ export default class MinigameManager {
       body: player.body.map(({ x, y }) => ({ x, y })),
       lastInputAt: player.lastInputAt,
       joinedAt: player.joinedAt,
+      combo: player.combo || 0,
+      longestCombo: player.longestCombo || 0,
     }));
 
     players.sort((a, b) => {
@@ -587,6 +756,11 @@ export default class MinigameManager {
         return a.name.localeCompare(b.name);
       }
       return b.score - a.score;
+    });
+
+    const hazards = Array.from(session.hazards.values()).map((key) => {
+      const [x, y] = key.split(':').map(Number);
+      return { x, y };
     });
 
     return {
@@ -600,10 +774,22 @@ export default class MinigameManager {
       updatedAt: session.updatedAt,
       sequence: session.sequence,
       board: { ...session.board },
-      food: session.food ? { ...session.food } : null,
+      food: session.food
+        ? {
+            x: session.food.x,
+            y: session.food.y,
+            type: session.food.type,
+            value: session.food.value,
+            expiresAt: session.food.expiresAt,
+          }
+        : null,
       players,
       spectators: Array.from(session.spectators.values()),
       lastAliveCount: session.lastAliveCount,
+      tickIntervalMs: session.tickIntervalMs,
+      hazards,
+      hazardRing: session.hazardRing,
+      suddenDeathAt: session.suddenDeathAt,
     };
   }
 

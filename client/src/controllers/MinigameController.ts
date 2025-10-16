@@ -2,10 +2,16 @@
  * Voice minigame coordinator (Snake)
  */
 import type { MinigameControllerDeps } from './types';
-import type { VoiceMinigamePlayerState, VoiceMinigameState } from '@/types';
-
+import type {
+  VoiceMinigamePlayerState,
+  VoiceMinigameState,
+  VoicePeerEvent,
+  VoiceMinigameFood,
+  VoiceMinigameHazard,
+} from '@/types';
 const INPUT_COOLDOWN_MS = 90;
 const DEFAULT_STATUS = 'No game running. Start a round to play with the channel!';
+const HYPER_FOOD_LIFETIME_MS = 8_000;
 
 const END_REASON_LABELS: Record<string, string> = {
   ended_by_host: 'ended by host',
@@ -13,6 +19,7 @@ const END_REASON_LABELS: Record<string, string> = {
   everyone_crashed: 'everyone crashed',
   winner: 'winner decided',
   error: 'unexpected error',
+  arena_closed: 'arena collapsed',
 };
 
 const describeEndReason = (reason: string): string => {
@@ -55,6 +62,7 @@ export class MinigameController {
   private lastInputAt = 0;
   private canUseMinigame = false;
   private isViewPinned = false;
+  private voiceParticipants: Map<string, { id: string; name: string }> = new Map();
 
   constructor(deps: MinigameControllerDeps) {
     this.deps = deps;
@@ -157,6 +165,7 @@ export class MinigameController {
       }
       this.isViewPinned = true;
       this.syncStageMode();
+      this.updateControls();
     });
 
     this.deps.addListener(this.closeButton, 'click', () => {
@@ -231,6 +240,27 @@ export class MinigameController {
         }
       })
     );
+
+    this.disposers.push(
+      this.deps.socket.on('voice:joined', (payload) => {
+        const data = payload as { peers?: VoicePeerEvent[] | null };
+        this.rebuildVoiceParticipants(data?.peers ?? []);
+      })
+    );
+
+    this.disposers.push(
+      this.deps.socket.on('voice:peer-join', (payload) => {
+        const data = payload as VoicePeerEvent;
+        this.addVoiceParticipant(data);
+      })
+    );
+
+    this.disposers.push(
+      this.deps.socket.on('voice:peer-leave', (payload) => {
+        const data = payload as { id: string };
+        this.removeVoiceParticipant(data.id);
+      })
+    );
   }
 
   private registerStateObserver(): void {
@@ -258,15 +288,18 @@ export class MinigameController {
       this.isViewPinned = false;
       this.container.classList.add('hidden');
       this.stage?.classList.remove('minigame-active');
+      this.resetVoiceParticipants();
       this.applyState(null);
       this.lastEndReason = null;
       this.updateLauncherState();
       this.syncStageMode();
+      this.updateControls();
       return;
     }
 
     this.updateLauncherState();
     this.syncStageMode();
+    this.updateControls();
   }
 
   private applyState(state: VoiceMinigameState | null): void {
@@ -314,9 +347,9 @@ export class MinigameController {
     const isAlive = Boolean(playerEntry?.alive);
 
     if (this.startButton) {
-      const shouldShowStart = voiceConnected && !isRunning;
-      this.startButton.classList.toggle('hidden', !shouldShowStart);
-      this.startButton.toggleAttribute('disabled', !shouldShowStart);
+      const canStart = this.canUseMinigame && voiceConnected && !isRunning;
+      this.startButton.classList.toggle('hidden', !this.canUseMinigame);
+      this.startButton.toggleAttribute('disabled', !canStart);
     }
 
     if (this.endButton) {
@@ -355,7 +388,27 @@ export class MinigameController {
     if (state.status === 'running') {
       const alive = state.players.filter((player) => player.alive).length;
       const total = state.players.length;
-      this.statusEl.textContent = `Game in progress — ${alive}/${total} snakes alive`;
+      const parts: string[] = [`${alive}/${total} snakes alive`];
+      if (state.tickIntervalMs) {
+        const movesPerSecond = 1000 / state.tickIntervalMs;
+        parts.push(`${movesPerSecond.toFixed(1)} moves/s`);
+      }
+
+      if (state.hazardRing > 0) {
+        parts.push(`Sudden death ring ${state.hazardRing}`);
+      } else if (state.suddenDeathAt) {
+        const remainingMs = Math.max(0, state.suddenDeathAt - Date.now());
+        const remainingSeconds = Math.ceil(remainingMs / 1000);
+        if (remainingSeconds > 0) {
+          parts.push(`Sudden death in ${remainingSeconds}s`);
+        }
+      }
+
+      if (state.food?.type === 'hyper') {
+        parts.push('Hyper fruit on field');
+      }
+
+      this.statusEl.textContent = `Game in progress — ${parts.join(' · ')}`;
       return;
     }
 
@@ -375,45 +428,159 @@ export class MinigameController {
 
     list.innerHTML = '';
 
-    if (!state || state.players.length === 0) {
-      const item = document.createElement('li');
-      item.className = 'text-2xs text-text-muted';
-      item.textContent = 'No players yet.';
-      list.appendChild(item);
+    if (!state) {
+      const participants = Array.from(this.voiceParticipants.values());
+      if (participants.length === 0) {
+        const item = document.createElement('li');
+        item.className = 'text-2xs text-text-muted';
+        item.textContent = 'No one in voice yet. Join the channel to get ready!';
+        list.appendChild(item);
+        return;
+      }
+
+      participants.forEach((participant) => {
+        const item = document.createElement('li');
+        item.className = 'flex items-center justify-between gap-3 text-2xs';
+
+        const name = document.createElement('span');
+        name.className = 'font-semibold text-text-normal';
+        name.textContent = participant.name;
+
+        const badge = document.createElement('span');
+        badge.className = 'rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted';
+        badge.textContent = 'Ready';
+
+        item.append(name, badge);
+        list.appendChild(item);
+      });
       return;
     }
 
     state.players.forEach((player, index) => {
       const item = document.createElement('li');
-      item.className = 'flex items-center justify-between gap-3 text-2xs';
+      item.className = 'flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-2xs';
 
-      const left = document.createElement('span');
-      left.className = 'flex items-center gap-2 truncate';
+      const nameWrap = document.createElement('div');
+      nameWrap.className = 'flex items-center gap-2 truncate';
+
+      const rank = document.createElement('span');
+      rank.className = 'w-6 text-right font-semibold text-text-muted';
+      rank.textContent = `${index + 1}.`;
 
       const marker = document.createElement('span');
-      marker.className = 'inline-block w-2.5 h-2.5 rounded-full flex-shrink-0';
+      marker.className = 'inline-block h-2.5 w-2.5 rounded-full flex-shrink-0';
       marker.style.backgroundColor = player.color;
 
-      const label = document.createElement('span');
-      label.className = 'truncate';
-      label.textContent = `${index + 1}. ${player.name}${player.id === localId ? ' (You)' : ''}`;
-
-      left.appendChild(marker);
-      left.appendChild(label);
-
-      const right = document.createElement('span');
-      right.className = 'font-semibold text-text-normal tabular-nums';
-      right.textContent = `${player.score}`;
-
-      if (!player.alive) {
-        label.classList.add('opacity-70');
-        right.classList.add('opacity-60');
+      const name = document.createElement('span');
+      name.className = 'truncate font-semibold text-text-normal';
+      name.textContent = player.name;
+      if (player.id === localId) {
+        name.classList.add('text-brand-primary');
       }
 
-      item.appendChild(left);
-      item.appendChild(right);
+      if (!player.alive) {
+        name.classList.add('opacity-70');
+      }
+
+      nameWrap.append(rank, marker, name);
+
+      const scoresWrap = document.createElement('div');
+      scoresWrap.className = 'flex items-center gap-2';
+
+      const score = document.createElement('span');
+      score.className = 'font-semibold text-text-normal tabular-nums';
+      score.textContent = `${player.score} pts`;
+      if (!player.alive) {
+        score.classList.add('opacity-60');
+      }
+
+      scoresWrap.append(score);
+
+      const combo = document.createElement('span');
+      combo.className = 'hidden rounded-full border border-brand-primary/40 bg-brand-primary/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider';
+      const currentCombo = player.combo ?? 0;
+      if (currentCombo > 1) {
+        combo.textContent = `Combo x${currentCombo}`;
+        combo.classList.remove('hidden');
+        combo.classList.add('text-brand-primary');
+      } else {
+        const longestCombo = player.longestCombo ?? 0;
+        if (longestCombo > 1) {
+          combo.textContent = `Best x${longestCombo}`;
+          combo.classList.remove('hidden');
+          combo.classList.add('text-text-muted');
+        }
+      }
+
+      if (!player.alive) {
+        combo.classList.add('border-white/15');
+      }
+
+      if (!combo.classList.contains('hidden')) {
+        scoresWrap.append(combo);
+      }
+
+      const aliveBadge = document.createElement('span');
+      aliveBadge.className = player.alive
+        ? 'rounded-full bg-success/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-success'
+        : 'rounded-full bg-danger/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-danger';
+      aliveBadge.textContent = player.alive ? 'Alive' : 'Out';
+
+      scoresWrap.append(aliveBadge);
+
+      item.append(nameWrap, scoresWrap);
       list.appendChild(item);
     });
+  }
+
+  private rebuildVoiceParticipants(peers: VoicePeerEvent[]): void {
+    this.voiceParticipants.clear();
+    this.addLocalVoiceParticipant();
+    peers.forEach((peer) => this.voiceParticipants.set(peer.id, { id: peer.id, name: peer.name }));
+    this.renderScores();
+  }
+
+  private addLocalVoiceParticipant(): void {
+    const localId = this.deps.socket.getId();
+    if (!localId) {
+      return;
+    }
+
+    const account = this.deps.state.get('account');
+    const name = account?.displayName || account?.username || 'You';
+    this.voiceParticipants.set(localId, { id: localId, name });
+  }
+
+  private addVoiceParticipant(peer: VoicePeerEvent): void {
+    if (!peer?.id) {
+      return;
+    }
+
+    if (this.voiceParticipants.size === 0) {
+      this.addLocalVoiceParticipant();
+    }
+
+    this.voiceParticipants.set(peer.id, { id: peer.id, name: peer.name });
+    this.renderScores();
+  }
+
+  private removeVoiceParticipant(id: string): void {
+    if (!id) {
+      return;
+    }
+
+    if (this.voiceParticipants.delete(id)) {
+      this.renderScores();
+    }
+  }
+
+  private resetVoiceParticipants(): void {
+    if (this.voiceParticipants.size === 0) {
+      return;
+    }
+
+    this.voiceParticipants.clear();
+    this.renderScores();
   }
 
   private resizeCanvas(): void {
@@ -500,7 +667,7 @@ export class MinigameController {
     const ctx = this.ctx;
     const width = this.canvas.width;
     const height = this.canvas.height;
-    ctx.fillStyle = '#0b101a';
+    ctx.fillStyle = '#050a14';
     ctx.fillRect(0, 0, width, height);
 
     const state = this.currentState;
@@ -513,14 +680,14 @@ export class MinigameController {
     const cellWidth = width / board.width;
     const cellHeight = height / board.height;
 
+    this.drawGrid(ctx, board, cellWidth, cellHeight, width, height);
+
+    if (state.hazards?.length) {
+      this.drawHazards(ctx, state.hazards, cellWidth, cellHeight);
+    }
+
     if (state.food) {
-      ctx.fillStyle = '#ff4757';
-      ctx.fillRect(
-        state.food.x * cellWidth + 2,
-        state.food.y * cellHeight + 2,
-        Math.max(cellWidth - 4, 2),
-        Math.max(cellHeight - 4, 2)
-      );
+      this.drawFood(ctx, state.food, cellWidth, cellHeight);
     }
 
     state.players.forEach((player) => {
@@ -529,15 +696,15 @@ export class MinigameController {
   }
 
   private drawPlaceholder(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-    ctx.fillStyle = '#162034';
+    ctx.fillStyle = '#0f1727';
     ctx.fillRect(0, 0, width, height);
 
-    ctx.fillStyle = '#2c3e50';
+    ctx.fillStyle = '#334866';
     const fontSize = Math.max(Math.floor(Math.min(width, height) / 18), 14);
     ctx.font = `600 ${fontSize}px system-ui`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Launch a voice minigame to get started', width / 2, height / 2);
+    ctx.fillText('Launch the turbo snake arena to get started', width / 2, height / 2);
   }
 
   private drawPlayer(
@@ -548,23 +715,127 @@ export class MinigameController {
   ): void {
     ctx.save();
     ctx.fillStyle = player.color;
-    const baseAlpha = player.alive ? 1 : 0.35;
+    const alive = Boolean(player.alive);
+    const combo = player.combo ?? 0;
+
+    if (alive && combo > 1) {
+      ctx.shadowColor = 'rgba(255, 200, 40, 0.55)';
+      ctx.shadowBlur = Math.max(cellWidth, cellHeight) * 0.65;
+    }
 
     player.body.forEach((segment, index) => {
       const x = segment.x * cellWidth;
       const y = segment.y * cellHeight;
-      const inset = index === 0 ? 1 : 2;
-      const segmentAlpha = index === 0 ? baseAlpha : baseAlpha * 0.85;
-      ctx.globalAlpha = Math.max(segmentAlpha, 0.2);
-      ctx.fillRect(x + inset, y + inset, Math.max(cellWidth - inset * 2, 2), Math.max(cellHeight - inset * 2, 2));
+      const inset = index === 0 ? Math.max(1, Math.min(cellWidth, cellHeight) * 0.08) : Math.max(2, Math.min(cellWidth, cellHeight) * 0.18);
+      const segmentAlpha = index === 0 ? 1 : 0.78;
+      ctx.globalAlpha = alive ? segmentAlpha : segmentAlpha * 0.35;
+
+      const drawWidth = Math.max(cellWidth - inset * 2, 2);
+      const drawHeight = Math.max(cellHeight - inset * 2, 2);
+
+      ctx.fillRect(x + inset, y + inset, drawWidth, drawHeight);
 
       if (index === 0) {
-        ctx.strokeStyle = '#ffffffaa';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(x + inset, y + inset, Math.max(cellWidth - inset * 2, 2), Math.max(cellHeight - inset * 2, 2));
+        ctx.globalAlpha = alive ? 0.9 : 0.45;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+        ctx.lineWidth = Math.max(1, Math.min(cellWidth, cellHeight) * 0.1);
+        ctx.strokeRect(x + inset, y + inset, drawWidth, drawHeight);
+
+        if (combo > 1 && alive) {
+          ctx.globalAlpha = 0.9;
+          ctx.strokeStyle = 'rgba(255, 200, 60, 0.85)';
+          ctx.lineWidth = Math.max(1, Math.min(cellWidth, cellHeight) * 0.15);
+          ctx.strokeRect(x + inset + 1, y + inset + 1, Math.max(drawWidth - 2, 1), Math.max(drawHeight - 2, 1));
+        }
       }
     });
 
     ctx.restore();
+  }
+
+  private drawGrid(
+    ctx: CanvasRenderingContext2D,
+    board: { width: number; height: number },
+    cellWidth: number,
+    cellHeight: number,
+    width: number,
+    height: number
+  ): void {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+    ctx.lineWidth = 1;
+
+    for (let x = 1; x < board.width; x += 1) {
+      const pos = x * cellWidth;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(pos) + 0.5, 0);
+      ctx.lineTo(Math.round(pos) + 0.5, height);
+      ctx.stroke();
+    }
+
+    for (let y = 1; y < board.height; y += 1) {
+      const pos = y * cellHeight;
+      ctx.beginPath();
+      ctx.moveTo(0, Math.round(pos) + 0.5);
+      ctx.lineTo(width, Math.round(pos) + 0.5);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  private drawHazards(
+    ctx: CanvasRenderingContext2D,
+    hazards: VoiceMinigameHazard[],
+    cellWidth: number,
+    cellHeight: number
+  ): void {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 90, 90, 0.24)';
+    hazards.forEach(({ x, y }) => {
+      ctx.fillRect(x * cellWidth, y * cellHeight, cellWidth, cellHeight);
+    });
+
+    ctx.restore();
+  }
+
+  private drawFood(
+    ctx: CanvasRenderingContext2D,
+    food: VoiceMinigameFood,
+    cellWidth: number,
+    cellHeight: number
+  ): void {
+    const x = food.x * cellWidth;
+    const y = food.y * cellHeight;
+    const inset = Math.max(2, Math.min(cellWidth, cellHeight) * 0.18);
+    const w = Math.max(cellWidth - inset * 2, 2);
+    const h = Math.max(cellHeight - inset * 2, 2);
+
+    if (food.type === 'hyper') {
+      const cx = x + cellWidth / 2;
+      const cy = y + cellHeight / 2;
+      const gradient = ctx.createRadialGradient(cx, cy, Math.min(inset, 6), cx, cy, Math.max(cellWidth, cellHeight) / 2);
+      gradient.addColorStop(0, 'rgba(255, 220, 90, 0.95)');
+      gradient.addColorStop(1, 'rgba(255, 220, 90, 0.05)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x, y, cellWidth, cellHeight);
+
+      ctx.fillStyle = '#ffe066';
+      ctx.fillRect(x + inset, y + inset, w, h);
+
+      if (food.expiresAt) {
+        const remaining = Math.max(0, food.expiresAt - Date.now());
+        const ratio = Math.max(0, Math.min(1, remaining / HYPER_FOOD_LIFETIME_MS));
+        ctx.strokeStyle = 'rgba(255, 236, 153, 0.9)';
+        ctx.lineWidth = Math.max(1, Math.min(cellWidth, cellHeight) * 0.18);
+        ctx.beginPath();
+        const radius = Math.max(cellWidth, cellHeight) / 2 - ctx.lineWidth / 2;
+        ctx.arc(cx, cy, Math.max(radius, 2), -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio, false);
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = '#ff4757';
+      ctx.fillRect(x + inset, y + inset, w, h);
+    }
   }
 }

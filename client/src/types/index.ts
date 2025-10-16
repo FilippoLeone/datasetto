@@ -186,6 +186,23 @@ export interface VoiceMinigamePlayerState {
   body: Array<{ x: number; y: number }>;
   lastInputAt?: number;
   joinedAt?: number;
+  combo?: number;
+  longestCombo?: number;
+}
+
+export type VoiceMinigameFoodType = 'normal' | 'hyper';
+
+export interface VoiceMinigameFood {
+  x: number;
+  y: number;
+  type: VoiceMinigameFoodType;
+  value: number;
+  expiresAt: number | null;
+}
+
+export interface VoiceMinigameHazard {
+  x: number;
+  y: number;
 }
 
 export interface VoiceMinigameState {
@@ -199,10 +216,14 @@ export interface VoiceMinigameState {
   updatedAt: number;
   sequence: number;
   board: { width: number; height: number };
-  food: { x: number; y: number } | null;
+  food: VoiceMinigameFood | null;
   players: VoiceMinigamePlayerState[];
   spectators: string[];
   lastAliveCount: number;
+  tickIntervalMs: number;
+  hazards: VoiceMinigameHazard[];
+  hazardRing: number;
+  suddenDeathAt: number;
 }
 
 export interface DeviceInfo {
