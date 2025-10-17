@@ -3,28 +3,28 @@ import logger from '../utils/logger.js';
 
 const WORLD_WIDTH = 2600;
 const WORLD_HEIGHT = 2000;
-const TICK_INTERVAL_MS = 50; // 20 updates per second
+const TICK_INTERVAL_MS = 16; // ~60 updates per second
 
 const PLAYER_START_LENGTH = 110;
 const PLAYER_MIN_LENGTH = 90;
 const PLAYER_MAX_LENGTH = 4600;
 const PLAYER_RESPAWN_DELAY_MS = 3200;
 
-const BASE_SPEED = 210;
-const MIN_SPEED = 135;
+const BASE_SPEED = 250;
+const MIN_SPEED = 160;
 const LENGTH_SLOWDOWN_FACTOR = 0.00032;
-const TURN_RATE_RADIANS = Math.PI * 1.35;
+const TURN_RATE_RADIANS = Math.PI * 8;
 
 const SEGMENT_SPACING = 14;
 const SELF_COLLISION_SKIP = 10;
 const MAX_SERIALIZED_SEGMENTS = 60;
 
-const PELLET_COUNT = 160;
+const PELLET_COUNT = 120;
 const PELLET_VALUE_MIN = 3;
 const PELLET_VALUE_MAX = 7;
 const PELLET_RADIUS_MIN = 7;
 const PELLET_RADIUS_MAX = 11;
-const PELLET_RESPAWN_BATCH = 10;
+const PELLET_RESPAWN_BATCH = 8;
 
 const DROP_PELLET_INTERVAL = 3;
 const WORLD_PADDING = 120;

@@ -4,9 +4,9 @@
 import type { MinigameControllerDeps } from './types';
 import type { VoiceMinigamePlayerState, VoiceMinigameState, VoicePeerEvent } from '@/types';
 
-const INPUT_SEND_INTERVAL_MS = 60;
+const INPUT_SEND_INTERVAL_MS = 16;
 const DEFAULT_STATUS = 'No slither arena open. Start a round to glide together!';
-const GRID_SPACING = 120;
+const GRID_SPACING = 160;
 const BACKGROUND_COLOR = '#080c16';
 
 const END_REASON_LABELS: Record<string, string> = {
@@ -109,10 +109,7 @@ export class MinigameController {
   }
 
   dispose(): void {
-    if (this.renderHandle !== null) {
-      cancelAnimationFrame(this.renderHandle);
-      this.renderHandle = null;
-    }
+    this.stopRenderLoop();
 
     if (this.inputTimeout !== null) {
       window.clearTimeout(this.inputTimeout);
@@ -131,6 +128,10 @@ export class MinigameController {
   }
 
   handleKeyDown(event: KeyboardEvent): boolean {
+    if (!this.shouldCaptureKeyboard(event)) {
+      return false;
+    }
+
     const handled = this.applyKeyboardState(event.code, true);
     if (handled) {
       event.preventDefault();
@@ -139,10 +140,18 @@ export class MinigameController {
   }
 
   handleKeyUp(event: KeyboardEvent): boolean {
+    if (!this.shouldCaptureKeyboard(event)) {
+      return false;
+    }
+
     return this.applyKeyboardState(event.code, false);
   }
 
   private applyKeyboardState(code: string, pressed: boolean): boolean {
+    if (!this.currentState || this.currentState.status !== 'running') {
+      return false;
+    }
+
     let matched = true;
     switch (code) {
       case 'ArrowUp':
@@ -190,6 +199,28 @@ export class MinigameController {
     return { x: x / length, y: y / length };
   }
 
+  private shouldCaptureKeyboard(event: KeyboardEvent): boolean {
+    if (!this.currentState || this.currentState.status !== 'running') {
+      return false;
+    }
+
+    const target = event.target as HTMLElement | null;
+    if (!target) {
+      return true;
+    }
+
+    const tagName = target.tagName;
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
+      return false;
+    }
+
+    if (target.isContentEditable) {
+      return false;
+    }
+
+    return true;
+  }
+
   private bindUi(): void {
     this.deps.addListener(this.openButton, 'click', () => {
       if (!this.canUseMinigame) {
@@ -232,6 +263,10 @@ export class MinigameController {
     });
 
     this.deps.addListener(this.canvas, 'pointerdown', (event) => {
+      this.handlePointerMove(event as PointerEvent);
+    });
+
+    this.deps.addListener(this.canvas, 'pointerover', (event) => {
       this.handlePointerMove(event as PointerEvent);
     });
 
@@ -692,13 +727,33 @@ export class MinigameController {
   }
 
   private requestRender(): void {
+    if (this.currentState?.status === 'running' && this.shouldShowMinigame()) {
+      this.startRenderLoop();
+    } else {
+      this.stopRenderLoop();
+      this.drawState();
+    }
+  }
+
+  private startRenderLoop(): void {
     if (this.renderHandle !== null) {
       return;
     }
-    this.renderHandle = window.requestAnimationFrame(() => {
-      this.renderHandle = null;
+
+    const step = () => {
+      this.renderHandle = window.requestAnimationFrame(step);
       this.drawState();
-    });
+    };
+
+    this.renderHandle = window.requestAnimationFrame(step);
+    this.drawState();
+  }
+
+  private stopRenderLoop(): void {
+    if (this.renderHandle !== null) {
+      cancelAnimationFrame(this.renderHandle);
+      this.renderHandle = null;
+    }
   }
 
   private getLocalPlayer(state: VoiceMinigameState | null): VoiceMinigamePlayerState | null {
@@ -732,13 +787,13 @@ export class MinigameController {
 
   private computeZoom(player: VoiceMinigamePlayerState | null): number {
     if (!player) {
-      return 2.45;
+      return 12;
     }
 
-    const excessLength = Math.max(player.length - 720, 0);
-    const falloff = Math.log10(excessLength / 1200 + 1);
-    const zoom = 2.45 - falloff * 0.5;
-    return this.clamp(zoom, 2, 2.45);
+    const lengthFactor = Math.max(player.length, 1) / 220;
+    const damping = Math.log10(lengthFactor + 1);
+    const zoom = 14 - damping * 6;
+    return this.clamp(zoom, 8, 14);
   }
 
   private calculateViewTransform(
@@ -912,9 +967,9 @@ export class MinigameController {
         return;
       }
 
-      const strokeWidth = Math.max((player.thickness ?? 12) * scale, 6);
-      const visibilityMargin = Math.max(strokeWidth * 3, visibilityMarginBase);
-      const stride = Math.max(1, Math.floor(points.length / 48));
+  const strokeWidth = Math.max((player.thickness ?? 12) * scale, 6);
+  const visibilityMargin = Math.max(strokeWidth * 3, visibilityMarginBase);
+  const stride = Math.max(1, Math.floor(points.length / 36));
 
       let hasVisiblePoint = false;
       let headScreenX = 0;
