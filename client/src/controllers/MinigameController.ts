@@ -1,3 +1,4 @@
+import { isMobileDevice } from '@/utils/device';
 /**
  * Voice minigame coordinator for the Slither arena
  */
@@ -65,9 +66,11 @@ export class MinigameController {
   private viewCenter: { x: number; y: number } | null = null;
   private currentScale = 1;
   private keyboardInput = { up: false, down: false, left: false, right: false };
+  private isMobile: boolean;
 
   constructor(deps: MinigameControllerDeps) {
     this.deps = deps;
+    this.isMobile = isMobileDevice();
   }
 
   initialize(): void {
@@ -364,6 +367,14 @@ export class MinigameController {
 
   private updateVisibility(forceConnected?: boolean): void {
     if (!this.container) {
+      return;
+    }
+
+    if (this.isMobile) {
+      this.container.classList.add('hidden');
+      this.stage?.classList.remove('minigame-active');
+      this.openButton?.classList.add('hidden');
+      this.closeButton?.classList.add('hidden');
       return;
     }
 
