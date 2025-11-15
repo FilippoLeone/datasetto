@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer } = require('electron');
 const path = require('node:path');
 
 // Allow screen capture APIs (getDisplayMedia) inside our file:// based renderer

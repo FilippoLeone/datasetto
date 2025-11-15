@@ -78,12 +78,33 @@ const withFallback = (value: string | undefined, fallback: number): number => {
   return parsed ?? fallback;
 };
 
+const readBoolean = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+};
+
 const SCREENSHARE_CAPTURE_CONFIG = {
-  idealWidth: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_WIDTH, 1920),
-  idealHeight: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_HEIGHT, 1080),
-  idealFps: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_FPS, 30),
-  maxFps: withFallback(import.meta.env.VITE_SCREENSHARE_MAX_FPS, 60),
-  maxBitrateKbps: readPositiveNumber(import.meta.env.VITE_SCREENSHARE_MAX_BITRATE_KBPS),
+  idealWidth: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_WIDTH, 2560),
+  idealHeight: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_HEIGHT, 1440),
+  maxWidth: readPositiveNumber(import.meta.env.VITE_SCREENSHARE_MAX_WIDTH),
+  maxHeight: readPositiveNumber(import.meta.env.VITE_SCREENSHARE_MAX_HEIGHT),
+  preferNativeResolution: readBoolean(import.meta.env.VITE_SCREENSHARE_PREFER_NATIVE_RESOLUTION, true),
+  idealFps: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_FPS, 60),
+  maxFps: withFallback(import.meta.env.VITE_SCREENSHARE_MAX_FPS, 90),
+  minFps: withFallback(import.meta.env.VITE_SCREENSHARE_MIN_FPS, 30),
+  maxBitrateKbps: withFallback(import.meta.env.VITE_SCREENSHARE_MAX_BITRATE_KBPS, 12000),
 };
 
 const SCREENSHARE_MAX_BITRATE_BPS = SCREENSHARE_CAPTURE_CONFIG.maxBitrateKbps
@@ -115,6 +136,11 @@ type DesktopScreensharePickResult = {
 
 type DesktopScreenshareBridge = {
   pickScreenshareSource?: (options?: { audio?: boolean }) => Promise<DesktopScreensharePickResult>;
+};
+
+type ScreenshareDimensions = {
+  width?: number;
+  height?: number;
 };
 
 export class VideoController {
@@ -878,12 +904,10 @@ export class VideoController {
       startBtn?.setAttribute('disabled', 'true');
       this.updateScreenshareStatus('Select what to share…', { busy: true });
 
+      const captureDimensions = this.resolveScreenshareDimensions();
+      const videoConstraints = this.buildScreenshareVideoConstraints(captureDimensions);
       const constraints: MediaStreamConstraints = {
-        video: {
-          frameRate: { ideal: SCREENSHARE_CAPTURE_CONFIG.idealFps, max: SCREENSHARE_CAPTURE_CONFIG.maxFps },
-          width: { ideal: SCREENSHARE_CAPTURE_CONFIG.idealWidth },
-          height: { ideal: SCREENSHARE_CAPTURE_CONFIG.idealHeight },
-        },
+        video: videoConstraints,
         audio: true,
       };
 
@@ -891,7 +915,7 @@ export class VideoController {
       let desktopCancelled = false;
 
       if (desktopBridgeAvailable) {
-        const desktopResult = await this.requestDesktopScreenshareStream(constraints);
+        const desktopResult = await this.requestDesktopScreenshareStream(videoConstraints, Boolean(constraints.audio));
         stream = desktopResult.stream;
         desktopCancelled = desktopResult.cancelled;
       }
@@ -909,6 +933,7 @@ export class VideoController {
         throw new Error('Screen capture stream unavailable');
       }
 
+      await this.applyScreenshareTrackConfiguration(stream, videoConstraints);
       this.beginHostSession(stream);
     } catch (error) {
       const denied = error && typeof error === 'object' && 'name' in error && error.name === 'NotAllowedError';
@@ -926,35 +951,54 @@ export class VideoController {
     }
   }
 
-  private async requestDesktopScreenshareStream(constraints: MediaStreamConstraints): Promise<{ stream: MediaStream | null; cancelled: boolean }> {
+  private async requestDesktopScreenshareStream(
+    videoConstraints: MediaTrackConstraints,
+    wantsAudio: boolean
+  ): Promise<{ stream: MediaStream | null; cancelled: boolean }> {
     if (!this.desktopBridge?.pickScreenshareSource) {
       return { stream: null, cancelled: false };
     }
 
     try {
-      const selection = await this.desktopBridge.pickScreenshareSource({ audio: Boolean(constraints.audio) });
+      const selection = await this.desktopBridge.pickScreenshareSource({ audio: wantsAudio });
       if (!selection?.success || !selection.source) {
         const cancelled = selection?.error === 'cancelled';
         return { stream: null, cancelled };
       }
 
       const sourceId = selection.source.id;
-      const videoConstraints = {
-        mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: sourceId,
-          maxFrameRate: SCREENSHARE_CAPTURE_CONFIG.maxFps,
-          minFrameRate: SCREENSHARE_CAPTURE_CONFIG.idealFps,
-          minWidth: SCREENSHARE_CAPTURE_CONFIG.idealWidth,
-          maxWidth: SCREENSHARE_CAPTURE_CONFIG.idealWidth,
-          minHeight: SCREENSHARE_CAPTURE_CONFIG.idealHeight,
-          maxHeight: SCREENSHARE_CAPTURE_CONFIG.idealHeight,
-        },
+      const resolvedWidth = this.extractConstraintNumber(videoConstraints.width as ConstrainULongRange | number | undefined);
+      const resolvedHeight = this.extractConstraintNumber(videoConstraints.height as ConstrainULongRange | number | undefined);
+      const frameRateConstraint = videoConstraints.frameRate as ConstrainDoubleRange | number | undefined;
+      const minFrameRate = this.extractConstraintNumber(
+        typeof frameRateConstraint === 'object' ? frameRateConstraint.min : frameRateConstraint
+      );
+      const maxFrameRate = this.extractConstraintNumber(
+        typeof frameRateConstraint === 'object' ? frameRateConstraint.max : frameRateConstraint
+      );
+
+      const mandatoryVideo = {
+        chromeMediaSource: 'desktop',
+        chromeMediaSourceId: sourceId,
+        ...(resolvedWidth
+          ? {
+              minWidth: Math.round(resolvedWidth),
+              maxWidth: Math.round(resolvedWidth),
+            }
+          : {}),
+        ...(resolvedHeight
+          ? {
+              minHeight: Math.round(resolvedHeight),
+              maxHeight: Math.round(resolvedHeight),
+            }
+          : {}),
+        ...(typeof minFrameRate === 'number' ? { minFrameRate: Math.round(minFrameRate) } : {}),
+        ...(typeof maxFrameRate === 'number' ? { maxFrameRate: Math.round(maxFrameRate) } : {}),
       };
 
       const isScreen = Boolean(selection.source.isScreen || selection.source.type === 'screen');
-      const wantsAudio = Boolean(constraints.audio) && Boolean(selection.shareAudio) && isScreen;
-      const audioConstraints: MediaTrackConstraints | boolean = wantsAudio
+      const enableAudio = Boolean(wantsAudio && selection.shareAudio && isScreen);
+      const audioConstraints: MediaTrackConstraints | boolean = enableAudio
         ? ({
             mandatory: {
               chromeMediaSource: 'desktop',
@@ -964,7 +1008,7 @@ export class VideoController {
         : false;
 
       const desktopConstraints: MediaStreamConstraints = {
-        video: videoConstraints as unknown as MediaTrackConstraints,
+        video: { mandatory: mandatoryVideo } as unknown as MediaTrackConstraints,
         audio: audioConstraints,
       };
 
@@ -1256,12 +1300,6 @@ export class VideoController {
   }
 
   private applyScreenshareEncodingPreferences(peer: RTCPeerConnection): void {
-    const maxBitrate = SCREENSHARE_MAX_BITRATE_BPS;
-    const maxFramerate = SCREENSHARE_CAPTURE_CONFIG.maxFps;
-    if (!maxBitrate && !maxFramerate) {
-      return;
-    }
-
     peer.getSenders()
       .filter((sender) => sender.track?.kind === 'video')
       .forEach((sender) => {
@@ -1269,19 +1307,154 @@ export class VideoController {
         if (!parameters.encodings || parameters.encodings.length === 0) {
           parameters.encodings = [{}];
         }
-        const encoding = parameters.encodings[0];
-        if (maxBitrate) {
-          encoding.maxBitrate = maxBitrate;
+        const encoding = parameters.encodings[0] as RTCRtpEncodingParameters & {
+          scalabilityMode?: string;
+          priority?: string;
+        };
+        let dirty = false;
+
+        if (SCREENSHARE_MAX_BITRATE_BPS && encoding.maxBitrate !== SCREENSHARE_MAX_BITRATE_BPS) {
+          encoding.maxBitrate = SCREENSHARE_MAX_BITRATE_BPS;
+          dirty = true;
         }
-        if (maxFramerate) {
-          encoding.maxFramerate = maxFramerate;
+
+        if (SCREENSHARE_CAPTURE_CONFIG.maxFps && encoding.maxFramerate !== SCREENSHARE_CAPTURE_CONFIG.maxFps) {
+          encoding.maxFramerate = SCREENSHARE_CAPTURE_CONFIG.maxFps;
+          dirty = true;
         }
-        void sender.setParameters(parameters).catch((error) => {
-          if (import.meta.env.DEV) {
-            console.warn('[VideoController] Failed to apply screenshare encoding preferences:', error);
-          }
-        });
+
+        if (!encoding.scalabilityMode) {
+          encoding.scalabilityMode = 'L1T3';
+          dirty = true;
+        }
+
+        if (encoding.priority !== 'high') {
+          encoding.priority = 'high';
+          dirty = true;
+        }
+
+        if (parameters.degradationPreference !== 'maintain-resolution') {
+          parameters.degradationPreference = 'maintain-resolution';
+          dirty = true;
+        }
+
+        if (dirty) {
+          void sender.setParameters(parameters).catch((error) => {
+            if (import.meta.env.DEV) {
+              console.warn('[VideoController] Failed to apply screenshare encoding preferences:', error);
+            }
+          });
+        }
       });
+  }
+
+  private resolveScreenshareDimensions(): ScreenshareDimensions {
+    const fallback: ScreenshareDimensions = {
+      width: SCREENSHARE_CAPTURE_CONFIG.idealWidth,
+      height: SCREENSHARE_CAPTURE_CONFIG.idealHeight,
+    };
+
+    if (!SCREENSHARE_CAPTURE_CONFIG.preferNativeResolution || typeof window === 'undefined') {
+      return fallback;
+    }
+
+    try {
+      const dpr = window.devicePixelRatio || 1;
+      const baseWidth = window.screen?.width ?? fallback.width ?? SCREENSHARE_CAPTURE_CONFIG.idealWidth;
+      const baseHeight = window.screen?.height ?? fallback.height ?? SCREENSHARE_CAPTURE_CONFIG.idealHeight;
+      const screenWidth = Math.round(baseWidth * dpr);
+      const screenHeight = Math.round(baseHeight * dpr);
+
+      const widthLimit = SCREENSHARE_CAPTURE_CONFIG.maxWidth ?? screenWidth;
+      const heightLimit = SCREENSHARE_CAPTURE_CONFIG.maxHeight ?? screenHeight;
+
+      return {
+        width: Math.min(screenWidth, widthLimit) || fallback.width,
+        height: Math.min(screenHeight, heightLimit) || fallback.height,
+      };
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[VideoController] Failed to resolve native display dimensions:', error);
+      }
+      return fallback;
+    }
+  }
+
+  private buildScreenshareVideoConstraints(dimensions: ScreenshareDimensions): MediaTrackConstraints {
+    const constraints: MediaTrackConstraints & { cursor?: 'always' | 'motion' | 'never' } = {
+      frameRate: {
+        ideal: SCREENSHARE_CAPTURE_CONFIG.idealFps,
+        max: SCREENSHARE_CAPTURE_CONFIG.maxFps,
+        min: SCREENSHARE_CAPTURE_CONFIG.minFps,
+      },
+      cursor: 'always',
+    };
+
+    const resolvedWidth = dimensions.width ?? SCREENSHARE_CAPTURE_CONFIG.idealWidth;
+    const resolvedHeight = dimensions.height ?? SCREENSHARE_CAPTURE_CONFIG.idealHeight;
+
+    const maxWidth = SCREENSHARE_CAPTURE_CONFIG.maxWidth ?? resolvedWidth;
+    const maxHeight = SCREENSHARE_CAPTURE_CONFIG.maxHeight ?? resolvedHeight;
+
+    constraints.width = {
+      ideal: resolvedWidth,
+      max: Math.max(resolvedWidth, maxWidth),
+    };
+
+    constraints.height = {
+      ideal: resolvedHeight,
+      max: Math.max(resolvedHeight, maxHeight),
+    };
+
+    const aspectWidth = this.extractConstraintNumber(constraints.width as ConstrainULongRange | number | undefined);
+    const aspectHeight = this.extractConstraintNumber(constraints.height as ConstrainULongRange | number | undefined);
+    if (aspectWidth && aspectHeight && aspectHeight > 0) {
+      constraints.aspectRatio = aspectWidth / aspectHeight;
+    }
+
+    return constraints;
+  }
+
+  private async applyScreenshareTrackConfiguration(stream: MediaStream, constraints: MediaTrackConstraints): Promise<void> {
+    const videoTrack = stream.getVideoTracks()[0];
+    if (!videoTrack) {
+      return;
+    }
+
+    try {
+      await videoTrack.applyConstraints(constraints);
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[VideoController] Failed to apply post-capture constraints:', error);
+      }
+    }
+
+    try {
+      videoTrack.contentHint = 'detail';
+    } catch {
+      // Ignore if the browser disallows custom content hints
+    }
+  }
+
+  private extractConstraintNumber(value: ConstrainULongRange | ConstrainDoubleRange | number | undefined): number | undefined {
+    if (typeof value === 'number') {
+      return value;
+    }
+    if (typeof value === 'object' && value !== null) {
+      if (typeof value.exact === 'number') {
+        return value.exact;
+      }
+      if (typeof value.ideal === 'number') {
+        return value.ideal;
+      }
+      if (typeof value.max === 'number') {
+        return value.max;
+      }
+      if (typeof value.min === 'number') {
+        return value.min;
+      }
+    }
+    return undefined;
   }
 
   private queueCandidate(peerId: string, candidate: RTCIceCandidateInit): void {
