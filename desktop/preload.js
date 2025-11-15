@@ -18,7 +18,8 @@ function defineGlobals() {
     getInfo: () => ipcRenderer.invoke('app:get-info'),
     getRuntimeConfig: () => runtimeConfig,
     showNotification: (options) => ipcRenderer.invoke('notification:show', options),
-    checkNotificationPermission: () => ipcRenderer.invoke('notification:check-permission')
+    checkNotificationPermission: () => ipcRenderer.invoke('notification:check-permission'),
+    updateVoiceActivity: (state) => ipcRenderer.send('voice:activity', state)
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);

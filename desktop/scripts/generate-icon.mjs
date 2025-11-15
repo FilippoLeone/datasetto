@@ -11,6 +11,8 @@ const desktopRoot = path.resolve(__dirname, '..');
 const resourcesDir = path.resolve(desktopRoot, 'resources');
 const iconPngPath = path.resolve(resourcesDir, 'icon.png');
 const iconIcoPath = path.resolve(resourcesDir, 'icon.ico');
+const iconSpeakingPngPath = path.resolve(resourcesDir, 'icon-speaking.png');
+const iconSpeakingIcoPath = path.resolve(resourcesDir, 'icon-speaking.ico');
 
 const BRAND_PRIMARY = { r: 0x7f, g: 0x5a, b: 0xf0 }; // Matches client brand gradient
 const BRAND_ACCENT = { r: 0x55, g: 0xc2, b: 0xf6 };
@@ -67,9 +69,31 @@ function drawMonogram(png) {
   }
 }
 
+function applyGlow(png, intensity = 0.45) {
+  const size = png.width;
+  const center = size / 2;
+  for (let py = 0; py < size; py += 1) {
+    for (let px = 0; px < size; px += 1) {
+      const dx = px - center + 0.5;
+      const dy = py - center + 0.5;
+      const distance = Math.sqrt(dx * dx + dy * dy) / (size / 2);
+      const falloff = Math.max(0, 1 - distance);
+      if (falloff <= 0) {
+        continue;
+      }
+
+      const boost = falloff * intensity * 80;
+      const idx = (size * py + px) << 2;
+      png.data[idx] = Math.min(255, png.data[idx] + boost);
+      png.data[idx + 1] = Math.min(255, png.data[idx + 1] + boost * 0.9);
+      png.data[idx + 2] = Math.min(255, png.data[idx + 2] + boost * 0.5);
+    }
+  }
+}
+
 (async () => {
   const size = 512;
-  function renderIcon(size) {
+  function renderIcon(size, options = { glow: false }) {
     const png = new PNG({ width: size, height: size, colorType: 6 });
 
     for (let y = 0; y < size; y += 1) {
@@ -83,18 +107,27 @@ function drawMonogram(png) {
       }
     }
 
+    if (options.glow) {
+      applyGlow(png, options.glowIntensity ?? 0.55);
+    }
+
     drawMonogram(png);
     return PNG.sync.write(png);
   }
 
   const primarySize = 512;
   const primaryPngBuffer = renderIcon(primarySize);
+  const speakingPngBuffer = renderIcon(primarySize, { glow: true, glowIntensity: 0.7 });
   await writeFile(iconPngPath, primaryPngBuffer);
+  await writeFile(iconSpeakingPngPath, speakingPngBuffer);
 
   const icoSizes = [16, 24, 32, 48, 64, 128, 256];
   const icoBuffers = icoSizes.map((size) => renderIcon(size));
+  const icoSpeakingBuffers = icoSizes.map((size) => renderIcon(size, { glow: true, glowIntensity: 0.7 }));
   const icoBuffer = await toIco(icoBuffers);
+  const icoSpeakingBuffer = await toIco(icoSpeakingBuffers);
   await writeFile(iconIcoPath, icoBuffer);
+  await writeFile(iconSpeakingIcoPath, icoSpeakingBuffer);
 
-  console.log('[desktop] Generated icon assets at resources/icon.(png|ico)');
+  console.log('[desktop] Generated icon assets (default + speaking variants)');
 })();

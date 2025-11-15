@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage } = require('electron');
 const path = require('node:path');
 
 const isDev = Boolean(process.env.ELECTRON_START_URL);
@@ -7,6 +7,15 @@ let tray;
 let isQuitting = false;
 let trayHintShown = false;
 const supportsTrayMinimize = process.platform === 'win32';
+const trayIconImages = {
+  idle: null,
+  speaking: null,
+};
+const trayVoiceState = {
+  connected: false,
+  speaking: false,
+  muted: false,
+};
 
 // Notification queue to avoid spam
 const notificationQueue = [];
@@ -15,6 +24,56 @@ let isProcessingNotifications = false;
 function resolveRendererFile() {
   const indexHtml = path.join(__dirname, 'renderer', 'index.html');
   return indexHtml;
+}
+
+function resolveResourcePath(...segments) {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'resources', ...segments);
+  }
+  return path.join(__dirname, 'resources', ...segments);
+}
+
+function loadTrayImages() {
+  if (!supportsTrayMinimize) {
+    return;
+  }
+
+  const winIcon = resolveResourcePath('icon.ico');
+  const winSpeakingIcon = resolveResourcePath('icon-speaking.ico');
+  const pngIcon = resolveResourcePath('icon.png');
+  const pngSpeakingIcon = resolveResourcePath('icon-speaking.png');
+
+  const idleImage = nativeImage.createFromPath(process.platform === 'win32' ? winIcon : pngIcon);
+  const speakingImage = nativeImage.createFromPath(process.platform === 'win32' ? winSpeakingIcon : pngSpeakingIcon);
+
+  trayIconImages.idle = idleImage && typeof idleImage.isEmpty === 'function' && !idleImage.isEmpty() ? idleImage : null;
+  trayIconImages.speaking = speakingImage && typeof speakingImage.isEmpty === 'function' && !speakingImage.isEmpty()
+    ? speakingImage
+    : trayIconImages.idle;
+}
+
+function updateTrayVoiceIndicator(partialState = {}) {
+  if (!supportsTrayMinimize || !tray) {
+    return;
+  }
+
+  trayVoiceState.connected = typeof partialState.connected === 'boolean' ? partialState.connected : trayVoiceState.connected;
+  trayVoiceState.speaking = typeof partialState.speaking === 'boolean' ? partialState.speaking : trayVoiceState.speaking;
+  trayVoiceState.muted = typeof partialState.muted === 'boolean' ? partialState.muted : trayVoiceState.muted;
+
+  const shouldHighlight = trayVoiceState.connected && trayVoiceState.speaking && !trayVoiceState.muted;
+  const nextImage = shouldHighlight && trayIconImages.speaking ? trayIconImages.speaking : trayIconImages.idle;
+  if (nextImage) {
+    tray.setImage(nextImage);
+  }
+
+  const tooltipBase = 'Datasetto';
+  const tooltipDetail = !trayVoiceState.connected
+    ? 'Click to reopen'
+    : shouldHighlight
+      ? 'Speaking in voice channel'
+      : 'Connected to voice channel';
+  tray.setToolTip(`${tooltipBase}${tooltipDetail ? ` — ${tooltipDetail}` : ''}`);
 }
 
 function createWindow() {
@@ -26,7 +85,7 @@ function createWindow() {
     backgroundColor: '#0f1016',
     title: 'Datasetto',
     autoHideMenuBar: true,
-    icon: path.join(__dirname, 'resources', 'icon.png'),
+    icon: resolveResourcePath('icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -72,7 +131,7 @@ function createWindow() {
           const hint = new Notification({
             title: 'Datasetto is still running',
             body: 'Find the Datasetto icon in the system tray to reopen the app.',
-            icon: path.join(__dirname, 'resources', 'icon.png'),
+            icon: resolveResourcePath('icon.png'),
           });
           hint.show();
         }
@@ -86,11 +145,18 @@ function createTray() {
     return;
   }
 
-  const iconPath = process.platform === 'win32'
-    ? path.join(__dirname, 'resources', 'icon.ico')
-    : path.join(__dirname, 'resources', 'icon.png');
+  const fallbackPath = process.platform === 'win32'
+    ? resolveResourcePath('icon.ico')
+    : resolveResourcePath('icon.png');
+  const trayBaseImage = trayIconImages.idle ?? nativeImage.createFromPath(fallbackPath);
 
-  tray = new Tray(iconPath);
+  try {
+    tray = new Tray(trayBaseImage);
+  } catch (error) {
+    console.error('[Desktop] Failed to create tray icon:', error);
+    tray = null;
+    return;
+  }
   tray.setToolTip('Datasetto');
 
   const contextMenu = Menu.buildFromTemplate([
@@ -123,6 +189,8 @@ function createTray() {
 
     restoreFromTray();
   });
+
+  updateTrayVoiceIndicator();
 }
 
 function restoreFromTray() {
@@ -146,6 +214,7 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+  loadTrayImages();
   createTray();
 
   // Test notification support on startup
@@ -225,7 +294,7 @@ async function processNotificationQueue() {
     const notification = new Notification({
       title: title || 'Datasetto',
       body: body || '',
-      icon: path.join(__dirname, 'resources', 'icon.png'),
+      icon: resolveResourcePath('icon.png'),
       silent: silent || false,
       urgency: type === 'error' ? 'critical' : type === 'warning' ? 'normal' : 'low',
     });
@@ -253,4 +322,17 @@ async function processNotificationQueue() {
 // Check notification permission on startup
 ipcMain.handle('notification:check-permission', async () => {
   return Notification.isSupported();
+});
+
+ipcMain.on('voice:activity', (_event, payload) => {
+  if (!supportsTrayMinimize) {
+    return;
+  }
+
+  const nextState = {
+    connected: Boolean(payload?.connected),
+    speaking: Boolean(payload?.speaking),
+    muted: Boolean(payload?.muted),
+  };
+  updateTrayVoiceIndicator(nextState);
 });

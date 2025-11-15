@@ -11,6 +11,16 @@ const LOCAL_SPEAKING_RELEASE_MS = 300;
 const VOICE_JOIN_TIMEOUT_MS = 10_000;
 const VOICE_SESSION_CLOCK_TOLERANCE_MS = 120_000;
 
+type DesktopVoiceActivityPayload = {
+  connected: boolean;
+  speaking: boolean;
+  muted: boolean;
+};
+
+type DesktopBridge = {
+  updateVoiceActivity?: (payload: DesktopVoiceActivityPayload) => void;
+};
+
 interface PendingVoiceJoin {
   id: string;
   name: string;
@@ -33,9 +43,17 @@ export class VoiceController {
   private appActive = true;
   private pendingMicRecoverySource: 'stream-interrupted' | 'app-resume' | null = null;
   private voiceJoinTimeoutHandle: number | null = null;
+  private desktopAPI: DesktopBridge | null = null;
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps;
+
+    if (typeof window !== 'undefined') {
+      const bridge = (window as typeof window & { desktopAPI?: DesktopBridge }).desktopAPI;
+      if (bridge) {
+        this.desktopAPI = bridge;
+      }
+    }
   }
 
   initialize(): void {
@@ -290,6 +308,8 @@ export class VoiceController {
 
     this.deps.soundFX.play('call', 0.6);
     this.deps.notifications.success(`Joined voice in ${channelName}`);
+
+    this.emitDesktopVoiceState();
   }
 
   async handleVoicePeerJoin(data: VoicePeerEvent): Promise<void> {
@@ -1162,6 +1182,20 @@ export class VoiceController {
       this.localSpeakingLastPeak = 0;
     }
     this.updateSpeakingIndicator('me', speaking);
+    this.emitDesktopVoiceState();
+  }
+
+  private emitDesktopVoiceState(): void {
+    if (!this.desktopAPI?.updateVoiceActivity) {
+      return;
+    }
+
+    const state = this.deps.state.getState();
+    this.desktopAPI.updateVoiceActivity({
+      connected: state.voiceConnected,
+      speaking: Boolean(state.voiceConnected && this.localSpeaking && !state.muted && !state.deafened),
+      muted: Boolean(state.muted || state.deafened),
+    });
   }
 
   private updateSpeakingIndicator(userId: string, speaking: boolean): void {
@@ -1424,6 +1458,8 @@ export class VoiceController {
     if (notify) {
       this.deps.notifications.info(notify);
     }
+
+    this.emitDesktopVoiceState();
   }
 
   private updateVoiceStatusPanel(): void {
