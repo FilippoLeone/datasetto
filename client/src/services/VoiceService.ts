@@ -764,6 +764,10 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
   }
 
+  hasPeer(peerId: string): boolean {
+    return this.peers.has(peerId);
+  }
+
   /**
    * Set output volume for all remote audios
    */

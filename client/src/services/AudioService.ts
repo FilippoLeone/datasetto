@@ -7,6 +7,17 @@ import { fetchNativeAudioRoutes, isNativeAudioRoutingAvailable, selectNativeAudi
 
 const TARGET_SAMPLE_RATE = 48000;
 const MIN_ACCEPTABLE_SAMPLE_RATE = 32000;
+const DEFAULT_NOISE_REDUCTION_LEVEL = 0.35;
+const NOISE_THRESHOLD_RANGE = { min: 0.008, max: 0.08 } as const;
+const NOISE_REDUCTION_RANGE = { min: 0.05, max: 0.5 } as const;
+const NOISE_SMOOTHING = 0.0015;
+
+const clamp = (value: number, min: number, max: number): number => {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, value));
+};
 
 export const MICROPHONE_PERMISSION_HELP_TEXT =
   'Microphone permission is blocked. Enable access in your browser or system settings, then reload. On iOS Safari: Settings → Safari → Camera & Microphone. On Android Chrome: Settings → Site Settings → Microphone.';
@@ -23,10 +34,19 @@ export class AudioService extends EventEmitter {
   private settings: AudioSettings;
   private trackLifecycleCleanup: (() => void) | null = null;
   private shuttingDownStream = false;
+  private noiseReducerNode: AudioWorkletNode | null = null;
+  private noiseReducerModulePromise: Promise<void> | null = null;
 
   constructor(settings: AudioSettings) {
     super();
-    this.settings = settings;
+    this.settings = {
+      ...settings,
+      noiseReducerLevel: clamp(
+        typeof settings.noiseReducerLevel === 'number' ? settings.noiseReducerLevel : DEFAULT_NOISE_REDUCTION_LEVEL,
+        0,
+        1
+      ),
+    };
   }
 
   async getMicrophonePermissionStatus(): Promise<PermissionState | 'unsupported'> {
@@ -200,6 +220,9 @@ export class AudioService extends EventEmitter {
       const source = ctx.createMediaStreamSource(rawStream);
       this.sourceNode = source;
 
+      let processingNode: AudioNode = source;
+      processingNode = await this.maybeInsertNoiseReducer(ctx, processingNode);
+
       // Create gain node for volume control
       this.micGainNode = ctx.createGain();
       this.micGainNode.gain.value = this.settings.micGain;
@@ -209,8 +232,8 @@ export class AudioService extends EventEmitter {
       this.analyser.fftSize = 512;
       this.analyser.smoothingTimeConstant = 0.8;
 
-      // Connect: source -> gain -> analyser
-      source.connect(this.micGainNode);
+      // Connect processing chain to analyser
+      processingNode.connect(this.micGainNode);
       this.micGainNode.connect(this.analyser);
 
       // Create destination for processed stream
@@ -299,6 +322,8 @@ export class AudioService extends EventEmitter {
       }
     }
 
+    this.teardownNoiseReducer();
+
     if (this.sourceNode) {
       try {
         this.sourceNode.disconnect();
@@ -355,7 +380,24 @@ export class AudioService extends EventEmitter {
    */
   async updateSettings(settings: Partial<AudioSettings>): Promise<void> {
     const oldDeviceId = this.settings.micDeviceId;
+    const prevNoiseLevel = this.settings.noiseReducerLevel ?? DEFAULT_NOISE_REDUCTION_LEVEL;
+    const prevNoiseSuppression = this.settings.noiseSuppression;
+
     this.settings = { ...this.settings, ...settings };
+
+    let noiseLevelChanged = false;
+    if (settings.noiseReducerLevel !== undefined) {
+      const clampedLevel = clamp(
+        settings.noiseReducerLevel ?? DEFAULT_NOISE_REDUCTION_LEVEL,
+        0,
+        1
+      );
+      this.settings.noiseReducerLevel = clampedLevel;
+      noiseLevelChanged = clampedLevel !== prevNoiseLevel;
+    }
+
+    const noiseSuppressionChanged =
+      settings.noiseSuppression !== undefined && settings.noiseSuppression !== prevNoiseSuppression;
 
     // If device or constraints changed, restart stream
     const deviceChanged = oldDeviceId !== this.settings.micDeviceId;
@@ -372,6 +414,13 @@ export class AudioService extends EventEmitter {
     // Update gain if changed
     if (settings.micGain !== undefined && this.micGainNode) {
       this.micGainNode.gain.value = settings.micGain;
+    }
+
+    const canReconfigureNoiseReducer = Boolean(this.audioContext && this.sourceNode && this.micGainNode);
+    if (canReconfigureNoiseReducer && (noiseLevelChanged || noiseSuppressionChanged)) {
+      await this.reconfigureNoiseReducer();
+    } else if (noiseLevelChanged && this.noiseReducerNode) {
+      this.updateNoiseReducerConfig();
     }
   }
 
@@ -411,6 +460,185 @@ export class AudioService extends EventEmitter {
     };
 
     this.meterAnimationId = requestAnimationFrame(update);
+  }
+
+  private async loadNoiseReducerModule(ctx: AudioContext): Promise<void> {
+    if (!ctx.audioWorklet) {
+      throw new Error('AudioWorklet not supported');
+    }
+
+    if (!this.noiseReducerModulePromise) {
+      this.noiseReducerModulePromise = ctx.audioWorklet.addModule(
+        new URL('../audio/worklets/noise-gate-processor.js', import.meta.url)
+      );
+    }
+
+    try {
+      await this.noiseReducerModulePromise;
+    } catch (error) {
+      this.noiseReducerModulePromise = null;
+      throw error;
+    }
+  }
+
+  private shouldUseNoiseReducer(): boolean {
+    const level = this.settings.noiseReducerLevel ?? 0;
+    return Boolean(this.settings.noiseSuppression && level > 0.05);
+  }
+
+  private buildNoiseReducerConfig(level = this.settings.noiseReducerLevel ?? DEFAULT_NOISE_REDUCTION_LEVEL) {
+    const normalized = clamp(level, 0, 1);
+    const threshold =
+      NOISE_THRESHOLD_RANGE.min + normalized * (NOISE_THRESHOLD_RANGE.max - NOISE_THRESHOLD_RANGE.min);
+    const reduction =
+      NOISE_REDUCTION_RANGE.max - normalized * (NOISE_REDUCTION_RANGE.max - NOISE_REDUCTION_RANGE.min);
+
+    return {
+      threshold,
+      reduction,
+      smoothing: NOISE_SMOOTHING,
+    };
+  }
+
+  private async maybeInsertNoiseReducer(ctx: AudioContext, upstream: AudioNode): Promise<AudioNode> {
+    this.teardownNoiseReducer();
+
+    const level = clamp(this.settings.noiseReducerLevel ?? DEFAULT_NOISE_REDUCTION_LEVEL, 0, 1);
+    if (!ctx.audioWorklet || !this.shouldUseNoiseReducer()) {
+      return upstream;
+    }
+
+    try {
+      await this.loadNoiseReducerModule(ctx);
+      const config = this.buildNoiseReducerConfig(level);
+      const node = new AudioWorkletNode(ctx, 'noise-gate-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        channelCountMode: 'max',
+        processorOptions: config,
+      });
+      this.noiseReducerNode = node;
+      upstream.connect(node);
+      node.port.postMessage({ type: 'configure', ...config });
+      return node;
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[AudioService] Noise reducer unavailable, continuing without it:', error);
+      }
+      this.noiseReducerModulePromise = null;
+      return upstream;
+    }
+  }
+
+  private teardownNoiseReducer(): void {
+    if (!this.noiseReducerNode) {
+      return;
+    }
+
+    try {
+      if (this.sourceNode) {
+        try {
+          this.sourceNode.disconnect(this.noiseReducerNode);
+        } catch (error) {
+          if (import.meta.env.DEV) {
+            console.warn('[AudioService] Failed to detach noise reducer from source during teardown:', error);
+          }
+        }
+      }
+      this.noiseReducerNode.disconnect();
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[AudioService] Failed to disconnect noise reducer node:', error);
+      }
+    }
+
+    this.noiseReducerNode = null;
+  }
+
+  private async reconfigureNoiseReducer(): Promise<void> {
+    if (!this.audioContext || !this.sourceNode || !this.micGainNode) {
+      return;
+    }
+
+    const shouldEnable = this.shouldUseNoiseReducer();
+    const hasNode = Boolean(this.noiseReducerNode);
+
+    if (shouldEnable && !hasNode) {
+      try {
+        await this.loadNoiseReducerModule(this.audioContext);
+        const config = this.buildNoiseReducerConfig();
+        const node = new AudioWorkletNode(this.audioContext, 'noise-gate-processor', {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          channelCountMode: 'max',
+          processorOptions: config,
+        });
+
+        try {
+          this.sourceNode.disconnect(this.micGainNode);
+        } catch (error) {
+          if (import.meta.env.DEV) {
+            console.warn('[AudioService] Direct mic path was not connected during noise reducer insertion:', error);
+          }
+        }
+
+        this.sourceNode.connect(node);
+        node.connect(this.micGainNode);
+        node.port.postMessage({ type: 'configure', ...config });
+        this.noiseReducerNode = node;
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[AudioService] Unable to add noise reducer dynamically:', error);
+        }
+        this.noiseReducerNode = null;
+        this.noiseReducerModulePromise = null;
+      }
+      return;
+    }
+
+    if (!shouldEnable && hasNode) {
+      const node = this.noiseReducerNode;
+      try {
+        if (this.sourceNode) {
+          try {
+            this.sourceNode.disconnect(node as AudioNode);
+          } catch (error) {
+            if (import.meta.env.DEV) {
+              console.warn('[AudioService] Failed to detach noise reducer from source:', error);
+            }
+          }
+        }
+        node?.disconnect();
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[AudioService] Error while removing noise reducer node:', error);
+        }
+      }
+
+      this.noiseReducerNode = null;
+
+      try {
+        this.sourceNode.connect(this.micGainNode);
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[AudioService] Unable to restore direct mic chain after removing noise reducer:', error);
+        }
+      }
+      return;
+    }
+
+    if (shouldEnable && hasNode) {
+      this.updateNoiseReducerConfig();
+    }
+  }
+
+  private updateNoiseReducerConfig(): void {
+    if (!this.noiseReducerNode) {
+      return;
+    }
+
+    const config = this.buildNoiseReducerConfig();
+    this.noiseReducerNode.port.postMessage({ type: 'configure', ...config });
   }
 
   private registerTrackLifecycleHandlers(track: MediaStreamTrack | null): void {

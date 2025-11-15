@@ -359,6 +359,7 @@ export class App {
     'authProfileBio', 'authProfileCurrentPassword', 'authProfileNewPassword', 'authProfileNewPasswordConfirm',
   'passwordStrength', 'passwordStrengthFill', 'passwordStrengthLabel',
       'registerBtn', 'regCancel', 'regError', 'echoCancel', 'noiseSuppression',
+      'noiseReducerLevel', 'noiseReducerVal',
       'autoGain', 'micGain', 'outputVol', 'pttEnable', 'pttKey', 'pttSetKey',
       'micLevel', 'micGainVal', 'outputVolVal', 'testMicBtn', 'presenceList',
     'playerOverlay', 'channelsList',

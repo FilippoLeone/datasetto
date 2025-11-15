@@ -293,8 +293,20 @@ export class VoiceController {
   }
 
   async handleVoicePeerJoin(data: VoicePeerEvent): Promise<void> {
+    if (!this.shouldProcessRemoteVoiceEvent()) {
+      if (import.meta.env.DEV) {
+        console.warn('[VoiceController] Ignoring voice peer join while not connected');
+      }
+      return;
+    }
+
     try {
       this.addVoiceUser(data);
+
+      if (this.deps.voice.hasPeer(data.id)) {
+        return;
+      }
+
       await this.deps.voice.createOffer(data.id);
     } catch (error) {
       console.error('Error creating offer:', error);
@@ -317,11 +329,19 @@ export class VoiceController {
   }
 
   handleVoicePeerLeave(data: { id: string }): void {
+    if (!this.shouldProcessRemoteVoiceEvent()) {
+      return;
+    }
+
     this.removeVoiceUser(data.id);
     this.deps.voice.removePeer(data.id);
   }
 
   handleVoicePeerState(data: { id: string; muted: boolean; deafened: boolean }): void {
+    if (!this.shouldProcessRemoteVoiceEvent()) {
+      return;
+    }
+
     const voiceUser = this.voiceUsers.get(data.id);
     if (!voiceUser) {
       return;
@@ -333,6 +353,20 @@ export class VoiceController {
   }
 
   async handleVoiceSignal(data: { from: string; data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }): Promise<void> {
+    if (!this.shouldProcessRemoteVoiceEvent()) {
+      if (import.meta.env.DEV) {
+        console.warn('[VoiceController] Dropping voice signal while not connected');
+      }
+      return;
+    }
+
+    if (!this.voiceUsers.has(data.from)) {
+      if (import.meta.env.DEV) {
+        console.warn('[VoiceController] Dropping voice signal from unknown peer', data.from);
+      }
+      return;
+    }
+
     try {
       if (data.data.sdp) {
         if (data.data.sdp.type === 'offer') {
@@ -1499,5 +1533,9 @@ export class VoiceController {
       window.clearTimeout(this.voiceJoinTimeoutHandle);
       this.voiceJoinTimeoutHandle = null;
     }
+  }
+
+  private shouldProcessRemoteVoiceEvent(): boolean {
+    return Boolean(this.deps.state.get('voiceConnected'));
   }
 }

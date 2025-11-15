@@ -1564,7 +1564,7 @@ io.on('connection', (socket) => {
   /**
    * Join voice channel
    */
-  socket.on('voice:join', (channelId) => {
+  socket.on('voice:join', async (channelId) => {
     try {
       if (!currentUser) {
         throw new Error('User not registered');
@@ -1579,22 +1579,49 @@ io.on('connection', (socket) => {
         throw new Error('No permission to join this voice channel');
       }
 
-      // Leave previous voice channel
+      // Leave previous voice channel (if any) to avoid ghost room membership
       if (currentVoiceChannel) {
         const prevChannel = channelManager.getChannel(currentVoiceChannel);
         if (prevChannel) {
           socket.to(currentVoiceChannel).emit('voice:peer-leave', { id: socket.id });
         }
+
+        try {
+          const leaveResult = socket.leave(currentVoiceChannel);
+          if (leaveResult?.catch) {
+            leaveResult.catch((error) => {
+              logger.warn('Failed to leave previous voice room', {
+                socketId: socket.id,
+                channelId: currentVoiceChannel,
+                error: error?.message,
+              });
+            });
+          }
+        } catch (error) {
+          logger.warn('Voice room leave threw synchronously', {
+            socketId: socket.id,
+            channelId: currentVoiceChannel,
+            error: error?.message,
+          });
+        }
+
         channelManager.removeUserFromChannel(currentVoiceChannel, socket.id);
+        minigameManager.handleVoiceMemberLeft(currentVoiceChannel, socket.id);
       }
 
-      // Join new voice channel
-      socket.join(channelId);
-      currentVoiceChannel = channelId;
       const voiceUser = channelManager.addVoiceParticipant(channelId, currentUser);
       if (!voiceUser) {
         throw new Error('Failed to join voice session');
       }
+      
+      try {
+        await socket.join(channelId);
+      } catch (error) {
+        channelManager.removeVoiceParticipant(channelId, socket.id);
+        throw new Error('Unable to subscribe to voice channel room');
+      }
+
+      currentVoiceChannel = channelId;
       userManager.setVoiceChannel(socket.id, channelId);
 
       // Notify existing users
@@ -1723,9 +1750,27 @@ io.on('connection', (socket) => {
    * WebRTC signaling
    */
   socket.on('voice:signal', ({ to, data }) => {
-    if (!currentUser) return;
-    socket.to(to).emit('voice:signal', { from: socket.id, data });
-    logger.trace(`Voice signal forwarded`, { from: socket.id, to });
+    if (!currentUser || !currentVoiceChannel) {
+      return;
+    }
+
+    const targetId = typeof to === 'string' ? to.trim() : '';
+    if (!targetId) {
+      return;
+    }
+
+    const targetUser = userManager.getUser(targetId);
+    if (!targetUser || targetUser.voiceChannel !== currentVoiceChannel) {
+      logger.warn('Blocked cross-channel voice signal', {
+        from: socket.id,
+        to: targetId,
+        channelId: currentVoiceChannel,
+      });
+      return;
+    }
+
+    socket.to(targetId).emit('voice:signal', { from: socket.id, data });
+    logger.trace(`Voice signal forwarded`, { from: socket.id, to: targetId, channelId: currentVoiceChannel });
   });
 
   socket.on('voice:state', (payload = {}) => {

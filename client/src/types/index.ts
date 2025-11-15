@@ -132,6 +132,7 @@ export interface ChatMessage {
 export interface AudioSettings {
   echoCancel: boolean;
   noiseSuppression: boolean;
+  noiseReducerLevel: number;
   autoGain: boolean;
   micGain: number;
   outputVol: number;

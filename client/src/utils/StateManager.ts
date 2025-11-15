@@ -75,10 +75,20 @@ const DEFAULT_VAD_THRESHOLD = parseNumberEnv(import.meta.env.VITE_VOICE_VAD_THRE
   min: 0.01,
   max: 0.5,
 });
+const DEFAULT_NOISE_REDUCTION_LEVEL = clamp(parseNumberEnv(import.meta.env.VITE_NOISE_REDUCTION_LEVEL, 0.35, {
+  min: 0,
+  max: 1,
+}), 0, 1);
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
 
 const DEFAULT_SETTINGS: AudioSettings = {
   echoCancel: true,
   noiseSuppression: true,
+  noiseReducerLevel: DEFAULT_NOISE_REDUCTION_LEVEL,
   autoGain: true,
   micGain: 1,
   outputVol: 1,
@@ -129,7 +139,12 @@ export class StateManager extends EventEmitter<EventMap> {
       account: null,
       session: null,
     });
-    const settings = Storage.get<AudioSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+    const persistedSettings = Storage.get<AudioSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+    const settings: AudioSettings = {
+      ...DEFAULT_SETTINGS,
+      ...persistedSettings,
+      noiseReducerLevel: clamp(persistedSettings?.noiseReducerLevel ?? DEFAULT_NOISE_REDUCTION_LEVEL, 0, 1),
+    };
 
     this.state = {
       ...DEFAULT_STATE,
@@ -236,7 +251,12 @@ export class StateManager extends EventEmitter<EventMap> {
    * Update audio settings
    */
   updateSettings(updates: Partial<AudioSettings>): void {
-    const settings = { ...this.state.settings, ...updates };
+    const normalizedUpdates: Partial<AudioSettings> = { ...updates };
+    if (typeof normalizedUpdates.noiseReducerLevel === 'number') {
+      normalizedUpdates.noiseReducerLevel = clamp(normalizedUpdates.noiseReducerLevel, 0, 1);
+    }
+
+    const settings = { ...this.state.settings, ...normalizedUpdates };
     this.updateState({ settings });
     Storage.set(STORAGE_KEYS.SETTINGS, settings);
   }

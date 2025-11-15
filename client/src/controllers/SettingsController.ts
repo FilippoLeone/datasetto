@@ -257,7 +257,7 @@ export class SettingsController {
       if (el) el.checked = settings[id as keyof typeof settings] as boolean;
     });
 
-    const rangeIds = ['micGain', 'outputVol'];
+    const rangeIds = ['micGain', 'outputVol', 'noiseReducerLevel'];
     rangeIds.forEach(id => {
       const el = this.deps.elements[id] as HTMLInputElement;
       if (el) el.value = String(settings[id as keyof typeof settings]);
@@ -284,6 +284,9 @@ export class SettingsController {
     if (this.deps.elements.vadThresholdVal) {
       this.deps.elements.vadThresholdVal.textContent = this.formatVadThreshold(settings.vadThreshold);
     }
+    if (this.deps.elements.noiseReducerVal) {
+      this.deps.elements.noiseReducerVal.textContent = this.formatNoiseReducer(settings.noiseReducerLevel);
+    }
   }
 
   /**
@@ -295,6 +298,14 @@ export class SettingsController {
     if (value <= 0.09) return 'Medium';
     if (value <= 0.15) return 'Low';
     return 'Very Low';
+  }
+
+  private formatNoiseReducer(value: number): string {
+    if (value <= 0.05) return 'Off';
+    if (value <= 0.25) return 'Light';
+    if (value <= 0.55) return 'Balanced';
+    if (value <= 0.75) return 'Focused';
+    return 'Aggressive';
   }
 
   /**
@@ -489,6 +500,7 @@ export class SettingsController {
     const micGainInput = this.deps.elements.micGain as HTMLInputElement;
     const outputVolInput = this.deps.elements.outputVol as HTMLInputElement;
     const vadThresholdInput = this.deps.elements.vadThreshold as HTMLInputElement;
+    const noiseReducerInput = this.deps.elements.noiseReducerLevel as HTMLInputElement;
 
     if (micGainInput) {
       micGainInput.addEventListener('input', () => {
@@ -523,6 +535,18 @@ export class SettingsController {
       });
       vadThresholdInput.addEventListener('change', async () => {
         await this.handleSettingChange('vadThreshold');
+      });
+    }
+
+    if (noiseReducerInput) {
+      noiseReducerInput.addEventListener('input', () => {
+        const val = parseFloat(noiseReducerInput.value);
+        if (this.deps.elements.noiseReducerVal) {
+          this.deps.elements.noiseReducerVal.textContent = this.formatNoiseReducer(val);
+        }
+      });
+      noiseReducerInput.addEventListener('change', async () => {
+        await this.handleSettingChange('noiseReducerLevel');
       });
     }
 
@@ -616,7 +640,7 @@ export class SettingsController {
         this.deps.elements.vadThresholdVal.textContent = this.formatVadThreshold(updates[id] as number);
       }
       // VAD threshold will be picked up by VoiceService via state change
-    } else if (['echoCancel', 'noiseSuppression', 'autoGain', 'latencyHint'].includes(id)) {
+    } else if (['echoCancel', 'noiseSuppression', 'autoGain', 'latencyHint', 'noiseReducerLevel'].includes(id)) {
       await this.deps.audio.updateSettings(updates);
     } else if (id === 'voiceQuality' || id === 'dtx') {
       // Voice quality settings handled in App.ts via VoiceService
