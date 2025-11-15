@@ -7,6 +7,7 @@ let tray;
 let isQuitting = false;
 let trayHintShown = false;
 const supportsTrayMinimize = process.platform === 'win32';
+const SINGLE_INSTANCE_WARNING_COOLDOWN_MS = 8000;
 const trayIconImages = {
   idle: null,
   speaking: null,
@@ -16,6 +17,18 @@ const trayVoiceState = {
   speaking: false,
   muted: false,
 };
+let lastSingleInstanceWarningAt = 0;
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event) => {
+    event.preventDefault();
+    showAlreadyRunningWarning();
+    restoreFromTray();
+  });
+}
 
 // Notification queue to avoid spam
 const notificationQueue = [];
@@ -91,7 +104,8 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      spellcheck: false
+      spellcheck: false,
+      backgroundThrottling: false // keep mic level updates running while the window is hidden
     }
   });
 
@@ -202,8 +216,37 @@ function restoreFromTray() {
   if (typeof mainWindow.setSkipTaskbar === 'function') {
     mainWindow.setSkipTaskbar(false);
   }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
   mainWindow.show();
   mainWindow.focus();
+}
+
+function showAlreadyRunningWarning() {
+  const now = Date.now();
+  if (now - lastSingleInstanceWarningAt < SINGLE_INSTANCE_WARNING_COOLDOWN_MS) {
+    return;
+  }
+  lastSingleInstanceWarningAt = now;
+
+  if (Notification.isSupported()) {
+    const warning = new Notification({
+      title: 'Datasetto is already running',
+      body: 'Use the existing window or the tray icon instead of opening another copy.',
+      icon: resolveResourcePath('icon.png'),
+    });
+    warning.show();
+  }
+
+  if (mainWindow && typeof mainWindow.flashFrame === 'function') {
+    mainWindow.flashFrame(true);
+    setTimeout(() => {
+      if (mainWindow && typeof mainWindow.flashFrame === 'function') {
+        mainWindow.flashFrame(false);
+      }
+    }, 2000);
+  }
 }
 
 app.whenReady().then(() => {
