@@ -167,7 +167,24 @@ VITE_RTMP_SERVER_URL=rtmp://your-domain:1935/live
 # VITE_VOICE_OPUS_MAX_PTIME=20
 # VITE_VOICE_OPUS_MAX_PLAYBACK_RATE=48000
 # VITE_VOICE_VAD_THRESHOLD=0.07
+#
+# Optional: screenshare capture/encoding tweaks
+# VITE_SCREENSHARE_IDEAL_WIDTH=1920
+# VITE_SCREENSHARE_IDEAL_HEIGHT=1080
+# VITE_SCREENSHARE_IDEAL_FPS=30
+# VITE_SCREENSHARE_MAX_FPS=60
+# VITE_SCREENSHARE_MAX_BITRATE_KBPS=4000
 ```
+
+### Screenshare Quality
+
+Screenshares request 1080p video at 30fps (bursting up to 60fps) by default. Override the variables above to match your target devices or bandwidth budget:
+
+- `VITE_SCREENSHARE_IDEAL_WIDTH` / `VITE_SCREENSHARE_IDEAL_HEIGHT` set the preferred capture resolution passed into `getDisplayMedia`.
+- `VITE_SCREENSHARE_IDEAL_FPS` / `VITE_SCREENSHARE_MAX_FPS` control the requested frame rate as well as the sender-side cap.
+- `VITE_SCREENSHARE_MAX_BITRATE_KBPS` (optional) caps the outgoing WebRTC bitrate. Leave it blank to let the browser adapt automatically.
+
+These values are read at build-time, so rebuild the client after modifying them.
 
 > ℹ️ **Scope reminder:** The client always talks to the server defined by `VITE_SERVER_URL`.
 > If you leave it pointed at your production VPS while developing locally, every message you

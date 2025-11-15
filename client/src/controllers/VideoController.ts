@@ -62,6 +62,34 @@ const SCREENSHARE_ICE_SERVERS: RTCIceServer[] = (() => {
   return DEFAULT_SCREENSHARE_ICE_SERVERS;
 })();
 
+const readPositiveNumber = (value?: string): number | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return undefined;
+};
+
+const withFallback = (value: string | undefined, fallback: number): number => {
+  const parsed = readPositiveNumber(value);
+  return parsed ?? fallback;
+};
+
+const SCREENSHARE_CAPTURE_CONFIG = {
+  idealWidth: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_WIDTH, 1920),
+  idealHeight: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_HEIGHT, 1080),
+  idealFps: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_FPS, 30),
+  maxFps: withFallback(import.meta.env.VITE_SCREENSHARE_MAX_FPS, 60),
+  maxBitrateKbps: readPositiveNumber(import.meta.env.VITE_SCREENSHARE_MAX_BITRATE_KBPS),
+};
+
+const SCREENSHARE_MAX_BITRATE_BPS = SCREENSHARE_CAPTURE_CONFIG.maxBitrateKbps
+  ? Math.round(SCREENSHARE_CAPTURE_CONFIG.maxBitrateKbps * 1000)
+  : undefined;
+
 type ScreenshareSignalPayload = {
   from: string;
   data: {
@@ -823,9 +851,9 @@ export class VideoController {
 
       const constraints: MediaStreamConstraints = {
         video: {
-          frameRate: { ideal: 30, max: 60 },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          frameRate: { ideal: SCREENSHARE_CAPTURE_CONFIG.idealFps, max: SCREENSHARE_CAPTURE_CONFIG.maxFps },
+          width: { ideal: SCREENSHARE_CAPTURE_CONFIG.idealWidth },
+          height: { ideal: SCREENSHARE_CAPTURE_CONFIG.idealHeight },
         },
         audio: true,
       };
@@ -1105,6 +1133,7 @@ export class VideoController {
         console.error('[VideoController] Failed to add track to screenshare peer:', error);
       }
     });
+    this.applyScreenshareEncodingPreferences(peer);
 
     peer.onicecandidate = (event) => {
       if (event.candidate && this.screenshareChannelId) {
@@ -1124,6 +1153,35 @@ export class VideoController {
     this.screensharePeers.set(viewerId, peer);
     this.screenshareCandidateQueue.set(viewerId, []);
     return peer;
+  }
+
+  private applyScreenshareEncodingPreferences(peer: RTCPeerConnection): void {
+    const maxBitrate = SCREENSHARE_MAX_BITRATE_BPS;
+    const maxFramerate = SCREENSHARE_CAPTURE_CONFIG.maxFps;
+    if (!maxBitrate && !maxFramerate) {
+      return;
+    }
+
+    peer.getSenders()
+      .filter((sender) => sender.track?.kind === 'video')
+      .forEach((sender) => {
+        const parameters = sender.getParameters();
+        if (!parameters.encodings || parameters.encodings.length === 0) {
+          parameters.encodings = [{}];
+        }
+        const encoding = parameters.encodings[0];
+        if (maxBitrate) {
+          encoding.maxBitrate = maxBitrate;
+        }
+        if (maxFramerate) {
+          encoding.maxFramerate = maxFramerate;
+        }
+        void sender.setParameters(parameters).catch((error) => {
+          if (import.meta.env.DEV) {
+            console.warn('[VideoController] Failed to apply screenshare encoding preferences:', error);
+          }
+        });
+      });
   }
 
   private queueCandidate(peerId: string, candidate: RTCIceCandidateInit): void {

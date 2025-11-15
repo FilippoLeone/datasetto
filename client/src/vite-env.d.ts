@@ -12,6 +12,11 @@ interface ImportMetaEnv {
   readonly VITE_TURN_URL?: string;
   readonly VITE_TURN_USERNAME?: string;
   readonly VITE_TURN_CREDENTIAL?: string;
+  readonly VITE_SCREENSHARE_IDEAL_WIDTH?: string;
+  readonly VITE_SCREENSHARE_IDEAL_HEIGHT?: string;
+  readonly VITE_SCREENSHARE_IDEAL_FPS?: string;
+  readonly VITE_SCREENSHARE_MAX_FPS?: string;
+  readonly VITE_SCREENSHARE_MAX_BITRATE_KBPS?: string;
   readonly VITE_VOICE_OPUS_BITRATE?: string;
   readonly VITE_VOICE_DTX_ENABLED?: string;
   readonly VITE_VOICE_OPUS_STEREO?: string;
