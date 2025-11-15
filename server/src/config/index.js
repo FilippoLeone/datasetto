@@ -82,6 +82,7 @@ export const appConfig = {
     defaultTextChannels: ['general', 'announcements'],
     defaultVoiceChannels: ['lobby', 'room-1'],
     defaultStreamChannels: ['main-stream'],
+    defaultScreenshareChannels: ['team-share'],
   },
 
   // Message configuration

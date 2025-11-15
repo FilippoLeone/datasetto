@@ -186,7 +186,7 @@ export function validateMessage(message) {
  * @returns {boolean} Valid or not
  */
 export function isValidChannelType(type) {
-  return ['text', 'voice', 'stream'].includes(type);
+  return ['text', 'voice', 'stream', 'screenshare'].includes(type);
 }
 
 /**

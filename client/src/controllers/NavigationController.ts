@@ -46,6 +46,7 @@ export class NavigationController {
     this.deps.addListener(this.deps.elements['text-channels'], 'channel-select', handleChannelSelect);
     this.deps.addListener(this.deps.elements.channelsList, 'channel-select', handleChannelSelect);
     this.deps.addListener(this.deps.elements['stream-channels'], 'channel-select', handleChannelSelect);
+    this.deps.addListener(this.deps.elements['screenshare-channels'], 'channel-select', handleChannelSelect);
   }
 
   /**
@@ -83,7 +84,7 @@ export class NavigationController {
   /**
    * Switch to a different channel with animation
    */
-  private switchChannel(channelId: string, channelName: string, type: 'text' | 'voice' | 'stream'): void {
+  private switchChannel(channelId: string, channelName: string, type: 'text' | 'voice' | 'stream' | 'screenshare'): void {
     // Play channel switch sound (skip text channels)
     if (type === 'stream') {
       this.deps.soundFX.play('channelStream', 0.65);
@@ -105,7 +106,7 @@ export class NavigationController {
   /**
    * Perform the actual channel switch (after animation)
    */
-  private performChannelSwitch(channelId: string, channelName: string, type: 'text' | 'voice' | 'stream'): void {
+  private performChannelSwitch(channelId: string, channelName: string, type: 'text' | 'voice' | 'stream' | 'screenshare'): void {
     // Remove active class from all channels
     document.querySelectorAll('.channel-item').forEach(item => {
       item.classList.remove('active');
@@ -116,7 +117,13 @@ export class NavigationController {
     selectedChannel?.classList.add('active');
     
     // Update channel name in header
-    const channelIcon = type === 'text' ? '#' : type === 'voice' ? '🔊' : '📺';
+    const channelIcon = type === 'text'
+      ? '#'
+      : type === 'voice'
+        ? '🔊'
+        : type === 'stream'
+          ? '📺'
+          : '🖥️';
     if (this.deps.elements['current-channel-name']) {
       this.deps.elements['current-channel-name'].textContent = channelName;
     }
@@ -145,6 +152,9 @@ export class NavigationController {
           chatInput.disabled = false;
         } else if (type === 'stream') {
           chatInput.placeholder = `Chat in 📺${channelName}`;
+          chatInput.disabled = false;
+        } else if (type === 'screenshare') {
+          chatInput.placeholder = `Chat in 🖥️${channelName}`;
           chatInput.disabled = false;
         }
       }
@@ -176,20 +186,23 @@ export class NavigationController {
       // This works seamlessly with voice - users can be in voice and watch streams
       this.deps.socketJoinChannel(channelId);
 
-  this.deps.videoHandleStreamChannelSelected(channelId, channelName);
+      this.deps.videoHandleStreamChannelSelected(channelId, channelName);
+    } else if (type === 'screenshare') {
+      this.deps.socketJoinChannel(channelId);
+      this.deps.videoHandleScreenshareChannelSelected(channelId, channelName);
     }
 
     this.deps.mobileClosePanels?.();
   }
 
-  private updateStreamLayoutMode(type: 'text' | 'voice' | 'stream', channelName: string): void {
+  private updateStreamLayoutMode(type: 'text' | 'voice' | 'stream' | 'screenshare', channelName: string): void {
     const streamLayout = this.deps.elements.streamLayout as HTMLElement | undefined;
     const chatDock = this.deps.elements.streamChatDock as HTMLElement | undefined;
   const chatStatus = this.deps.elements.streamChatStatus as HTMLElement | undefined;
   const chatTitle = chatDock?.querySelector('.stream-chat-title') as HTMLElement | null;
   const playerColumn = this.deps.elements.streamPlayerColumn as HTMLElement | undefined;
 
-    const isStreamMode = type === 'stream';
+    const isStreamMode = type === 'stream' || type === 'screenshare';
 
     streamLayout?.classList.toggle('is-stream-mode', isStreamMode);
     streamLayout?.classList.toggle('is-text-mode', type === 'text');
@@ -212,7 +225,7 @@ export class NavigationController {
 
     if (chatTitle) {
       if (isStreamMode) {
-        chatTitle.textContent = 'Live Chat';
+        chatTitle.textContent = type === 'stream' ? 'Live Chat' : 'Screenshare Chat';
         chatTitle.classList.remove('text-channel-title');
       } else {
         chatTitle.textContent = type === 'text' ? `#${channelName}` : channelName;
@@ -222,7 +235,9 @@ export class NavigationController {
 
     if (chatStatus) {
       if (isStreamMode) {
-        chatStatus.textContent = document.body.classList.contains('stream-inline-active') ? 'Chat docked' : 'Chat ready';
+        chatStatus.textContent = document.body.classList.contains('stream-inline-active')
+          ? 'Chat docked'
+          : 'Chat ready';
       } else if (type === 'text') {
         chatStatus.textContent = '';
       } else {

@@ -30,6 +30,7 @@ export interface AuthControllerDeps {
 export interface VideoControllerDeps {
   elements: ElementMap;
   state: StateManager;
+  socket: SocketService;
   player: PlayerService;
   notifications: NotificationManager;
   soundFX: AudioNotificationService;
@@ -126,16 +127,17 @@ export interface NavigationControllerDeps {
     options?: boolean | AddEventListenerOptions
   ) => void;
   socketJoinChannel: (channelId: string) => void;
-  stateSetChannelWithType: (channelId: string, type: 'text' | 'voice' | 'stream') => void;
+  stateSetChannelWithType: (channelId: string, type: 'text' | 'voice' | 'stream' | 'screenshare') => void;
   stateGetVoiceConnected: () => boolean;
   voiceJoinChannel: (channelId: string, channelName: string) => Promise<void> | void;
   chatHideChatUI: () => void;
   chatShowChatUI: () => void;
   chatClearMessages: () => void;
-  videoHandleMobileChannelSwitch: (type: 'text' | 'voice' | 'stream') => void;
+  videoHandleMobileChannelSwitch: (type: 'text' | 'voice' | 'stream' | 'screenshare') => void;
   videoHandleTextChannelSelected: (params: { voiceConnected: boolean }) => void;
   videoHandleVoiceChannelSelected: () => void;
   videoHandleStreamChannelSelected: (channelId: string, channelName: string) => void;
+  videoHandleScreenshareChannelSelected: (channelId: string, channelName: string) => void;
   voiceRefreshInterface?: () => void;
   mobileClosePanels?: () => void;
 }

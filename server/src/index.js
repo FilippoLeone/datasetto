@@ -701,6 +701,29 @@ function broadcastUsers() {
   io.emit('user:update', users);
 }
 
+function emitScreenshareSession(channelId, targetSocket = null) {
+  if (!channelId) {
+    return;
+  }
+
+  const session = channelManager.getScreenshareSession(channelId);
+  const payload = {
+    channelId,
+    active: Boolean(session),
+    hostId: session?.hostId || null,
+    hostName: session?.displayName || null,
+    startedAt: session?.startedAt || null,
+    viewerCount: session?.viewerCount || 0,
+  };
+
+  if (targetSocket) {
+    targetSocket.emit('screenshare:session', payload);
+    return;
+  }
+
+  io.to(channelId).emit('screenshare:session', payload);
+}
+
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   const clientIp = getClientIp(socket);
@@ -718,6 +741,8 @@ io.on('connection', (socket) => {
   let currentSession = null;
   let currentChannel = null;
   let currentVoiceChannel = null;
+  let currentScreenshareChannel = null;
+  let currentScreenshareViewingChannel = null;
   const getUserDisplayName = () => currentUser?.displayName || currentUser?.name || currentUser?.username || 'Player';
   const ensureVoiceGameAccess = () => {
     if (!currentUser) {
@@ -1325,6 +1350,145 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('screenshare:start', (payload = {}) => {
+    try {
+      if (!currentUser) {
+        throw new Error('User not registered');
+      }
+
+      const channelId = typeof payload.channelId === 'string' ? payload.channelId : currentChannel;
+      if (!channelId) {
+        throw new Error('Channel ID is required');
+      }
+
+      const channel = channelManager.getChannel(channelId);
+      if (!channel || channel.type !== 'screenshare') {
+        throw new Error('Not a screenshare channel');
+      }
+
+      if (!channelManager.canAccess(channel, currentUser, 'stream')) {
+        throw new Error('No permission to share screen in this channel');
+      }
+
+      channelManager.startScreenshare(channelId, {
+        hostId: socket.id,
+        accountId: currentAccount?.id || null,
+        displayName: getUserDisplayName(),
+      });
+      currentScreenshareChannel = channelId;
+      emitScreenshareSession(channelId);
+      broadcastChannels();
+    } catch (error) {
+      socket.emit('screenshare:error', {
+        channelId: payload?.channelId || currentChannel,
+        message: error.message || 'Unable to start screenshare',
+        code: 'SCREENSHARE_START_FAILED',
+      });
+    }
+  });
+
+  socket.on('screenshare:stop', (payload = {}) => {
+    try {
+      const channelId = typeof payload.channelId === 'string' ? payload.channelId : currentScreenshareChannel;
+      if (!channelId) {
+        throw new Error('Channel ID is required');
+      }
+
+      if (currentScreenshareChannel !== channelId) {
+        throw new Error('Not hosting this screenshare');
+      }
+
+      channelManager.stopScreenshare(channelId, 'host-request');
+      currentScreenshareChannel = null;
+      emitScreenshareSession(channelId);
+      broadcastChannels();
+    } catch (error) {
+      socket.emit('screenshare:error', {
+        channelId: payload?.channelId || currentChannel,
+        message: error.message || 'Unable to stop screenshare',
+        code: 'SCREENSHARE_STOP_FAILED',
+      });
+    }
+  });
+
+  socket.on('screenshare:viewer:join', (payload = {}) => {
+    try {
+      const channelId = typeof payload.channelId === 'string' ? payload.channelId : currentChannel;
+      if (!currentUser || !channelId) {
+        throw new Error('Channel ID is required');
+      }
+
+      const channel = channelManager.getChannel(channelId);
+      if (!channel || channel.type !== 'screenshare') {
+        throw new Error('Not a screenshare channel');
+      }
+
+      const session = channelManager.getScreenshareSession(channelId);
+      if (!session?.hostId) {
+        socket.emit('screenshare:session', {
+          channelId,
+          active: false,
+          hostId: null,
+          hostName: null,
+          startedAt: null,
+          viewerCount: 0,
+        });
+        return;
+      }
+
+      if (currentScreenshareViewingChannel === channelId) {
+        return;
+      }
+
+      if (session.hostId === socket.id) {
+        return;
+      }
+
+      currentScreenshareViewingChannel = channelId;
+      channelManager.addScreenshareViewer(channelId, socket.id);
+      emitScreenshareSession(channelId);
+      broadcastChannels();
+
+      io.to(session.hostId).emit('screenshare:viewer:pending', {
+        channelId,
+        viewerId: socket.id,
+        viewerName: getUserDisplayName(),
+      });
+    } catch (error) {
+      socket.emit('screenshare:error', {
+        channelId: payload?.channelId || currentChannel,
+        message: error.message || 'Unable to join screenshare',
+        code: 'SCREENSHARE_VIEWER_FAILED',
+      });
+    }
+  });
+
+  socket.on('screenshare:viewer:leave', (payload = {}) => {
+    const channelId = typeof payload.channelId === 'string' ? payload.channelId : currentScreenshareViewingChannel;
+    if (!channelId) {
+      return;
+    }
+
+    channelManager.removeScreenshareViewer(channelId, socket.id);
+    emitScreenshareSession(channelId);
+    broadcastChannels();
+    if (currentScreenshareViewingChannel === channelId) {
+      currentScreenshareViewingChannel = null;
+    }
+  });
+
+  socket.on('screenshare:signal', ({ to, data, channelId }) => {
+    if (!to || !data) {
+      return;
+    }
+
+    socket.to(to).emit('screenshare:signal', {
+      from: socket.id,
+      data,
+      channelId: channelId || null,
+    });
+  });
+
   /**
    * Join channel
    */
@@ -1349,13 +1513,19 @@ io.on('connection', (socket) => {
       const previousChannel = previousChannelId ? channelManager.getChannel(previousChannelId) : null;
       const previousWasVoice = previousChannel?.type === 'voice';
       const newIsVoice = newChannel.type === 'voice';
-  const keepPreviousVoiceRoom = previousWasVoice && currentVoiceChannel === previousChannelId;
+      const keepPreviousVoiceRoom = previousWasVoice && currentVoiceChannel === previousChannelId;
 
       // Leave previous channel unless we intentionally stay connected to its voice room
       if (previousChannelId && !keepPreviousVoiceRoom) {
         socket.leave(previousChannelId);
         channelManager.removeUserFromChannel(previousChannelId, socket.id);
         broadcastUserUpdate(previousChannelId);
+
+        if (previousChannel?.type === 'screenshare' && currentScreenshareViewingChannel === previousChannelId) {
+          channelManager.removeScreenshareViewer(previousChannelId, socket.id);
+          emitScreenshareSession(previousChannelId);
+          currentScreenshareViewingChannel = null;
+        }
       }
 
       // Join new channel
@@ -1372,9 +1542,13 @@ io.on('connection', (socket) => {
       });
 
       // Send message history for text/stream channels
-      if (channel.type === 'text' || channel.type === 'stream') {
+      if (channel.type === 'text' || channel.type === 'stream' || channel.type === 'screenshare') {
         const history = messageManager.getHistory(channelId);
         socket.emit('chat:history', history);
+      }
+
+      if (channel.type === 'screenshare') {
+        emitScreenshareSession(channelId, socket);
       }
 
       broadcastUserUpdate(channelId);
@@ -1688,6 +1862,20 @@ io.on('connection', (socket) => {
         broadcastUserUpdate(currentVoiceChannel);
       }
 
+      if (currentScreenshareViewingChannel) {
+        channelManager.removeScreenshareViewer(currentScreenshareViewingChannel, socket.id);
+        emitScreenshareSession(currentScreenshareViewingChannel);
+        broadcastChannels();
+        currentScreenshareViewingChannel = null;
+      }
+
+      if (currentScreenshareChannel) {
+        channelManager.stopScreenshare(currentScreenshareChannel, 'host-disconnected');
+        emitScreenshareSession(currentScreenshareChannel);
+        broadcastChannels();
+        currentScreenshareChannel = null;
+      }
+
       // Remove user
       userManager.removeUser(socket.id);
       broadcastUsers();
@@ -1700,6 +1888,8 @@ io.on('connection', (socket) => {
       currentSession = null;
       currentChannel = null;
       currentVoiceChannel = null;
+      currentScreenshareChannel = null;
+      currentScreenshareViewingChannel = null;
     } catch (error) {
       logger.error(`Disconnect handler error: ${error.message}`, { socketId: socket.id });
     }

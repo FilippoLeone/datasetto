@@ -2,6 +2,55 @@
 # Works on: GCP, AWS, DigitalOcean, Hetzner, any VPS with Docker
 
 services:
+  turn:
+    image: coturn/coturn:latest
+    container_name: turn-server
+    restart: unless-stopped
+    networks:
+      - rtmp-network
+    ports:
+      - "${TURN_PORT:-3478}:${TURN_PORT:-3478}"
+      - "${TURN_PORT:-3478}:${TURN_PORT:-3478}/udp"
+      - '${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp'
+    env_file:
+      - .env
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        set -eu;
+        TURN_CMD="turnserver \
+          --log-file=stdout \
+          --fingerprint \
+          --simple-log \
+          --no-cli \
+          --no-tls \
+          --no-dtls \
+          --lt-cred-mech \
+          --realm=${TURN_REALM:-yourdomain.com} \
+          --server-name=${TURN_REALM:-yourdomain.com} \
+          --user=${TURN_USERNAME:-turnuser}:${TURN_PASSWORD:-turnpass} \
+          --listening-port=${TURN_PORT:-3478} \
+          --min-port=${TURN_MIN_PORT:-49160} \
+          --max-port=${TURN_MAX_PORT:-49200} \
+          --no-multicast-peers \
+          --stale-nonce";
+        if [ -n "${TURN_LISTENING_IP:-}" ]; then
+          TURN_CMD="$$TURN_CMD --listening-ip=${TURN_LISTENING_IP}";
+        else
+          TURN_CMD="$$TURN_CMD --listening-ip=0.0.0.0";
+        fi;
+        if [ -n "${TURN_ALT_LISTENING_IP:-}" ]; then
+          TURN_CMD="$$TURN_CMD --alt-listening-ip=${TURN_ALT_LISTENING_IP}";
+        fi;
+        if [ -n "${TURN_EXTERNAL_IP:-}" ]; then
+          TURN_CMD="$$TURN_CMD --external-ip=${TURN_EXTERNAL_IP}";
+        fi;
+        if [ -n "${TURN_EXTRA_ARGS:-}" ]; then
+          TURN_CMD="$$TURN_CMD ${TURN_EXTRA_ARGS}";
+        fi;
+        exec $$TURN_CMD
+
   # NGINX RTMP Server (Custom build with CORS)
   rtmp:
     build:
@@ -54,6 +103,7 @@ services:
       - rtmp-network
     depends_on:
       - rtmp
+      - turn
     deploy:
       resources:
         limits:
@@ -78,6 +128,17 @@ services:
         - VITE_SERVER_URL=${SERVER_URL:-http://localhost:4000}
         - VITE_HLS_BASE_URL=${HLS_BASE_URL:-http://localhost/hls}
         - VITE_API_BASE_URL=${API_BASE_URL:-http://localhost:4000}
+        - VITE_WEBRTC_ICE_SERVERS=${VITE_WEBRTC_ICE_SERVERS:-}
+        - VITE_TURN_URL=${VITE_TURN_URL:-}
+        - VITE_TURN_USERNAME=${VITE_TURN_USERNAME:-}
+        - VITE_TURN_CREDENTIAL=${VITE_TURN_CREDENTIAL:-}
+        - VITE_VOICE_OPUS_BITRATE=${VITE_VOICE_OPUS_BITRATE:-64000}
+        - VITE_VOICE_DTX_ENABLED=${VITE_VOICE_DTX_ENABLED:-true}
+        - VITE_VOICE_OPUS_STEREO=${VITE_VOICE_OPUS_STEREO:-false}
+        - VITE_VOICE_OPUS_MIN_PTIME=${VITE_VOICE_OPUS_MIN_PTIME:-10}
+        - VITE_VOICE_OPUS_MAX_PTIME=${VITE_VOICE_OPUS_MAX_PTIME:-20}
+        - VITE_VOICE_OPUS_MAX_PLAYBACK_RATE=${VITE_VOICE_OPUS_MAX_PLAYBACK_RATE:-48000}
+        - VITE_VOICE_VAD_THRESHOLD=${VITE_VOICE_VAD_THRESHOLD:-0.07}
     container_name: frontend-client
     restart: unless-stopped
     # No external ports - accessed via reverse proxy
@@ -85,6 +146,7 @@ services:
       - rtmp-network
     depends_on:
       - server
+      - turn
     deploy:
       resources:
         limits:

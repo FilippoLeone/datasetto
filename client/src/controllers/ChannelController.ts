@@ -70,7 +70,7 @@ export class ChannelController {
   /**
    * Show create channel modal
    */
-  showCreateChannelModal(type: 'text' | 'voice' | 'stream'): void {
+  showCreateChannelModal(type: 'text' | 'voice' | 'stream' | 'screenshare'): void {
     const modal = this.deps.elements.createChannelModal;
     const typeInput = this.deps.elements.newChannelType as HTMLInputElement;
     const nameInput = this.deps.elements.newChannelName as HTMLInputElement;
@@ -84,7 +84,13 @@ export class ChannelController {
     
     // Update title
     if (title) {
-      const typeLabel = type === 'text' ? 'Text' : type === 'voice' ? 'Voice' : 'Stream';
+      const typeLabel = type === 'text'
+        ? 'Text'
+        : type === 'voice'
+          ? 'Voice'
+          : type === 'stream'
+            ? 'Stream'
+            : 'Screenshare';
       title.textContent = `Create ${typeLabel} Channel`;
     }
 
@@ -131,7 +137,7 @@ export class ChannelController {
     const errorEl = this.deps.elements.createChannelError;
 
     const name = nameInput?.value?.trim();
-    const type = typeInput?.value as 'text' | 'voice' | 'stream';
+    const type = typeInput?.value as 'text' | 'voice' | 'stream' | 'screenshare';
     
     if (!name) {
       if (errorEl) errorEl.textContent = 'Channel name is required';
@@ -170,6 +176,7 @@ export class ChannelController {
     const textChannels = channels.filter(ch => ch.type === 'text');
     const voiceChannels = channels.filter(ch => ch.type === 'voice');
     const streamChannels = channels.filter(ch => ch.type === 'stream');
+    const screenshareChannels = channels.filter(ch => ch.type === 'screenshare');
 
     if (import.meta.env.DEV) {
       console.log('🔄 ChannelController.updateChannelsUI - Text:', textChannels.length, 'Voice:', voiceChannels.length, 'Stream:', streamChannels.length);
@@ -190,12 +197,21 @@ export class ChannelController {
     if (this.deps.elements['stream-channels']) {
       this.renderChannelList(this.deps.elements['stream-channels'], streamChannels, currentChannel, 'stream');
     }
+
+    if (this.deps.elements['screenshare-channels']) {
+      this.renderChannelList(this.deps.elements['screenshare-channels'], screenshareChannels, currentChannel, 'screenshare');
+    }
   }
 
   /**
    * Render a list of channels in a container
    */
-  private renderChannelList(container: HTMLElement, channels: Channel[], currentChannelId: string, type: 'text' | 'voice' | 'stream'): void {
+  private renderChannelList(
+    container: HTMLElement,
+    channels: Channel[],
+    currentChannelId: string,
+    type: 'text' | 'voice' | 'stream' | 'screenshare',
+  ): void {
     if (import.meta.env.DEV) {
       console.log(`📝 ChannelController.renderChannelList - Type: ${type}, Channels: ${channels.length}, Container:`, container);
     }
@@ -239,7 +255,13 @@ export class ChannelController {
       // Channel icon and name
       const icon = document.createElement('span');
       icon.className = 'channel-icon';
-      icon.textContent = type === 'text' ? '#' : type === 'voice' ? '🔊' : '📺';
+      icon.textContent = type === 'text'
+        ? '#'
+        : type === 'voice'
+          ? '🔊'
+          : type === 'stream'
+            ? '📺'
+            : '🖥️';
 
       const content = document.createElement('div');
       content.className = 'channel-content';
@@ -301,6 +323,26 @@ export class ChannelController {
         }
       }
 
+      if (type === 'screenshare') {
+        const sessionBadge = document.createElement('span');
+        sessionBadge.className = 'channel-meta';
+        const hostActive = Boolean(ch.screenshareHostName);
+        sessionBadge.textContent = hostActive
+          ? `LIVE – ${ch.screenshareHostName ?? 'Host'}`
+          : 'Idle';
+        sessionBadge.setAttribute('aria-label', hostActive ? 'Screenshare live' : 'Screenshare idle');
+        sessionBadge.dataset.state = hostActive ? 'live' : 'idle';
+        content.appendChild(sessionBadge);
+
+        const viewerCount = document.createElement('span');
+        viewerCount.className = 'channel-count';
+        const countValue = ch.screenshareViewerCount ?? 0;
+        viewerCount.textContent = `👥 ${countValue}`;
+        viewerCount.title = `${countValue} viewer${countValue === 1 ? '' : 's'}`;
+        viewerCount.setAttribute('aria-label', `${countValue} viewer${countValue === 1 ? '' : 's'}`);
+        item.appendChild(viewerCount);
+      }
+
       // User count for voice channels
       if (type === 'voice' && ch.count > 0) {
         const count = document.createElement('span');
@@ -344,7 +386,7 @@ export class ChannelController {
   /**
    * Switch to a different channel (called by App.ts)
    */
-  switchChannel(channelId: string, channelName: string, type: 'text' | 'voice' | 'stream'): void {
+  switchChannel(channelId: string, channelName: string, type: 'text' | 'voice' | 'stream' | 'screenshare'): void {
     // Play channel switch sound
     this.deps.soundFX.play('click', 0.5);
     
@@ -362,7 +404,7 @@ export class ChannelController {
   /**
    * Perform the actual channel switch
    */
-  private performChannelSwitch(channelId: string, channelName: string, type: 'text' | 'voice' | 'stream'): void {
+  private performChannelSwitch(channelId: string, channelName: string, type: 'text' | 'voice' | 'stream' | 'screenshare'): void {
     // Remove active class from all channels
     document.querySelectorAll('.channel-item').forEach(item => {
       item.classList.remove('active');
@@ -373,7 +415,13 @@ export class ChannelController {
     selectedChannel?.classList.add('active');
     
     // Update channel name in header
-    const channelIcon = type === 'text' ? '#' : type === 'voice' ? '🔊' : '📺';
+    const channelIcon = type === 'text'
+      ? '#'
+      : type === 'voice'
+        ? '🔊'
+        : type === 'stream'
+          ? '📺'
+          : '🖥️';
     if (this.deps.elements['current-channel-name']) {
       this.deps.elements['current-channel-name'].textContent = channelName;
     }
@@ -396,10 +444,17 @@ export class ChannelController {
       }
     }
 
+    if (type === 'screenshare') {
+      const streamChannelNameEl = this.deps.elements.streamChannelName as HTMLElement | undefined;
+      if (streamChannelNameEl) {
+        streamChannelNameEl.textContent = channelName;
+      }
+    }
+
     // Update state
     this.deps.state.setChannelWithType(channelId, type);
 
-    if (type === 'text' || type === 'stream') {
+    if (type === 'text' || type === 'stream' || type === 'screenshare') {
       this.clearChannelUnread(channelId);
     }
     

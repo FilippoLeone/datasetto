@@ -19,6 +19,63 @@ const STORAGE_KEYS = {
   SETTINGS: 'rtmpdisc.settings.v1',
 };
 
+const VOICE_BITRATE_MIN = 6000;
+const VOICE_BITRATE_MAX = 128000;
+
+const parseNumberEnv = (
+  value: string | undefined,
+  fallback: number,
+  bounds?: { min?: number; max?: number }
+): number => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  if (typeof bounds?.min === 'number' && parsed < bounds.min) {
+    return fallback;
+  }
+
+  if (typeof bounds?.max === 'number' && parsed > bounds.max) {
+    return fallback;
+  }
+
+  return parsed;
+};
+
+const parseBooleanEnv = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+};
+
+const DEFAULT_VOICE_BITRATE = Math.round(
+  parseNumberEnv(import.meta.env.VITE_VOICE_OPUS_BITRATE, 64000, {
+    min: VOICE_BITRATE_MIN,
+    max: VOICE_BITRATE_MAX,
+  })
+);
+const DEFAULT_DTX_ENABLED = parseBooleanEnv(import.meta.env.VITE_VOICE_DTX_ENABLED, true);
+const DEFAULT_VAD_THRESHOLD = parseNumberEnv(import.meta.env.VITE_VOICE_VAD_THRESHOLD, 0.07, {
+  min: 0.01,
+  max: 0.5,
+});
+
 const DEFAULT_SETTINGS: AudioSettings = {
   echoCancel: true,
   noiseSuppression: true,
@@ -27,10 +84,10 @@ const DEFAULT_SETTINGS: AudioSettings = {
   outputVol: 1,
   pttEnable: false,
   pttKey: '',
-  voiceBitrate: 128000, // 128kbps - studio quality
-  dtx: true, // Discontinuous transmission on to save bandwidth
+  voiceBitrate: DEFAULT_VOICE_BITRATE,
+  dtx: DEFAULT_DTX_ENABLED, // Discontinuous transmission on to save bandwidth
   latencyHint: 'interactive', // Lowest latency for real-time chat
-  vadThreshold: 0.07, // Voice activity detection threshold
+  vadThreshold: DEFAULT_VAD_THRESHOLD, // Voice activity detection threshold
 };
 
 const DEFAULT_STATE: AppState = {
@@ -291,7 +348,7 @@ export class StateManager extends EventEmitter<EventMap> {
   /**
    * Set channel and type together
    */
-  setChannelWithType(channel: string, type: 'text' | 'voice' | 'stream'): void {
+  setChannelWithType(channel: string, type: 'text' | 'voice' | 'stream' | 'screenshare'): void {
     this.updateState({ 
       currentChannel: channel,
       currentChannelType: type 

@@ -37,6 +37,7 @@ docker compose up -d
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+- `turn` - coturn TURN relay (TCP/UDP 3478, UDP media relay range)
 - `rtmp` - nginx-rtmp with custom build (RTMP on 1935, internal HLS on 80)
 - `server` - Node.js with resource limits (4000)
 - `client` - nginx serving static build (8081)
@@ -119,7 +120,16 @@ Once networking is set up, export these variables before running the production 
 
 ### WebRTC / Voice Connectivity
 
-If users are joining from restrictive networks you will need a TURN relay in addition to the bundled Google STUN servers. Two ways to configure this on the frontend build:
+If users are joining from restrictive networks you will need a TURN relay in addition to the bundled Google STUN servers. The production compose file now ships a `turn` service based on `coturn/coturn` listening on port **3478** (TCP+UDP) with relay ports **49160-49200/UDP**. Update your firewall or cloud security group to allow those ranges.
+
+1. Copy `.env.example` → `.env` and set:
+	- `TURN_REALM`, `TURN_USERNAME`, `TURN_PASSWORD`
+	- Optional `TURN_EXTERNAL_IP` if the host sits behind NAT (e.g. cloud provider private IP with public elastic IP)
+	- `VITE_TURN_URL`, `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL` (or `VITE_WEBRTC_ICE_SERVERS`) — keep these credentials identical to the TURN values above
+2. Bring the stack up: `docker compose -f docker-compose.prod.yml up -d turn`
+3. Verify the TURN service answers: `telnet yourdomain.com 3478` (TCP) and `traceroute -U -p 3478 yourdomain.com` (UDP)
+
+Two ways to configure the frontend build (only one is required):
 
 - Provide a full ICE server array as JSON (this overrides the defaults):
 
@@ -139,4 +149,6 @@ If users are joining from restrictive networks you will need a TURN relay in add
 - When no `transport` query parameter is supplied the client automatically
   adds both UDP and TCP variants, so you only need to list each host once.
 
-Always rebuild the `client` image after changing these values.
+Always rebuild the `client` image after changing these values so the generated SDP advertises your TURN relay. After deployment, open `chrome://webrtc-internals` (or Firefox `about:webrtc`) during a call and confirm that `relay` candidates appear and selected ICE servers reference your TURN hostname.
+
+> **Tuning:** The voice service honours `VITE_VOICE_OPUS_*` variables for bitrate/PTIME defaults. Stick with the provided conservative speech profile (64 kbps mono, 20 ms packets) unless you need stereo music streams; higher bitrates demand more TURN bandwidth.

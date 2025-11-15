@@ -158,6 +158,15 @@ VITE_RTMP_SERVER_URL=rtmp://your-domain:1935/live
 # VITE_TURN_URL=turn:turn.example.com:3478,turn:backup.example.com:3478
 # VITE_TURN_USERNAME=turnuser
 # VITE_TURN_CREDENTIAL=turnpass
+
+# Optional: fine-tune Opus audio encoding (defaults favor voice clarity)
+# VITE_VOICE_OPUS_BITRATE=64000
+# VITE_VOICE_DTX_ENABLED=true
+# VITE_VOICE_OPUS_STEREO=false
+# VITE_VOICE_OPUS_MIN_PTIME=10
+# VITE_VOICE_OPUS_MAX_PTIME=20
+# VITE_VOICE_OPUS_MAX_PLAYBACK_RATE=48000
+# VITE_VOICE_VAD_THRESHOLD=0.07
 ```
 
 > ℹ️ **Scope reminder:** The client always talks to the server defined by `VITE_SERVER_URL`.
@@ -269,7 +278,8 @@ Centralized state with:
 1. Check firewall/NAT settings
 2. Verify STUN servers are accessible
 3. Test with localhost first
-4. Check WebRTC compatibility
+4. Configure TURN via `VITE_TURN_URL` when peers are behind symmetric NAT
+5. Inspect `chrome://webrtc-internals` (or `about:webrtc`) for ICE/debug stats
 
 ### Connection Problems
 

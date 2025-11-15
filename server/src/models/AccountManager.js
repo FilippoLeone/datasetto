@@ -271,6 +271,9 @@ export class AccountManager {
     }
 
     session.lastSeenAt = now;
+    if (this.sessionTtlMs && this.sessionTtlMs > 0) {
+      session.expiresAt = now + this.sessionTtlMs;
+    }
     return session;
   }
 

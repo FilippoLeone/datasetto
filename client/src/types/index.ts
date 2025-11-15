@@ -75,7 +75,7 @@ export type ChannelPermissions = Record<ChannelPermissionAction, ChannelPermissi
 export interface Channel {
   id: string;
   name: string;
-  type: 'text' | 'voice' | 'stream';
+  type: 'text' | 'voice' | 'stream' | 'screenshare';
   count: number;
   groupId?: string | null;
   streamKey?: string;
@@ -85,6 +85,16 @@ export interface Channel {
   liveAccountId?: string | null;
   voiceStartedAt?: number | null;
   voiceSessionId?: string | null;
+  screenshareStartedAt?: number | null;
+  screenshareHostName?: string | null;
+  screenshareHostId?: string | null;
+  screenshareViewerCount?: number;
+  screenshareSession?: {
+    hostId: string;
+    displayName: string | null;
+    startedAt: number;
+    viewerCount: number;
+  } | null;
   permissions?: ChannelPermissions;
   createdAt?: number;
   updatedAt?: number;
@@ -102,7 +112,7 @@ export interface Channel {
 export interface ChannelGroup {
   id: string;
   name: string;
-  type: 'text' | 'voice' | 'stream';
+  type: 'text' | 'voice' | 'stream' | 'screenshare';
   collapsed?: boolean;
 }
 
@@ -137,7 +147,7 @@ export interface AudioSettings {
 
 export interface AppState {
   currentChannel: string;
-  currentChannelType: 'text' | 'voice' | 'stream';
+  currentChannelType: 'text' | 'voice' | 'stream' | 'screenshare';
   activeVoiceChannelId: string | null;
   activeVoiceChannelName: string | null;
   streamingMode: boolean;
@@ -165,6 +175,15 @@ export interface WebRTCSignal {
     sdp?: RTCSessionDescriptionInit;
     candidate?: RTCIceCandidateInit;
   };
+}
+
+export interface ScreenshareSessionEvent {
+  channelId: string;
+  active: boolean;
+  hostId: string | null;
+  hostName: string | null;
+  startedAt: number | null;
+  viewerCount: number;
 }
 
 export interface VoicePeerEvent {
@@ -287,6 +306,10 @@ export type EventMap = {
   'voice:game:started': VoiceMinigameState;
   'voice:game:ended': { reason: string; state?: VoiceMinigameState | null };
   'voice:game:error': { message: string; code?: string };
+  'screenshare:session': ScreenshareSessionEvent;
+  'screenshare:signal': { from: string; data: unknown; channelId?: string | null };
+  'screenshare:viewer:pending': { channelId: string; viewerId: string; viewerName: string };
+  'screenshare:error': { channelId?: string | null; message: string; code?: string };
   [key: string]: unknown;
 };
 

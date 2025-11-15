@@ -145,6 +145,7 @@ export class App {
     this.videoController = new VideoController({
       elements: this.elements,
       state: this.state,
+      socket: this.socket,
       player: this.player,
       notifications: this.notifications,
       soundFX: this.soundFX,
@@ -260,6 +261,7 @@ export class App {
       videoHandleTextChannelSelected: (params) => this.videoController?.handleTextChannelSelected(params),
       videoHandleVoiceChannelSelected: () => this.videoController?.handleVoiceChannelSelected(),
   videoHandleStreamChannelSelected: (channelId, channelName) => this.videoController?.handleStreamChannelSelected(channelId, channelName),
+      videoHandleScreenshareChannelSelected: (channelId, channelName) => this.videoController?.handleScreenshareChannelSelected(channelId, channelName),
       voiceRefreshInterface: () => this.voiceController?.refreshVoiceInterface(),
       mobileClosePanels: () => this.closeMobilePanels(),
     });
@@ -351,6 +353,8 @@ export class App {
     'connected-voice-channel',
   'voice-users-panel', 'voice-users-list', 'voice-user-count', 'voice-session-timer',
       'text-channels', 'stream-channels', 'member-count',
+      'screenshare-channels', 'screenshareControls', 'screenshareStatusLabel',
+      'screenshareStartBtn', 'screenshareStopBtn',
       'create-text-channel', 'create-voice-channel', 'create-stream-channel',
       'createChannelModal', 'newChannelName', 'newChannelType',
       'createChannelBtn', 'createChannelCancel', 'createChannelError',

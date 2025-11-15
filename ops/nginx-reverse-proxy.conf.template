@@ -12,17 +12,24 @@ map $http_x_forwarded_proto $forwarded_proto {
     '' $scheme;
 }
 
+# Use Docker's embedded DNS resolver so upstream IPs refresh after container restarts
+resolver 127.0.0.11 valid=30s;
+resolver_timeout 5s;
+
 # Upstream backends
 upstream frontend_app {
-    server frontend-client:80;  # Docker internal network
+    zone frontend_app 64k;
+    server frontend-client:80 resolve;  # Docker internal network
 }
 
 upstream backend_api {
-    server backend-server:4000;  # Docker internal network
+    zone backend_api 64k;
+    server backend-server:4000 resolve;  # Docker internal network
 }
 
 upstream rtmp_hls {
-    server rtmp:80;  # HLS HTTP server inside RTMP container listens on 80
+    zone rtmp_hls 64k;
+    server rtmp:80 resolve;  # HLS HTTP server inside RTMP container listens on 80
 }
 
 # Main HTTP server

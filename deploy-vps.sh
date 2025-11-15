@@ -57,6 +57,23 @@ else
   echo "Using IP address with Docker nginx reverse proxy: $SERVER_IP"
 fi
 
+# TURN defaults (override later in ops/.env if needed)
+TURN_REALM=${DOMAIN}
+TURN_USERNAME="turnuser"
+
+generate_turn_password() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 16
+  elif command -v head >/dev/null 2>&1 && command -v od >/dev/null 2>&1; then
+    head -c 16 /dev/urandom | od -An -vtx1 | tr -d ' \n'
+  else
+    date +%s | sha256sum | cut -c1-32
+  fi
+}
+
+TURN_PASSWORD=$(generate_turn_password)
+TURN_URL="turn:${DOMAIN}:3478"
+
 # Navigate to ops directory (assuming script is run from project root)
 echo ""
 echo "[1/3] Configuring environment..."
@@ -104,6 +121,25 @@ MAX_USERS_PER_CHANNEL=50
 PORT=4000
 HOST=0.0.0.0
 
+# TURN / Voice (update credentials as needed)
+TURN_REALM=$TURN_REALM
+TURN_USERNAME=$TURN_USERNAME
+TURN_PASSWORD=$TURN_PASSWORD
+TURN_PORT=3478
+TURN_MIN_PORT=49160
+TURN_MAX_PORT=49200
+TURN_EXTRA_ARGS=
+VITE_TURN_URL=$TURN_URL
+VITE_TURN_USERNAME=$TURN_USERNAME
+VITE_TURN_CREDENTIAL=$TURN_PASSWORD
+VITE_VOICE_OPUS_BITRATE=64000
+VITE_VOICE_DTX_ENABLED=true
+VITE_VOICE_OPUS_STEREO=false
+VITE_VOICE_OPUS_MIN_PTIME=10
+VITE_VOICE_OPUS_MAX_PTIME=20
+VITE_VOICE_OPUS_MAX_PLAYBACK_RATE=48000
+VITE_VOICE_VAD_THRESHOLD=0.07
+
 # Deployment Info
 DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SERVER_IP=$SERVER_IP
@@ -139,6 +175,25 @@ MAX_USERS_PER_CHANNEL=50
 # Server Port
 PORT=4000
 HOST=0.0.0.0
+
+# TURN / Voice (update credentials as needed)
+TURN_REALM=$TURN_REALM
+TURN_USERNAME=$TURN_USERNAME
+TURN_PASSWORD=$TURN_PASSWORD
+TURN_PORT=3478
+TURN_MIN_PORT=49160
+TURN_MAX_PORT=49200
+TURN_EXTRA_ARGS=
+VITE_TURN_URL=$TURN_URL
+VITE_TURN_USERNAME=$TURN_USERNAME
+VITE_TURN_CREDENTIAL=$TURN_PASSWORD
+VITE_VOICE_OPUS_BITRATE=64000
+VITE_VOICE_DTX_ENABLED=true
+VITE_VOICE_OPUS_STEREO=false
+VITE_VOICE_OPUS_MIN_PTIME=10
+VITE_VOICE_OPUS_MAX_PTIME=20
+VITE_VOICE_OPUS_MAX_PLAYBACK_RATE=48000
+VITE_VOICE_VAD_THRESHOLD=0.07
 
 # Deployment Info
 DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

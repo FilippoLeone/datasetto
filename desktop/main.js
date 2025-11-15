@@ -1,8 +1,12 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu } = require('electron');
 const path = require('node:path');
 
 const isDev = Boolean(process.env.ELECTRON_START_URL);
 let mainWindow;
+let tray;
+let isQuitting = false;
+let trayHintShown = false;
+const supportsTrayMinimize = process.platform === 'win32';
 
 // Notification queue to avoid spam
 const notificationQueue = [];
@@ -47,6 +51,91 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  if (supportsTrayMinimize) {
+    mainWindow.on('close', (event) => {
+      if (isQuitting) {
+        return;
+      }
+
+      event.preventDefault();
+
+      // Hide window instead of quitting, mimicking "minimize to tray"
+      mainWindow.hide();
+      if (typeof mainWindow.setSkipTaskbar === 'function') {
+        mainWindow.setSkipTaskbar(true);
+      }
+
+      if (!trayHintShown) {
+        trayHintShown = true;
+        if (Notification.isSupported()) {
+          const hint = new Notification({
+            title: 'Datasetto is still running',
+            body: 'Find the Datasetto icon in the system tray to reopen the app.',
+            icon: path.join(__dirname, 'resources', 'icon.png'),
+          });
+          hint.show();
+        }
+      }
+    });
+  }
+}
+
+function createTray() {
+  if (!supportsTrayMinimize || tray) {
+    return;
+  }
+
+  const iconPath = process.platform === 'win32'
+    ? path.join(__dirname, 'resources', 'icon.ico')
+    : path.join(__dirname, 'resources', 'icon.png');
+
+  tray = new Tray(iconPath);
+  tray.setToolTip('Datasetto');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show Datasetto',
+      click: () => {
+        restoreFromTray();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  tray.on('click', () => {
+    if (mainWindow && mainWindow.isVisible()) {
+      mainWindow.hide();
+      if (typeof mainWindow.setSkipTaskbar === 'function') {
+        mainWindow.setSkipTaskbar(true);
+      }
+      return;
+    }
+
+    restoreFromTray();
+  });
+}
+
+function restoreFromTray() {
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+
+  if (typeof mainWindow.setSkipTaskbar === 'function') {
+    mainWindow.setSkipTaskbar(false);
+  }
+  mainWindow.show();
+  mainWindow.focus();
 }
 
 app.whenReady().then(() => {
@@ -57,6 +146,7 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+  createTray();
 
   // Test notification support on startup
   console.log('[Desktop] Notification supported:', Notification.isSupported());
@@ -70,8 +160,15 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    if (supportsTrayMinimize && !isQuitting) {
+      return;
+    }
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
 });
 
 ipcMain.handle('app:get-info', () => ({

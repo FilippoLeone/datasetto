@@ -137,6 +137,58 @@ export class SocketService extends EventEmitter<EventMap> {
   }
 
   /**
+   * Screenshare helpers
+   */
+  startScreenshare(channelId: string): void {
+    const safeChannelId = channelId?.trim();
+    if (!safeChannelId) {
+      return;
+    }
+
+    this.socket?.emit('screenshare:start', { channelId: safeChannelId });
+  }
+
+  stopScreenshare(channelId: string): void {
+    const safeChannelId = channelId?.trim();
+    if (!safeChannelId) {
+      return;
+    }
+
+    this.socket?.emit('screenshare:stop', { channelId: safeChannelId });
+  }
+
+  joinScreenshareChannel(channelId: string): void {
+    const safeChannelId = channelId?.trim();
+    if (!safeChannelId) {
+      return;
+    }
+
+    this.socket?.emit('screenshare:viewer:join', { channelId: safeChannelId });
+  }
+
+  leaveScreenshareChannel(channelId: string): void {
+    const safeChannelId = channelId?.trim();
+    if (!safeChannelId) {
+      return;
+    }
+
+    this.socket?.emit('screenshare:viewer:leave', { channelId: safeChannelId });
+  }
+
+  sendScreenshareSignal(to: string, data: unknown, channelId?: string | null): void {
+    const safeTarget = to?.trim();
+    if (!safeTarget || !data) {
+      return;
+    }
+
+    this.socket?.emit('screenshare:signal', {
+      to: safeTarget,
+      data,
+      channelId: channelId ?? null,
+    });
+  }
+
+  /**
    * Send WebRTC signaling data
    */
   sendSignal(to: string, data: unknown): void {
@@ -369,6 +421,22 @@ export class SocketService extends EventEmitter<EventMap> {
 
     this.socket.on('channels:permissionsUpdated', (data: { channelId: string; permissions: ChannelPermissions }) => {
       this.emit('channel:permissionsUpdated', data as never);
+    });
+
+    this.socket.on('screenshare:session', (payload) => {
+      this.emit('screenshare:session', payload as never);
+    });
+
+    this.socket.on('screenshare:signal', (payload: { from: string; data: unknown; channelId?: string | null }) => {
+      this.emit('screenshare:signal', payload as never);
+    });
+
+    this.socket.on('screenshare:viewer:pending', (payload: { channelId: string; viewerId: string; viewerName: string }) => {
+      this.emit('screenshare:viewer:pending', payload as never);
+    });
+
+    this.socket.on('screenshare:error', (payload: { channelId?: string | null; message: string; code?: string }) => {
+      this.emit('screenshare:error', payload as never);
     });
 
     // Auth events

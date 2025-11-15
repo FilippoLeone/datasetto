@@ -50,6 +50,17 @@
               <!-- Dynamic stream channels will be inserted here -->
             </div>
           </div>
+
+          <!-- Screenshare Rooms -->
+          <div class="mb-4">
+            <div class="group flex items-center justify-between px-2 py-2 mb-1 cursor-pointer select-none rounded transition-fast hover:bg-modifier-hover">
+              <span class="text-2xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-2">Screenshare Rooms</span>
+              <button id="create-screenshare-channel" class="bg-transparent border-none text-text-muted cursor-pointer p-1 text-lg leading-none opacity-0 group-hover:opacity-100 transition-fast rounded w-6 h-6 hover:bg-modifier-hover" title="Create Screenshare Room">+</button>
+            </div>
+            <div class="channel-list" id="screenshare-channels">
+              <!-- Dynamic screenshare channels will be inserted here -->
+            </div>
+          </div>
         </div>
 
         <!-- User Area (Bottom) -->
@@ -226,6 +237,14 @@
                   <button id="fullscreenBtn" class="control-btn" aria-label="Fullscreen" title="Fullscreen">
                      <span class="icon">🗖</span>
                   </button>
+                </div>
+              </div>
+
+              <div id="screenshareControls" class="screenshare-controls hidden" aria-live="polite">
+                <div class="screenshare-status" id="screenshareStatusLabel">Select a screenshare channel to get started.</div>
+                <div class="screenshare-actions">
+                  <button id="screenshareStartBtn" type="button" class="screenshare-btn primary">Start Screenshare</button>
+                  <button id="screenshareStopBtn" type="button" class="screenshare-btn danger hidden">Stop Sharing</button>
                 </div>
               </div>
             </div>

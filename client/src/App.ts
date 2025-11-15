@@ -148,6 +148,7 @@ export class App {
     this.videoController = new VideoController({
       elements: this.elements,
       state: this.state,
+      socket: this.socket,
       player: this.player,
       notifications: this.notifications,
       soundFX: this.soundFX,
@@ -277,6 +278,7 @@ export class App {
       videoHandleTextChannelSelected: (params) => this.videoController?.handleTextChannelSelected(params),
       videoHandleVoiceChannelSelected: () => this.videoController?.handleVoiceChannelSelected(),
   videoHandleStreamChannelSelected: (channelId, channelName) => this.videoController?.handleStreamChannelSelected(channelId, channelName),
+      videoHandleScreenshareChannelSelected: (channelId, channelName) => this.videoController?.handleScreenshareChannelSelected(channelId, channelName),
       voiceRefreshInterface: () => this.voiceController?.refreshVoiceInterface(),
       mobileClosePanels: () => this.closeMobilePanels(),
     });
@@ -371,7 +373,7 @@ export class App {
   'voice-minigame-container', 'voice-minigame-canvas', 'voice-minigame-start', 'voice-minigame-end',
   'voice-minigame-join', 'voice-minigame-leave', 'voice-minigame-status', 'voice-minigame-scores',
   'voice-call-stage',
-      'text-channels', 'stream-channels', 'member-count',
+      'text-channels', 'stream-channels', 'screenshare-channels', 'member-count',
       'create-text-channel', 'create-voice-channel', 'create-stream-channel',
       'createChannelModal', 'newChannelName', 'newChannelType',
       'createChannelBtn', 'createChannelCancel', 'createChannelError',
@@ -381,6 +383,7 @@ export class App {
       'emojiPickerBtn', 'emojiPicker', 'emojiGrid',
       'voiceQuality', 'dtx', 'latencyHint', 'vadThreshold', 'vadThresholdVal',
       'inlineVideoContainer', 'inlineVideo', 'inlinePlayerOverlay',
+      'screenshareControls', 'screenshareStatusLabel', 'screenshareStartBtn', 'screenshareStopBtn',
   'popoutVideo', 'theaterModeToggle', 'mobileStreamTitle', 'popinVideo',
   'mobileStreamChatToggle',
   'playPauseBtn', 'volumeBtn', 'volumeSlider', 'volumeIcon',

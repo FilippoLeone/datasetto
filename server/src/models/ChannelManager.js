@@ -251,6 +251,7 @@ export class ChannelManager {
         permissions: this.normalizePermissions(permissions, type),
         isLive: false,
         activeStream: null,
+        screenshareSession: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         currentMinigame: null,
@@ -605,6 +606,9 @@ export class ChannelManager {
     const voiceRemoved = channel.type === 'voice' ? this.removeVoiceParticipant(channelId, userId) : false;
     if (removed) {
       logger.debug(`User removed from channel ${channel.name}`, { channelId, userId });
+      if (channel.type === 'screenshare' && channel.screenshareSession?.hostId === userId) {
+        this.stopScreenshare(channelId, 'host-left');
+      }
     }
 
     return removed || voiceRemoved;
@@ -720,6 +724,116 @@ export class ChannelManager {
     return true;
   }
 
+  startScreenshare(channelId, session = {}) {
+    const channel = this.getChannel(channelId);
+    if (!channel) {
+      throw new Error('Channel not found');
+    }
+
+    if (channel.type !== 'screenshare') {
+      throw new Error('Channel is not configured for screensharing');
+    }
+
+    if (channel.screenshareSession && channel.screenshareSession.hostId && channel.screenshareSession.hostId !== session.hostId) {
+      throw new Error('Channel already has an active screenshare');
+    }
+
+    const hostId = session.hostId;
+    if (!hostId) {
+      throw new Error('Screenshare host socket is required');
+    }
+
+    channel.screenshareSession = {
+      hostId,
+      accountId: session.accountId || null,
+      displayName: session.displayName || null,
+      startedAt: Date.now(),
+      viewerCount: 0,
+      viewers: new Set(),
+    };
+
+    channel.updatedAt = Date.now();
+    logger.info(`Screenshare started in ${channel.name}`, { channelId, hostId });
+    return { ...channel.screenshareSession };
+  }
+
+  addScreenshareViewer(channelId, viewerId) {
+    const channel = this.getChannel(channelId);
+    if (!channel || channel.type !== 'screenshare' || !channel.screenshareSession) {
+      return 0;
+    }
+
+    if (!channel.screenshareSession.viewers) {
+      channel.screenshareSession.viewers = new Set();
+    }
+
+    if (!viewerId) {
+      return channel.screenshareSession.viewerCount || channel.screenshareSession.viewers.size || 0;
+    }
+
+    channel.screenshareSession.viewers.add(viewerId);
+    channel.screenshareSession.viewerCount = channel.screenshareSession.viewers.size;
+    channel.updatedAt = Date.now();
+    return channel.screenshareSession.viewerCount;
+  }
+
+  removeScreenshareViewer(channelId, viewerId) {
+    const channel = this.getChannel(channelId);
+    if (!channel || channel.type !== 'screenshare' || !channel.screenshareSession || !channel.screenshareSession.viewers) {
+      return 0;
+    }
+
+    if (viewerId) {
+      channel.screenshareSession.viewers.delete(viewerId);
+    } else {
+      channel.screenshareSession.viewers.clear();
+    }
+
+    channel.screenshareSession.viewerCount = channel.screenshareSession.viewers.size;
+    channel.updatedAt = Date.now();
+    return channel.screenshareSession.viewerCount;
+  }
+
+  stopScreenshare(channelId, reason = 'stopped') {
+    const channel = this.getChannel(channelId);
+    if (!channel) {
+      throw new Error('Channel not found');
+    }
+
+    if (channel.type !== 'screenshare') {
+      throw new Error('Channel is not configured for screensharing');
+    }
+
+    if (!channel.screenshareSession) {
+      return false;
+    }
+
+    logger.info(`Screenshare stopped in ${channel.name}`, { channelId, reason });
+    channel.screenshareSession = null;
+    channel.updatedAt = Date.now();
+    return true;
+  }
+
+  getScreenshareSession(channelId) {
+    const channel = this.getChannel(channelId);
+    if (!channel || channel.type !== 'screenshare') {
+      return null;
+    }
+
+    if (!channel.screenshareSession) {
+      return null;
+    }
+
+    const { hostId, accountId, displayName, startedAt, viewerCount } = channel.screenshareSession;
+    return {
+      hostId,
+      accountId,
+      displayName,
+      startedAt,
+      viewerCount: viewerCount || (channel.screenshareSession.viewers?.size ?? 0),
+    };
+  }
+
   /**
    * Create channel group
    */
@@ -819,6 +933,15 @@ export class ChannelManager {
       updatedAt: channel.updatedAt,
       voiceStartedAt: channel.type === 'voice' ? channel.voiceStartedAt ?? null : null,
       voiceSessionId: channel.type === 'voice' ? channel.voiceSessionId ?? null : null,
+      screenshareSession: channel.type === 'screenshare' && channel.screenshareSession
+        ? {
+            hostId: channel.screenshareSession.hostId,
+            accountId: channel.screenshareSession.accountId,
+            displayName: channel.screenshareSession.displayName,
+            startedAt: channel.screenshareSession.startedAt,
+            viewerCount: channel.screenshareSession.viewerCount || (channel.screenshareSession.viewers?.size ?? 0),
+          }
+        : null,
       currentMinigame: channel.type === 'voice' && channel.currentMinigame
         ? { ...channel.currentMinigame }
         : null,
@@ -845,6 +968,15 @@ export class ChannelManager {
       currentMinigame: channel.type === 'voice' && channel.currentMinigame
         ? { ...channel.currentMinigame }
         : null,
+      ...(channel.type === 'screenshare' && channel.screenshareSession
+        ? {
+            screenshareStartedAt: channel.screenshareSession.startedAt,
+            screenshareHostName: channel.screenshareSession.displayName,
+            screenshareHostId: channel.screenshareSession.hostId,
+            screenshareViewerCount:
+              channel.screenshareSession.viewerCount || (channel.screenshareSession.viewers?.size ?? 0),
+          }
+        : { screenshareViewerCount: 0 }),
       ...(includeStreamKeys && channel.streamKey && { streamKey: channel.streamKey }),
     }));
   }
@@ -857,6 +989,7 @@ export class ChannelManager {
     const textGroup = this.createChannelGroup('Text Channels', 'text');
     const voiceGroup = this.createChannelGroup('Voice Channels', 'voice');
     const streamGroup = this.createChannelGroup('Live Streams', 'stream');
+    const screenshareGroup = this.createChannelGroup('Screenshare Rooms', 'screenshare');
 
     // Create default text channels
     appConfig.channels.defaultTextChannels.forEach(name => {
@@ -875,6 +1008,10 @@ export class ChannelManager {
         channelId: channel.id,
         tokenPreview: channel.streamKey ? `${channel.streamKey.slice(0, 4)}…${channel.streamKey.slice(-4)}` : null,
       });
+    });
+
+    appConfig.channels.defaultScreenshareChannels.forEach(name => {
+      this.createChannel(name, 'screenshare', screenshareGroup.id);
     });
 
     logger.info('Default channels initialized');

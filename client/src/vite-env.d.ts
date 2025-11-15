@@ -12,6 +12,13 @@ interface ImportMetaEnv {
   readonly VITE_TURN_URL?: string;
   readonly VITE_TURN_USERNAME?: string;
   readonly VITE_TURN_CREDENTIAL?: string;
+  readonly VITE_VOICE_OPUS_BITRATE?: string;
+  readonly VITE_VOICE_DTX_ENABLED?: string;
+  readonly VITE_VOICE_OPUS_STEREO?: string;
+  readonly VITE_VOICE_OPUS_MIN_PTIME?: string;
+  readonly VITE_VOICE_OPUS_MAX_PTIME?: string;
+  readonly VITE_VOICE_OPUS_MAX_PLAYBACK_RATE?: string;
+  readonly VITE_VOICE_VAD_THRESHOLD?: string;
   readonly DEV: boolean;
   readonly PROD: boolean;
   readonly MODE: string;

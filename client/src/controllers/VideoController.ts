@@ -1,8 +1,75 @@
 import Hls from 'hls.js';
 import { buildHlsUrlCandidates } from '@/utils/streaming';
+import type { ScreenshareSessionEvent } from '@/types';
 import type { VideoControllerDeps } from './types';
 
 const STREAM_RETRY_DELAY_MS = 5000;
+const SCREENSHARE_VIEWER_JOIN_THROTTLE_MS = 1500;
+const DEFAULT_SCREENSHARE_ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+const normalizeTurnUrl = (url: string): string => {
+  if (!url) {
+    return '';
+  }
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (/^turns?:/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `turn:${trimmed}`;
+};
+
+const splitEnvList = (value: string | undefined): string[] => {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+};
+
+const SCREENSHARE_ICE_SERVERS: RTCIceServer[] = (() => {
+  const envValue = import.meta.env.VITE_SCREENSHARE_ICE_SERVERS;
+  if (envValue) {
+    try {
+      const parsed = JSON.parse(envValue);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as RTCIceServer[];
+      }
+    } catch (error) {
+      console.warn('[VideoController] Failed to parse VITE_SCREENSHARE_ICE_SERVERS:', error);
+    }
+  }
+
+  const turnUrls = splitEnvList(import.meta.env.VITE_TURN_URL);
+  if (turnUrls.length > 0) {
+    const username = import.meta.env.VITE_TURN_USERNAME;
+    const credential = import.meta.env.VITE_TURN_CREDENTIAL;
+    const turnServers = turnUrls.map((entry) => ({
+      urls: normalizeTurnUrl(entry),
+      ...(username ? { username } : {}),
+      ...(credential ? { credential } : {}),
+    }));
+    return [...DEFAULT_SCREENSHARE_ICE_SERVERS, ...turnServers];
+  }
+
+  return DEFAULT_SCREENSHARE_ICE_SERVERS;
+})();
+
+type ScreenshareSignalPayload = {
+  from: string;
+  data: {
+    sdp?: RTCSessionDescriptionInit;
+    candidate?: RTCIceCandidateInit;
+  };
+  channelId?: string | null;
+};
 
 export class VideoController {
   private deps: VideoControllerDeps;
@@ -15,6 +82,17 @@ export class VideoController {
   private mobileChatOpen = false;
   private nativeFullscreenActive = false;
   private orientationLocked = false;
+  private currentVideoMode: 'idle' | 'stream' | 'screenshare' = 'idle';
+  private screenshareStream: MediaStream | null = null;
+  private screenshareStreamOrigin: 'local' | 'remote' | null = null;
+  private screenshareChannelId: string | null = null;
+  private screenshareHostId: string | null = null;
+  private screenshareRole: 'idle' | 'host' | 'viewer' = 'idle';
+  private screenshareViewerActive = false;
+  private screensharePeers: Map<string, RTCPeerConnection> = new Map();
+  private screenshareCandidateQueue: Map<string, RTCIceCandidateInit[]> = new Map();
+  private screenshareTrackCleanup: Array<() => void> = [];
+  private lastViewerJoinAttempt = 0;
 
   constructor(deps: VideoControllerDeps) {
     this.deps = deps;
@@ -25,7 +103,8 @@ export class VideoController {
     this.setupVideoPopoutDrag();
     this.updateVolumeDisplay();
     this.syncFullscreenButton(false);
-  this.updateMobileChatToggleUI();
+    this.updateMobileChatToggleUI();
+    this.registerScreenshareEventHandlers();
 
     document.addEventListener('fullscreenchange', this.handleNativeFullscreenChange);
     document.addEventListener('webkitfullscreenchange', this.handleNativeFullscreenChange as EventListener);
@@ -74,12 +153,12 @@ export class VideoController {
     }
   }
 
-  handleMobileChannelSwitch(type: 'text' | 'voice' | 'stream'): void {
+  handleMobileChannelSwitch(type: 'text' | 'voice' | 'stream' | 'screenshare'): void {
     if (!this.isMobileLayout()) {
       return;
     }
 
-    if (type === 'stream') {
+    if (type === 'stream' || type === 'screenshare') {
       this.setMobileStreamMode(true);
     } else {
       this.setMobileStreamMode(false);
@@ -89,6 +168,9 @@ export class VideoController {
 
   handleTextChannelSelected(_options: { voiceConnected: boolean }): void {
     this.closeInlineVideo();
+    if (this.screenshareChannelId) {
+      this.resetScreenshareContext();
+    }
 
     if (this.deps.state.get('streamingMode')) {
       this.deps.state.setStreamingMode(false);
@@ -108,6 +190,9 @@ export class VideoController {
 
   handleVoiceChannelSelected(): void {
     this.closeInlineVideo();
+    if (this.screenshareChannelId) {
+      this.resetScreenshareContext();
+    }
 
     if (this.deps.state.get('streamingMode')) {
       this.deps.state.setStreamingMode(false);
@@ -124,8 +209,22 @@ export class VideoController {
   }
 
   handleStreamChannelSelected(channelId: string, channelName: string): void {
+    if (this.screenshareChannelId) {
+      this.resetScreenshareContext();
+    }
     this.closePopout();
     void this.showInlineVideo(channelId, channelName);
+    this.updateStreamWatchingIndicator();
+  }
+
+  handleScreenshareChannelSelected(channelId: string, channelName: string): void {
+    this.closePopout();
+    if (this.screenshareChannelId && this.screenshareChannelId !== channelId) {
+      this.teardownScreenshareSession('channel-switch');
+    }
+    this.screenshareChannelId = channelId;
+    this.prepareScreenshareSurface(channelName);
+    this.requestScreenshareViewerJoin('channel-selected');
     this.updateStreamWatchingIndicator();
   }
 
@@ -228,22 +327,10 @@ export class VideoController {
       this.setMobileStreamMode(true);
     }
 
-    if (this.streamRetryTimer) {
-      clearTimeout(this.streamRetryTimer);
-      this.streamRetryTimer = null;
-    }
+    this.resetInlineVideoSources();
 
-    if (this.inlineHls) {
-      try {
-        this.inlineHls.destroy();
-      } catch (error) {
-        if (import.meta.env.DEV) {
-          console.error('Error destroying HLS instance:', error);
-        }
-      } finally {
-        this.inlineHls = null;
-      }
-    }
+    this.currentVideoMode = 'stream';
+    this.screenshareStream = null;
 
     this.closePopout();
 
@@ -488,6 +575,155 @@ export class VideoController {
     tryCandidate(0);
   }
 
+  private prepareScreenshareSurface(channelName: string): void {
+    const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
+    const video = this.deps.elements.inlineVideo as HTMLVideoElement | undefined;
+    const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
+    const playerColumn = this.deps.elements['streamPlayerColumn'] as HTMLElement | undefined;
+    const controls = this.deps.elements.screenshareControls as HTMLElement | undefined;
+
+    if (!container || !video) {
+      console.error('Inline video elements not found');
+      return;
+    }
+
+    this.resetInlineVideoSources();
+    this.currentVideoMode = 'screenshare';
+    this.screenshareStream = null;
+    this.screenshareStreamOrigin = null;
+
+    video.playsInline = true;
+    video.autoplay = true;
+    video.muted = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', 'true');
+
+    container.classList.remove('hidden');
+    playerColumn?.classList.remove('hidden');
+    controls?.classList.remove('hidden');
+    document.body.classList.add('stream-inline-active');
+    this.updateLiveIndicator('loading');
+    this.updateScreenshareStatus('Checking for active screenshares…', { busy: true });
+    this.updateScreenshareButtonsState();
+
+    if (overlay) {
+      overlay.classList.add('visible');
+      const message = overlay.querySelector('.message');
+      if (message) {
+        message.textContent = 'Waiting for screenshare...';
+      }
+      overlay.style.cursor = 'default';
+      overlay.onclick = null;
+    }
+
+    const mobileTitle = this.deps.elements.mobileStreamTitle as HTMLElement | undefined;
+    if (mobileTitle) {
+      mobileTitle.textContent = `Screenshare: ${channelName}`;
+    }
+
+    if (this.isMobileLayout() && !this.mobileStreamMode) {
+      this.setMobileStreamMode(true);
+    }
+  }
+
+  attachScreenshareStream(stream: MediaStream, options: { local?: boolean } = {}): void {
+    const video = this.deps.elements.inlineVideo as HTMLVideoElement | undefined;
+    const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
+
+    if (!video) {
+      return;
+    }
+
+    this.currentVideoMode = 'screenshare';
+    this.screenshareStream = stream;
+    this.screenshareStreamOrigin = options.local ? 'local' : 'remote';
+
+    try {
+      video.srcObject = stream;
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Unable to attach screenshare stream:', error);
+      }
+      video.srcObject = null;
+      video.srcObject = stream;
+    }
+
+    video.muted = Boolean(options.local);
+    const playAttempt = video.play();
+    if (playAttempt instanceof Promise) {
+      playAttempt.catch((error) => {
+        if (import.meta.env.DEV) {
+          console.warn('Screenshare autoplay blocked:', error);
+        }
+      });
+    }
+
+    overlay?.classList.remove('visible');
+    overlay?.setAttribute('aria-hidden', 'true');
+    this.updateLiveIndicator('live');
+    this.updateStreamWatchingIndicator();
+  }
+
+  clearScreenshareStream(message = 'Screenshare offline'): void {
+    if (this.currentVideoMode !== 'screenshare') {
+      return;
+    }
+
+    this.screenshareStream = null;
+    this.screenshareStreamOrigin = null;
+    this.resetInlineVideoSources();
+
+    const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
+    if (overlay) {
+      overlay.classList.add('visible');
+      const label = overlay.querySelector('.message');
+      if (label) {
+        label.textContent = message;
+      }
+    }
+
+    this.updateLiveIndicator('offline');
+    this.updateStreamWatchingIndicator();
+    this.updateScreenshareStatus(message);
+  }
+
+  private resetInlineVideoSources(): void {
+    if (this.streamRetryTimer) {
+      clearTimeout(this.streamRetryTimer);
+      this.streamRetryTimer = null;
+    }
+
+    this.screenshareStreamOrigin = null;
+
+    if (this.inlineHls) {
+      try {
+        this.inlineHls.destroy();
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.error('Error destroying HLS instance:', error);
+        }
+      } finally {
+        this.inlineHls = null;
+      }
+    }
+
+    const video = this.deps.elements.inlineVideo as HTMLVideoElement | undefined;
+    if (video) {
+      try {
+        video.pause();
+      } catch {
+        // noop
+      }
+      video.removeAttribute('src');
+      try {
+        video.srcObject = null;
+      } catch {
+        // Ignore potential errors when clearing srcObject
+      }
+      video.load();
+    }
+  }
+
   closeInlineVideo(): void {
     const container = this.deps.elements.inlineVideoContainer as HTMLElement | undefined;
     const video = this.deps.elements.inlineVideo as HTMLVideoElement | undefined;
@@ -536,6 +772,13 @@ export class VideoController {
     document.body.classList.remove('stream-inline-active');
     this.updateLiveIndicator('hidden');
 
+    this.currentVideoMode = 'idle';
+    this.screenshareStream = null;
+    if (this.screenshareChannelId) {
+      this.hideScreenshareControls();
+      this.teardownScreenshareSession('player-closed');
+    }
+
     const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
     if (overlay) {
       const message = overlay.querySelector('.message');
@@ -555,6 +798,496 @@ export class VideoController {
       document.body.classList.remove('mobile-chat-open');
       this.updateMobileChatToggleUI();
     }
+  }
+
+  private async startScreenshareCapture(): Promise<void> {
+    if (!this.screenshareChannelId) {
+      this.deps.notifications.warning('Select a screenshare room first');
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      this.deps.notifications.error('Screensharing is not supported in this browser');
+      return;
+    }
+
+    if (this.screenshareRole === 'host') {
+      this.deps.notifications.info('You are already sharing your screen');
+      return;
+    }
+
+    const startBtn = this.deps.elements.screenshareStartBtn as HTMLButtonElement | undefined;
+    try {
+      startBtn?.setAttribute('disabled', 'true');
+      this.updateScreenshareStatus('Select what to share…', { busy: true });
+
+      const constraints: MediaStreamConstraints = {
+        video: {
+          frameRate: { ideal: 30, max: 60 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: true,
+      };
+
+      const stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      this.beginHostSession(stream);
+    } catch (error) {
+      const denied = error && typeof error === 'object' && 'name' in error && error.name === 'NotAllowedError';
+      if (denied) {
+        this.deps.notifications.warning('Screen capture was blocked. Please allow access and try again.');
+        this.updateScreenshareStatus('Screenshare permission denied', { tone: 'warning' });
+      } else {
+        this.deps.notifications.error('Unable to start screenshare');
+        this.updateScreenshareStatus('Screenshare cancelled', { tone: 'error' });
+      }
+      console.error('[VideoController] Screenshare capture failed:', error);
+    } finally {
+      startBtn?.removeAttribute('disabled');
+      this.updateScreenshareButtonsState();
+    }
+  }
+
+  private beginHostSession(stream: MediaStream): void {
+    if (!this.screenshareChannelId) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+
+    this.teardownScreensharePeers();
+    this.stopLocalScreenshareStream();
+
+    this.screenshareStream = stream;
+    this.screenshareStreamOrigin = 'local';
+    this.screenshareRole = 'host';
+    this.screenshareHostId = this.deps.socket.getId();
+    this.attachScreenshareStream(stream, { local: true });
+    this.updateScreenshareStatus('Starting screenshare…', { busy: true });
+    this.updateScreenshareButtonsState();
+
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      const handleTrackEnded = (): void => {
+        videoTrack.removeEventListener('ended', handleTrackEnded);
+        this.stopScreenshare('track-ended');
+      };
+      videoTrack.addEventListener('ended', handleTrackEnded);
+      this.screenshareTrackCleanup.push(() => videoTrack.removeEventListener('ended', handleTrackEnded));
+    }
+
+    this.deps.socket.startScreenshare(this.screenshareChannelId);
+  }
+
+  private stopScreenshare(reason: string, notifyServer = true): void {
+    if (this.screenshareRole !== 'host') {
+      return;
+    }
+
+    if (notifyServer && this.screenshareChannelId) {
+      this.deps.socket.stopScreenshare(this.screenshareChannelId);
+    }
+
+    this.stopLocalScreenshareStream();
+    this.teardownScreensharePeers();
+    this.screenshareRole = 'idle';
+    this.screenshareViewerActive = false;
+    this.screenshareHostId = null;
+    this.updateScreenshareButtonsState();
+    this.clearScreenshareStream(reason === 'user-requested' ? 'Screenshare stopped' : 'Screenshare offline');
+  }
+
+  private registerScreenshareEventHandlers(): void {
+    const subscriptions: Array<() => void> = [];
+    subscriptions.push(this.deps.socket.on('screenshare:session', (event) => this.handleScreenshareSession(event)));
+    subscriptions.push(this.deps.socket.on('screenshare:signal', (payload) => void this.handleScreenshareSignal(payload as ScreenshareSignalPayload)));
+    subscriptions.push(this.deps.socket.on('screenshare:viewer:pending', (payload) => this.handleScreenshareViewerPending(payload)));
+    subscriptions.push(this.deps.socket.on('screenshare:error', (payload) => this.handleScreenshareError(payload)));
+
+    this.deps.registerCleanup(() => {
+      subscriptions.forEach((unsubscribe) => unsubscribe?.());
+    });
+  }
+
+  private handleScreenshareSession(event: ScreenshareSessionEvent): void {
+    if (!this.screenshareChannelId || event.channelId !== this.screenshareChannelId) {
+      return;
+    }
+
+    if (!event.active) {
+      if (this.screenshareRole !== 'idle' || this.screenshareViewerActive) {
+        this.teardownScreenshareSession('host-ended');
+      }
+      this.screenshareHostId = null;
+      this.updateScreenshareButtonsState();
+      this.updateScreenshareStatus('No one is sharing yet. Click start to go live.');
+      return;
+    }
+
+    this.screenshareHostId = event.hostId;
+    const socketId = this.deps.socket.getId();
+    const isSelfHost = Boolean(socketId && event.hostId === socketId);
+
+    if (isSelfHost) {
+      this.screenshareRole = 'host';
+      this.updateScreenshareButtonsState();
+      this.updateScreenshareStatus('You are sharing your screen');
+      return;
+    }
+
+    this.screenshareRole = 'viewer';
+    this.updateScreenshareStatus(`Live now: ${event.hostName ?? 'Screenshare'}`);
+    this.updateScreenshareButtonsState();
+    this.requestScreenshareViewerJoin('session-active', true);
+  }
+
+  private async handleScreenshareSignal(payload: ScreenshareSignalPayload): Promise<void> {
+    if (!this.screenshareChannelId || (payload.channelId && payload.channelId !== this.screenshareChannelId)) {
+      return;
+    }
+
+    if (!payload.from || !payload.data) {
+      return;
+    }
+
+    if (this.screenshareRole === 'host') {
+      await this.handleHostSignal(payload);
+    } else {
+      await this.handleViewerSignal(payload);
+    }
+  }
+
+  private async handleViewerSignal(payload: ScreenshareSignalPayload): Promise<void> {
+    const hostId = payload.from;
+    const { sdp, candidate } = payload.data ?? {};
+    const peer = this.ensureViewerPeer(hostId);
+
+    try {
+      if (sdp && sdp.type === 'offer') {
+        await peer.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        this.deps.socket.sendScreenshareSignal(hostId, { sdp: answer }, this.screenshareChannelId);
+        this.screenshareViewerActive = true;
+        this.flushCandidateQueue(hostId);
+        this.updateScreenshareStatus('Watching live screenshare');
+      } else if (candidate) {
+        if (peer.remoteDescription) {
+          await peer.addIceCandidate(candidate);
+        } else {
+          this.queueCandidate(hostId, candidate);
+        }
+      }
+    } catch (error) {
+      console.error('[VideoController] Viewer signal error:', error);
+      this.teardownScreenshareSession('signal-error');
+      this.deps.notifications.error('Screenshare connection failed. Please try again.');
+    }
+  }
+
+  private async handleHostSignal(payload: ScreenshareSignalPayload): Promise<void> {
+    const viewerId = payload.from;
+    const { sdp, candidate } = payload.data ?? {};
+    const peer = this.screensharePeers.get(viewerId);
+    if (!peer) {
+      return;
+    }
+
+    try {
+      if (sdp && sdp.type === 'answer') {
+        await peer.setRemoteDescription(new RTCSessionDescription(sdp));
+        this.flushCandidateQueue(viewerId);
+      } else if (candidate) {
+        if (peer.remoteDescription) {
+          await peer.addIceCandidate(candidate);
+        } else {
+          this.queueCandidate(viewerId, candidate);
+        }
+      }
+    } catch (error) {
+      console.error('[VideoController] Host signal error:', error);
+    }
+  }
+
+  private handleScreenshareViewerPending(payload: { channelId: string; viewerId: string; viewerName: string }): void {
+    if (!this.screenshareChannelId || payload.channelId !== this.screenshareChannelId) {
+      return;
+    }
+
+    if (this.screenshareRole !== 'host') {
+      return;
+    }
+
+    const peer = this.ensureHostPeer(payload.viewerId);
+    if (!peer) {
+      return;
+    }
+
+    void this.createOfferForViewer(payload.viewerId, peer, payload.viewerName);
+  }
+
+  private async createOfferForViewer(viewerId: string, peer: RTCPeerConnection, viewerName?: string): Promise<void> {
+    try {
+      const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+      await peer.setLocalDescription(offer);
+      this.deps.socket.sendScreenshareSignal(viewerId, { sdp: offer }, this.screenshareChannelId);
+      this.flushCandidateQueue(viewerId);
+      if (viewerName) {
+        this.updateScreenshareStatus(`Sharing with ${viewerName}`);
+      }
+    } catch (error) {
+      console.error('[VideoController] Failed to create viewer offer:', error);
+    }
+  }
+
+  private handleScreenshareError(payload: { channelId?: string | null; message: string; code?: string }): void {
+    if (payload?.channelId && this.screenshareChannelId && payload.channelId !== this.screenshareChannelId) {
+      return;
+    }
+
+    if (payload?.message) {
+      this.deps.notifications.error(payload.message);
+    }
+
+    if (payload?.code === 'SCREENSHARE_START_FAILED' && this.screenshareRole === 'host') {
+      this.stopScreenshare('error', false);
+    }
+  }
+
+  private ensureViewerPeer(hostId: string): RTCPeerConnection {
+    let peer = this.screensharePeers.get(hostId);
+    if (peer) {
+      return peer;
+    }
+
+    peer = new RTCPeerConnection({ iceServers: SCREENSHARE_ICE_SERVERS });
+    peer.onicecandidate = (event) => {
+      if (event.candidate && this.screenshareChannelId) {
+        const candidate = typeof event.candidate.toJSON === 'function'
+          ? event.candidate.toJSON()
+          : (event.candidate as RTCIceCandidateInit);
+        this.deps.socket.sendScreenshareSignal(hostId, { candidate }, this.screenshareChannelId);
+      }
+    };
+    peer.ontrack = (event) => {
+      const [remoteStream] = event.streams;
+      if (remoteStream) {
+        this.attachScreenshareStream(remoteStream, { local: false });
+      }
+    };
+    peer.onconnectionstatechange = () => {
+      if (peer.connectionState === 'failed' || peer.connectionState === 'disconnected' || peer.connectionState === 'closed') {
+        this.screensharePeers.delete(hostId);
+        this.screenshareCandidateQueue.delete(hostId);
+      }
+    };
+
+    this.screensharePeers.set(hostId, peer);
+    this.screenshareCandidateQueue.set(hostId, []);
+    return peer;
+  }
+
+  private ensureHostPeer(viewerId: string): RTCPeerConnection | null {
+    const stream = this.screenshareStream;
+    if (!stream) {
+      return null;
+    }
+
+    let peer = this.screensharePeers.get(viewerId);
+    if (peer) {
+      return peer;
+    }
+
+    peer = new RTCPeerConnection({ iceServers: SCREENSHARE_ICE_SERVERS });
+    stream.getTracks().forEach((track) => {
+      try {
+        peer!.addTrack(track, stream);
+      } catch (error) {
+        console.error('[VideoController] Failed to add track to screenshare peer:', error);
+      }
+    });
+
+    peer.onicecandidate = (event) => {
+      if (event.candidate && this.screenshareChannelId) {
+        const candidate = typeof event.candidate.toJSON === 'function'
+          ? event.candidate.toJSON()
+          : (event.candidate as RTCIceCandidateInit);
+        this.deps.socket.sendScreenshareSignal(viewerId, { candidate }, this.screenshareChannelId);
+      }
+    };
+    peer.onconnectionstatechange = () => {
+      if (peer && (peer.connectionState === 'failed' || peer.connectionState === 'disconnected' || peer.connectionState === 'closed')) {
+        this.screensharePeers.delete(viewerId);
+        this.screenshareCandidateQueue.delete(viewerId);
+      }
+    };
+
+    this.screensharePeers.set(viewerId, peer);
+    this.screenshareCandidateQueue.set(viewerId, []);
+    return peer;
+  }
+
+  private queueCandidate(peerId: string, candidate: RTCIceCandidateInit): void {
+    if (!this.screenshareCandidateQueue.has(peerId)) {
+      this.screenshareCandidateQueue.set(peerId, []);
+    }
+    this.screenshareCandidateQueue.get(peerId)!.push(candidate);
+  }
+
+  private flushCandidateQueue(peerId: string): void {
+    const queue = this.screenshareCandidateQueue.get(peerId);
+    if (!queue?.length) {
+      return;
+    }
+
+    const peer = this.screensharePeers.get(peerId);
+    if (!peer || !peer.remoteDescription) {
+      return;
+    }
+
+    while (queue.length > 0) {
+      const candidate = queue.shift();
+      if (candidate) {
+        void peer.addIceCandidate(candidate).catch((error) => {
+          console.warn('[VideoController] Failed to add queued ICE candidate:', error);
+        });
+      }
+    }
+  }
+
+  private teardownScreensharePeers(): void {
+    for (const peer of this.screensharePeers.values()) {
+      try {
+        peer.onicecandidate = null;
+        peer.ontrack = null;
+        peer.close();
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[VideoController] Error closing screenshare peer:', error);
+        }
+      }
+    }
+    this.screensharePeers.clear();
+    this.screenshareCandidateQueue.clear();
+  }
+
+  private stopLocalScreenshareStream(): void {
+    if (this.screenshareStreamOrigin !== 'local' || !this.screenshareStream) {
+      return;
+    }
+
+    this.screenshareTrackCleanup.forEach((cleanup) => cleanup());
+    this.screenshareTrackCleanup = [];
+
+    this.screenshareStream.getTracks().forEach((track) => {
+      try {
+        track.stop();
+      } catch {
+        // Ignore
+      }
+    });
+
+    this.screenshareStream = null;
+    this.screenshareStreamOrigin = null;
+  }
+
+  private teardownScreenshareSession(reason: string, notifyServer = true): void {
+    if (!this.screenshareChannelId) {
+      return;
+    }
+
+    if (this.screenshareRole === 'host') {
+      this.stopScreenshare(reason, notifyServer);
+      return;
+    }
+
+    if (this.screenshareViewerActive && notifyServer) {
+      this.deps.socket.leaveScreenshareChannel(this.screenshareChannelId);
+    }
+
+    this.screenshareViewerActive = false;
+    this.screenshareRole = 'idle';
+    this.lastViewerJoinAttempt = 0;
+    this.teardownScreensharePeers();
+    this.updateScreenshareButtonsState();
+
+    if (this.currentVideoMode === 'screenshare') {
+      this.clearScreenshareStream('Screenshare offline');
+    }
+  }
+
+  private resetScreenshareContext(): void {
+    if (!this.screenshareChannelId) {
+      return;
+    }
+
+    this.teardownScreenshareSession('channel-exit');
+    this.screenshareChannelId = null;
+    this.screenshareHostId = null;
+    this.lastViewerJoinAttempt = 0;
+    this.hideScreenshareControls();
+    this.updateScreenshareStatus('Select a screenshare room to get started.');
+    this.updateScreenshareButtonsState();
+  }
+
+  private requestScreenshareViewerJoin(reason: string, force = false): void {
+    if (!this.screenshareChannelId || this.screenshareRole === 'host') {
+      return;
+    }
+
+    const now = Date.now();
+    if (!force && now - this.lastViewerJoinAttempt < SCREENSHARE_VIEWER_JOIN_THROTTLE_MS) {
+      return;
+    }
+
+    this.lastViewerJoinAttempt = now;
+    this.deps.socket.joinScreenshareChannel(this.screenshareChannelId);
+
+    if (import.meta.env.DEV) {
+      console.log(`[VideoController] Screenshare viewer join requested (${reason})`);
+    }
+  }
+
+  private updateScreenshareStatus(message: string, options?: { tone?: 'info' | 'warning' | 'success' | 'error'; busy?: boolean }): void {
+    const label = this.deps.elements.screenshareStatusLabel as HTMLElement | undefined;
+    if (!label) {
+      return;
+    }
+
+    label.textContent = message;
+    if (options?.tone) {
+      label.dataset.tone = options.tone;
+    } else {
+      delete label.dataset.tone;
+    }
+    label.classList.toggle('is-busy', Boolean(options?.busy));
+  }
+
+  private updateScreenshareButtonsState(): void {
+    const controls = this.deps.elements.screenshareControls as HTMLElement | undefined;
+    const startBtn = this.deps.elements.screenshareStartBtn as HTMLButtonElement | undefined;
+    const stopBtn = this.deps.elements.screenshareStopBtn as HTMLButtonElement | undefined;
+    const visible = this.currentVideoMode === 'screenshare' && Boolean(this.screenshareChannelId);
+    controls?.classList.toggle('hidden', !visible);
+
+    if (!startBtn || !stopBtn) {
+      return;
+    }
+
+    const socketId = this.deps.socket.getId();
+    const otherHostActive = Boolean(this.screenshareHostId && socketId && this.screenshareHostId !== socketId);
+    const isHost = this.screenshareRole === 'host';
+
+    startBtn.classList.toggle('hidden', isHost);
+    startBtn.disabled = otherHostActive || isHost;
+    startBtn.textContent = otherHostActive ? 'Someone is sharing…' : 'Start Screenshare';
+
+    stopBtn.classList.toggle('hidden', !isHost);
+    stopBtn.disabled = !isHost;
+  }
+
+  private hideScreenshareControls(): void {
+    const controls = this.deps.elements.screenshareControls as HTMLElement | undefined;
+    controls?.classList.add('hidden');
   }
 
   toggleTheaterMode(): void {
@@ -692,8 +1425,9 @@ export class VideoController {
       const currentChannelType = this.deps.state.get('currentChannelType');
       const currentChannelName = this.deps.elements['current-channel-name']?.textContent ?? '';
 
-      if (currentChannelType === 'stream' && currentChannelName) {
-        indicator.textContent = `📺 ${currentChannelName}`;
+      if ((currentChannelType === 'stream' || currentChannelType === 'screenshare') && currentChannelName) {
+        const icon = currentChannelType === 'screenshare' ? '🖥️' : '📺';
+        indicator.textContent = `${icon} ${currentChannelName}`;
         indicator.classList.remove('hidden');
       } else {
         indicator.classList.add('hidden');
@@ -855,6 +1589,8 @@ export class VideoController {
   addListener(elements.mobileStreamChatToggle, 'click', () => this.toggleMobileChat());
   addListener(elements.volumeSlider, 'input', (event: Event) => this.handleVolumeChange(event));
   addListener(elements.fullscreenBtn, 'click', () => this.toggleFullscreen());
+    addListener(elements.screenshareStartBtn, 'click', () => void this.startScreenshareCapture());
+    addListener(elements.screenshareStopBtn, 'click', () => this.stopScreenshare('user-requested'));
 
     const inlineVideo = elements.inlineVideo as HTMLVideoElement | undefined;
     if (inlineVideo) {

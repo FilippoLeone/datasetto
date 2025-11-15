@@ -10,6 +10,48 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
+const parseNumberEnv = (
+  value: string | undefined,
+  fallback: number,
+  bounds?: { min?: number; max?: number }
+): number => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  if (typeof bounds?.min === 'number' && parsed < bounds.min) {
+    return fallback;
+  }
+
+  if (typeof bounds?.max === 'number' && parsed > bounds.max) {
+    return fallback;
+  }
+
+  return parsed;
+};
+
+const parseBooleanEnv = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+};
+
 const splitEnvList = (value: string | undefined): string[] => {
   if (!value) {
     return [];
@@ -146,15 +188,80 @@ const resolveIceServers = (): RTCIceServer[] => {
 const ICE_SERVERS = resolveIceServers();
 const ICE_RESTART_DELAY_MS = 2000;
 const ICE_RESTART_MAX_ATTEMPTS = 3;
-const OPUS_TARGET_BITRATE = 96000;
+const OPUS_BITRATE_MIN = 6000;
+const OPUS_BITRATE_MAX = 128000;
+const OPUS_TARGET_BITRATE = Math.round(
+  parseNumberEnv(import.meta.env.VITE_VOICE_OPUS_BITRATE, 64000, {
+    min: OPUS_BITRATE_MIN,
+    max: OPUS_BITRATE_MAX,
+  })
+);
+const DEFAULT_DTX_ENABLED = parseBooleanEnv(import.meta.env.VITE_VOICE_DTX_ENABLED, true);
+const DEFAULT_VAD_THRESHOLD = parseNumberEnv(import.meta.env.VITE_VOICE_VAD_THRESHOLD, 0.07, {
+  min: 0.01,
+  max: 0.5,
+});
+const DEFAULT_OPUS_STEREO = parseBooleanEnv(import.meta.env.VITE_VOICE_OPUS_STEREO, false);
+const DEFAULT_OPUS_MIN_PTIME = Math.round(
+  parseNumberEnv(import.meta.env.VITE_VOICE_OPUS_MIN_PTIME, 10, { min: 3, max: 20 })
+);
+const DEFAULT_OPUS_MAX_PTIME = Math.round(
+  parseNumberEnv(import.meta.env.VITE_VOICE_OPUS_MAX_PTIME, 20, { min: 20, max: 60 })
+);
+const DEFAULT_OPUS_MAX_PLAYBACK_RATE = Math.round(
+  parseNumberEnv(import.meta.env.VITE_VOICE_OPUS_MAX_PLAYBACK_RATE, 48000, {
+    min: 32000,
+    max: 48000,
+  })
+);
 const TURN_CONFIGURED = ICE_SERVERS.some((server) => {
   const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
   return urls.some((url) => typeof url === 'string' && url.toLowerCase().startsWith('turn:'));
 });
 
+const clampNumber = (value: number, min: number, max: number, fallback: number): number => {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  if (value < min) {
+    return fallback;
+  }
+
+  if (value > max) {
+    return fallback;
+  }
+
+  return value;
+};
+
+const normalizeVoiceBitrate = (value: number): number => {
+  const rounded = Math.round(value);
+  if (!Number.isFinite(rounded)) {
+    return OPUS_TARGET_BITRATE;
+  }
+
+  if (rounded < OPUS_BITRATE_MIN) {
+    return OPUS_BITRATE_MIN;
+  }
+
+  if (rounded > OPUS_BITRATE_MAX) {
+    return OPUS_BITRATE_MAX;
+  }
+
+  return rounded;
+};
+
 export interface PeerAudioPreference {
   muted: boolean;
   volume: number;
+}
+
+interface VoiceCodecOptions {
+  stereo?: boolean;
+  maxPtime?: number;
+  minPtime?: number;
+  maxPlaybackRate?: number;
 }
 
 const PEER_PREFERENCE_STORAGE_KEY = 'datasetto.voice.peerPreferences.v1';
@@ -174,14 +281,22 @@ export class VoiceService extends EventEmitter<EventMap> {
   private deafened = false;
   private turnWarningShown = false;
   private voiceBitrate = OPUS_TARGET_BITRATE;
-  private dtxEnabled = false;
-  private vadThreshold = 0.07;
+  private dtxEnabled = DEFAULT_DTX_ENABLED;
+  private vadThreshold = DEFAULT_VAD_THRESHOLD;
+  private opusStereo = DEFAULT_OPUS_STEREO;
+  private opusMinPtime = DEFAULT_OPUS_MIN_PTIME;
+  private opusMaxPtime = DEFAULT_OPUS_MAX_PTIME;
+  private opusMaxPlaybackRate = DEFAULT_OPUS_MAX_PLAYBACK_RATE;
 
-  constructor(voiceBitrate = OPUS_TARGET_BITRATE, dtxEnabled = false, vadThreshold = 0.07) {
+  constructor(
+    voiceBitrate = OPUS_TARGET_BITRATE,
+    dtxEnabled = DEFAULT_DTX_ENABLED,
+    vadThreshold = DEFAULT_VAD_THRESHOLD
+  ) {
     super();
-    this.voiceBitrate = voiceBitrate;
-    this.dtxEnabled = dtxEnabled;
-    this.vadThreshold = vadThreshold;
+    this.voiceBitrate = normalizeVoiceBitrate(voiceBitrate);
+    this.dtxEnabled = Boolean(dtxEnabled);
+    this.vadThreshold = clampNumber(vadThreshold, 0.01, 0.5, DEFAULT_VAD_THRESHOLD);
 
     this.loadPeerAudioPreferences();
 
@@ -714,16 +829,46 @@ export class VoiceService extends EventEmitter<EventMap> {
   /**
    * Update voice quality settings
    */
-  updateVoiceSettings(voiceBitrate: number, dtxEnabled: boolean, vadThreshold?: number): void {
-    this.voiceBitrate = voiceBitrate;
-    this.dtxEnabled = dtxEnabled;
+  updateVoiceSettings(
+    voiceBitrate: number,
+    dtxEnabled: boolean,
+    vadThreshold?: number,
+    options?: Partial<VoiceCodecOptions>
+  ): void {
+    this.voiceBitrate = normalizeVoiceBitrate(voiceBitrate);
+    this.dtxEnabled = Boolean(dtxEnabled);
     
     if (vadThreshold !== undefined) {
-      this.vadThreshold = vadThreshold;
+      const nextThreshold = clampNumber(vadThreshold, 0.01, 0.5, this.vadThreshold);
+      this.vadThreshold = nextThreshold;
       
       // Update all existing speaking monitors with new threshold
       for (const monitor of this.remoteMonitors.values()) {
-        monitor.setThreshold(vadThreshold);
+        monitor.setThreshold(nextThreshold);
+      }
+    }
+
+    if (options) {
+      if (options.stereo !== undefined) {
+        this.opusStereo = Boolean(options.stereo);
+      }
+
+      if (options.maxPtime !== undefined) {
+        this.opusMaxPtime = Math.round(
+          clampNumber(options.maxPtime, 20, 60, this.opusMaxPtime)
+        );
+      }
+
+      if (options.minPtime !== undefined) {
+        this.opusMinPtime = Math.round(
+          clampNumber(options.minPtime, 3, 20, this.opusMinPtime)
+        );
+      }
+
+      if (options.maxPlaybackRate !== undefined) {
+        this.opusMaxPlaybackRate = Math.round(
+          clampNumber(options.maxPlaybackRate, 32000, 48000, this.opusMaxPlaybackRate)
+        );
       }
     }
 
@@ -930,15 +1075,15 @@ export class VoiceService extends EventEmitter<EventMap> {
           }
         }
 
-    params.set('stereo', '1');
-    params.set('sprop-stereo', '1');
+    params.set('stereo', this.opusStereo ? '1' : '0');
+    params.set('sprop-stereo', this.opusStereo ? '1' : '0');
     params.set('useinbandfec', '1');
     params.set('cbr', '0');
     params.set('dtx', this.dtxEnabled ? '1' : '0');
         params.set('maxaveragebitrate', String(this.voiceBitrate));
-        params.set('maxplaybackrate', '48000');
-        params.set('minptime', '10');
-        params.set('maxptime', '60');
+        params.set('maxplaybackrate', String(this.opusMaxPlaybackRate));
+        params.set('minptime', String(this.opusMinPtime));
+        params.set('maxptime', String(this.opusMaxPtime));
 
         const rebuilt = Array.from(params.entries())
           .map(([key, value]) => (value ? `${key}=${value}` : key))
@@ -951,7 +1096,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     if (!lines.some((line) => line.startsWith('a=ptime:'))) {
       const audioSectionIndex = lines.findIndex((line) => line.startsWith('m=audio'));
       const insertionIndex = audioSectionIndex !== -1 ? audioSectionIndex + 1 : lines.length;
-      lines.splice(insertionIndex, 0, 'a=ptime:20');
+      lines.splice(insertionIndex, 0, `a=ptime:${this.opusMaxPtime}`);
     }
 
     return { ...desc, sdp: lines.join('\r\n') };
