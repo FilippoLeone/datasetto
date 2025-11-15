@@ -19,7 +19,8 @@ function defineGlobals() {
     getRuntimeConfig: () => runtimeConfig,
     showNotification: (options) => ipcRenderer.invoke('notification:show', options),
     checkNotificationPermission: () => ipcRenderer.invoke('notification:check-permission'),
-    updateVoiceActivity: (state) => ipcRenderer.send('voice:activity', state)
+    updateVoiceActivity: (state) => ipcRenderer.send('voice:activity', state),
+    pickScreenshareSource: (options) => ipcRenderer.invoke('screenshare:pick-source', options)
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);

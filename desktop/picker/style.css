@@ -1,0 +1,254 @@
+:root {
+  color-scheme: dark;
+  --bg: #0e1016;
+  --panel: #181b25;
+  --panel-hover: #1f2432;
+  --text: #f6f7fb;
+  --muted: #9ea7c7;
+  --primary: #7f5af0;
+  --primary-hover: #9875ff;
+  --border: rgba(255, 255, 255, 0.08);
+  --danger: #ff5c8d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.picker {
+  width: 680px;
+  padding: 20px 24px 16px;
+  background: var(--panel);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.picker__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.picker__header h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.picker__header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.icon-button {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px;
+  transition: color 0.2s ease;
+}
+
+.icon-button:hover {
+  color: var(--text);
+}
+
+.picker__filters {
+  display: flex;
+  gap: 8px;
+}
+
+.filter {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: transparent;
+  padding: 8px 0;
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.filter.active,
+.filter:hover {
+  color: var(--text);
+  border-color: var(--primary);
+  background: rgba(127, 90, 240, 0.15);
+}
+
+.picker__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+.source-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-hover);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.1s ease;
+}
+
+.source-card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.source-card.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(127, 90, 240, 0.35);
+}
+
+.source-card__thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #0b0d13;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.source-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.source-card__thumb .placeholder {
+  font-size: 32px;
+  color: var(--muted);
+}
+
+.source-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.source-card__meta img {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.source-card__meta strong {
+  display: block;
+  font-size: 14px;
+}
+
+.source-card__meta span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.picker__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.audio-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.audio-toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.picker__actions {
+  display: flex;
+  gap: 8px;
+}
+
+button.primary,
+button.secondary {
+  min-width: 100px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.1s ease;
+}
+
+button.primary {
+  background: var(--primary);
+  color: #fff;
+}
+
+button.primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+button.primary:not(:disabled):hover {
+  background: var(--primary-hover);
+}
+
+button.secondary:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+@media (max-width: 640px) {
+  .picker {
+    width: 100%;
+    border-radius: 0;
+    height: 100vh;
+  }
+
+  .picker__grid {
+    grid-template-columns: 1fr;
+  }
+}

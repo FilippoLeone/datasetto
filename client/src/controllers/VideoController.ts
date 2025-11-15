@@ -99,6 +99,24 @@ type ScreenshareSignalPayload = {
   channelId?: string | null;
 };
 
+type DesktopScreenshareSource = {
+  id: string;
+  name: string;
+  isScreen?: boolean;
+  type?: 'screen' | 'window';
+};
+
+type DesktopScreensharePickResult = {
+  success: boolean;
+  source?: DesktopScreenshareSource;
+  shareAudio?: boolean;
+  error?: string;
+};
+
+type DesktopScreenshareBridge = {
+  pickScreenshareSource?: (options?: { audio?: boolean }) => Promise<DesktopScreensharePickResult>;
+};
+
 export class VideoController {
   private deps: VideoControllerDeps;
   private inlineHls: any = null;
@@ -118,12 +136,20 @@ export class VideoController {
   private screenshareRole: 'idle' | 'host' | 'viewer' = 'idle';
   private screenshareViewerActive = false;
   private screensharePeers: Map<string, RTCPeerConnection> = new Map();
+  private desktopBridge: DesktopScreenshareBridge | null = null;
   private screenshareCandidateQueue: Map<string, RTCIceCandidateInit[]> = new Map();
   private screenshareTrackCleanup: Array<() => void> = [];
   private lastViewerJoinAttempt = 0;
 
   constructor(deps: VideoControllerDeps) {
     this.deps = deps;
+
+    if (typeof window !== 'undefined') {
+      const bridge = (window as typeof window & { desktopAPI?: DesktopScreenshareBridge }).desktopAPI;
+      if (bridge) {
+        this.desktopBridge = bridge;
+      }
+    }
   }
 
   initialize(): void {
@@ -834,7 +860,10 @@ export class VideoController {
       return;
     }
 
-    if (!navigator.mediaDevices?.getDisplayMedia) {
+    const nativePickerSupported = Boolean(navigator.mediaDevices?.getDisplayMedia);
+    const desktopBridgeAvailable = Boolean(this.desktopBridge?.pickScreenshareSource);
+
+    if (!nativePickerSupported && !desktopBridgeAvailable) {
       this.deps.notifications.error('Screensharing is not supported in this browser');
       return;
     }
@@ -858,7 +887,28 @@ export class VideoController {
         audio: true,
       };
 
-      const stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      let stream: MediaStream | null = null;
+      let desktopCancelled = false;
+
+      if (desktopBridgeAvailable) {
+        const desktopResult = await this.requestDesktopScreenshareStream(constraints);
+        stream = desktopResult.stream;
+        desktopCancelled = desktopResult.cancelled;
+      }
+
+      if (!stream && desktopCancelled) {
+        this.updateScreenshareStatus('Screenshare cancelled', { tone: 'warning' });
+        return;
+      }
+
+      if (!stream && nativePickerSupported) {
+        stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      }
+
+      if (!stream) {
+        throw new Error('Screen capture stream unavailable');
+      }
+
       this.beginHostSession(stream);
     } catch (error) {
       const denied = error && typeof error === 'object' && 'name' in error && error.name === 'NotAllowedError';
@@ -873,6 +923,56 @@ export class VideoController {
     } finally {
       startBtn?.removeAttribute('disabled');
       this.updateScreenshareButtonsState();
+    }
+  }
+
+  private async requestDesktopScreenshareStream(constraints: MediaStreamConstraints): Promise<{ stream: MediaStream | null; cancelled: boolean }> {
+    if (!this.desktopBridge?.pickScreenshareSource) {
+      return { stream: null, cancelled: false };
+    }
+
+    try {
+      const selection = await this.desktopBridge.pickScreenshareSource({ audio: Boolean(constraints.audio) });
+      if (!selection?.success || !selection.source) {
+        const cancelled = selection?.error === 'cancelled';
+        return { stream: null, cancelled };
+      }
+
+      const sourceId = selection.source.id;
+      const videoConstraints = {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: sourceId,
+          maxFrameRate: SCREENSHARE_CAPTURE_CONFIG.maxFps,
+          minFrameRate: SCREENSHARE_CAPTURE_CONFIG.idealFps,
+          minWidth: SCREENSHARE_CAPTURE_CONFIG.idealWidth,
+          maxWidth: SCREENSHARE_CAPTURE_CONFIG.idealWidth,
+          minHeight: SCREENSHARE_CAPTURE_CONFIG.idealHeight,
+          maxHeight: SCREENSHARE_CAPTURE_CONFIG.idealHeight,
+        },
+      };
+
+      const isScreen = Boolean(selection.source.isScreen || selection.source.type === 'screen');
+      const wantsAudio = Boolean(constraints.audio) && Boolean(selection.shareAudio) && isScreen;
+      const audioConstraints: MediaTrackConstraints | boolean = wantsAudio
+        ? ({
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+            },
+          } as unknown as MediaTrackConstraints)
+        : false;
+
+      const desktopConstraints: MediaStreamConstraints = {
+        video: videoConstraints as unknown as MediaTrackConstraints,
+        audio: audioConstraints,
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(desktopConstraints);
+      return { stream, cancelled: false };
+    } catch (error) {
+      console.error('[VideoController] Desktop capture fallback failed:', error);
+      return { stream: null, cancelled: false };
     }
   }
 

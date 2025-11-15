@@ -1,5 +1,8 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, dialog } = require('electron');
 const path = require('node:path');
+
+// Allow screen capture APIs (getDisplayMedia) inside our file:// based renderer
+app.commandLine.appendSwitch('allow-http-screen-capture');
 
 const isDev = Boolean(process.env.ELECTRON_START_URL);
 let mainWindow;
@@ -18,6 +21,104 @@ const trayVoiceState = {
   muted: false,
 };
 let lastSingleInstanceWarningAt = 0;
+let activePickerWindow = null;
+function buildPickerPayload(sources) {
+  return sources.map((source) => ({
+    id: source.id,
+    name: source.name,
+    type: source.id?.startsWith('screen:') ? 'screen' : 'window',
+    thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : null,
+    appIcon:
+      source.appIcon && typeof source.appIcon.toDataURL === 'function' && !source.appIcon.isEmpty()
+        ? source.appIcon.toDataURL()
+        : null,
+  }));
+}
+
+async function promptScreenshareSource(options = {}) {
+  const pickerOptions = {
+    types: ['screen', 'window'],
+    thumbnailSize: { width: 420, height: 240 },
+    fetchWindowIcons: true,
+  };
+  const sources = await desktopCapturer.getSources(pickerOptions);
+
+  if (!sources || sources.length === 0) {
+    throw new Error('No capture sources available');
+  }
+
+  if (activePickerWindow) {
+    activePickerWindow.close();
+  }
+
+  return new Promise((resolve) => {
+    const pickerWindow = new BrowserWindow({
+      width: 720,
+      height: 560,
+      resizable: false,
+      maximizable: false,
+      minimizable: false,
+      title: 'Share Your Screen',
+      modal: true,
+      parent: mainWindow ?? undefined,
+      autoHideMenuBar: true,
+      backgroundColor: '#11131a',
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'picker', 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+
+    activePickerWindow = pickerWindow;
+
+    const cleanup = (result) => {
+      if (activePickerWindow === pickerWindow) {
+        activePickerWindow = null;
+      }
+      resolve(result ?? null);
+      pickerWindow.destroy();
+    };
+
+    const handleSelection = (_event, payload) => {
+      ipcMain.removeListener('screenshare-picker:cancel', handleCancel);
+      cleanup(payload);
+    };
+
+    const handleCancel = () => {
+      ipcMain.removeListener('screenshare-picker:selected', handleSelection);
+      cleanup(null);
+    };
+
+    ipcMain.once('screenshare-picker:selected', handleSelection);
+    ipcMain.once('screenshare-picker:cancel', handleCancel);
+
+    pickerWindow.on('closed', () => {
+      ipcMain.removeListener('screenshare-picker:selected', handleSelection);
+      ipcMain.removeListener('screenshare-picker:cancel', handleCancel);
+      if (activePickerWindow === pickerWindow) {
+        activePickerWindow = null;
+        resolve(null);
+      }
+    });
+
+    pickerWindow.once('ready-to-show', () => {
+      pickerWindow.show();
+      pickerWindow.focus();
+      pickerWindow.webContents.send('screenshare-picker:sources', {
+        allowAudio: Boolean(options?.requestAudio),
+        sources: buildPickerPayload(sources),
+      });
+    });
+
+    pickerWindow.loadFile(path.join(__dirname, 'picker', 'index.html')).catch((error) => {
+      console.error('[Desktop] Failed to load screenshare picker UI:', error);
+      cleanup(null);
+    });
+  });
+}
+
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -365,6 +466,24 @@ async function processNotificationQueue() {
 // Check notification permission on startup
 ipcMain.handle('notification:check-permission', async () => {
   return Notification.isSupported();
+});
+
+ipcMain.handle('screenshare:pick-source', async (_event, payload) => {
+  try {
+    const selection = await promptScreenshareSource({ requestAudio: Boolean(payload?.audio) });
+    if (!selection || !selection.source) {
+      return { success: false, error: 'cancelled' };
+    }
+
+    return {
+      success: true,
+      source: selection.source,
+      shareAudio: Boolean(selection.shareAudio),
+    };
+  } catch (error) {
+    console.error('[Desktop] Failed to select screenshare source:', error);
+    return { success: false, error: error?.message || 'selection-failed' };
+  }
 });
 
 ipcMain.on('voice:activity', (_event, payload) => {

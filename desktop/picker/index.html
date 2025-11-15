@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Select a Source</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="picker">
+      <header class="picker__header">
+        <div>
+          <h1>Choose what to share</h1>
+          <p>Select a screen or individual application window.</p>
+        </div>
+        <button id="closeBtn" class="icon-button" aria-label="Close">×</button>
+      </header>
+
+      <div class="picker__filters">
+        <button data-filter="all" class="filter active">All</button>
+        <button data-filter="screen" class="filter">Screens</button>
+        <button data-filter="window" class="filter">Applications</button>
+      </div>
+
+      <div id="sourcesGrid" class="picker__grid" role="list"></div>
+
+      <footer class="picker__footer">
+        <label class="audio-toggle">
+          <input type="checkbox" id="audioToggle" />
+          <span>Share system audio</span>
+        </label>
+        <div class="picker__actions">
+          <button id="cancelBtn" class="secondary">Cancel</button>
+          <button id="shareBtn" class="primary" disabled>Share</button>
+        </div>
+      </footer>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

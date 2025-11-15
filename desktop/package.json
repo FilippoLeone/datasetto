@@ -45,7 +45,8 @@
       "main.js",
       "preload.js",
       "package.json",
-      "renderer/**/*"
+      "renderer/**/*",
+      "picker/**/*"
     ],
     "directories": {
       "output": "release",
