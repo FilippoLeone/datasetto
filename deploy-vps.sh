@@ -95,10 +95,11 @@ fi
 
 echo ""
 echo "TURN server networking configuration:"
+echo "(Leave blank to let coturn listen on all interfaces inside the container)"
 printf "Listening IP (private interface) [%s]: " "$SERVER_IP"
 read TURN_LISTENING_IP_INPUT
 if [ -z "$TURN_LISTENING_IP_INPUT" ]; then
-  TURN_LISTENING_IP="$SERVER_IP"
+  TURN_LISTENING_IP=""
 else
   TURN_LISTENING_IP="$TURN_LISTENING_IP_INPUT"
 fi
@@ -112,7 +113,12 @@ else
 fi
 
 printf "Alternate listening IP (optional, press Enter to skip): "
-read TURN_ALT_LISTENING_IP
+read TURN_ALT_LISTENING_IP_INPUT
+if [ -z "$TURN_ALT_LISTENING_IP_INPUT" ]; then
+  TURN_ALT_LISTENING_IP=""
+else
+  TURN_ALT_LISTENING_IP="$TURN_ALT_LISTENING_IP_INPUT"
+fi
 
 # Navigate to ops directory (assuming script is run from project root)
 echo ""
