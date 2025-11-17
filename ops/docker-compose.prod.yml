@@ -58,6 +58,8 @@ services:
       dockerfile: Dockerfile.rtmp
     container_name: rtmp-server
     restart: unless-stopped
+    depends_on:
+      - server
     ports:
       - "1935:1935"  # RTMP ingestion (must be public for OBS)
     # Keep HLS segments on a ramdisk for faster writes
@@ -102,7 +104,6 @@ services:
     networks:
       - rtmp-network
     depends_on:
-      - rtmp
       - turn
     deploy:
       resources:
