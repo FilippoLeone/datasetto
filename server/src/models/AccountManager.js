@@ -9,7 +9,7 @@ import logger from '../utils/logger.js';
 const ACCOUNT_FILE_VERSION = 1;
 
 function validatePassword(password) {
-  const minLength = Math.max(appConfig.security?.passwordMinLength || 8, 4);
+  const minLength = Math.max(appConfig.security?.passwordMinLength || 8, 8);
   if (typeof password !== 'string') {
     return { valid: false, error: 'Password is required' };
   }

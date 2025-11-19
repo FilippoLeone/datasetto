@@ -13,6 +13,7 @@ import type {
   VoiceMinigameState,
 } from '@/types';
 import { EventEmitter, Storage } from '@/utils';
+import { config } from '@/config';
 
 const STORAGE_KEYS = {
   AUTH: 'rtmpdisc.auth.v1',
@@ -65,17 +66,17 @@ const parseBooleanEnv = (value: string | undefined, fallback: boolean): boolean 
 };
 
 const DEFAULT_VOICE_BITRATE = Math.round(
-  parseNumberEnv(import.meta.env.VITE_VOICE_OPUS_BITRATE, 64000, {
+  parseNumberEnv(config.VOICE_OPUS_BITRATE, 64000, {
     min: VOICE_BITRATE_MIN,
     max: VOICE_BITRATE_MAX,
   })
 );
-const DEFAULT_DTX_ENABLED = parseBooleanEnv(import.meta.env.VITE_VOICE_DTX_ENABLED, true);
-const DEFAULT_VAD_THRESHOLD = parseNumberEnv(import.meta.env.VITE_VOICE_VAD_THRESHOLD, 0.07, {
+const DEFAULT_DTX_ENABLED = parseBooleanEnv(config.VOICE_DTX_ENABLED, true);
+const DEFAULT_VAD_THRESHOLD = parseNumberEnv(config.VOICE_VAD_THRESHOLD, 0.07, {
   min: 0.01,
   max: 0.5,
 });
-const DEFAULT_NOISE_REDUCTION_LEVEL = clamp(parseNumberEnv(import.meta.env.VITE_NOISE_REDUCTION_LEVEL, 0.35, {
+const DEFAULT_NOISE_REDUCTION_LEVEL = clamp(parseNumberEnv(config.NOISE_REDUCTION_LEVEL, 0.35, {
   min: 0,
   max: 1,
 }), 0, 1);

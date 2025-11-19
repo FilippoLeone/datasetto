@@ -10,7 +10,16 @@ import { dirname, join } from 'path';
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-config({ path: join(__dirname, '../../.env') });
+
+// Only load .env file in development or if explicitly requested
+// In production (Docker), env vars are injected directly
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    config({ path: join(__dirname, '../../.env') });
+  } catch (error) {
+    // Ignore error if .env file is missing
+  }
+}
 
 const DEFAULT_CORS_ORIGINS = ['http://localhost:5173'];
 const NORMALIZED_DEFAULT_CORS_ORIGINS = DEFAULT_CORS_ORIGINS.map((origin) => origin.replace(/\/$/, '').toLowerCase());

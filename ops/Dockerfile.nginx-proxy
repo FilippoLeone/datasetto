@@ -1,5 +1,5 @@
 # Nginx Reverse Proxy Docker Image
-FROM nginx:alpine
+FROM nginx:1.27-alpine
 
 # Install envsubst for dynamic configuration
 RUN apk add --no-cache gettext

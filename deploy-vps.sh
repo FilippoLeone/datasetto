@@ -55,20 +55,26 @@ if [ "$HAS_DOMAIN" = "yes" ]; then
   read DOMAIN
   
   # With Docker nginx reverse proxy, always use path-based routing
+  SERVER_URL_ABSOLUTE="https://$DOMAIN"
   SERVER_URL="https://$DOMAIN"
   HLS_BASE_URL="https://$DOMAIN/hls"
   API_BASE_URL="https://$DOMAIN"
   # Include mobile app origins (Capacitor uses https://localhost and capacitor://localhost)
   CORS_ORIGIN="https://$DOMAIN,https://localhost,capacitor://localhost,http://localhost"
-  echo "Using domain with Docker nginx reverse proxy: $DOMAIN"
+  echo "Using domain with Caddy reverse proxy: $DOMAIN"
+  
+  printf "Enter email for Let's Encrypt SSL (required for HTTPS): "
+  read LETSENCRYPT_EMAIL
 else
   DOMAIN=$SERVER_IP
+  SERVER_URL_ABSOLUTE="http://$SERVER_IP"
   SERVER_URL="http://$SERVER_IP"
   HLS_BASE_URL="http://$SERVER_IP/hls"
   API_BASE_URL="http://$SERVER_IP"
   # Include mobile app origins for IP-based deployments
   CORS_ORIGIN="http://$SERVER_IP,https://localhost,capacitor://localhost,http://localhost"
-  echo "Using IP address with Docker nginx reverse proxy: $SERVER_IP"
+  echo "Using IP address with Caddy reverse proxy: $SERVER_IP"
+  LETSENCRYPT_EMAIL="admin@localhost"
 fi
 
 # TURN defaults (override later in ops/.env if needed)
@@ -143,9 +149,14 @@ PASSWORD_MIN_LENGTH=8
 ACCOUNT_SESSION_TTL_MS=86400000
 
 # Server URLs
-SERVER_URL=$SERVER_URL
-HLS_BASE_URL=$HLS_BASE_URL
-API_BASE_URL=$API_BASE_URL
+SERVER_URL=/
+HLS_BASE_URL=/hls
+API_BASE_URL=/api
+
+# Mobile/Desktop Defaults (Absolute URLs required)
+VITE_MOBILE_DEFAULT_SERVER_URL=$SERVER_URL_ABSOLUTE
+VITE_MOBILE_DEFAULT_HLS_URL=$SERVER_URL_ABSOLUTE/hls
+VITE_MOBILE_DEFAULT_RTMP_URL=rtmp://$DOMAIN/live
 
 # CORS Configuration
 CORS_ORIGIN=$CORS_ORIGIN
@@ -185,6 +196,7 @@ VITE_VOICE_VAD_THRESHOLD=0.07
 DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SERVER_IP=$SERVER_IP
 DOMAIN=$DOMAIN
+LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL
 EOF
   echo "Environment file created"
 }
@@ -234,7 +246,7 @@ if [ "$HAS_DOMAIN" = "yes" ]; then
   echo "  Backend API: https://$DOMAIN"
   echo "  HLS Streams: https://$DOMAIN/hls"
   echo ""
-  echo "Note: Using Docker nginx reverse proxy - web traffic routes through port 80"
+  echo "Note: Using Caddy reverse proxy - web traffic routes through port 80/443"
   echo "Ensure RTMP port 1935 is reachable (direct or via proxy)"
   echo "If using Cloudflare or similar proxy, set DNS A record to: $SERVER_IP"
 else

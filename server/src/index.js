@@ -43,9 +43,52 @@ const streamAuthCleanupHandle = setInterval(
 );
 streamAuthCleanupHandle.unref?.();
 
+const authRateStore = new Map();
+const authRateCleanupHandle = setInterval(
+  () => cleanupRateLimitStore(authRateStore),
+  appConfig.security.rateLimitWindowMs,
+);
+authRateCleanupHandle.unref?.();
+
 const normalizeOrigin = (value = '') => value.replace(/\/$/, '').toLowerCase();
 const allowedOrigins = new Set(appConfig.cors.origins.map(normalizeOrigin));
 const allowAllOrigins = allowedOrigins.has('*');
+
+/**
+ * Check if an origin is allowed
+ * Handles web domains, mobile apps, and desktop clients
+ */
+const isAllowedOrigin = (origin) => {
+  // Allow requests with no origin (server-to-server, non-browser clients)
+  if (!origin) return true;
+
+  // Allow wildcard if configured
+  if (allowAllOrigins) return true;
+
+  const normalizedOrigin = normalizeOrigin(origin);
+
+  // Check against allowed list
+  if (allowedOrigins.has(normalizedOrigin)) return true;
+
+  // Allow Electron/Mobile specific origins
+  // Electron often sends 'file://' or 'null'
+  if (origin.startsWith('file://') || origin === 'null') return true;
+  
+  // Mobile/Desktop schemes
+  if (origin.startsWith('capacitor://') || 
+      origin.startsWith('ionic://') || 
+      origin.startsWith('chrome-extension://') ||
+      origin.startsWith('electron://')) {
+    return true;
+  }
+  
+  // Capacitor on Android often uses localhost
+  if (origin.startsWith('http://localhost') || origin.startsWith('https://localhost')) {
+    return true;
+  }
+
+  return false;
+};
 
 const PLACEHOLDER_PATTERN = /^\$[A-Za-z0-9_]+$/;
 
@@ -258,20 +301,12 @@ app.use(cors({
   origin: (origin, callback) => {
     logger.debug(`CORS check for origin: ${origin}`);
     
-    if (!origin || allowAllOrigins) {
-      logger.debug(`Allowing origin: ${origin || '(none)'} - no origin or wildcard`);
+    if (isAllowedOrigin(origin)) {
+      logger.debug(`✅ Allowed origin: ${origin || '(none)'}`);
       return callback(null, true);
     }
 
-    const normalizedOrigin = normalizeOrigin(origin);
-    logger.debug(`Normalized origin: ${normalizedOrigin}, allowed origins: ${Array.from(allowedOrigins).join(', ')}`);
-
-    if (allowedOrigins.has(normalizedOrigin)) {
-      logger.debug(`✅ Allowed origin: ${origin}`);
-      return callback(null, true);
-    }
-
-    logger.warn('❌ Blocked request from disallowed origin', { origin, normalizedOrigin });
+    logger.warn('❌ Blocked request from disallowed origin', { origin });
     return callback(new Error(`Origin ${origin} not allowed by CORS`), false);
   },
   credentials: appConfig.cors.credentials,
@@ -296,14 +331,17 @@ app.use((req, res, next) => {
 });
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+const healthCheck = (req, res) => {
   res.json({
     status: 'healthy',
     uptime: process.uptime(),
     timestamp: Date.now(),
     env: appConfig.server.env,
   });
-});
+};
+
+app.get('/health', healthCheck);
+app.get('/api/health', healthCheck);
 
 // Stats endpoint
 app.get('/api/stats', (req, res) => {
@@ -637,8 +675,14 @@ const io = new Server(server, {
   serveClient: false,
   cors: {
     origin: (origin, callback) => {
-      // Allow all origins for now, can restrict later
-      callback(null, origin || '*');
+      logger.debug(`Socket.IO CORS check for origin: ${origin}`);
+      
+      if (isAllowedOrigin(origin)) {
+        return callback(null, true);
+      }
+
+      logger.warn('❌ Socket.IO blocked request from disallowed origin', { origin });
+      return callback(new Error(`Origin ${origin} not allowed by CORS`), false);
     },
     credentials: true,
     methods: ["GET", "POST"]
@@ -821,6 +865,11 @@ io.on('connection', (socket) => {
     try {
       requireNoActiveUser();
 
+      const ip = getClientIp(socket);
+      if (!checkRateLimit(authRateStore, ip, 5, 60000)) {
+        throw new Error('Too many registration attempts. Please try again later.');
+      }
+
       const { username, password, profile = {} } = payload;
       const account = await accountManager.registerAccount({
         username,
@@ -848,6 +897,11 @@ io.on('connection', (socket) => {
   socket.on('auth:login', async (payload = {}) => {
     try {
       requireNoActiveUser();
+
+      const ip = getClientIp(socket);
+      if (!checkRateLimit(authRateStore, ip, 10, 60000)) {
+        throw new Error('Too many login attempts. Please try again later.');
+      }
 
       const { username, password } = payload;
       const account = await accountManager.authenticate(username, password);
@@ -1059,6 +1113,29 @@ io.on('connection', (socket) => {
       const filteredRoles = sanitizedRoles.filter((role) => validRoleNames.has(role));
       if (filteredRoles.length === 0) {
         throw new Error('No valid roles provided');
+      }
+
+      // Security: Privilege escalation prevention
+      if (!currentUser.isSuperuser) {
+        const requesterHighestRole = userManager.getUserHighestRole(socket.id);
+        const requesterLevel = ROLES[requesterHighestRole]?.level || 0;
+
+        // Check if target account has higher privileges
+        const targetAccount = accountManager.getAccountById(accountId);
+        if (targetAccount) {
+          const targetHighestLevel = Math.max(...(targetAccount.roles || []).map(r => ROLES[r]?.level || 0));
+          if (targetHighestLevel > requesterLevel) {
+            throw new Error('You cannot modify an account with higher privileges than yours');
+          }
+        }
+
+        // Check if trying to assign higher privileges
+        for (const role of filteredRoles) {
+          const roleLevel = ROLES[role]?.level || 0;
+          if (roleLevel > requesterLevel) {
+            throw new Error(`You cannot assign the role '${role}' which is higher than your own`);
+          }
+        }
       }
 
       // Prevent removing the last admin

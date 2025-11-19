@@ -1,4 +1,4 @@
-FROM alfg/nginx-rtmp:latest
+FROM alfg/nginx-rtmp:v1.6.0
 
 # Install wget for health checks
 RUN apk add --no-cache wget

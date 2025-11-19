@@ -1,0 +1,36 @@
+{
+    # Global options
+    # email {$LETSENCRYPT_EMAIL}
+}
+
+{$DOMAIN} {
+    # Frontend
+    handle / {
+        reverse_proxy client:80
+    }
+    handle /* {
+        reverse_proxy client:80
+    }
+
+    # Backend API
+    handle /api/* {
+        reverse_proxy server:4000
+    }
+
+    # Socket.IO
+    handle /socket.io/* {
+        reverse_proxy server:4000
+    }
+
+    # HLS
+    handle /hls/* {
+        reverse_proxy rtmp:80 {
+            header_up Host {host}
+        }
+    }
+    
+    # Health check
+    handle /health {
+        reverse_proxy server:4000
+    }
+}

@@ -1385,7 +1385,6 @@ export class VideoController {
       frameRate: {
         ideal: SCREENSHARE_CAPTURE_CONFIG.idealFps,
         max: SCREENSHARE_CAPTURE_CONFIG.maxFps,
-        min: SCREENSHARE_CAPTURE_CONFIG.minFps,
       },
       cursor: 'always',
     };

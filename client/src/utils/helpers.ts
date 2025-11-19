@@ -1,3 +1,5 @@
+import { config } from '../config';
+
 /**
  * Storage utilities with type safety
  */
@@ -175,9 +177,9 @@ const getCapacitor = (): CapacitorLike | undefined => {
 
 const resolveLocalFallbacks = () => {
   const defaults = {
-    server: 'http://localhost:4000',
-    hls: 'http://localhost/hls',
-  rtmp: 'rtmp://localhost:1935/live',
+    server: '/',
+    hls: '/hls',
+    rtmp: 'rtmp://localhost:1935/live',
   };
 
   if (!isBrowserEnvironment) {
@@ -195,8 +197,8 @@ const resolveLocalFallbacks = () => {
   if (platform === 'android') {
     const remoteServer = pickRemoteUrl(
       [
-        import.meta.env.VITE_MOBILE_DEFAULT_SERVER_URL,
-        import.meta.env.VITE_SERVER_URL,
+        config.MOBILE_DEFAULT_SERVER_URL,
+        config.SERVER_URL,
         desktopRuntimeConfig?.serverUrl,
       ],
       DEFAULT_REMOTE_SERVER
@@ -204,8 +206,8 @@ const resolveLocalFallbacks = () => {
 
     const remoteHls = pickRemoteUrl(
       [
-        import.meta.env.VITE_MOBILE_DEFAULT_HLS_URL,
-        import.meta.env.VITE_HLS_BASE_URL,
+        config.MOBILE_DEFAULT_HLS_URL,
+        config.HLS_BASE_URL,
         desktopRuntimeConfig?.hlsBaseUrl,
       ],
       deriveHlsFromServer(remoteServer)
@@ -213,8 +215,8 @@ const resolveLocalFallbacks = () => {
 
     const remoteRtmp = pickRemoteUrl(
       [
-        import.meta.env.VITE_MOBILE_DEFAULT_RTMP_URL,
-        import.meta.env.VITE_RTMP_SERVER_URL,
+        config.MOBILE_DEFAULT_RTMP_URL,
+        config.RTMP_SERVER_URL,
         desktopRuntimeConfig?.rtmpServerUrl,
       ],
       deriveRtmpFromServer(remoteServer)
@@ -270,7 +272,7 @@ export function resolveRuntimeConfig(): RuntimeConfig {
   const runningOnLocalhost = isLocalHost(host);
 
   const desktopServer = desktopRuntimeConfig?.serverUrl?.trim();
-  const envServer = import.meta.env.VITE_SERVER_URL?.trim();
+  const envServer = config.SERVER_URL?.trim();
   let serverUrl = desktopServer || envServer;
 
   if (desktopServer) {
@@ -289,7 +291,7 @@ export function resolveRuntimeConfig(): RuntimeConfig {
   }
 
   const desktopApi = desktopRuntimeConfig?.apiBaseUrl?.trim();
-  const envApi = import.meta.env.VITE_API_BASE_URL?.trim();
+  const envApi = config.API_BASE_URL?.trim();
   let apiBaseUrl = desktopApi || envApi || serverUrl;
 
   if (desktopApi) {
@@ -304,7 +306,7 @@ export function resolveRuntimeConfig(): RuntimeConfig {
   }
 
   const desktopHls = desktopRuntimeConfig?.hlsBaseUrl?.trim();
-  const envHls = import.meta.env.VITE_HLS_BASE_URL?.trim();
+  const envHls = config.HLS_BASE_URL?.trim();
   let hlsBaseUrl = desktopHls || envHls;
 
   if (desktopHls) {
@@ -323,7 +325,7 @@ export function resolveRuntimeConfig(): RuntimeConfig {
   }
 
   const desktopRtmp = desktopRuntimeConfig?.rtmpServerUrl?.trim();
-  const envRtmp = import.meta.env.VITE_RTMP_SERVER_URL?.trim();
+  const envRtmp = config.RTMP_SERVER_URL?.trim();
   let rtmpServerUrl = desktopRtmp || envRtmp;
 
   if (desktopRtmp) {

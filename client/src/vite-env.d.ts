@@ -43,6 +43,7 @@ interface DatasettoDesktopConfig {
 declare global {
   interface Window {
     datasettoDesktopConfig?: DatasettoDesktopConfig;
+    env?: ImportMetaEnv;
   }
 }
 

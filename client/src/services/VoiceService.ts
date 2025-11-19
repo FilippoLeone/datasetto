@@ -4,6 +4,7 @@
 import type { EventMap } from '@/types';
 import { EventEmitter, Storage } from '@/utils';
 import { isNativeAudioRoutingAvailable, selectNativeAudioRoute } from './NativeAudioRouteService';
+import { config } from '@/config';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -154,7 +155,7 @@ const dedupeIceServers = (servers: RTCIceServer[]): RTCIceServer[] => {
 const resolveIceServers = (): RTCIceServer[] => {
   const servers: RTCIceServer[] = [...DEFAULT_ICE_SERVERS];
 
-  const customIce = import.meta.env.VITE_WEBRTC_ICE_SERVERS;
+  const customIce = config.WEBRTC_ICE_SERVERS;
   if (customIce) {
     try {
       const parsed = JSON.parse(customIce);
@@ -167,10 +168,10 @@ const resolveIceServers = (): RTCIceServer[] => {
     }
   }
 
-  const turnUrls = splitEnvList(import.meta.env.VITE_TURN_URL);
+  const turnUrls = splitEnvList(config.TURN_URL);
   if (turnUrls.length > 0) {
-    const username = import.meta.env.VITE_TURN_USERNAME;
-    const credential = import.meta.env.VITE_TURN_CREDENTIAL;
+    const username = config.TURN_USERNAME;
+    const credential = config.TURN_CREDENTIAL;
 
     for (const turnUrl of turnUrls) {
       const normalizedUrl = ensureTurnScheme(turnUrl);
@@ -191,25 +192,25 @@ const ICE_RESTART_MAX_ATTEMPTS = 3;
 const OPUS_BITRATE_MIN = 6000;
 const OPUS_BITRATE_MAX = 128000;
 const OPUS_TARGET_BITRATE = Math.round(
-  parseNumberEnv(import.meta.env.VITE_VOICE_OPUS_BITRATE, 64000, {
+  parseNumberEnv(config.VOICE_OPUS_BITRATE, 64000, {
     min: OPUS_BITRATE_MIN,
     max: OPUS_BITRATE_MAX,
   })
 );
-const DEFAULT_DTX_ENABLED = parseBooleanEnv(import.meta.env.VITE_VOICE_DTX_ENABLED, true);
-const DEFAULT_VAD_THRESHOLD = parseNumberEnv(import.meta.env.VITE_VOICE_VAD_THRESHOLD, 0.07, {
+const DEFAULT_DTX_ENABLED = parseBooleanEnv(config.VOICE_DTX_ENABLED, true);
+const DEFAULT_VAD_THRESHOLD = parseNumberEnv(config.VOICE_VAD_THRESHOLD, 0.07, {
   min: 0.01,
   max: 0.5,
 });
-const DEFAULT_OPUS_STEREO = parseBooleanEnv(import.meta.env.VITE_VOICE_OPUS_STEREO, false);
+const DEFAULT_OPUS_STEREO = parseBooleanEnv(config.VOICE_OPUS_STEREO, false);
 const DEFAULT_OPUS_MIN_PTIME = Math.round(
-  parseNumberEnv(import.meta.env.VITE_VOICE_OPUS_MIN_PTIME, 10, { min: 3, max: 20 })
+  parseNumberEnv(config.VOICE_OPUS_MIN_PTIME, 10, { min: 3, max: 20 })
 );
 const DEFAULT_OPUS_MAX_PTIME = Math.round(
-  parseNumberEnv(import.meta.env.VITE_VOICE_OPUS_MAX_PTIME, 20, { min: 20, max: 60 })
+  parseNumberEnv(config.VOICE_OPUS_MAX_PTIME, 20, { min: 20, max: 60 })
 );
 const DEFAULT_OPUS_MAX_PLAYBACK_RATE = Math.round(
-  parseNumberEnv(import.meta.env.VITE_VOICE_OPUS_MAX_PLAYBACK_RATE, 48000, {
+  parseNumberEnv(config.VOICE_OPUS_MAX_PLAYBACK_RATE, 48000, {
     min: 32000,
     max: 48000,
   })
@@ -1069,95 +1070,84 @@ export class VoiceService extends EventEmitter<EventMap> {
         const params = new Map<string, string>();
 
         if (paramString) {
-          for (const token of paramString.split(';')) {
-            const trimmed = token.trim();
-            if (!trimmed) continue;
-            const [key, value] = trimmed.split('=');
-            if (key) {
-              params.set(key, value ?? '');
-            }
-          }
+          paramString.split(';').forEach((pair) => {
+            const [key, value] = pair.split('=');
+            if (key) params.set(key.trim(), value?.trim() ?? '');
+          });
         }
 
-    params.set('stereo', this.opusStereo ? '1' : '0');
-    params.set('sprop-stereo', this.opusStereo ? '1' : '0');
-    params.set('useinbandfec', '1');
-    params.set('cbr', '0');
-    params.set('dtx', this.dtxEnabled ? '1' : '0');
-        params.set('maxaveragebitrate', String(this.voiceBitrate));
-        params.set('maxplaybackrate', String(this.opusMaxPlaybackRate));
-        params.set('minptime', String(this.opusMinPtime));
-        params.set('maxptime', String(this.opusMaxPtime));
+        // Apply Opus settings
+        if (this.opusStereo) {
+          params.set('stereo', '1');
+          params.set('sprop-stereo', '1');
+        } else {
+          params.delete('stereo');
+          params.delete('sprop-stereo');
+        }
 
-        const rebuilt = Array.from(params.entries())
-          .map(([key, value]) => (value ? `${key}=${value}` : key))
-          .join(';');
+        params.set('minptime', this.opusMinPtime.toString());
+        params.set('maxptime', this.opusMaxPtime.toString());
+        params.set('maxplaybackrate', this.opusMaxPlaybackRate.toString());
+        params.set('usedtx', this.dtxEnabled ? '1' : '0');
 
-        lines[fmtpIndex] = `${prefix} ${rebuilt}`.trim();
+        const newParams = Array.from(params.entries())
+          .map(([k, v]) => (v ? `${k}=${v}` : k))
+          .join('; ');
+
+        lines[fmtpIndex] = `${prefix} ${newParams}`;
       }
     }
 
-    if (!lines.some((line) => line.startsWith('a=ptime:'))) {
-      const audioSectionIndex = lines.findIndex((line) => line.startsWith('m=audio'));
-      const insertionIndex = audioSectionIndex !== -1 ? audioSectionIndex + 1 : lines.length;
-      lines.splice(insertionIndex, 0, `a=ptime:${this.opusMaxPtime}`);
-    }
-
-    return { ...desc, sdp: lines.join('\r\n') };
+    return {
+      type: desc.type,
+      sdp: lines.join('\r\n'),
+    };
   }
 }
 
-/**
- * Speaking detection monitor
- */
 class SpeakingMonitor {
-  private analyser: AnalyserNode;
-  private callback: (speaking: boolean) => void;
-  private rafId: number | null = null;
-  private threshold: number;
-  private isSpeaking = false;
+  private interval: number | null = null;
+  private history: number[] = [];
+  private readonly historySize = 10;
 
-  constructor(analyser: AnalyserNode, callback: (speaking: boolean) => void, threshold = 0.07) {
-    this.analyser = analyser;
-    this.callback = callback;
-    this.threshold = threshold;
+  constructor(
+    private analyser: AnalyserNode,
+    private onSpeakingChange: (speaking: boolean) => void,
+    private threshold: number
+  ) {}
+
+  start(): void {
+    if (this.interval) return;
+    this.interval = window.setInterval(() => this.check(), 50);
+  }
+
+  stop(): void {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+    }
   }
 
   setThreshold(threshold: number): void {
     this.threshold = threshold;
   }
 
-  start(): void {
-    if (this.rafId !== null) return;
+  private check(): void {
+    const data = new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.getByteFrequencyData(data);
 
-    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-
-    const check = () => {
-      this.analyser.getByteTimeDomainData(dataArray);
-
-      let peak = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        const value = Math.abs(dataArray[i] - 128) / 128;
-        if (value > peak) peak = value;
-      }
-
-      const speaking = peak > this.threshold;
-
-      if (speaking !== this.isSpeaking) {
-        this.isSpeaking = speaking;
-        this.callback(speaking);
-      }
-
-      this.rafId = requestAnimationFrame(check);
-    };
-
-    this.rafId = requestAnimationFrame(check);
-  }
-
-  stop(): void {
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
+    let sum = 0;
+    for (const amplitude of data) {
+      sum += amplitude;
     }
+    const average = sum / data.length / 255;
+
+    this.history.push(average);
+    if (this.history.length > this.historySize) {
+      this.history.shift();
+    }
+
+    const smoothed = this.history.reduce((a, b) => a + b, 0) / this.history.length;
+    this.onSpeakingChange(smoothed > this.threshold);
   }
 }

@@ -1,55 +1,32 @@
 # Production docker-compose for RTMP-Disc
-# Works on: GCP, AWS, DigitalOcean, Hetzner, any VPS with Docker
+#
+# Architecture Overview:
+# - caddy: The public HTTP/HTTPS entry point (ports 80/443). Handles SSL and routing.
+# - turn: WebRTC relay server. Exposes UDP/TCP ports directly for media relay.
+# - rtmp: RTMP ingestion server. Exposes port 1935 for OBS/streaming software.
+# - server: Node.js backend. Internal only.
+# - client: Static frontend files served by Nginx. Internal only.
+#
+# Networking:
+# All services share a private bridge network 'app-network'.
+# Only 'caddy', 'turn', and 'rtmp' expose ports to the host.
 
 services:
   turn:
-    image: coturn/coturn:latest
+    image: coturn/coturn:4.6.2-alpine
     container_name: turn-server
     restart: unless-stopped
     networks:
-      - rtmp-network
+      - app-network
     ports:
       - "${TURN_PORT:-3478}:${TURN_PORT:-3478}"
       - "${TURN_PORT:-3478}:${TURN_PORT:-3478}/udp"
       - '${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp'
     env_file:
       - .env
-    entrypoint:
-      - /bin/sh
-      - -c
-      - >
-        set -eu;
-        TURN_CMD="turnserver \
-          --log-file=stdout \
-          --fingerprint \
-          --simple-log \
-          --no-cli \
-          --no-tls \
-          --no-dtls \
-          --lt-cred-mech \
-          --realm=${TURN_REALM:-yourdomain.com} \
-          --server-name=${TURN_REALM:-yourdomain.com} \
-          --user=${TURN_USERNAME:-turnuser}:${TURN_PASSWORD:-turnpass} \
-          --listening-port=${TURN_PORT:-3478} \
-          --min-port=${TURN_MIN_PORT:-49160} \
-          --max-port=${TURN_MAX_PORT:-49200} \
-          --no-multicast-peers \
-          --stale-nonce";
-        if [ -n "${TURN_LISTENING_IP:-}" ]; then
-          TURN_CMD="$$TURN_CMD --listening-ip=${TURN_LISTENING_IP}";
-        else
-          TURN_CMD="$$TURN_CMD --listening-ip=0.0.0.0";
-        fi;
-        if [ -n "${TURN_ALT_LISTENING_IP:-}" ]; then
-          TURN_CMD="$$TURN_CMD --alt-listening-ip=${TURN_ALT_LISTENING_IP}";
-        fi;
-        if [ -n "${TURN_EXTERNAL_IP:-}" ]; then
-          TURN_CMD="$$TURN_CMD --external-ip=${TURN_EXTERNAL_IP}";
-        fi;
-        if [ -n "${TURN_EXTRA_ARGS:-}" ]; then
-          TURN_CMD="$$TURN_CMD ${TURN_EXTRA_ARGS}";
-        fi;
-        exec $$TURN_CMD
+    volumes:
+      - ./turn-entrypoint.sh:/usr/local/bin/turn-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/turn-entrypoint.sh"]
 
   # NGINX RTMP Server (Custom build with CORS)
   rtmp:
@@ -66,7 +43,7 @@ services:
     tmpfs:
       - /tmp/hls:rw,size=512m
     networks:
-      - rtmp-network
+      - app-network
     deploy:
       resources:
         limits:
@@ -94,7 +71,7 @@ services:
       - .env
     environment:
       - NODE_ENV=production
-      - PORT=4000
+      - PORT=${PORT:-4000}
       - HOST=0.0.0.0
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - HLS_BASE_URL=${HLS_BASE_URL:-http://localhost/hls}
@@ -102,7 +79,7 @@ services:
       - MAX_CHANNELS=${MAX_CHANNELS:-50}
       - MAX_USERS_PER_CHANNEL=${MAX_USERS_PER_CHANNEL:-50}
     networks:
-      - rtmp-network
+      - app-network
     depends_on:
       - turn
     deploy:
@@ -125,26 +102,32 @@ services:
     build:
       context: ../client
       dockerfile: Dockerfile.prod
-      args:
-        - VITE_SERVER_URL=${SERVER_URL:-http://localhost:4000}
-        - VITE_HLS_BASE_URL=${HLS_BASE_URL:-http://localhost/hls}
-        - VITE_API_BASE_URL=${API_BASE_URL:-http://localhost:4000}
-        - VITE_WEBRTC_ICE_SERVERS=${VITE_WEBRTC_ICE_SERVERS:-}
-        - VITE_TURN_URL=${VITE_TURN_URL:-}
-        - VITE_TURN_USERNAME=${VITE_TURN_USERNAME:-}
-        - VITE_TURN_CREDENTIAL=${VITE_TURN_CREDENTIAL:-}
-        - VITE_VOICE_OPUS_BITRATE=${VITE_VOICE_OPUS_BITRATE:-64000}
-        - VITE_VOICE_DTX_ENABLED=${VITE_VOICE_DTX_ENABLED:-true}
-        - VITE_VOICE_OPUS_STEREO=${VITE_VOICE_OPUS_STEREO:-false}
-        - VITE_VOICE_OPUS_MIN_PTIME=${VITE_VOICE_OPUS_MIN_PTIME:-10}
-        - VITE_VOICE_OPUS_MAX_PTIME=${VITE_VOICE_OPUS_MAX_PTIME:-20}
-        - VITE_VOICE_OPUS_MAX_PLAYBACK_RATE=${VITE_VOICE_OPUS_MAX_PLAYBACK_RATE:-48000}
-        - VITE_VOICE_VAD_THRESHOLD=${VITE_VOICE_VAD_THRESHOLD:-0.07}
     container_name: frontend-client
     restart: unless-stopped
+    # Runtime configuration via environment variables
+    env_file:
+      - .env
+    environment:
+      - VITE_SERVER_URL=${SERVER_URL:-/}
+      - VITE_HLS_BASE_URL=${HLS_BASE_URL:-/hls}
+      - VITE_API_BASE_URL=${API_BASE_URL:-/api}
+      - VITE_WEBRTC_ICE_SERVERS=${VITE_WEBRTC_ICE_SERVERS:-}
+      - VITE_TURN_URL=${VITE_TURN_URL:-}
+      - VITE_TURN_USERNAME=${VITE_TURN_USERNAME:-}
+      - VITE_TURN_CREDENTIAL=${VITE_TURN_CREDENTIAL:-}
+      - VITE_VOICE_OPUS_BITRATE=${VITE_VOICE_OPUS_BITRATE:-64000}
+      - VITE_VOICE_DTX_ENABLED=${VITE_VOICE_DTX_ENABLED:-true}
+      - VITE_VOICE_OPUS_STEREO=${VITE_VOICE_OPUS_STEREO:-false}
+      - VITE_VOICE_OPUS_MIN_PTIME=${VITE_VOICE_OPUS_MIN_PTIME:-10}
+      - VITE_VOICE_OPUS_MAX_PTIME=${VITE_VOICE_OPUS_MAX_PTIME:-20}
+      - VITE_VOICE_OPUS_MAX_PLAYBACK_RATE=${VITE_VOICE_OPUS_MAX_PLAYBACK_RATE:-48000}
+      - VITE_VOICE_VAD_THRESHOLD=${VITE_VOICE_VAD_THRESHOLD:-0.07}
+      - VITE_MOBILE_DEFAULT_SERVER_URL=${VITE_MOBILE_DEFAULT_SERVER_URL:-}
+      - VITE_MOBILE_DEFAULT_HLS_URL=${VITE_MOBILE_DEFAULT_HLS_URL:-}
+      - VITE_MOBILE_DEFAULT_RTMP_URL=${VITE_MOBILE_DEFAULT_RTMP_URL:-}
     # No external ports - accessed via reverse proxy
     networks:
-      - rtmp-network
+      - app-network
     depends_on:
       - server
       - turn
@@ -163,17 +146,24 @@ services:
       retries: 3
       start_period: 10s
 
-  # Nginx Reverse Proxy (Routes all traffic)
-  nginx-proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile.nginx-proxy
-    container_name: nginx-reverse-proxy
+  # Caddy Reverse Proxy (Automatic HTTPS)
+  caddy:
+    image: caddy:2.7-alpine
+    container_name: caddy-reverse-proxy
     restart: unless-stopped
     ports:
-      - "80:80"  # Main HTTP port
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
     networks:
-      - rtmp-network
+      - app-network
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-admin@localhost}
     depends_on:
       - client
       - server
@@ -181,18 +171,22 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.15'
-          memory: 96M
+          cpus: '0.5'
+          memory: 256M
         reservations:
-          cpus: '0.04'
-          memory: 64M
+          cpus: '0.1'
+          memory: 128M
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:2019/metrics"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
+volumes:
+  caddy_data:
+  caddy_config:
+
 networks:
-  rtmp-network:
+  app-network:
     driver: bridge
