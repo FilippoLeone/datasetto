@@ -370,9 +370,9 @@ export class App {
     'user-avatar', 'user-status-text', 'voice-status-panel',
     'connected-voice-channel',
   'voice-users-panel', 'voice-users-list', 'voice-user-count', 'voice-session-timer',
-  'voice-minigame-open', 'voice-minigame-close',
-  'voice-minigame-container', 'voice-minigame-canvas', 'voice-minigame-start', 'voice-minigame-end',
-  'voice-minigame-join', 'voice-minigame-leave', 'voice-minigame-status', 'voice-minigame-scores',
+  'minigame-open', 'minigame-close', 'minigame-launcher-status',
+  'minigame-container', 'minigame-canvas', 'minigame-start', 'minigame-end',
+  'minigame-join', 'minigame-leave', 'minigame-status', 'minigame-scores', 'minigame-stage',
   'voice-call-stage',
       'text-channels', 'stream-channels', 'screenshare-channels', 'member-count',
       'create-text-channel', 'create-voice-channel', 'create-stream-channel',
@@ -389,7 +389,7 @@ export class App {
   'mobileStreamChatToggle',
   'playPauseBtn', 'volumeBtn', 'volumeSlider', 'volumeIcon',
   'fullscreenBtn', 'videoControlsBar',
-  'mobile-toolbar', 'mobile-overlay',
+  'mobile-toolbar',
   'mobile-open-channels', 'mobile-open-settings', 'mobile-open-profile',
   'mobile-sidebar-close',
   'mobile-voice-close',
@@ -697,10 +697,6 @@ export class App {
       this.updateMobileToolbarState();
     });
 
-    this.addTrackedListener(this.elements['mobile-overlay'], 'click', () => {
-      this.closeMobilePanels();
-    });
-
     this.addTrackedListener(this.elements['mobile-sidebar-close'], 'click', () => {
       this.closeMobilePanels();
       this.updateMobileToolbarState();
@@ -975,7 +971,6 @@ export class App {
           this.videoController?.closeInlineVideo();
         }
       }
-      this.updateMobileOverlayState();
       this.updateMobileToolbarState();
     }
   }
@@ -986,7 +981,7 @@ export class App {
 
     if (app.classList.contains('voice-panel-open')) {
       app.classList.remove('voice-panel-open');
-      this.updateMobileOverlayState();
+      this.updateMobileToolbarState();
     }
   }
 
@@ -996,7 +991,6 @@ export class App {
 
     app.classList.remove('sidebar-open', 'members-open');
     this.closeMobileVoicePanel();
-    this.updateMobileOverlayState();
     this.updateMobileToolbarState();
   }
 
@@ -1151,24 +1145,6 @@ export class App {
     this.updateMobileToolbarState();
   }
 
-  private updateMobileOverlayState(): void {
-    const app = this.elements.app;
-    const overlay = this.elements['mobile-overlay'];
-    if (!app || !overlay) {
-      return;
-    }
-
-    const shouldShow = this.isMobileLayout() && (
-      app.classList.contains('sidebar-open') ||
-      app.classList.contains('members-open') ||
-      app.classList.contains('voice-panel-open')
-    );
-
-    overlay.classList.toggle('visible', shouldShow);
-    overlay.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
-    this.updateMobileToolbarState();
-  }
-
   private setupResponsiveObservers(): void {
     const app = this.elements.app;
     if (!app) return;
@@ -1177,7 +1153,7 @@ export class App {
     const resetPanels = (): void => {
       if (!breakpoint.matches) {
         app.classList.remove('sidebar-open', 'members-open', 'voice-panel-open');
-        this.updateMobileOverlayState();
+        this.updateMobileToolbarState();
       }
     };
 
@@ -1186,7 +1162,7 @@ export class App {
     const handleChange = (event: MediaQueryListEvent): void => {
       if (!event.matches) {
         app.classList.remove('sidebar-open', 'members-open', 'voice-panel-open');
-        this.updateMobileOverlayState();
+        this.updateMobileToolbarState();
       }
     };
 
@@ -1196,7 +1172,7 @@ export class App {
     const mobileBreakpoint = window.matchMedia('(max-width: 768px)');
     const handleMobileChange = (event: MediaQueryListEvent): void => {
       this.videoController?.handleMobileBreakpointChange(event);
-      this.updateMobileOverlayState();
+      this.updateMobileToolbarState();
     };
 
     mobileBreakpoint.addEventListener('change', handleMobileChange);

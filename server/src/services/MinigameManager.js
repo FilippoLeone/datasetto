@@ -10,8 +10,8 @@ const PLAYER_MIN_LENGTH = 90;
 const PLAYER_MAX_LENGTH = 4600;
 const PLAYER_RESPAWN_DELAY_MS = 3200;
 
-const BASE_SPEED = 250;
-const MIN_SPEED = 160;
+const BASE_SPEED = 180;
+const MIN_SPEED = 120;
 const LENGTH_SLOWDOWN_FACTOR = 0.00032;
 const TURN_RATE_RADIANS = Math.PI * 8;
 
@@ -41,6 +41,37 @@ const COLOR_PALETTE = [
   '#00d2d3',
   '#ff9b00',
   '#ff8b94',
+];
+
+// Pacman Constants
+const PACMAN_TILE_SIZE = 40;
+const PACMAN_SPEED = 150;
+const PACMAN_POWER_DURATION = 6000;
+const PACMAN_RESPAWN_DELAY = 3000;
+const PACMAN_WRAP_ROWS = new Set([9, 10]); // Row indexes that allow horizontal wrapping
+// 1 = Wall, 0 = Path, 2 = Ghost House (unused for now)
+const PACMAN_MAP = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
+  [1,0,1,1,1,0,1,1,1,0,1,0,1,1,1,0,1,1,1,0,1],
+  [1,0,1,1,1,0,1,1,1,0,1,0,1,1,1,0,1,1,1,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,1,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,1,0,1],
+  [1,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,1],
+  [1,1,1,1,1,0,1,1,1,0,1,0,1,1,1,0,1,1,1,1,1],
+  [1,1,1,1,1,0,1,0,0,0,0,0,0,0,1,0,1,1,1,1,1],
+  [1,0,0,0,0,0,0,0,1,1,0,1,1,0,0,0,0,0,0,0,1],
+  [1,1,1,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,1,1,1],
+  [1,1,1,1,1,0,1,0,0,0,0,0,0,0,1,0,1,1,1,1,1],
+  [1,1,1,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,1,1,1],
+  [1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
+  [1,0,1,1,1,0,1,1,1,0,1,0,1,1,1,0,1,1,1,0,1],
+  [1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1],
+  [1,1,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,1],
+  [1,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,1],
+  [1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
 ];
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
@@ -79,6 +110,10 @@ const normalizeVector = (vector) => {
     return { x: 0, y: 0 };
   }
   return { x: vector.x / length, y: vector.y / length };
+};
+
+const snapToTileCenter = (value) => {
+  return Math.floor(value / PACMAN_TILE_SIZE) * PACMAN_TILE_SIZE + PACMAN_TILE_SIZE / 2;
 };
 
 const computeSpeed = (length) => {
@@ -135,7 +170,7 @@ export default class MinigameManager {
       throw new Error('A minigame is already running in this channel');
     }
 
-    if (type !== 'slither') {
+    if (type !== 'slither' && type !== 'pacman') {
       throw new Error('Unsupported minigame type');
     }
 
@@ -149,7 +184,9 @@ export default class MinigameManager {
       createdAt: Date.now(),
       startedAt: Date.now(),
       updatedAt: Date.now(),
-      world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
+      world: type === 'pacman' 
+        ? { width: PACMAN_MAP[0].length * PACMAN_TILE_SIZE, height: PACMAN_MAP.length * PACMAN_TILE_SIZE, map: PACMAN_MAP }
+        : { width: WORLD_WIDTH, height: WORLD_HEIGHT },
       tickIntervalMs: TICK_INTERVAL_MS,
       sequence: 0,
       pellets: new Map(),
@@ -169,12 +206,16 @@ export default class MinigameManager {
     });
 
     try {
-      this.populatePellets(session, PELLET_COUNT);
+      if (type === 'slither') {
+        this.populatePellets(session, PELLET_COUNT);
+      } else if (type === 'pacman') {
+        this.populatePacmanPellets(session);
+      }
       this.ensurePlayer(session, hostId, hostName, true);
     } catch (error) {
       this.sessions.delete(channelId);
       this.channelManager.clearChannelMinigame(channelId);
-      logger.error('Failed to start slither arena', { error });
+      logger.error('Failed to start minigame', { error });
       throw error;
     }
 
@@ -183,7 +224,7 @@ export default class MinigameManager {
 
     const state = this.serialize(session);
     this.io.to(channelId).emit('voice:game:started', state);
-    logger.info('Slither arena started', { channelId, gameId: session.id });
+    logger.info('Minigame started', { channelId, gameId: session.id, type });
     return state;
   }
 
@@ -317,6 +358,11 @@ export default class MinigameManager {
       return;
     }
 
+    if (session.type === 'pacman') {
+      this.tickPacman(session);
+      return;
+    }
+
     const now = Date.now();
     const deltaSeconds = session.tickIntervalMs / 1000;
 
@@ -342,6 +388,249 @@ export default class MinigameManager {
     const state = this.serialize(session);
     this.io.to(session.channelId).emit('voice:game:update', state);
   }
+
+  tickPacman(session) {
+    const now = Date.now();
+    const deltaSeconds = session.tickIntervalMs / 1000;
+
+    session.sequence += 1;
+    session.updatedAt = now;
+
+    this.attemptPacmanRespawns(session, now);
+    this.movePacmanPlayers(session, deltaSeconds);
+    this.resolvePacmanCollisions(session, now);
+
+    if (session.players.size === 0) {
+      this.endGame(session.channelId, 'all_players_left');
+      return;
+    }
+
+    const state = this.serialize(session);
+    this.io.to(session.channelId).emit('voice:game:update', state);
+  }
+
+  attemptPacmanRespawns(session, now) {
+    session.players.forEach((player) => {
+      if (player.alive) return;
+      if (!player.respawnAt || now < player.respawnAt) return;
+      this.forcePacmanRespawn(session, player);
+    });
+  }
+
+  movePacmanPlayers(session, deltaSeconds) {
+    session.players.forEach((player) => {
+      if (!player.alive) return;
+
+      // Handle Input Direction Change
+      if (player.input && (player.input.x !== 0 || player.input.y !== 0)) {
+        const inputDir = Math.abs(player.input.x) > Math.abs(player.input.y)
+          ? (player.input.x > 0 ? 'right' : 'left')
+          : (player.input.y > 0 ? 'down' : 'up');
+        
+        // Try to turn if aligned with grid
+        if (this.canTurn(session, player, inputDir)) {
+          player.direction = inputDir;
+          // Snap to grid axis when turning
+          if (inputDir === 'left' || inputDir === 'right') {
+            player.y = snapToTileCenter(player.y);
+          } else {
+            player.x = snapToTileCenter(player.x);
+          }
+        }
+      }
+
+      // Move
+      const speed = PACMAN_SPEED * (player.powerupExpiresAt && player.powerupExpiresAt > Date.now() ? 1.2 : 1.0);
+      const dist = speed * deltaSeconds;
+      let dx = 0;
+      let dy = 0;
+
+      if (player.direction === 'left') dx = -dist;
+      else if (player.direction === 'right') dx = dist;
+      else if (player.direction === 'up') dy = -dist;
+      else if (player.direction === 'down') dy = dist;
+
+      // Collision Check with Walls
+      const nextX = player.x + dx;
+      const nextY = player.y + dy;
+      
+      if (this.isValidPosition(session, nextX, nextY)) {
+        player.x = nextX;
+        player.y = nextY;
+      } else {
+        // Snap to center of current tile if hit wall
+        const tileX = Math.floor(player.x / PACMAN_TILE_SIZE);
+        const tileY = Math.floor(player.y / PACMAN_TILE_SIZE);
+        player.x = tileX * PACMAN_TILE_SIZE + PACMAN_TILE_SIZE / 2;
+        player.y = tileY * PACMAN_TILE_SIZE + PACMAN_TILE_SIZE / 2;
+      }
+
+      this.handlePacmanWrap(session, player);
+    });
+  }
+
+  canTurn(session, player, direction) {
+    // Allow turning if close to tile center
+    const tileX = Math.floor(player.x / PACMAN_TILE_SIZE);
+    const tileY = Math.floor(player.y / PACMAN_TILE_SIZE);
+    const centerX = tileX * PACMAN_TILE_SIZE + PACMAN_TILE_SIZE / 2;
+    const centerY = tileY * PACMAN_TILE_SIZE + PACMAN_TILE_SIZE / 2;
+    
+    const dist = Math.hypot(player.x - centerX, player.y - centerY);
+    if (dist > 10) return false; // Must be close to center to turn
+
+    let checkX = tileX;
+    let checkY = tileY;
+    if (direction === 'left') checkX--;
+    if (direction === 'right') checkX++;
+    if (direction === 'up') checkY--;
+    if (direction === 'down') checkY++;
+
+    return !this.isWall(session, checkX, checkY);
+  }
+
+  isValidPosition(session, x, y) {
+    // Check corners of the bounding box
+    const radius = 15;
+    const points = [
+      { x: x - radius, y: y - radius },
+      { x: x + radius, y: y - radius },
+      { x: x - radius, y: y + radius },
+      { x: x + radius, y: y + radius },
+    ];
+
+    return points.every(p => !this.isWall(session, Math.floor(p.x / PACMAN_TILE_SIZE), Math.floor(p.y / PACMAN_TILE_SIZE)));
+  }
+
+  isWall(session, tx, ty) {
+    if (ty < 0 || ty >= PACMAN_MAP.length) {
+      return true;
+    }
+
+    const row = PACMAN_MAP[ty];
+    if (tx < 0 || tx >= row.length) {
+      return !PACMAN_WRAP_ROWS.has(ty);
+    }
+
+    return row[tx] === 1;
+  }
+
+  handlePacmanWrap(session, player) {
+    const tunnelRow = Math.floor(player.y / PACMAN_TILE_SIZE);
+    const halfTile = PACMAN_TILE_SIZE / 2;
+
+    if (player.x < 0) {
+      if (PACMAN_WRAP_ROWS.has(tunnelRow)) {
+        player.x = session.world.width;
+      } else {
+        player.x = halfTile;
+      }
+    } else if (player.x > session.world.width) {
+      if (PACMAN_WRAP_ROWS.has(tunnelRow)) {
+        player.x = 0;
+      } else {
+        player.x = session.world.width - halfTile;
+      }
+    }
+
+    player.y = clamp(player.y, halfTile, session.world.height - halfTile);
+  }
+
+  resolvePacmanCollisions(session, now) {
+    // Pellets
+    session.players.forEach(player => {
+      if (!player.alive) return;
+      const tx = Math.floor(player.x / PACMAN_TILE_SIZE);
+      const ty = Math.floor(player.y / PACMAN_TILE_SIZE);
+      const key = `${tx},${ty}`;
+      
+      const pellet = session.pellets.get(key);
+      if (pellet) {
+        session.pellets.delete(key);
+        player.score += pellet.value;
+        if (pellet.isPowerup) {
+          player.powerupExpiresAt = now + PACMAN_POWER_DURATION;
+        }
+      }
+    });
+
+    // PvP
+    const players = Array.from(session.players.values()).filter(p => p.alive);
+    for (let i = 0; i < players.length; i++) {
+      for (let j = i + 1; j < players.length; j++) {
+        const p1 = players[i];
+        const p2 = players[j];
+        if (Math.hypot(p1.x - p2.x, p1.y - p2.y) < 30) {
+          const p1Powered = p1.powerupExpiresAt && p1.powerupExpiresAt > now;
+          const p2Powered = p2.powerupExpiresAt && p2.powerupExpiresAt > now;
+
+          if (p1Powered && !p2Powered) {
+            this.killPacman(session, p2, now, p1);
+          } else if (p2Powered && !p1Powered) {
+            this.killPacman(session, p1, now, p2);
+          }
+          // If both powered or neither, bounce? or nothing.
+        }
+      }
+    }
+  }
+
+  killPacman(session, victim, now, killer) {
+    victim.alive = false;
+    victim.respawnAt = now + PACMAN_RESPAWN_DELAY;
+    victim.score = Math.max(0, victim.score - 50);
+    if (killer) {
+      killer.score += 200;
+    }
+  }
+
+  forcePacmanRespawn(session, player) {
+    const spawn = this.findPacmanSpawn(session);
+    player.alive = true;
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.direction = 'right';
+    player.powerupExpiresAt = null;
+    player.respawnAt = null;
+  }
+
+  findPacmanSpawn(session) {
+    // Find random empty tile
+    for (let i = 0; i < 50; i++) {
+      const ty = Math.floor(Math.random() * PACMAN_MAP.length);
+      const tx = Math.floor(Math.random() * PACMAN_MAP[0].length);
+      if (PACMAN_MAP[ty][tx] === 0) {
+        return {
+          x: tx * PACMAN_TILE_SIZE + PACMAN_TILE_SIZE / 2,
+          y: ty * PACMAN_TILE_SIZE + PACMAN_TILE_SIZE / 2
+        };
+      }
+    }
+    return { x: PACMAN_TILE_SIZE * 1.5, y: PACMAN_TILE_SIZE * 1.5 };
+  }
+
+  populatePacmanPellets(session) {
+    for (let y = 0; y < PACMAN_MAP.length; y++) {
+      for (let x = 0; x < PACMAN_MAP[y].length; x++) {
+        if (PACMAN_MAP[y][x] === 0) {
+          const isPowerup = (x === 1 && y === 1) || (x === PACMAN_MAP[0].length - 2 && y === 1) ||
+                            (x === 1 && y === PACMAN_MAP.length - 2) || (x === PACMAN_MAP[0].length - 2 && y === PACMAN_MAP.length - 2);
+          
+          const pellet = {
+            id: `${x},${y}`,
+            x: x * PACMAN_TILE_SIZE + PACMAN_TILE_SIZE / 2,
+            y: y * PACMAN_TILE_SIZE + PACMAN_TILE_SIZE / 2,
+            value: isPowerup ? 50 : 10,
+            color: isPowerup ? '#ffeb3b' : '#ffb74d',
+            isPowerup,
+            radius: isPowerup ? 8 : 3
+          };
+          session.pellets.set(pellet.id, pellet);
+        }
+      }
+    }
+  }
+
 
   attemptRespawns(session, now) {
     session.players.forEach((player) => {
@@ -556,34 +845,53 @@ export default class MinigameManager {
     if (player) {
       player.name = playerName;
       if (spawnOnCreate && !player.alive) {
-        this.forceRespawn(session, player);
+        if (session.type === 'pacman') this.forcePacmanRespawn(session, player);
+        else this.forceRespawn(session, player);
       }
       session.spectators.delete(playerId);
       return player;
     }
 
-    const spawn = this.findSpawnPoint(session);
-    const heading = randomBetween(-Math.PI, Math.PI);
-    const segments = this.buildInitialSegments(spawn, heading, PLAYER_START_LENGTH);
     const color = this.assignColor(session, playerId);
 
-    player = {
-      id: playerId,
-      name: playerName,
-      color,
-      score: 0,
-      alive: true,
-      length: PLAYER_START_LENGTH,
-      thickness: computeThickness(PLAYER_START_LENGTH),
-      speed: computeSpeed(PLAYER_START_LENGTH),
-      head: segments[0],
-      segments,
-      heading,
-      input: { x: 0, y: 0 },
-      respawnAt: null,
-      lastInputAt: Date.now(),
-      joinedAt: Date.now(),
-    };
+    if (session.type === 'pacman') {
+      const spawn = this.findPacmanSpawn(session);
+      player = {
+        id: playerId,
+        name: playerName,
+        color,
+        score: 0,
+        alive: true,
+        x: spawn.x,
+        y: spawn.y,
+        direction: 'right',
+        powerupExpiresAt: null,
+        respawnAt: null,
+        lastInputAt: Date.now(),
+        joinedAt: Date.now(),
+      };
+    } else {
+      const spawn = this.findSpawnPoint(session);
+      const heading = randomBetween(-Math.PI, Math.PI);
+      const segments = this.buildInitialSegments(spawn, heading, PLAYER_START_LENGTH);
+      player = {
+        id: playerId,
+        name: playerName,
+        color,
+        score: 0,
+        alive: true,
+        length: PLAYER_START_LENGTH,
+        thickness: computeThickness(PLAYER_START_LENGTH),
+        speed: computeSpeed(PLAYER_START_LENGTH),
+        head: segments[0],
+        segments,
+        heading,
+        input: { x: 0, y: 0 },
+        respawnAt: null,
+        lastInputAt: Date.now(),
+        joinedAt: Date.now(),
+      };
+    }
 
     session.players.set(playerId, player);
     session.spectators.delete(playerId);
@@ -732,6 +1040,24 @@ export default class MinigameManager {
     const now = Date.now();
 
     const players = Array.from(session.players.values()).map((player) => {
+      if (session.type === 'pacman') {
+        return {
+          id: player.id,
+          name: player.name,
+          color: player.color,
+          score: Math.round(player.score),
+          alive: player.alive,
+          x: Number(player.x.toFixed(2)),
+          y: Number(player.y.toFixed(2)),
+          direction: player.direction,
+          powerupExpiresAt: player.powerupExpiresAt,
+          respawning: !player.alive,
+          respawnInMs: !player.alive && player.respawnAt ? Math.max(0, player.respawnAt - now) : 0,
+          lastInputAt: player.lastInputAt,
+          joinedAt: player.joinedAt,
+        };
+      }
+
       const segments = sampleSegments(player.segments);
       return {
         id: player.id,
@@ -752,6 +1078,7 @@ export default class MinigameManager {
     });
 
     players.sort((a, b) => {
+      if (session.type === 'pacman') return b.score - a.score;
       if (a.length === b.length) {
         return b.score - a.score;
       }
@@ -765,6 +1092,7 @@ export default class MinigameManager {
       value: Number(pellet.value.toFixed(1)),
       radius: Number(pellet.radius.toFixed(2)),
       color: pellet.color,
+      isPowerup: pellet.isPowerup
     }));
 
     return {

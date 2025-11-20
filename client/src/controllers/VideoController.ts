@@ -165,6 +165,10 @@ export class VideoController {
   private desktopBridge: DesktopScreenshareBridge | null = null;
   private screenshareCandidateQueue: Map<string, RTCIceCandidateInit[]> = new Map();
   private screenshareTrackCleanup: Array<() => void> = [];
+  private screensharePlaybackCleanup: Array<() => void> = [];
+  private screensharePaused = false;
+  private screenshareStatusBeforePause: string | null = null;
+  private lastScreenshareStatusMessage: string | null = null;
   private lastViewerJoinAttempt = 0;
 
   constructor(deps: VideoControllerDeps) {
@@ -708,7 +712,6 @@ export class VideoController {
 
   attachScreenshareStream(stream: MediaStream, options: { local?: boolean } = {}): void {
     const video = this.deps.elements.inlineVideo as HTMLVideoElement | undefined;
-    const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
 
     if (!video) {
       return;
@@ -738,8 +741,8 @@ export class VideoController {
       });
     }
 
-    overlay?.classList.remove('visible');
-    overlay?.setAttribute('aria-hidden', 'true');
+    this.setScreenshareOverlay('hidden');
+    this.bindScreensharePlaybackState(stream);
     this.updateLiveIndicator('live');
     this.updateStreamWatchingIndicator();
   }
@@ -752,19 +755,97 @@ export class VideoController {
     this.screenshareStream = null;
     this.screenshareStreamOrigin = null;
     this.resetInlineVideoSources();
-
-    const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
-    if (overlay) {
-      overlay.classList.add('visible');
-      const label = overlay.querySelector('.message');
-      if (label) {
-        label.textContent = message;
-      }
-    }
+    this.setScreenshareOverlay('offline', message);
 
     this.updateLiveIndicator('offline');
     this.updateStreamWatchingIndicator();
     this.updateScreenshareStatus(message);
+  }
+
+  private bindScreensharePlaybackState(stream: MediaStream): void {
+    this.clearScreensharePlaybackState();
+
+    if (this.currentVideoMode !== 'screenshare') {
+      return;
+    }
+
+    const [videoTrack] = stream.getVideoTracks();
+    if (!videoTrack) {
+      this.applyScreensharePauseState(false);
+      return;
+    }
+
+    const handleMute = (): void => this.applyScreensharePauseState(true);
+    const handleUnmute = (): void => this.applyScreensharePauseState(false);
+
+    videoTrack.addEventListener('mute', handleMute);
+    videoTrack.addEventListener('unmute', handleUnmute);
+    this.screensharePlaybackCleanup.push(() => {
+      videoTrack.removeEventListener('mute', handleMute);
+      videoTrack.removeEventListener('unmute', handleUnmute);
+    });
+
+    if (videoTrack.muted) {
+      this.applyScreensharePauseState(true);
+    } else {
+      this.applyScreensharePauseState(false);
+    }
+  }
+
+  private clearScreensharePlaybackState(): void {
+    for (const dispose of this.screensharePlaybackCleanup.splice(0)) {
+      try {
+        dispose();
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[VideoController] Failed to dispose screenshare playback listener:', error);
+        }
+      }
+    }
+  }
+
+  private applyScreensharePauseState(paused: boolean): void {
+    if (this.currentVideoMode !== 'screenshare' || this.screensharePaused === paused) {
+      return;
+    }
+
+    if (paused) {
+      if (!this.screenshareStatusBeforePause) {
+        this.screenshareStatusBeforePause = this.lastScreenshareStatusMessage;
+      }
+      this.screensharePaused = true;
+      this.setScreenshareOverlay('paused', 'Screenshare paused — bring the shared window back on screen');
+      this.updateScreenshareStatus('Screenshare paused — source hidden', { tone: 'warning' });
+    } else {
+      this.screensharePaused = false;
+      this.setScreenshareOverlay('hidden');
+      const resumeMessage = this.screenshareStatusBeforePause
+        || (this.screenshareRole === 'host' ? 'You are sharing your screen' : 'Watching live screenshare');
+      this.screenshareStatusBeforePause = null;
+      this.updateScreenshareStatus(resumeMessage);
+    }
+  }
+
+  private setScreenshareOverlay(state: 'hidden' | 'paused' | 'offline', message?: string): void {
+    const overlay = this.deps.elements.inlinePlayerOverlay as HTMLElement | undefined;
+    if (!overlay) {
+      return;
+    }
+
+    if (state === 'hidden') {
+      overlay.classList.remove('visible');
+      overlay.setAttribute('aria-hidden', 'true');
+      overlay.dataset.state = 'hidden';
+      return;
+    }
+
+    overlay.classList.add('visible');
+    overlay.setAttribute('aria-hidden', 'false');
+    overlay.dataset.state = state;
+    const label = overlay.querySelector('.message');
+    if (label && message) {
+      label.textContent = message;
+    }
   }
 
   private resetInlineVideoSources(): void {
@@ -773,6 +854,10 @@ export class VideoController {
       this.streamRetryTimer = null;
     }
 
+    this.clearScreensharePlaybackState();
+    this.screensharePaused = false;
+    this.screenshareStatusBeforePause = null;
+    this.setScreenshareOverlay('hidden');
     this.screenshareStreamOrigin = null;
 
     if (this.inlineHls) {
@@ -1584,6 +1669,7 @@ export class VideoController {
     }
 
     label.textContent = message;
+    this.lastScreenshareStatusMessage = message;
     if (options?.tone) {
       label.dataset.tone = options.tone;
     } else {
@@ -1791,12 +1877,6 @@ export class VideoController {
       const channelsBtn = this.deps.elements['mobile-open-channels'];
       if (channelsBtn) {
         channelsBtn.setAttribute('aria-pressed', 'false');
-      }
-
-      const overlay = this.deps.elements['mobile-overlay'];
-      if (overlay) {
-        overlay.classList.remove('visible');
-        overlay.setAttribute('aria-hidden', 'true');
       }
 
       this.mobileChatOpen = false;

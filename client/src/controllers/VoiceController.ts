@@ -1506,7 +1506,7 @@ export class VoiceController {
       muteBtn.setAttribute('aria-label', title);
       muteBtn.setAttribute('aria-pressed', state.muted ? 'true' : 'false');
 
-      const muteLabel = muteBtn.querySelector('.mute-label');
+      const muteLabel = muteBtn.querySelector('.voice-toggle-label');
       if (muteLabel) {
         muteLabel.textContent = label;
       }
@@ -1521,7 +1521,7 @@ export class VoiceController {
       deafenBtn.setAttribute('aria-label', title);
       deafenBtn.setAttribute('aria-pressed', isOutputMuted ? 'true' : 'false');
 
-      const labelEl = deafenBtn.querySelector('.output-label');
+      const labelEl = deafenBtn.querySelector('.voice-toggle-label');
       if (labelEl) {
         labelEl.textContent = isOutputMuted ? 'Restore Out' : 'Mute Out';
       }
@@ -1536,7 +1536,7 @@ export class VoiceController {
       comboBtn.setAttribute('aria-label', comboTitle);
       comboBtn.setAttribute('aria-pressed', bothMuted ? 'true' : 'false');
 
-      const comboLabel = comboBtn.querySelector('.mute-output-label');
+      const comboLabel = comboBtn.querySelector('.voice-toggle-label');
       if (comboLabel) {
         comboLabel.textContent = bothMuted ? 'Restore All' : 'Mute All';
       }

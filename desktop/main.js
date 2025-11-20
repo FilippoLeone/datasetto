@@ -196,9 +196,14 @@ function createWindow() {
     height: 800,
     minWidth: 960,
     minHeight: 600,
-    backgroundColor: '#0f1016',
+    backgroundColor: '#09090b',
     title: 'Datasetto',
     autoHideMenuBar: true,
+    titleBarOverlay: {
+      color: '#09090b',
+      symbolColor: '#ffffff',
+      height: 30
+    },
     icon: resolveResourcePath('icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

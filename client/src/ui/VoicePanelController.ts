@@ -139,7 +139,7 @@ export class VoicePanelController {
 
   private createVoiceUserElement(entry: VoicePanelEntry): HTMLElement {
     const item = document.createElement('div');
-    item.className = 'voice-user-item flex flex-col gap-2 px-4 py-2 transition-fast cursor-pointer relative hover:bg-modifier-hover hover:pl-[calc(1rem+2px)]';
+    item.className = 'voice-user-item flex flex-col gap-2 px-4 py-2 transition-fast cursor-pointer relative';
     if (entry.speaking) {
       item.classList.add('speaking-indicator');
       item.classList.add('speaking');

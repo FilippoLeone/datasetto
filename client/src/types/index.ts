@@ -202,11 +202,18 @@ export interface VoiceMinigamePlayerState {
   color: string;
   score: number;
   alive: boolean;
-  length: number;
-  thickness: number;
-  speed: number;
-  head: { x: number; y: number };
-  segments: Array<{ x: number; y: number }>;
+  // Slither specific
+  length?: number;
+  thickness?: number;
+  speed?: number;
+  head?: { x: number; y: number };
+  segments?: Array<{ x: number; y: number }>;
+  // Pacman specific
+  x?: number;
+  y?: number;
+  direction?: 'up' | 'down' | 'left' | 'right';
+  powerupExpiresAt?: number;
+  // Common
   respawning: boolean;
   respawnInMs: number;
   lastInputAt?: number;
@@ -219,23 +226,24 @@ export interface VoiceMinigamePellet {
   y: number;
   value: number;
   color: string;
-  radius: number;
+  radius?: number; // Slither
+  isPowerup?: boolean; // Pacman
 }
 
 export interface VoiceMinigameState {
   gameId: string;
   channelId: string;
-  type: string;
+  type: 'slither' | 'pacman';
   status: VoiceMinigameStatus;
   hostId: string;
   hostName: string;
   startedAt: number;
   updatedAt: number;
   sequence: number;
-  world: { width: number; height: number };
+  world: { width: number; height: number; map?: number[][] }; // map for Pacman
   pellets: VoiceMinigamePellet[];
   players: VoiceMinigamePlayerState[];
-  leaderboard: Array<{ id: string; name: string; score: number; length: number }>;
+  leaderboard: Array<{ id: string; name: string; score: number; length?: number }>;
   spectators: string[];
   tickIntervalMs: number;
 }

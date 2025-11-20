@@ -52,10 +52,10 @@ export class ChannelController {
   handleJoinChannel(): void {
     const channelInput = this.deps.elements.channel as HTMLInputElement;
     const channel = channelInput?.value?.trim() || 'lobby';
-    
+
     this.deps.state.setChannel(channel);
     this.deps.socket.joinChannel(channel);
-    
+
     const streamChannelNameEl = this.deps.elements.streamChannelName as HTMLElement | undefined;
     if (streamChannelNameEl) {
       streamChannelNameEl.textContent = channel;
@@ -81,7 +81,7 @@ export class ChannelController {
 
     // Set type
     if (typeInput) typeInput.value = type;
-    
+
     // Update title
     if (title) {
       const typeLabel = type === 'text'
@@ -111,7 +111,7 @@ export class ChannelController {
   hideCreateChannelModal(): void {
     const modal = this.deps.elements.createChannelModal;
     if (!modal) return;
-    
+
     this.deps.animator.closeModal(modal);
   }
 
@@ -138,7 +138,7 @@ export class ChannelController {
 
     const name = nameInput?.value?.trim();
     const type = typeInput?.value as 'text' | 'voice' | 'stream' | 'screenshare';
-    
+
     if (!name) {
       if (errorEl) errorEl.textContent = 'Channel name is required';
       this.deps.soundFX.play('error', 0.5);
@@ -160,7 +160,7 @@ export class ChannelController {
 
     // Send create request to server
     this.deps.socket.createChannel({ name, type, groupId: null });
-    
+
     this.hideCreateChannelModal();
     this.deps.soundFX.play('success', 0.6);
     this.deps.notifications.info(`Creating ${type} channel: ${name}`);
@@ -171,7 +171,7 @@ export class ChannelController {
    */
   private updateChannelsUI(channels: Channel[]): void {
     const currentChannel = this.deps.state.get('currentChannel');
-    
+
     // Separate channels by type
     const textChannels = channels.filter(ch => ch.type === 'text');
     const voiceChannels = channels.filter(ch => ch.type === 'voice');
@@ -215,7 +215,7 @@ export class ChannelController {
     if (import.meta.env.DEV) {
       console.log(`📝 ChannelController.renderChannelList - Type: ${type}, Channels: ${channels.length}, Container:`, container);
     }
-    
+
     container.innerHTML = '';
 
     if (channels.length === 0) {
@@ -232,22 +232,22 @@ export class ChannelController {
     channels.forEach(ch => {
       const item = document.createElement('div');
       item.className = `channel-item${ch.id === currentChannelId ? ' active' : ''}`;
-      
+
       // Add voice-connected class if user is connected to this voice channel
       const voiceConnected = this.deps.state.get('voiceConnected');
       const activeVoiceChannelId = this.deps.state.get('activeVoiceChannelId');
       if (type === 'voice' && voiceConnected && activeVoiceChannelId && ch.id === activeVoiceChannelId) {
         item.classList.add('voice-connected');
       }
-      
+
       // Add watching-stream class if user is in voice AND currently viewing a stream
       const videoContainer = this.deps.elements.inlineVideoContainer as HTMLElement;
-  const isWatchingStream = !!(videoContainer && !videoContainer.classList.contains('hidden'));
+      const isWatchingStream = !!(videoContainer && !videoContainer.classList.contains('hidden'));
       const currentChannelType = this.deps.state.get('currentChannelType');
       if (type === 'voice' && voiceConnected && activeVoiceChannelId && ch.id === activeVoiceChannelId && isWatchingStream && currentChannelType === 'stream') {
         item.classList.add('watching-stream');
       }
-      
+
       item.setAttribute('data-channel-id', ch.id);
       item.setAttribute('data-channel', ch.name);
       item.setAttribute('data-type', type);
@@ -255,13 +255,22 @@ export class ChannelController {
       // Channel icon and name
       const icon = document.createElement('span');
       icon.className = 'channel-icon';
-      icon.textContent = type === 'text'
-        ? '#'
+
+      // SVG Icons
+      const icons = {
+        text: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>`,
+        voice: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`,
+        stream: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`,
+        screenshare: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`
+      };
+
+      icon.innerHTML = type === 'text'
+        ? icons.text
         : type === 'voice'
-          ? '🔊'
+          ? icons.voice
           : type === 'stream'
-            ? '📺'
-            : '🖥️';
+            ? icons.stream
+            : icons.screenshare;
 
       const content = document.createElement('div');
       content.className = 'channel-content';
@@ -287,7 +296,8 @@ export class ChannelController {
           streamKeyBtn.className = 'stream-key-button';
           streamKeyBtn.title = `Show stream key for ${ch.name}`;
           streamKeyBtn.setAttribute('aria-label', `Show stream key for ${ch.name}`);
-          streamKeyBtn.textContent = '🔑';
+          // Key icon
+          streamKeyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>`;
 
           streamKeyBtn.addEventListener('click', (event) => {
             event.stopPropagation();
@@ -337,7 +347,8 @@ export class ChannelController {
         const viewerCount = document.createElement('span');
         viewerCount.className = 'channel-count';
         const countValue = ch.screenshareViewerCount ?? 0;
-        viewerCount.textContent = `👥 ${countValue}`;
+        // Users icon
+        viewerCount.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg> ${countValue}`;
         viewerCount.title = `${countValue} viewer${countValue === 1 ? '' : 's'}`;
         viewerCount.setAttribute('aria-label', `${countValue} viewer${countValue === 1 ? '' : 's'}`);
         item.appendChild(viewerCount);
@@ -349,7 +360,7 @@ export class ChannelController {
         count.className = 'channel-count';
         count.textContent = `🗣️ ${ch.count}`;
         count.title = `${ch.count} participant${ch.count !== 1 ? 's' : ''}`;
-  count.setAttribute('aria-label', `${ch.count} voice participant${ch.count !== 1 ? 's' : ''}`);
+        count.setAttribute('aria-label', `${ch.count} voice participant${ch.count !== 1 ? 's' : ''}`);
         count.addEventListener('click', (event) => {
           event.stopPropagation();
           event.preventDefault();
@@ -389,7 +400,7 @@ export class ChannelController {
   switchChannel(channelId: string, channelName: string, type: 'text' | 'voice' | 'stream' | 'screenshare'): void {
     // Play channel switch sound
     this.deps.soundFX.play('click', 0.5);
-    
+
     // Animate channel switch
     const chatContent = document.querySelector('.chat-content');
     if (chatContent) {
@@ -409,27 +420,29 @@ export class ChannelController {
     document.querySelectorAll('.channel-item').forEach(item => {
       item.classList.remove('active');
     });
-    
+
     // Add active class to selected channel
     const selectedChannel = document.querySelector(`[data-channel-id="${channelId}"]`);
     selectedChannel?.classList.add('active');
-    
+
     // Update channel name in header
-    const channelIcon = type === 'text'
-      ? '#'
-      : type === 'voice'
-        ? '🔊'
-        : type === 'stream'
-          ? '📺'
-          : '🖥️';
+    const icons = {
+      text: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>`,
+      voice: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`,
+      stream: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`,
+      screenshare: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`
+    };
+
+    const channelIcon = icons[type];
+
     if (this.deps.elements['current-channel-name']) {
       this.deps.elements['current-channel-name'].textContent = channelName;
     }
-    
+
     // Update channel icon in header
     const headerIcon = document.querySelector('.chat-header .channel-icon');
     if (headerIcon) {
-      headerIcon.textContent = channelIcon;
+      headerIcon.innerHTML = channelIcon;
     }
 
     if (type === 'stream') {
@@ -457,10 +470,10 @@ export class ChannelController {
     if (type === 'text' || type === 'stream' || type === 'screenshare') {
       this.clearChannelUnread(channelId);
     }
-    
+
     // Join socket channel
     this.deps.socket.joinChannel(channelId);
-    
+
     if (import.meta.env.DEV) {
       console.log(`📍 ChannelController: Switched to ${type} channel:`, channelName);
     }
