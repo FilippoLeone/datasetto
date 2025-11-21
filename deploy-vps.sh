@@ -75,11 +75,11 @@ else
   CORS_ORIGIN="http://$SERVER_IP,https://localhost,capacitor://localhost,http://localhost"
   echo "Using IP address with Caddy reverse proxy: $SERVER_IP"
   LETSENCRYPT_EMAIL="admin@localhost"
-  CADDY_AUTO_HTTPS="auto_https off"
+  CADDY_SITE_ADDRESS="http://$SERVER_IP"
 fi
 
 if [ "$HAS_DOMAIN" = "yes" ]; then
-  CADDY_AUTO_HTTPS=""
+  CADDY_SITE_ADDRESS="$DOMAIN"
 fi
 
 # TURN defaults (override later in ops/.env if needed)
@@ -198,7 +198,7 @@ VITE_VOICE_OPUS_MAX_PLAYBACK_RATE=48000
 VITE_VOICE_VAD_THRESHOLD=0.07
 
 # Reverse proxy (Caddy)
-CADDY_AUTO_HTTPS=$CADDY_AUTO_HTTPS
+CADDY_SITE_ADDRESS=$CADDY_SITE_ADDRESS
 
 # Deployment Info
 DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

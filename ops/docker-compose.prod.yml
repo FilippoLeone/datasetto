@@ -166,7 +166,7 @@ services:
     environment:
       - DOMAIN=${DOMAIN:-localhost}
       - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-admin@localhost}
-      - CADDY_AUTO_HTTPS=${CADDY_AUTO_HTTPS:-}
+      - CADDY_SITE_ADDRESS=${CADDY_SITE_ADDRESS:-localhost}
     depends_on:
       - client
       - server

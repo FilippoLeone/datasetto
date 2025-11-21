@@ -3,8 +3,7 @@
     # email {$LETSENCRYPT_EMAIL}
 }
 
-{$DOMAIN} {
-    {$CADDY_AUTO_HTTPS}
+{$CADDY_SITE_ADDRESS} {
     # Frontend
     handle / {
         reverse_proxy client:80
