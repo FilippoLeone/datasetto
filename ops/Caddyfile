@@ -4,6 +4,7 @@
 }
 
 {$DOMAIN} {
+    {$CADDY_AUTO_HTTPS}
     # Frontend
     handle / {
         reverse_proxy client:80

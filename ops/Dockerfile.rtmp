@@ -55,8 +55,7 @@ COPY nginx.lowlatency.conf /etc/nginx/nginx.conf.custom
 
 
 RUN mkdir -p /var/cache/nginx /var/run/nginx \
-	&& cp /opt/nginx/conf/mime.types /etc/nginx/mime.types \
-	&& chown -R nginx:nginx /var/cache/nginx /var/run/nginx
+	&& cp /opt/nginx/conf/mime.types /etc/nginx/mime.types
 
 # Healthcheck dependency already installed (wget)
 
@@ -65,7 +64,9 @@ RUN cp /etc/nginx/nginx.conf.custom /tmp/nginx.conf.test \
 	&& sed -i 's/backend-server/127.0.0.1/g' /tmp/nginx.conf.test \
 	&& sed -i 's|include mime.types;|include /etc/nginx/mime.types;|' /tmp/nginx.conf.test \
 	&& nginx -g 'error_log stderr notice;' -c /tmp/nginx.conf.test -t \
-	&& rm /tmp/nginx.conf.test
+	&& rm /tmp/nginx.conf.test \
+	&& rm -f /opt/nginx/logs/* \
+	&& chown -R nginx:nginx /var/cache/nginx /var/run/nginx /opt/nginx
 
 USER nginx
 
