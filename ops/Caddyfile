@@ -4,14 +4,6 @@
 }
 
 {$CADDY_SITE_ADDRESS} {
-    # Frontend
-    handle / {
-        reverse_proxy client:80
-    }
-    handle /* {
-        reverse_proxy client:80
-    }
-
     # Backend API
     handle /api/* {
         reverse_proxy server:4000
@@ -28,9 +20,14 @@
             header_up Host {host}
         }
     }
-    
+
     # Health check
     handle /health {
         reverse_proxy server:4000
+    }
+
+    # Frontend catch-all
+    handle /* {
+        reverse_proxy client:80
     }
 }
