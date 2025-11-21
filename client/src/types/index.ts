@@ -230,6 +230,16 @@ export interface VoiceMinigamePellet {
   isPowerup?: boolean; // Pacman
 }
 
+export interface PacmanState {
+  phase: 'setup' | 'live' | 'overtime' | 'reset';
+  phaseStartedAt: number;
+  phaseEndsAt: number | null;
+  speedMultiplier: number;
+  round: number;
+  initialPellets: number;
+  pelletsRemaining: number;
+}
+
 export interface VoiceMinigameState {
   gameId: string;
   channelId: string;
@@ -240,12 +250,21 @@ export interface VoiceMinigameState {
   startedAt: number;
   updatedAt: number;
   sequence: number;
-  world: { width: number; height: number; map?: number[][] }; // map for Pacman
+  world: {
+    width: number;
+    height: number;
+    map?: number[][];
+    mapId?: string;
+    mapName?: string;
+    tileSize?: number;
+    wrapRows?: number[];
+  };
   pellets: VoiceMinigamePellet[];
   players: VoiceMinigamePlayerState[];
   leaderboard: Array<{ id: string; name: string; score: number; length?: number }>;
   spectators: string[];
   tickIntervalMs: number;
+  pacmanState?: PacmanState | null;
 }
 
 export interface DeviceInfo {

@@ -3,7 +3,7 @@ import { isMobileDevice } from '@/utils/device';
  * Voice minigame coordinator for the Slither arena
  */
 import type { MinigameControllerDeps } from './types';
-import type { VoiceMinigamePlayerState, VoiceMinigameState, VoicePeerEvent } from '@/types';
+import type { PacmanState, VoiceMinigamePlayerState, VoiceMinigameState, VoicePeerEvent } from '@/types';
 
 const INPUT_SEND_INTERVAL_MS = 16;
 const INPUT_REFRESH_INTERVAL_MS = 200;
@@ -843,6 +843,10 @@ export class MinigameController {
     }
 
     if (state.status === 'running') {
+      if (state.type === 'pacman') {
+        this.statusEl.textContent = this.buildPacmanStatus(state);
+        return;
+      }
       const alive = state.players.filter((player) => player.alive).length;
       const total = state.players.length;
       const pellets = state.pellets.length;
@@ -856,6 +860,62 @@ export class MinigameController {
     }
 
     this.statusEl.textContent = this.lastEndReason ? `Arena finished — ${this.lastEndReason}` : 'Arena finished';
+  }
+
+  private buildPacmanStatus(state: VoiceMinigameState): string {
+    const pacState = state.pacmanState;
+    const now = Date.now();
+    const pelletsRemaining = pacState?.pelletsRemaining ?? state.pellets.length;
+    const mapName = state.world.mapName ?? state.world.mapId ?? 'Mystery Grid';
+    const parts: string[] = [];
+
+    if (pacState) {
+      parts.push(`Round ${pacState.round}`);
+      const phaseLabel = this.formatPacmanPhase(pacState.phase);
+      const countdown = pacState.phaseEndsAt ? this.formatCountdown(Math.max(0, pacState.phaseEndsAt - now)) : '';
+      parts.push(countdown ? `${phaseLabel} ${countdown}` : phaseLabel);
+      if (pacState.speedMultiplier && pacState.speedMultiplier !== 1) {
+        parts.push(`${Math.round(pacState.speedMultiplier * 100)}% speed`);
+      }
+      parts.push(`${pelletsRemaining} pellets left`);
+    } else {
+      parts.push(`${pelletsRemaining} pellets live`);
+    }
+
+    parts.push(`Map ${mapName}`);
+
+    const top = state.leaderboard?.[0];
+    if (top) {
+      parts.push(`Top score ${Math.round(top.score ?? 0)}`);
+    }
+
+    return `Maze live — ${parts.join(' · ')}`;
+  }
+
+  private formatPacmanPhase(phase: PacmanState['phase']): string {
+    switch (phase) {
+      case 'setup':
+        return 'Setup';
+      case 'overtime':
+        return 'Overtime';
+      case 'reset':
+        return 'Reset';
+      default:
+        return 'Live';
+    }
+  }
+
+  private formatCountdown(ms: number): string {
+    if (!Number.isFinite(ms) || ms <= 0) {
+      return '';
+    }
+    const seconds = Math.ceil(ms / 1000);
+    if (seconds < 60) {
+      return `${seconds}s`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    return `${minutes}:${remainder.toString().padStart(2, '0')}`;
   }
 
   private renderScores(): void {
@@ -1340,6 +1400,80 @@ export class MinigameController {
       ctx.fillStyle = 'white';
       ctx.fillText(player.name, px, py - size - 4);
     });
+
+    this.drawPacmanHud(ctx, state, width);
+  }
+
+  private drawPacmanHud(
+    ctx: CanvasRenderingContext2D,
+    state: VoiceMinigameState,
+    width: number
+  ): void {
+    const pacState = state.pacmanState;
+    const mapName = state.world.mapName ?? state.world.mapId ?? 'Pacman Grid';
+    const pelletsRemaining = pacState?.pelletsRemaining ?? state.pellets.length;
+    const initialPellets = pacState?.initialPellets ?? (pelletsRemaining || 1);
+    const progress = this.clamp(1 - pelletsRemaining / Math.max(initialPellets, 1), 0, 1);
+    const overlayWidth = Math.min(420, width - 32);
+    const overlayHeight = 110;
+    const baseX = 18;
+    const baseY = 18;
+
+    ctx.save();
+    ctx.translate(baseX, baseY);
+
+    ctx.beginPath();
+    ctx.roundRect(0, 0, overlayWidth, overlayHeight, 12);
+    ctx.fillStyle = 'rgba(6, 8, 18, 0.85)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#fef3c7';
+    ctx.font = '600 18px system-ui';
+    ctx.fillText(mapName, 16, 14);
+
+    const phaseLabel = pacState ? this.formatPacmanPhase(pacState.phase) : 'Live';
+    const countdown = pacState?.phaseEndsAt ? this.formatCountdown(Math.max(0, pacState.phaseEndsAt - Date.now())) : '';
+    const roundLabel = pacState ? `Round ${pacState.round}` : 'Round 1';
+    const metaLine = countdown ? `${roundLabel} · ${phaseLabel} ${countdown}` : `${roundLabel} · ${phaseLabel}`;
+
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.85)';
+    ctx.font = '500 13px system-ui';
+    ctx.fillText(metaLine, 16, 40);
+
+    if (pacState?.speedMultiplier && pacState.speedMultiplier !== 1) {
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#facc15';
+      ctx.font = '600 12px system-ui';
+      ctx.fillText(`${Math.round(pacState.speedMultiplier * 100)}% speed`, overlayWidth - 16, 40);
+      ctx.textAlign = 'left';
+    }
+
+    const barX = 16;
+    const barY = 66;
+    const barWidth = overlayWidth - barX * 2;
+    const barHeight = 12;
+
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barWidth, barHeight, 6);
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, Math.max(barWidth * progress, 6), barHeight, 6);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fill();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = '600 12px system-ui';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`${pelletsRemaining}/${Math.max(initialPellets, 1)} pellets`, 16, barY + barHeight + 20);
+
+    ctx.restore();
   }
 
   private handleCanvasClick(event: MouseEvent): void {
