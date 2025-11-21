@@ -1,0 +1,15 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache \
+    bash \
+    ca-certificates \
+    coturn \
+    tzdata \
+ && addgroup -S turn && adduser -S -G turn turn
+
+COPY turn-entrypoint.sh /usr/local/bin/turn-entrypoint.sh
+RUN chmod +x /usr/local/bin/turn-entrypoint.sh
+
+USER turn
+
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/turn-entrypoint.sh"]

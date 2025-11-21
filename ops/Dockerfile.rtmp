@@ -1,10 +1,64 @@
-FROM alfg/nginx-rtmp:v1.6.0
+FROM alpine:3.20 AS builder
 
-# Install wget for health checks
-RUN apk add --no-cache wget
+ARG NGINX_VERSION=1.25.5
+
+WORKDIR /src
+
+RUN apk add --no-cache \
+	bash \
+	build-base \
+	ca-certificates \
+	git \
+	linux-headers \
+	openssl-dev \
+	pcre-dev \
+	zlib-dev \
+	wget \
+	tar
+
+RUN wget -qO nginx.tar.gz "http://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" \
+	&& tar -xzf nginx.tar.gz \
+	&& rm nginx.tar.gz
+
+RUN git clone --depth=1 https://github.com/arut/nginx-rtmp-module.git
+
+WORKDIR /src/nginx-${NGINX_VERSION}
+
+RUN ./configure \
+	  --prefix=/opt/nginx \
+	  --with-http_ssl_module \
+	  --with-http_stub_status_module \
+	  --with-stream \
+	  --add-module=/src/nginx-rtmp-module \
+	&& make -j"$(nproc)" \
+	&& make install
+
+FROM alpine:3.20
+
+RUN apk add --no-cache \
+	ca-certificates \
+	libcrypto3 \
+	libssl3 \
+	pcre \
+	zlib \
+	wget \
+	bash
+
+RUN addgroup -S nginx && adduser -S -G nginx nginx
+
+COPY --from=builder /opt/nginx /opt/nginx
+
+ENV PATH="/opt/nginx/sbin:$PATH"
 
 # Copy our low-latency nginx configuration
 COPY nginx.lowlatency.conf /etc/nginx/nginx.conf.custom
+
+
+RUN mkdir -p /var/cache/nginx /var/run/nginx \
+	&& cp /opt/nginx/conf/mime.types /etc/nginx/mime.types \
+	&& chown -R nginx:nginx /var/cache/nginx /var/run/nginx
+
+# Healthcheck dependency already installed (wget)
 
 # Test nginx configuration using a temporary config with local backend placeholder
 RUN cp /etc/nginx/nginx.conf.custom /tmp/nginx.conf.test \
@@ -12,6 +66,8 @@ RUN cp /etc/nginx/nginx.conf.custom /tmp/nginx.conf.test \
 	&& sed -i 's|include mime.types;|include /etc/nginx/mime.types;|' /tmp/nginx.conf.test \
 	&& nginx -g 'error_log stderr notice;' -c /tmp/nginx.conf.test -t \
 	&& rm /tmp/nginx.conf.test
+
+USER nginx
 
 # Override the entrypoint to use our config
 CMD ["nginx", "-c", "/etc/nginx/nginx.conf.custom", "-g", "daemon off;"]

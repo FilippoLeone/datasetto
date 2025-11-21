@@ -13,7 +13,9 @@
 
 services:
   turn:
-    image: coturn/coturn:4.6.2-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.turn
     container_name: turn-server
     restart: unless-stopped
     networks:

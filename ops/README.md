@@ -37,7 +37,7 @@ docker compose up -d
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-- `turn` - coturn TURN relay (TCP/UDP 3478, UDP media relay range)
+- `turn` - self-built coturn relay (TCP/UDP 3478, UDP media relay range)
 - `rtmp` - nginx-rtmp with custom build (RTMP on 1935, internal HLS on 80)
 - `server` - Node.js with resource limits (4000)
 - `client` - nginx serving static build (8081)
@@ -45,6 +45,8 @@ docker compose -f docker-compose.prod.yml up -d
 **Performance defaults:** On a 1 GB / 2‑core host, the RTMP container owns ~768 MB RAM and 1.4 vCPUs, while the supporting services stay tiny. If you upgrade the box you can safely raise the RTMP limits; just avoid starving it on smaller hardware—OBS will report dropped frames if the container runs out of CPU.
 
 **Note:** Port 80 is used by host nginx reverse proxy for path-based routing
+
+**Multi-arch builds:** Both the `rtmp` (custom nginx-rtmp) and `turn` (coturn) images are now built locally, so `docker compose build --pull` works on either `linux/amd64` or `linux/arm64`. To publish prebuilt images for mixed clusters, run `docker buildx build --push --platform linux/amd64,linux/arm64 ...` inside the `ops/` directory and point the compose services at your registry tags.
 
 ## Configuration Files
 
@@ -120,7 +122,7 @@ Once networking is set up, export these variables before running the production 
 
 ### WebRTC / Voice Connectivity
 
-If users are joining from restrictive networks you will need a TURN relay in addition to the bundled Google STUN servers. The production compose file now ships a `turn` service based on `coturn/coturn` listening on port **3478** (TCP+UDP) with relay ports **49160-49200/UDP**. Update your firewall or cloud security group to allow those ranges.
+If users are joining from restrictive networks you will need a TURN relay in addition to the bundled Google STUN servers. The production compose file now ships a `turn` service built from source on Alpine (multi-arch) listening on port **3478** (TCP+UDP) with relay ports **49160-49200/UDP**. Update your firewall or cloud security group to allow those ranges.
 
 1. Copy `.env.example` → `.env` and set:
 	- `TURN_REALM`, `TURN_USERNAME`, `TURN_PASSWORD`
