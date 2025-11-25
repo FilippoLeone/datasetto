@@ -289,6 +289,24 @@ type RemoteVideoTrackInfo = {
   onStreamRemove: (event: MediaStreamTrackEvent) => void;
 };
 
+type DesktopScreenshareSource = {
+  id: string;
+  name: string;
+  isScreen?: boolean;
+  type?: 'screen' | 'window';
+};
+
+type DesktopScreensharePickResult = {
+  success: boolean;
+  source?: DesktopScreenshareSource;
+  shareAudio?: boolean;
+  error?: string;
+};
+
+type DesktopScreenshareBridge = {
+  pickScreenshareSource?: (options?: { audio?: boolean }) => Promise<DesktopScreensharePickResult>;
+};
+
 export class VoiceService extends EventEmitter<EventMap> {
   private peers: Map<string, RTCPeerConnection> = new Map();
   private remoteAudios: Map<string, HTMLAudioElement> = new Map();
@@ -317,6 +335,7 @@ export class VoiceService extends EventEmitter<EventMap> {
   private statsPollingHandle: number | null = null;
   private peerStatsHistory: Map<string, PeerConnectionStats[]> = new Map();
   private lastStatsTimestamp: Map<string, number> = new Map();
+  private desktopBridge: DesktopScreenshareBridge | null = null;
 
   constructor(
     voiceBitrate = OPUS_TARGET_BITRATE,
@@ -331,6 +350,11 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.loadPeerAudioPreferences();
 
     if (typeof window !== 'undefined') {
+      const bridge = (window as typeof window & { desktopAPI?: DesktopScreenshareBridge }).desktopAPI;
+      if (bridge) {
+        this.desktopBridge = bridge;
+      }
+
       const unlock = () => {
         this.tryResumeAudioContext();
         window.removeEventListener('click', unlock);
@@ -1346,22 +1370,39 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     try {
+      const videoConstraints: MediaTrackConstraints = {
+        width: { ideal: 1920, max: 2560 },
+        height: { ideal: 1080, max: 1440 },
+        frameRate: { ideal: 30, max: 60 },
+      };
+
+      let stream: MediaStream | null = null;
+      let desktopCancelled = false;
+
+      if (this.desktopBridge?.pickScreenshareSource) {
+        const result = await this.requestDesktopScreenshareStream(videoConstraints, true);
+        stream = result.stream;
+        desktopCancelled = result.cancelled;
+      }
+
       const mediaDevices = navigator.mediaDevices as MediaDevices & {
         getDisplayMedia?: (constraints?: MediaStreamConstraints) => Promise<MediaStream>;
       };
 
-      if (!mediaDevices.getDisplayMedia) {
-        throw new Error('Screen sharing is not supported in this browser');
-      }
+      if (!stream) {
+        if (desktopCancelled) {
+          throw this.createNotAllowedError('Screen share was cancelled');
+        }
 
-      const stream = await mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 1920, max: 2560 },
-          height: { ideal: 1080, max: 1440 },
-          frameRate: { ideal: 30, max: 60 },
-        },
-        audio: true,
-      });
+        if (!mediaDevices.getDisplayMedia) {
+          throw new Error('Screen sharing is not supported in this browser');
+        }
+
+        stream = await mediaDevices.getDisplayMedia({
+          video: videoConstraints,
+          audio: true,
+        });
+      }
 
       this.localScreenStream = stream;
 
@@ -1487,6 +1528,109 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.localScreenStream = null;
     this.removeVideoTrackFromAllPeers('screen');
     this.emit('video:screen:stopped', undefined as never);
+  }
+
+  private async requestDesktopScreenshareStream(
+    videoConstraints: MediaTrackConstraints,
+    wantsAudio: boolean
+  ): Promise<{ stream: MediaStream | null; cancelled: boolean }> {
+    if (!this.desktopBridge?.pickScreenshareSource) {
+      return { stream: null, cancelled: false };
+    }
+
+    try {
+      const selection = await this.desktopBridge.pickScreenshareSource({ audio: wantsAudio });
+      if (!selection?.success || !selection.source) {
+        return { stream: null, cancelled: selection?.error === 'cancelled' };
+      }
+
+      const sourceId = selection.source.id;
+      const resolvedWidth = this.extractConstraintNumber(videoConstraints.width as ConstrainULongRange | number | undefined);
+      const resolvedHeight = this.extractConstraintNumber(videoConstraints.height as ConstrainULongRange | number | undefined);
+      const frameRateConstraint = videoConstraints.frameRate as ConstrainDoubleRange | number | undefined;
+      const minFrameRate = this.extractConstraintNumber(
+        typeof frameRateConstraint === 'object' ? frameRateConstraint.min : frameRateConstraint
+      );
+      const maxFrameRate = this.extractConstraintNumber(
+        typeof frameRateConstraint === 'object' ? frameRateConstraint.max : frameRateConstraint
+      );
+
+      const mandatoryVideo = {
+        chromeMediaSource: 'desktop',
+        chromeMediaSourceId: sourceId,
+        ...(resolvedWidth
+          ? {
+              minWidth: Math.round(resolvedWidth),
+              maxWidth: Math.round(resolvedWidth),
+            }
+          : {}),
+        ...(resolvedHeight
+          ? {
+              minHeight: Math.round(resolvedHeight),
+              maxHeight: Math.round(resolvedHeight),
+            }
+          : {}),
+        ...(typeof minFrameRate === 'number' ? { minFrameRate: Math.round(minFrameRate) } : {}),
+        ...(typeof maxFrameRate === 'number' ? { maxFrameRate: Math.round(maxFrameRate) } : {}),
+      };
+
+      const isScreen = Boolean(selection.source.isScreen || selection.source.type === 'screen');
+      const enableAudio = Boolean(wantsAudio && selection.shareAudio && isScreen);
+      const audioConstraints: MediaTrackConstraints | boolean = enableAudio
+        ? ({
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+            },
+          } as unknown as MediaTrackConstraints)
+        : false;
+
+      const desktopConstraints: MediaStreamConstraints = {
+        video: { mandatory: mandatoryVideo } as unknown as MediaTrackConstraints,
+        audio: audioConstraints,
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(desktopConstraints);
+      return { stream, cancelled: false };
+    } catch (error) {
+      console.error('[VoiceService] Desktop screenshare fallback failed:', error);
+      return { stream: null, cancelled: false };
+    }
+  }
+
+  private extractConstraintNumber(
+    value: ConstrainULongRange | ConstrainDoubleRange | number | undefined
+  ): number | undefined {
+    if (typeof value === 'number') {
+      return value;
+    }
+
+    if (value && typeof value === 'object') {
+      if (typeof value.exact === 'number') {
+        return value.exact;
+      }
+      if (typeof value.ideal === 'number') {
+        return value.ideal;
+      }
+      if (typeof value.max === 'number') {
+        return value.max;
+      }
+      if (typeof value.min === 'number') {
+        return value.min;
+      }
+    }
+
+    return undefined;
+  }
+
+  private createNotAllowedError(message: string): Error {
+    if (typeof DOMException === 'function') {
+      return new DOMException(message, 'NotAllowedError');
+    }
+
+    const error = new Error(message);
+    (error as Error & { name: string }).name = 'NotAllowedError';
+    return error;
   }
 
   getPeerAudioPreference(peerId: string): PeerAudioPreference {
