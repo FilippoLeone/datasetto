@@ -1,6 +1,7 @@
 export * from './SocketService';
 export * from './AudioService';
 export * from './VoiceService';
+export * from './VideoService';
 export * from './PlayerService';
 export * from './AudioNotificationService';
 export * from './ForegroundServiceManager';

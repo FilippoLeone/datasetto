@@ -29,7 +29,7 @@ interface PendingVoiceJoin {
 
 export class VoiceController {
   private deps: VoiceControllerDeps;
-  private voiceUsers: Map<string, { id: string; name: string; muted?: boolean; deafened?: boolean; speaking?: boolean }> = new Map();
+  private voiceUsers: Map<string, { id: string; name: string; muted?: boolean; deafened?: boolean; speaking?: boolean; cameraEnabled?: boolean; screenEnabled?: boolean }> = new Map();
   private pendingVoiceJoin: PendingVoiceJoin | null = null;
   private localSpeaking = false;
   private localSpeakingLastPeak = 0;
@@ -47,6 +47,10 @@ export class VoiceController {
   private desktopAPI: DesktopBridge | null = null;
   private connectionQualityWarningShown = false;
   private lastConnectionQuality: ConnectionQuality = 'unknown';
+  // Video call state
+  private cameraActive = false;
+  private screenShareActive = false;
+  private remoteVideoTracks: Map<string, { camera?: MediaStreamTrack; screen?: MediaStreamTrack }> = new Map();
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps;
@@ -65,6 +69,8 @@ export class VoiceController {
     this.deps.registerCleanup(() => this.dispose());
     this.updateMuteButtons();
     this.updateVoiceStatusPanel();
+    this.updateVideoButtons();
+    this.updateLocalVideoPreview();
     void this.applySpeakerPreference();
 
     const channels = this.deps.state.get('channels') ?? [];
@@ -141,6 +147,308 @@ export class VoiceController {
 
     this.deps.soundFX.play(enableSilence ? 'deafen' : 'undeafen');
     this.updateMuteButtons();
+    this.renderVoiceUsers();
+  }
+
+  // ==================== VIDEO CONTROLS ====================
+
+  async toggleCamera(): Promise<void> {
+    if (!this.deps.state.get('voiceConnected')) {
+      this.deps.notifications.warning('Join a voice channel first to share your camera');
+      return;
+    }
+
+    try {
+      if (this.cameraActive) {
+        this.deps.voice.stopCamera();
+        this.cameraActive = false;
+        this.updateVideoButtons();
+        this.updateLocalVideoPreview();
+        this.deps.notifications.info('Camera stopped');
+      } else {
+        await this.deps.voice.startCamera();
+        this.cameraActive = true;
+        this.updateVideoButtons();
+        this.updateLocalVideoPreview();
+        this.deps.notifications.success('Camera started');
+      }
+    } catch (error) {
+      console.error('[VoiceController] Camera toggle failed:', error);
+      this.deps.notifications.error(
+        error instanceof Error ? error.message : 'Failed to toggle camera'
+      );
+    }
+  }
+
+  async toggleScreenShare(): Promise<void> {
+    if (!this.deps.state.get('voiceConnected')) {
+      this.deps.notifications.warning('Join a voice channel first to share your screen');
+      return;
+    }
+
+    try {
+      if (this.screenShareActive) {
+        this.deps.voice.stopScreenShare();
+        this.screenShareActive = false;
+        this.updateVideoButtons();
+        this.updateLocalVideoPreview();
+        this.deps.notifications.info('Screen share stopped');
+      } else {
+        await this.deps.voice.startScreenShare();
+        this.screenShareActive = true;
+        this.updateVideoButtons();
+        this.updateLocalVideoPreview();
+        this.deps.notifications.success('Screen sharing started');
+      }
+    } catch (error) {
+      console.error('[VoiceController] Screen share toggle failed:', error);
+      if (error instanceof Error && error.name === 'NotAllowedError') {
+        this.deps.notifications.warning('Screen share was cancelled');
+      } else {
+        this.deps.notifications.error(
+          error instanceof Error ? error.message : 'Failed to toggle screen share'
+        );
+      }
+    }
+  }
+
+  private announceVideoState(type: 'camera' | 'screen', enabled: boolean): void {
+    if (!this.deps.state.get('voiceConnected')) {
+      return;
+    }
+
+    this.deps.socket.updateVideoState({ type, enabled });
+  }
+
+  private updateVideoButtons(): void {
+    const cameraBtn = this.deps.elements['toggle-camera'];
+    const screenBtn = this.deps.elements['toggle-screenshare'];
+
+    if (cameraBtn) {
+      cameraBtn.classList.toggle('active', this.cameraActive);
+      cameraBtn.setAttribute('aria-pressed', String(this.cameraActive));
+      cameraBtn.title = this.cameraActive ? 'Stop camera' : 'Start camera';
+      const label = cameraBtn.querySelector('.voice-toggle-label');
+      if (label) {
+        label.textContent = this.cameraActive ? 'Stop Cam' : 'Camera';
+      }
+    }
+
+    if (screenBtn) {
+      screenBtn.classList.toggle('active', this.screenShareActive);
+      screenBtn.setAttribute('aria-pressed', String(this.screenShareActive));
+      screenBtn.title = this.screenShareActive ? 'Stop sharing' : 'Share screen';
+      const label = screenBtn.querySelector('.voice-toggle-label');
+      if (label) {
+        label.textContent = this.screenShareActive ? 'Stop Share' : 'Screen';
+      }
+    }
+  }
+
+  private updateLocalVideoPreview(): void {
+    const localVideoContainer = this.deps.elements['local-video-container'];
+    const localVideo = this.deps.elements['local-video'] as HTMLVideoElement | null;
+    const videoGrid = this.deps.elements['video-call-grid'];
+
+    const hasVideo = this.cameraActive || this.screenShareActive;
+
+    // Show/hide video grid
+    if (videoGrid) {
+      videoGrid.classList.toggle('hidden', !hasVideo && this.remoteVideoTracks.size === 0);
+    }
+
+    // Show/hide local video container
+    if (localVideoContainer) {
+      localVideoContainer.classList.toggle('hidden', !hasVideo);
+      
+      const cameraBadge = localVideoContainer.querySelector('.camera-badge');
+      const screenBadge = localVideoContainer.querySelector('.screen-badge');
+      
+      if (cameraBadge) cameraBadge.classList.toggle('hidden', !this.cameraActive);
+      if (screenBadge) screenBadge.classList.toggle('hidden', !this.screenShareActive);
+    }
+
+    // Attach stream to local video element
+    if (localVideo) {
+      // Prefer screen share over camera for local preview
+      const stream = this.screenShareActive
+        ? this.deps.voice.getScreenStream()
+        : this.cameraActive
+          ? this.deps.voice.getCameraStream()
+          : null;
+
+      if (stream) {
+        localVideo.srcObject = stream;
+        localVideo.play().catch((e) => console.warn('Local video play failed:', e));
+      } else {
+        localVideo.srcObject = null;
+      }
+    }
+
+    this.updateVideoGridLayout();
+  }
+
+  private handleRemoteVideoTrack(payload: {
+    peerId: string;
+    streamType: 'camera' | 'screen';
+    stream: MediaStream;
+    track: MediaStreamTrack;
+  }): void {
+    const { peerId, streamType, stream, track } = payload;
+    
+    if (!this.remoteVideoTracks.has(peerId)) {
+      this.remoteVideoTracks.set(peerId, {});
+    }
+    this.remoteVideoTracks.get(peerId)![streamType] = track;
+
+    // Create or update video tile for this peer
+    this.createOrUpdateRemoteVideoTile(peerId, streamType, stream);
+    this.updateVideoGridLayout();
+    if (this.setRemoteVideoState(peerId, streamType, true)) {
+      this.renderVoiceUsers();
+    }
+  }
+
+  private setRemoteVideoState(peerId: string, streamType: 'camera' | 'screen', enabled: boolean): boolean {
+    const user = this.voiceUsers.get(peerId);
+    if (!user) {
+      return false;
+    }
+
+    if (streamType === 'camera') {
+      user.cameraEnabled = enabled;
+    } else {
+      user.screenEnabled = enabled;
+    }
+
+    return true;
+  }
+
+  private createOrUpdateRemoteVideoTile(
+    peerId: string,
+    streamType: 'camera' | 'screen',
+    stream: MediaStream
+  ): void {
+    const videoGrid = this.deps.elements['video-call-grid'];
+    if (!videoGrid) return;
+
+    // Show video grid
+    videoGrid.classList.remove('hidden');
+
+    const tileId = `video-tile-${peerId}-${streamType}`;
+    let tile = videoGrid.querySelector(`#${tileId}`) as HTMLElement | null;
+
+    if (!tile) {
+      tile = document.createElement('div');
+      tile.id = tileId;
+      tile.className = `video-tile ${streamType === 'screen' ? 'screen-share' : ''}`;
+      tile.dataset.peerId = peerId;
+      tile.dataset.streamType = streamType;
+
+      const video = document.createElement('video');
+      video.className = 'video-element';
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = streamType === 'screen'; // Mute screen shares to avoid echo
+
+      const overlay = document.createElement('div');
+      overlay.className = 'video-tile-overlay';
+
+      const userName = this.voiceUsers.get(peerId)?.name || 'Participant';
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'video-tile-name';
+      nameSpan.textContent = userName;
+
+      const badge = document.createElement('span');
+      badge.className = 'video-tile-badge';
+      badge.textContent = streamType === 'screen' ? '🖥️' : '📹';
+
+      overlay.appendChild(nameSpan);
+      overlay.appendChild(badge);
+      tile.appendChild(video);
+      tile.appendChild(overlay);
+      videoGrid.appendChild(tile);
+    }
+
+    const videoEl = tile.querySelector('video') as HTMLVideoElement;
+    if (videoEl) {
+      videoEl.srcObject = stream;
+      videoEl.play().catch((e) => console.warn(`Remote video play failed for ${peerId}:`, e));
+    }
+  }
+
+  private removeRemoteVideoTile(peerId: string, streamType?: 'camera' | 'screen'): void {
+    const videoGrid = this.deps.elements['video-call-grid'];
+    if (!videoGrid) return;
+
+    let stateChanged = false;
+
+    if (streamType) {
+      const tileId = `video-tile-${peerId}-${streamType}`;
+      const tile = videoGrid.querySelector(`#${tileId}`);
+      tile?.remove();
+
+      const peerTracks = this.remoteVideoTracks.get(peerId);
+      if (peerTracks) {
+        delete peerTracks[streamType];
+        if (!peerTracks.camera && !peerTracks.screen) {
+          this.remoteVideoTracks.delete(peerId);
+        }
+      }
+
+      stateChanged = this.setRemoteVideoState(peerId, streamType, false) || stateChanged;
+    } else {
+      // Remove all tiles for this peer
+      videoGrid.querySelectorAll(`[data-peer-id="${peerId}"]`).forEach((el) => el.remove());
+      this.remoteVideoTracks.delete(peerId);
+      stateChanged = this.setRemoteVideoState(peerId, 'camera', false) || stateChanged;
+      stateChanged = this.setRemoteVideoState(peerId, 'screen', false) || stateChanged;
+    }
+
+    this.updateVideoGridLayout();
+    if (stateChanged) {
+      this.renderVoiceUsers();
+    }
+  }
+
+  private updateVideoGridLayout(): void {
+    const videoGrid = this.deps.elements['video-call-grid'];
+    if (!videoGrid) return;
+
+    const tiles = videoGrid.querySelectorAll('.video-tile:not(.hidden)');
+    const count = tiles.length;
+
+    videoGrid.dataset.count = String(count);
+
+    // Check if there's a screen share
+    const hasScreenShare = videoGrid.querySelector('.video-tile.screen-share') !== null;
+    videoGrid.classList.toggle('has-screen-share', hasScreenShare);
+
+    // Hide grid if empty
+    if (count === 0) {
+      videoGrid.classList.add('hidden');
+    }
+  }
+
+  private stopAllVideo(): void {
+    if (this.cameraActive) {
+      this.deps.voice.stopCamera();
+      this.cameraActive = false;
+    }
+    if (this.screenShareActive) {
+      this.deps.voice.stopScreenShare();
+      this.screenShareActive = false;
+    }
+    
+    // Clear remote video tiles
+    const videoGrid = this.deps.elements['video-call-grid'];
+    if (videoGrid) {
+      videoGrid.querySelectorAll('.video-tile[data-peer-id]').forEach((el) => el.remove());
+    }
+    this.remoteVideoTracks.clear();
+    
+    this.updateVideoButtons();
+    this.updateLocalVideoPreview();
     this.renderVoiceUsers();
   }
 
@@ -359,6 +667,7 @@ export class VoiceController {
       return;
     }
 
+    this.removeRemoteVideoTile(data.id);
     this.removeVoiceUser(data.id);
     this.deps.voice.removePeer(data.id);
   }
@@ -376,6 +685,16 @@ export class VoiceController {
     voiceUser.muted = data.muted;
     voiceUser.deafened = data.deafened;
     this.renderVoiceUsers();
+  }
+
+  private handleVoiceVideoState(data: { id: string; type: 'camera' | 'screen'; enabled: boolean }): void {
+    if (!this.shouldProcessRemoteVoiceEvent()) {
+      return;
+    }
+
+    if (this.setRemoteVideoState(data.id, data.type, data.enabled)) {
+      this.renderVoiceUsers();
+    }
   }
 
   async handleVoiceSignal(data: { from: string; data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }): Promise<void> {
@@ -484,6 +803,11 @@ export class VoiceController {
         this.handleVoicePeerState(data as never);
       })
     );
+    this.disposers.push(
+      this.deps.socket.on('voice:video:state', (data) => {
+        this.handleVoiceVideoState(data as never);
+      })
+    );
 
     this.disposers.push(
       this.deps.voice.on('voice:offer', (payload: unknown) => {
@@ -513,6 +837,64 @@ export class VoiceController {
     this.disposers.push(
       this.deps.voice.on('voice:stats', (payload) => {
         this.handleConnectionStats(payload as PeerConnectionStats);
+      })
+    );
+
+    // Video event listeners
+    this.disposers.push(
+      this.deps.voice.on('video:remote:track', (payload) => {
+        this.handleRemoteVideoTrack(payload as {
+          peerId: string;
+          streamType: 'camera' | 'screen';
+          stream: MediaStream;
+          track: MediaStreamTrack;
+        });
+      })
+    );
+    this.disposers.push(
+      this.deps.voice.on('video:remote:track:removed', (payload) => {
+        const { peerId, streamType } = payload as { peerId: string; streamType: 'camera' | 'screen' };
+        this.removeRemoteVideoTile(peerId, streamType);
+      })
+    );
+
+    this.disposers.push(
+      this.deps.voice.on('video:camera:started', () => {
+        this.cameraActive = true;
+        this.updateVideoButtons();
+        this.updateLocalVideoPreview();
+        this.announceVideoState('camera', true);
+        this.renderVoiceUsers();
+      })
+    );
+
+    this.disposers.push(
+      this.deps.voice.on('video:camera:stopped', () => {
+        this.cameraActive = false;
+        this.updateVideoButtons();
+        this.updateLocalVideoPreview();
+        this.announceVideoState('camera', false);
+        this.renderVoiceUsers();
+      })
+    );
+
+    this.disposers.push(
+      this.deps.voice.on('video:screen:started', () => {
+        this.screenShareActive = true;
+        this.updateVideoButtons();
+        this.updateLocalVideoPreview();
+        this.announceVideoState('screen', true);
+        this.renderVoiceUsers();
+      })
+    );
+
+    this.disposers.push(
+      this.deps.voice.on('video:screen:stopped', () => {
+        this.screenShareActive = false;
+        this.updateVideoButtons();
+        this.updateLocalVideoPreview();
+        this.announceVideoState('screen', false);
+        this.renderVoiceUsers();
       })
     );
 
@@ -787,6 +1169,8 @@ export class VoiceController {
       muted: Boolean(peer.muted),
       deafened: Boolean(peer.deafened),
       speaking: existing?.speaking ?? false,
+      cameraEnabled: existing?.cameraEnabled ?? false,
+      screenEnabled: existing?.screenEnabled ?? false,
     });
 
     this.renderVoiceUsers();
@@ -821,6 +1205,8 @@ export class VoiceController {
         deafened: state.deafened,
         speaking: this.localSpeaking,
         isCurrentUser: true,
+        cameraEnabled: this.cameraActive,
+        screenEnabled: this.screenShareActive,
       });
     }
 
@@ -835,6 +1221,8 @@ export class VoiceController {
         showLocalControls: true,
         localMuted: preference.muted,
         localVolume: preference.volume,
+        cameraEnabled: Boolean(user.cameraEnabled),
+        screenEnabled: Boolean(user.screenEnabled),
         onLocalMuteToggle: (muted) => {
           this.deps.voice.setPeerMuted(id, muted);
         },
@@ -936,6 +1324,8 @@ export class VoiceController {
   tile.dataset.currentUser = entry.isCurrentUser ? 'true' : 'false';
   const displayName = (entry.name ?? '').trim() || 'Participant';
   tile.dataset.displayName = entry.isCurrentUser ? `${displayName} (You)` : displayName;
+  tile.dataset.camera = entry.cameraEnabled ? 'true' : 'false';
+  tile.dataset.screen = entry.screenEnabled ? 'true' : 'false';
 
     const avatar = document.createElement('div');
     avatar.className = 'voice-gallery-avatar';
@@ -981,13 +1371,15 @@ export class VoiceController {
     const muted = tile.dataset.muted === 'true';
     const deafened = tile.dataset.deafened === 'true';
     const isCurrentUser = tile.dataset.currentUser === 'true';
+    const cameraEnabled = tile.dataset.camera === 'true';
+    const screenEnabled = tile.dataset.screen === 'true';
 
     const statusEl = tile.querySelector('.voice-gallery-status') as HTMLElement | null;
     this.updateVoiceGalleryStatus(statusEl, { muted, deafened, speaking, isCurrentUser });
 
   const metaEl = tile.querySelector('.voice-gallery-meta') as HTMLElement | null;
     if (metaEl) {
-      this.populateVoiceGalleryMeta(metaEl, { muted, deafened, speaking });
+      this.populateVoiceGalleryMeta(metaEl, { muted, deafened, speaking, cameraEnabled, screenEnabled });
     }
 
     const labelParts: string[] = [];
@@ -1012,7 +1404,7 @@ export class VoiceController {
 
   private populateVoiceGalleryMeta(
     metaEl: HTMLElement,
-    state: { muted: boolean; deafened: boolean; speaking: boolean }
+    state: { muted: boolean; deafened: boolean; speaking: boolean; cameraEnabled?: boolean; screenEnabled?: boolean }
   ): void {
     const descriptors: string[] = [];
 
@@ -1028,6 +1420,12 @@ export class VoiceController {
       descriptors.push(state.speaking ? 'Now Speaking' : 'Listening');
     } else if (state.speaking) {
       descriptors.push('Speaking');
+    }
+
+    if (state.screenEnabled) {
+      descriptors.push('Sharing Screen');
+    } else if (state.cameraEnabled) {
+      descriptors.push('Camera On');
     }
 
     if (descriptors.length === 0) {
@@ -1510,6 +1908,9 @@ export class VoiceController {
     this.connectionQualityWarningShown = false;
     this.lastConnectionQuality = 'unknown';
 
+    // Stop all video streams
+    this.stopAllVideo();
+
     this.deps.voice.dispose();
     this.deps.audio.stopLocalStream();
     this.setLocalSpeaking(false);
@@ -1526,6 +1927,7 @@ export class VoiceController {
     this.voiceUsers.clear();
     this.renderVoiceUsers();
     this.updateVoiceStatusPanel();
+    this.updateVideoButtons();
 
     this.pendingVoiceJoin = null;
 

@@ -348,6 +348,20 @@ export type EventMap = {
   'screenshare:signal': { from: string; data: unknown; channelId?: string | null };
   'screenshare:viewer:pending': { channelId: string; viewerId: string; viewerName: string };
   'screenshare:error': { channelId?: string | null; message: string; code?: string };
+  // Video call events
+  'video:camera:started': { stream: MediaStream };
+  'video:camera:stopped': void;
+  'video:screen:started': { stream: MediaStream };
+  'video:screen:stopped': void;
+  'video:remote:track': {
+    peerId: string;
+    streamType: 'camera' | 'screen';
+    stream: MediaStream;
+    track: MediaStreamTrack;
+  };
+  'video:remote:track:removed': { peerId: string; streamType: 'camera' | 'screen' };
+  // Voice video state signaling (socket events)
+  'voice:video:state': { id: string; type: 'camera' | 'screen'; enabled: boolean };
   [key: string]: unknown;
 };
 

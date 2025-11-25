@@ -10,6 +10,8 @@ export interface VoicePanelEntry {
   showLocalControls?: boolean;
   onLocalMuteToggle?: (muted: boolean) => void;
   onLocalVolumeChange?: (volume: number) => void;
+  cameraEnabled?: boolean;
+  screenEnabled?: boolean;
 }
 
 interface VoicePanelRefs {
@@ -196,6 +198,22 @@ export class VoicePanelController {
       deafenedIcon.textContent = '🔇';
       deafenedIcon.title = 'Output muted';
       iconsContainer.appendChild(deafenedIcon);
+    }
+
+    if (entry.cameraEnabled) {
+      const cameraIcon = document.createElement('span');
+      cameraIcon.className = 'text-xs opacity-70';
+      cameraIcon.textContent = '📹';
+      cameraIcon.title = 'Camera on';
+      iconsContainer.appendChild(cameraIcon);
+    }
+
+    if (entry.screenEnabled) {
+      const screenIcon = document.createElement('span');
+      screenIcon.className = 'text-xs opacity-70';
+      screenIcon.textContent = '🖥️';
+      screenIcon.title = 'Sharing screen';
+      iconsContainer.appendChild(screenIcon);
     }
 
     header.appendChild(avatarContainer);

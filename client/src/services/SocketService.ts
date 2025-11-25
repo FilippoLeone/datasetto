@@ -210,6 +210,13 @@ export class SocketService extends EventEmitter<EventMap> {
     this.socket?.emit('voice:state', payload);
   }
 
+  /**
+   * Update video state (camera/screen share enabled/disabled)
+   */
+  updateVideoState(payload: { type: 'camera' | 'screen'; enabled: boolean }): void {
+    this.socket?.emit('voice:video:state', payload);
+  }
+
   startVoiceMinigame(payload: { type: string }): void {
     this.socket?.emit('voice:game:start', payload);
   }
@@ -535,6 +542,11 @@ export class SocketService extends EventEmitter<EventMap> {
 
     this.socket.on('voice:state', (data: { id: string; muted: boolean; deafened: boolean }) => {
       this.emit('voice:state' as keyof EventMap, data as never);
+    });
+
+    // Video call state events
+    this.socket.on('voice:video:state', (data: { id: string; type: 'camera' | 'screen'; enabled: boolean }) => {
+      this.emit('voice:video:state' as keyof EventMap, data as never);
     });
 
     this.socket.on('voice:game:state', (data) => {

@@ -282,6 +282,13 @@ export interface PeerConnectionStats {
   timestamp: number;
 }
 
+type RemoteVideoTrackInfo = {
+  track: MediaStreamTrack;
+  stream: MediaStream;
+  onTrackEnded: () => void;
+  onStreamRemove: (event: MediaStreamTrackEvent) => void;
+};
+
 export class VoiceService extends EventEmitter<EventMap> {
   private peers: Map<string, RTCPeerConnection> = new Map();
   private remoteAudios: Map<string, HTMLAudioElement> = new Map();
@@ -289,6 +296,11 @@ export class VoiceService extends EventEmitter<EventMap> {
   private iceRestartTimers: Map<string, number> = new Map();
   private iceRestartAttempts: Map<string, number> = new Map();
   private localStream: MediaStream | null = null;
+  private localVideoStream: MediaStream | null = null;
+  private localScreenStream: MediaStream | null = null;
+  private remoteVideoElements: Map<string, HTMLVideoElement> = new Map();
+  private videoSenders: Map<string, { camera?: RTCRtpSender; screen?: RTCRtpSender }> = new Map();
+  private remoteVideoTracks: Map<string, { camera?: RemoteVideoTrackInfo; screen?: RemoteVideoTrackInfo }> = new Map();
   private audioContext: AudioContext | null = null;
   private outputVolume = 1;
   private outputDeviceId = '';
@@ -443,11 +455,101 @@ export class VoiceService extends EventEmitter<EventMap> {
 
     // Track received handler
     pc.ontrack = (event) => {
-      console.log(`Received track from peer ${peerId}`);
-      this.handleRemoteTrack(peerId, event.streams[0]);
+      const track = event.track;
+      const stream = event.streams[0];
+      console.log(`Received ${track.kind} track from peer ${peerId}`);
+      
+      if (track.kind === 'audio') {
+        this.handleRemoteTrack(peerId, stream);
+      } else if (track.kind === 'video') {
+        this.handleRemoteVideoTrack(peerId, track, stream);
+      }
     };
 
     return pc;
+  }
+
+  /**
+   * Handle incoming remote video track
+   */
+  private handleRemoteVideoTrack(peerId: string, track: MediaStreamTrack, stream: MediaStream): void {
+    // Determine if this is camera or screen share based on track settings
+    const settings = track.getSettings();
+    const isScreenShare = settings.displaySurface !== undefined || 
+                          (settings.width && settings.width > 1280) ||
+                          track.contentHint === 'detail';
+    
+    const streamType = isScreenShare ? 'screen' : 'camera';
+    
+    console.log(`[VoiceService] Remote video track from ${peerId}: ${streamType}`);
+
+    if (!this.remoteVideoTracks.has(peerId)) {
+      this.remoteVideoTracks.set(peerId, {});
+    }
+
+    const onTrackEnded = () => {
+      this.handleRemoteVideoTrackRemoval(peerId, streamType);
+    };
+
+    const onStreamRemove = (event: MediaStreamTrackEvent) => {
+      if (event.track === track) {
+        this.handleRemoteVideoTrackRemoval(peerId, streamType);
+      }
+    };
+
+    const peerTracks = this.remoteVideoTracks.get(peerId)!;
+    peerTracks[streamType] = {
+      track,
+      stream,
+      onTrackEnded,
+      onStreamRemove,
+    };
+
+    track.addEventListener('ended', onTrackEnded);
+    stream.addEventListener('removetrack', onStreamRemove);
+    
+    this.emit('video:remote:track', {
+      peerId,
+      streamType,
+      stream,
+      track,
+    } as never);
+  }
+
+  private handleRemoteVideoTrackRemoval(peerId: string, streamType: 'camera' | 'screen'): void {
+    const tracks = this.remoteVideoTracks.get(peerId);
+    const info = tracks?.[streamType];
+    if (!tracks || !info) {
+      return;
+    }
+
+    info.track.removeEventListener('ended', info.onTrackEnded);
+    info.stream.removeEventListener('removetrack', info.onStreamRemove);
+
+    delete tracks[streamType];
+
+    if (!tracks.camera && !tracks.screen) {
+      this.remoteVideoTracks.delete(peerId);
+    }
+
+    this.emit('video:remote:track:removed', {
+      peerId,
+      streamType,
+    } as never);
+  }
+
+  private clearRemoteVideoTracks(peerId: string): void {
+    const tracks = this.remoteVideoTracks.get(peerId);
+    if (!tracks) {
+      return;
+    }
+
+    if (tracks.camera) {
+      this.handleRemoteVideoTrackRemoval(peerId, 'camera');
+    }
+    if (tracks.screen) {
+      this.handleRemoteVideoTrackRemoval(peerId, 'screen');
+    }
   }
 
   /**
@@ -766,6 +868,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     this.resetIceRecovery(peerId);
+    this.clearRemoteVideoTracks(peerId);
 
     // Remove audio element
     const audio = this.remoteAudios.get(peerId);
@@ -1152,6 +1255,10 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.peerStatsHistory.clear();
     this.lastStatsTimestamp.clear();
 
+    // Stop video streams
+    this.stopCamera();
+    this.stopScreenShare();
+
     // Remove all peers
     for (const peerId of Array.from(this.peers.keys())) {
       this.removePeer(peerId);
@@ -1164,9 +1271,222 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     this.localStream = null;
+    this.localVideoStream = null;
+    this.localScreenStream = null;
     this.peers.clear();
     this.remoteAudios.clear();
     this.remoteMonitors.clear();
+    this.remoteVideoElements.clear();
+    this.videoSenders.clear();
+    this.remoteVideoTracks.clear();
+  }
+
+  // ==================== VIDEO METHODS ====================
+
+  /**
+   * Start camera and add video track to all peers
+   */
+  async startCamera(deviceId?: string): Promise<MediaStream> {
+    if (this.localVideoStream) {
+      return this.localVideoStream;
+    }
+
+    const constraints: MediaStreamConstraints = {
+      video: {
+        width: { ideal: 1280, max: 1920 },
+        height: { ideal: 720, max: 1080 },
+        frameRate: { ideal: 30, max: 60 },
+        facingMode: 'user',
+        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+      },
+      audio: false,
+    };
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      this.localVideoStream = stream;
+
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        track.contentHint = 'motion';
+        track.addEventListener('ended', () => {
+          this.handleCameraTrackEnded();
+        });
+      }
+
+      // Add video track to all existing peers
+      await this.addVideoTrackToAllPeers('camera', stream);
+
+      this.emit('video:camera:started', { stream } as never);
+      return stream;
+    } catch (error) {
+      console.error('[VoiceService] Failed to start camera:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop camera and remove video track from all peers
+   */
+  stopCamera(): void {
+    if (this.localVideoStream) {
+      this.localVideoStream.getTracks().forEach((track) => track.stop());
+      this.removeVideoTrackFromAllPeers('camera');
+      this.localVideoStream = null;
+    }
+    this.emit('video:camera:stopped', undefined as never);
+  }
+
+  /**
+   * Start screen sharing and add to all peers
+   */
+  async startScreenShare(): Promise<MediaStream> {
+    if (this.localScreenStream) {
+      return this.localScreenStream;
+    }
+
+    try {
+      const mediaDevices = navigator.mediaDevices as MediaDevices & {
+        getDisplayMedia?: (constraints?: MediaStreamConstraints) => Promise<MediaStream>;
+      };
+
+      if (!mediaDevices.getDisplayMedia) {
+        throw new Error('Screen sharing is not supported in this browser');
+      }
+
+      const stream = await mediaDevices.getDisplayMedia({
+        video: {
+          width: { ideal: 1920, max: 2560 },
+          height: { ideal: 1080, max: 1440 },
+          frameRate: { ideal: 30, max: 60 },
+        },
+        audio: true,
+      });
+
+      this.localScreenStream = stream;
+
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        track.contentHint = 'detail';
+        track.addEventListener('ended', () => {
+          this.handleScreenTrackEnded();
+        });
+      }
+
+      // Add video track to all existing peers
+      await this.addVideoTrackToAllPeers('screen', stream);
+
+      this.emit('video:screen:started', { stream } as never);
+      return stream;
+    } catch (error) {
+      console.error('[VoiceService] Failed to start screen share:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop screen sharing and remove from all peers
+   */
+  stopScreenShare(): void {
+    if (this.localScreenStream) {
+      this.localScreenStream.getTracks().forEach((track) => track.stop());
+      this.removeVideoTrackFromAllPeers('screen');
+      this.localScreenStream = null;
+    }
+    this.emit('video:screen:stopped', undefined as never);
+  }
+
+  /**
+   * Get camera stream
+   */
+  getCameraStream(): MediaStream | null {
+    return this.localVideoStream;
+  }
+
+  /**
+   * Get screen share stream
+   */
+  getScreenStream(): MediaStream | null {
+    return this.localScreenStream;
+  }
+
+  /**
+   * Check if camera is active
+   */
+  isCameraActive(): boolean {
+    return this.localVideoStream !== null;
+  }
+
+  /**
+   * Check if screen share is active
+   */
+  isScreenShareActive(): boolean {
+    return this.localScreenStream !== null;
+  }
+
+  /**
+   * Add video track to all connected peers
+   */
+  private async addVideoTrackToAllPeers(type: 'camera' | 'screen', stream: MediaStream): Promise<void> {
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+
+    for (const [peerId, pc] of this.peers) {
+      try {
+        const sender = pc.addTrack(track, stream);
+        
+        // Store sender for later removal
+        if (!this.videoSenders.has(peerId)) {
+          this.videoSenders.set(peerId, {});
+        }
+        this.videoSenders.get(peerId)![type] = sender;
+
+        // Renegotiate connection
+        await this.createAndSendOffer(peerId, pc);
+      } catch (error) {
+        console.error(`[VoiceService] Failed to add ${type} track to peer ${peerId}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Remove video track from all connected peers
+   */
+  private removeVideoTrackFromAllPeers(type: 'camera' | 'screen'): void {
+    for (const [peerId, pc] of this.peers) {
+      const senders = this.videoSenders.get(peerId);
+      const sender = senders?.[type];
+      
+      if (sender) {
+        try {
+          pc.removeTrack(sender);
+          delete senders![type];
+          
+          // Renegotiate connection
+          void this.createAndSendOffer(peerId, pc);
+        } catch (error) {
+          console.error(`[VoiceService] Failed to remove ${type} track from peer ${peerId}:`, error);
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle camera track ended (user stopped via browser UI)
+   */
+  private handleCameraTrackEnded(): void {
+    this.localVideoStream = null;
+    this.removeVideoTrackFromAllPeers('camera');
+    this.emit('video:camera:stopped', undefined as never);
+  }
+
+  /**
+   * Handle screen track ended (user stopped via browser UI)
+   */
+  private handleScreenTrackEnded(): void {
+    this.localScreenStream = null;
+    this.removeVideoTrackFromAllPeers('screen');
+    this.emit('video:screen:stopped', undefined as never);
   }
 
   getPeerAudioPreference(peerId: string): PeerAudioPreference {

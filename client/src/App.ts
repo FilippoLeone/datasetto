@@ -373,7 +373,8 @@ export class App {
   'minigame-open', 'minigame-close', 'minigame-launcher-status',
   'minigame-container', 'minigame-canvas', 'minigame-start', 'minigame-end',
   'minigame-join', 'minigame-leave', 'minigame-status', 'minigame-scores', 'minigame-stage',
-  'voice-call-stage',
+  'voice-call-stage', 'toggle-camera', 'toggle-screenshare',
+  'local-video-container', 'local-video', 'video-call-grid',
       'text-channels', 'stream-channels', 'screenshare-channels', 'member-count',
       'create-text-channel', 'create-voice-channel', 'create-stream-channel',
       'createChannelModal', 'newChannelName', 'newChannelType',
@@ -576,6 +577,8 @@ export class App {
   this.addTrackedListener(this.elements.mute, 'click', () => { void this.voiceController?.toggleMute(); });
   this.addTrackedListener(this.elements['mute-output-combo'], 'click', () => { void this.voiceController?.toggleMuteAndDeafen(); });
   this.addTrackedListener(this.elements.deafen, 'click', () => { void this.voiceController?.toggleDeafen(); });
+  this.addTrackedListener(this.elements['toggle-camera'], 'click', () => { void this.voiceController?.toggleCamera(); });
+  this.addTrackedListener(this.elements['toggle-screenshare'], 'click', () => { void this.voiceController?.toggleScreenShare(); });
 
     // Gear icon -> Audio Settings
     const settingsBtn = document.getElementById('user-settings-btn');

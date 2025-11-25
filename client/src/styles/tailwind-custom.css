@@ -1625,6 +1625,185 @@ body:not(.stream-inline-active) .stream-chat-status {
   min-height: 2.5rem;
 }
 
+/* ========================================
+   VIDEO CALL GRID - Camera & Screen Share
+   ======================================== */
+
+.video-call-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.video-call-grid.has-screen-share {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+}
+
+.video-call-grid.has-screen-share .video-tile.screen-share {
+  grid-column: 1 / -1;
+  max-height: 60vh;
+}
+
+.video-call-grid.has-screen-share .video-tiles-row {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.video-call-grid.has-screen-share .video-tiles-row .video-tile {
+  flex: 0 0 200px;
+  max-width: 200px;
+}
+
+.video-tile {
+  position: relative;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border: 2px solid transparent;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.video-tile:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.video-tile.speaking {
+  border-color: var(--color-success);
+  box-shadow: 0 0 20px rgba(0, 245, 147, 0.3);
+}
+
+.video-tile.local-video {
+  border-color: var(--color-brand-primary);
+}
+
+.video-tile.screen-share {
+  aspect-ratio: 16 / 9;
+  max-height: 70vh;
+}
+
+.video-element {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.video-tile.screen-share .video-element {
+  object-fit: contain;
+}
+
+.video-tile-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.75rem;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.video-tile-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: white;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-tile-badge {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.4rem;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+}
+
+.video-tile-avatar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+}
+
+.video-tile.no-video .video-element {
+  display: none;
+}
+
+.video-tile.no-video .video-tile-avatar {
+  display: block;
+}
+
+.video-tile:not(.no-video) .video-tile-avatar {
+  display: none;
+}
+
+/* Video toggle button active states */
+#toggle-camera.active,
+#toggle-screenshare.active {
+  background: var(--color-success);
+  color: white;
+}
+
+#toggle-camera.active .voice-toggle-icon,
+#toggle-screenshare.active .voice-toggle-icon {
+  color: white;
+}
+
+/* Responsive video grid */
+@media (max-width: 768px) {
+  .video-call-grid {
+    grid-template-columns: 1fr;
+    padding: 0.5rem;
+    gap: 0.5rem;
+  }
+
+  .video-tile {
+    border-radius: 8px;
+  }
+
+  .video-call-grid.has-screen-share .video-tiles-row .video-tile {
+    flex: 0 0 150px;
+    max-width: 150px;
+  }
+}
+
+/* Video grid layout states */
+.video-call-grid[data-count="1"] {
+  grid-template-columns: minmax(400px, 600px);
+  justify-content: center;
+}
+
+.video-call-grid[data-count="2"] {
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+}
+
+.video-call-grid[data-count="3"],
+.video-call-grid[data-count="4"] {
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+}
+
+.video-call-grid[data-count="5"],
+.video-call-grid[data-count="6"] {
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
+}
+
 .voice-gallery {
   --voice-gallery-avatar-size: clamp(72px, 12vw, 96px);
   --voice-gallery-name-size: clamp(0.9rem, 1.6vw, 1.05rem);

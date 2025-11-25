@@ -1871,6 +1871,27 @@ io.on('connection', (socket) => {
     logger.trace(`Voice state broadcast`, { socketId: socket.id, ...state });
   });
 
+  /**
+   * Video call state (camera/screen share)
+   */
+  socket.on('voice:video:state', (payload = {}) => {
+    if (!currentVoiceChannel) {
+      return;
+    }
+
+    const type = payload.type === 'screen' ? 'screen' : 'camera';
+    const enabled = Boolean(payload.enabled);
+
+    // Broadcast video state to other participants in the voice channel
+    socket.to(currentVoiceChannel).emit('voice:video:state', {
+      id: socket.id,
+      type,
+      enabled,
+    });
+
+    logger.trace(`Video state broadcast`, { socketId: socket.id, type, enabled });
+  });
+
   socket.on('voice:game:start', (payload = {}) => {
     try {
       const channelId = ensureVoiceGameAccess();
