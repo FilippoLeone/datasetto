@@ -1,6 +1,6 @@
 import type { ChatControllerDeps } from './types';
 import type { ChatMessage } from '@/types';
-import { formatTime } from '@/utils';
+import { formatTime, sanitizeUrl } from '@/utils';
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -305,8 +305,16 @@ export class ChatController {
   }
 
   private appendLink(container: HTMLElement, url: string): void {
+    const safeUrl = sanitizeUrl(url);
+    
+    if (!safeUrl) {
+      // Unsafe URL - render as plain text instead
+      container.appendChild(document.createTextNode(url));
+      return;
+    }
+    
     const anchor = document.createElement('a');
-    anchor.href = url;
+    anchor.href = safeUrl;
     anchor.textContent = url;
     anchor.target = '_blank';
     anchor.rel = 'noopener noreferrer';

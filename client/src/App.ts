@@ -368,7 +368,7 @@ export class App {
     'minimize-video', 'close-video',
       'user-settings-btn', 'current-channel-name',
     'user-avatar', 'user-status-text', 'voice-status-panel',
-    'connected-voice-channel',
+    'connected-voice-channel', 'voice-quality-indicator',
   'voice-users-panel', 'voice-users-list', 'voice-user-count', 'voice-session-timer',
   'minigame-open', 'minigame-close', 'minigame-launcher-status',
   'minigame-container', 'minigame-canvas', 'minigame-start', 'minigame-end',

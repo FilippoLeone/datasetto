@@ -3,10 +3,14 @@ import { isMobileDevice } from '@/utils/device';
  * Voice minigame coordinator for the Slither arena
  */
 import type { MinigameControllerDeps } from './types';
-import type { PacmanState, VoiceMinigamePlayerState, VoiceMinigameState, VoicePeerEvent } from '@/types';
+import type { PacmanState, VoiceMinigamePellet, VoiceMinigamePlayerState, VoiceMinigameState, VoicePeerEvent } from '@/types';
 
-const INPUT_SEND_INTERVAL_MS = 16;
+// Network optimization: 50ms interval = ~20 inputs/sec (was 16ms = ~62 inputs/sec)
+const INPUT_SEND_INTERVAL_MS = 50;
+// Force refresh input every 200ms even if direction unchanged (keepalive)
 const INPUT_REFRESH_INTERVAL_MS = 200;
+// Threshold for considering vectors as "same direction" (radians)
+const INPUT_DEDUP_THRESHOLD = 0.05;
 const DEFAULT_STATUS = 'No slither arena open. Start a round to glide together!';
 const GRID_SPACING = 80;
 const BACKGROUND_COLOR = '#0b101a';
@@ -182,6 +186,11 @@ export class MinigameController {
   private leaveButton: HTMLButtonElement | null = null;
   private statusEl: HTMLElement | null = null;
   private scoresEl: HTMLElement | null = null;
+  private gameSelectorBtn: HTMLButtonElement | null = null;
+  private gameSelectorDropdown: HTMLElement | null = null;
+  private gameSelectorLabel: HTMLElement | null = null;
+  private gameSelectorIcon: HTMLElement | null = null;
+  private selectedGameType: 'slither' | 'pacman' = 'slither';
   private currentState: VoiceMinigameState | null = null;
   private lastEndReason: string | null = null;
   private renderHandle: number | null = null;
@@ -203,6 +212,7 @@ export class MinigameController {
   private spriteCache = new SpriteCache();
   private particles = new ParticleSystem();
   private stateBuffer: Array<{ state: VoiceMinigameState; timestamp: number }> = [];
+  private pelletCache: Map<string, VoiceMinigamePellet> | null = null; // Delta compression cache
   private readonly INTERPOLATION_DELAY = 100; // ms delay to allow for smooth interpolation
   private readonly PACMAN_INTERPOLATION_DELAY = 40;
 
@@ -226,6 +236,10 @@ export class MinigameController {
     this.leaveButton = (this.deps.elements['minigame-leave'] as HTMLButtonElement) ?? null;
     this.statusEl = this.deps.elements['minigame-status'] ?? null;
     this.scoresEl = this.deps.elements['minigame-scores'] ?? null;
+    this.gameSelectorBtn = document.getElementById('game-selector-btn') as HTMLButtonElement | null;
+    this.gameSelectorDropdown = document.getElementById('game-selector-dropdown');
+    this.gameSelectorLabel = document.getElementById('game-selector-label');
+    this.gameSelectorIcon = document.getElementById('game-selector-icon');
 
     if (this.canvas) {
       this.ctx = this.canvas.getContext('2d', { alpha: false });
@@ -449,7 +463,7 @@ export class MinigameController {
 
     this.deps.addListener(this.startButton, 'click', () => {
       this.lastEndReason = null;
-  this.deps.socket.startVoiceMinigame({ type: 'slither' });
+      this.deps.socket.startVoiceMinigame({ type: this.selectedGameType });
     });
 
     this.deps.addListener(this.endButton, 'click', () => {
@@ -462,6 +476,31 @@ export class MinigameController {
 
     this.deps.addListener(this.leaveButton, 'click', () => {
       this.deps.socket.leaveVoiceMinigame();
+    });
+
+    // Game selector dropdown
+    this.deps.addListener(this.gameSelectorBtn, 'click', () => {
+      this.toggleGameSelector();
+    });
+
+    // Game option clicks
+    const gameOptions = document.querySelectorAll('.game-option');
+    gameOptions.forEach((option) => {
+      this.deps.addListener(option, 'click', () => {
+        const gameType = option.getAttribute('data-game') as 'slither' | 'pacman';
+        if (gameType) {
+          this.selectGame(gameType);
+        }
+      });
+    });
+
+    // Close dropdown when clicking outside
+    this.deps.addListener(document, 'click', (event) => {
+      const target = event.target as HTMLElement;
+      const wrapper = document.getElementById('game-selector-wrapper');
+      if (wrapper && !wrapper.contains(target)) {
+        this.closeGameSelector();
+      }
     });
 
     this.deps.addListener(window, 'resize', () => {
@@ -487,6 +526,61 @@ export class MinigameController {
 
     this.deps.addListener(this.canvas, 'click', (event) => {
       this.handleCanvasClick(event as MouseEvent);
+    });
+
+    // Initialize game selector display
+    this.updateGameSelectorDisplay();
+  }
+
+  private toggleGameSelector(): void {
+    if (!this.gameSelectorDropdown) return;
+    const isHidden = this.gameSelectorDropdown.classList.contains('hidden');
+    if (isHidden) {
+      this.gameSelectorDropdown.classList.remove('hidden');
+    } else {
+      this.gameSelectorDropdown.classList.add('hidden');
+    }
+  }
+
+  private closeGameSelector(): void {
+    if (!this.gameSelectorDropdown) return;
+    this.gameSelectorDropdown.classList.add('hidden');
+  }
+
+  private selectGame(gameType: 'slither' | 'pacman'): void {
+    this.selectedGameType = gameType;
+    this.updateGameSelectorDisplay();
+    this.closeGameSelector();
+
+    // If a game is already running, switch to the new game type
+    if (this.currentState?.status === 'running') {
+      // End current game and start new one
+      this.deps.socket.endVoiceMinigame();
+      setTimeout(() => {
+        this.deps.socket.startVoiceMinigame({ type: gameType });
+      }, 300);
+    }
+  }
+
+  private updateGameSelectorDisplay(): void {
+    if (!this.gameSelectorLabel || !this.gameSelectorIcon) return;
+
+    const currentGameType = this.currentState?.type ?? this.selectedGameType;
+
+    if (currentGameType === 'pacman') {
+      this.gameSelectorLabel.textContent = 'Pacman Chase';
+      this.gameSelectorIcon.textContent = '👻';
+    } else {
+      this.gameSelectorLabel.textContent = 'Slither Arena';
+      this.gameSelectorIcon.textContent = '🐍';
+    }
+
+    // Update dropdown active states
+    const gameOptions = document.querySelectorAll('.game-option');
+    gameOptions.forEach((option) => {
+      const gameType = option.getAttribute('data-game');
+      const isActive = gameType === currentGameType;
+      option.setAttribute('data-active', isActive ? 'true' : 'false');
     });
   }
 
@@ -617,6 +711,11 @@ export class MinigameController {
   private applyState(state: VoiceMinigameState | null): void {
     const now = Date.now();
 
+    // Process delta-compressed pellet data if present
+    if (state && state.pelletData) {
+      state = this.processPelletDelta(state);
+    }
+
     // Detect deaths for particle effects (using the latest authoritative state)
     if (this.currentState && state && state.status === 'running') {
       this.currentState.players.forEach((prev) => {
@@ -662,6 +761,7 @@ export class MinigameController {
       this.viewCenter = null;
       this.currentScale = 1;
       this.viewTransform = null;
+      this.pelletCache = null; // Clear pellet cache when game ends
     }
 
     if (state?.status === 'running') {
@@ -689,6 +789,53 @@ export class MinigameController {
     this.requestRender();
     this.updateLauncherState();
     this.syncStageMode();
+  }
+
+  /**
+   * Process delta-compressed pellet data from server.
+   * Reconstructs full pellets array from delta updates.
+   */
+  private processPelletDelta(state: VoiceMinigameState): VoiceMinigameState {
+    const pelletData = state.pelletData;
+    if (!pelletData) {
+      return state;
+    }
+
+    let pellets: VoiceMinigamePellet[];
+
+    if (pelletData.full && pelletData.pellets) {
+      // Full sync - use server's pellet list directly
+      pellets = pelletData.pellets;
+      // Cache pellets by ID for delta processing
+      this.pelletCache = new Map(pellets.map(p => [p.id, p]));
+    } else {
+      // Delta sync - apply changes to cached pellets
+      if (!this.pelletCache) {
+        // No cache yet, request full sync by returning empty (will trigger resync on next update)
+        pellets = [];
+        this.pelletCache = new Map();
+      } else {
+        // Apply removals
+        if (pelletData.removed) {
+          for (const id of pelletData.removed) {
+            this.pelletCache.delete(id);
+          }
+        }
+        // Apply additions
+        if (pelletData.added) {
+          for (const pellet of pelletData.added) {
+            this.pelletCache.set(pellet.id, pellet);
+          }
+        }
+        pellets = Array.from(this.pelletCache.values());
+      }
+    }
+
+    // Return state with reconstructed pellets array
+    return {
+      ...state,
+      pellets,
+    };
   }
 
   private getRenderState(): VoiceMinigameState | null {
@@ -808,9 +955,11 @@ export class MinigameController {
     const playerEntry = state?.players.find((entry) => entry.id === localId);
     const isRegistered = Boolean(playerEntry);
 
+    // Start button - show when no game running
     if (this.startButton) {
-      // We use the canvas UI for starting games now
-      this.startButton.classList.add('hidden');
+      const shouldShowStart = voiceConnected && !isRunning;
+      this.startButton.classList.toggle('hidden', !shouldShowStart);
+      this.startButton.textContent = `Start ${this.selectedGameType === 'pacman' ? 'Pacman' : 'Slither'}`;
     }
 
     if (this.endButton) {
@@ -829,6 +978,9 @@ export class MinigameController {
       const shouldShowLeave = Boolean(state && isRegistered);
       this.leaveButton.classList.toggle('hidden', !shouldShowLeave);
     }
+
+    // Update game selector display based on current game
+    this.updateGameSelectorDisplay();
   }
 
   private updateStatus(): void {
@@ -934,24 +1086,24 @@ export class MinigameController {
       if (participants.length === 0) {
         const item = document.createElement('li');
         item.className = 'text-2xs text-text-muted';
-        item.textContent = 'No one in voice yet. Join the channel to get ready!';
+        item.textContent = 'Waiting for players...';
         list.appendChild(item);
         return;
       }
 
+      // Compact horizontal display for waiting players
       participants.forEach((participant) => {
         const item = document.createElement('li');
-        item.className = 'flex items-center justify-between gap-3 text-2xs';
+        item.className = 'inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1';
 
         const name = document.createElement('span');
-        name.className = 'font-semibold text-text-normal';
+        name.className = 'text-2xs font-medium text-text-normal truncate max-w-[80px]';
         name.textContent = participant.name;
 
         const badge = document.createElement('span');
-        badge.className = 'rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted';
-        badge.textContent = 'Ready';
+        badge.className = 'h-1.5 w-1.5 rounded-full bg-success/60';
 
-        item.append(name, badge);
+        item.append(badge, name);
         list.appendChild(item);
       });
       return;
@@ -959,70 +1111,65 @@ export class MinigameController {
 
     const byId = new Map<string, VoiceMinigamePlayerState>(state.players.map((player) => [player.id, player]));
     const leaderboard = state.leaderboard?.length ? state.leaderboard : state.players;
+    const isPacman = state.type === 'pacman';
 
-    leaderboard.forEach((entry, index) => {
+    // Compact horizontal score chips
+    leaderboard.slice(0, 6).forEach((entry, index) => {
       const player = typeof entry === 'object' && 'id' in entry ? byId.get(entry.id) ?? (entry as VoiceMinigamePlayerState) : undefined;
       const resolved = player ?? (entry as VoiceMinigamePlayerState);
 
       const item = document.createElement('li');
-      item.className = 'flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-2xs';
+      item.className = 'inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/30 px-2.5 py-1';
+      if (!resolved.alive) {
+        item.classList.add('opacity-60');
+      }
 
-      const nameWrap = document.createElement('div');
-      nameWrap.className = 'flex items-center gap-2 truncate';
-
+      // Rank badge
       const rank = document.createElement('span');
-      rank.className = 'w-6 text-right font-semibold text-text-muted';
-      rank.textContent = `${index + 1}.`;
+      rank.className = 'text-2xs font-bold text-text-muted';
+      rank.textContent = `#${index + 1}`;
 
+      // Color marker
       const marker = document.createElement('span');
-      marker.className = 'inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full';
+      marker.className = 'h-2 w-2 flex-shrink-0 rounded-full';
       marker.style.backgroundColor = resolved.color;
 
+      // Name
       const name = document.createElement('span');
-      name.className = 'truncate font-semibold text-text-normal';
+      name.className = 'text-2xs font-semibold text-text-normal truncate max-w-[60px]';
       name.textContent = resolved.name;
       if (resolved.id === localId) {
         name.classList.add('text-brand-primary');
       }
 
-      if (!resolved.alive) {
-        name.classList.add('opacity-70');
-      }
-
-      nameWrap.append(rank, marker, name);
-
-      const statsWrap = document.createElement('div');
-      statsWrap.className = 'flex items-center gap-2';
-
+      // Score
       const score = document.createElement('span');
-      score.className = 'font-semibold text-text-normal tabular-nums';
-      score.textContent = `${Math.round(resolved.score)} pts`;
-      statsWrap.append(score);
-
-  const lengthBadge = document.createElement('span');
-  lengthBadge.className = 'rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted tabular-nums';
-  lengthBadge.textContent = `Length ${Math.round(resolved.length ?? 0)}`;
-  statsWrap.append(lengthBadge);
-
-  const speedBadge = document.createElement('span');
-  speedBadge.className = 'hidden rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted tabular-nums sm:inline-flex';
-  speedBadge.textContent = `Speed ${Math.round(resolved.speed ?? 0)}`;
-  statsWrap.append(speedBadge);
-
-      const status = document.createElement('span');
-      if (resolved.alive) {
-        status.className = 'rounded-full bg-success/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-success';
-        status.textContent = 'Active';
+      score.className = 'text-2xs font-bold text-white tabular-nums';
+      if (isPacman) {
+        score.textContent = `${Math.round(resolved.score)}`;
       } else {
-        status.className = 'rounded-full bg-warning/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning';
-        const remaining = Math.ceil(resolved.respawnInMs / 1000);
-        status.textContent = remaining > 0 ? `Respawning ${remaining}s` : 'Respawning';
+        score.textContent = `${Math.round(resolved.length ?? 0)}`;
       }
-      statsWrap.append(status);
 
-      item.append(nameWrap, statsWrap);
+      // Status dot
+      const statusDot = document.createElement('span');
+      if (resolved.alive) {
+        statusDot.className = 'h-1.5 w-1.5 rounded-full bg-success';
+      } else {
+        statusDot.className = 'h-1.5 w-1.5 rounded-full bg-warning animate-pulse';
+      }
+
+      item.append(rank, marker, name, score, statusDot);
       list.appendChild(item);
     });
+
+    // Show overflow indicator if more players
+    if (leaderboard.length > 6) {
+      const more = document.createElement('li');
+      more.className = 'inline-flex items-center rounded-full border border-white/5 bg-black/20 px-2 py-1 text-2xs text-text-muted';
+      more.textContent = `+${leaderboard.length - 6} more`;
+      list.appendChild(more);
+    }
   }
 
   private rebuildVoiceParticipants(peers: VoicePeerEvent[]): void {
@@ -1477,13 +1624,16 @@ export class MinigameController {
   }
 
   private handleCanvasClick(event: MouseEvent): void {
+    // Allow clicks on the game selection canvas when no game is running
     if (this.currentState?.status === 'running' || !this.canvas) {
       return;
     }
 
     const rect = this.canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const scaleX = this.canvas.width / rect.width;
+    const scaleY = this.canvas.height / rect.height;
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
     const width = this.canvas.width;
     const height = this.canvas.height;
 
@@ -1491,9 +1641,17 @@ export class MinigameController {
 
     if (y >= layout.startY && y <= layout.startY + layout.buttonHeight) {
       if (x >= layout.slitherX && x <= layout.slitherX + layout.buttonWidth) {
-        this.deps.socket.startVoiceMinigame({ type: 'slither' });
+        this.selectGame('slither');
+        // Auto-start the game if voice connected
+        if (this.canUseMinigame) {
+          this.deps.socket.startVoiceMinigame({ type: 'slither' });
+        }
       } else if (x >= layout.pacmanX && x <= layout.pacmanX + layout.buttonWidth) {
-        this.deps.socket.startVoiceMinigame({ type: 'pacman' });
+        this.selectGame('pacman');
+        // Auto-start the game if voice connected
+        if (this.canUseMinigame) {
+          this.deps.socket.startVoiceMinigame({ type: 'pacman' });
+        }
       }
     }
   }
@@ -1566,7 +1724,10 @@ export class MinigameController {
 
     ctx.font = `600 ${Math.max(13, titleSize * 0.32)}px system-ui`;
     ctx.fillStyle = 'rgba(148, 163, 184, 0.85)';
-    ctx.fillText('Join a voice channel to unlock the arena', width / 2, layout.startY + layout.buttonHeight + 50);
+    const hint = this.canUseMinigame 
+      ? 'Click a game to start playing' 
+      : 'Join a voice channel to unlock the arena';
+    ctx.fillText(hint, width / 2, layout.startY + layout.buttonHeight + 50);
   }
 
   private getSelectionButtonLayout(width: number, height: number) {
@@ -1943,7 +2104,20 @@ export class MinigameController {
   }
 
   private vectorsAreClose(a: MovementVector, b: MovementVector): boolean {
-    return Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01;
+    // Use angular comparison for smoother deduplication
+    const dotProduct = a.x * b.x + a.y * b.y;
+    const magA = Math.hypot(a.x, a.y);
+    const magB = Math.hypot(b.x, b.y);
+    
+    // Both zero vectors are identical
+    if (magA < 0.01 && magB < 0.01) return true;
+    // One zero, one not - different
+    if (magA < 0.01 || magB < 0.01) return false;
+    
+    // Angular similarity: cos(angle) close to 1 means similar direction
+    const cosAngle = dotProduct / (magA * magB);
+    // cos(0.05 rad) ≈ 0.999, so threshold at ~3 degrees difference
+    return cosAngle > (1 - INPUT_DEDUP_THRESHOLD);
   }
 
   private flushInputVector(): void {

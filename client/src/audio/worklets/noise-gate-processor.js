@@ -4,6 +4,8 @@ const MAX_THRESHOLD = 0.08;
 const MIN_REDUCTION = 0.05;
 const MAX_REDUCTION = 0.5;
 const DEFAULT_SMOOTHING = 0.0015;
+const ATTACK_COEFFICIENT = 0.02;  // Fast attack for speech onset
+const RELEASE_COEFFICIENT = 0.0008; // Slow release for natural tail
 
 class NoiseGateProcessor extends AudioWorkletProcessor {
   constructor(options = {}) {
@@ -13,6 +15,9 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
     this.reduction = this._clamp(initialConfig.reduction ?? 0.2, MIN_REDUCTION, MAX_REDUCTION);
     this.smoothing = initialConfig.smoothing ?? DEFAULT_SMOOTHING;
     this.channelGains = [];
+    this.envelopeFollowers = [];
+    this.holdCounters = [];
+    this.holdSamples = 2400; // ~50ms at 48kHz - prevents cutting off consonants
 
     this.port.onmessage = (event) => {
       const data = event.data || {};
@@ -40,6 +45,8 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
   _ensureChannels(count) {
     while (this.channelGains.length < count) {
       this.channelGains.push(1);
+      this.envelopeFollowers.push(0);
+      this.holdCounters.push(0);
     }
   }
 
@@ -60,16 +67,40 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
       }
 
       let gain = this.channelGains[channel] ?? 1;
+      let envelope = this.envelopeFollowers[channel] ?? 0;
+      let holdCounter = this.holdCounters[channel] ?? 0;
 
       for (let i = 0; i < inChannel.length; i++) {
         const sample = inChannel[i];
         const magnitude = Math.abs(sample);
-        const targetGain = magnitude < this.threshold ? this.reduction : 1;
+        
+        // Envelope follower with fast attack, slow release
+        if (magnitude > envelope) {
+          envelope += (magnitude - envelope) * ATTACK_COEFFICIENT;
+        } else {
+          envelope += (magnitude - envelope) * RELEASE_COEFFICIENT;
+        }
+        
+        // Gate logic with hold time
+        let targetGain;
+        if (envelope > this.threshold) {
+          targetGain = 1;
+          holdCounter = this.holdSamples;
+        } else if (holdCounter > 0) {
+          targetGain = 1;
+          holdCounter--;
+        } else {
+          targetGain = this.reduction;
+        }
+        
+        // Smooth gain transitions
         gain += (targetGain - gain) * this.smoothing;
         outChannel[i] = sample * gain;
       }
 
       this.channelGains[channel] = gain;
+      this.envelopeFollowers[channel] = envelope;
+      this.holdCounters[channel] = holdCounter;
     }
 
     return true;

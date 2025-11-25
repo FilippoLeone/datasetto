@@ -878,6 +878,54 @@
   animation: speaking-indicator 1s ease-in-out infinite;
 }
 
+/* Voice connection quality indicator */
+#voice-quality-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: all var(--transition-fast) ease;
+}
+
+#voice-quality-indicator.quality-excellent {
+  background: rgba(0, 245, 147, 0.15);
+  color: #00f593;
+}
+
+#voice-quality-indicator.quality-good {
+  background: rgba(0, 200, 147, 0.15);
+  color: #00c893;
+}
+
+#voice-quality-indicator.quality-fair {
+  background: rgba(255, 200, 0, 0.15);
+  color: #ffc800;
+}
+
+#voice-quality-indicator.quality-poor {
+  background: rgba(240, 80, 110, 0.15);
+  color: #f0506e;
+  animation: quality-poor-pulse 1.5s ease-in-out infinite;
+}
+
+#voice-quality-indicator.quality-unknown {
+  background: rgba(120, 120, 140, 0.15);
+  color: var(--color-text-muted);
+}
+
+@keyframes quality-poor-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
 /* Gradient text */
 .gradient-text {
   background: linear-gradient(135deg, #0fa4a5, #ff8a3d);
@@ -1535,7 +1583,46 @@ body:not(.stream-inline-active) .stream-chat-status {
 
 .minigame-screen {
   width: 100%;
-  min-height: clamp(360px, 60vh, 720px);
+}
+
+/* Game selector dropdown */
+#game-selector-dropdown {
+  animation: dropdownFadeIn 0.15s ease-out;
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.game-option {
+  border-radius: 0.5rem;
+}
+
+.game-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.game-option[data-active="true"] {
+  background: rgba(var(--color-brand-primary-rgb), 0.15);
+  border-left: 2px solid var(--color-brand-primary);
+}
+
+/* Scores bar horizontal layout */
+#minigame-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#minigame-scores-bar {
+  min-height: 2.5rem;
 }
 
 .voice-gallery {
@@ -3190,4 +3277,104 @@ body.native-fullscreen-active #inlineVideoContainer .inline-video-stage>canvas {
 
   .backdrop-blur-subtle {
   }
+}
+
+/* Connection status indicator */
+.connection-status-indicator {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(-100%);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+}
+
+.connection-status-indicator.visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.connection-status-indicator .connection-status-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.connection-status-indicator .connection-status-retry {
+  margin-left: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.connection-status-indicator.status-connected {
+  background: rgba(0, 245, 147, 0.9);
+  color: #000;
+}
+
+.connection-status-indicator.status-connecting {
+  background: rgba(120, 120, 150, 0.9);
+  color: #fff;
+}
+
+.connection-status-indicator.status-connecting .connection-status-icon {
+  animation: spin 1s linear infinite;
+}
+
+.connection-status-indicator.status-reconnecting {
+  background: rgba(255, 200, 0, 0.9);
+  color: #000;
+}
+
+.connection-status-indicator.status-reconnecting .connection-status-icon {
+  animation: spin 1s linear infinite;
+}
+
+.connection-status-indicator.status-disconnected {
+  background: rgba(255, 160, 0, 0.9);
+  color: #000;
+}
+
+.connection-status-indicator.status-disconnected .connection-status-retry {
+  background: rgba(0, 0, 0, 0.2);
+  color: #000;
+}
+
+.connection-status-indicator.status-disconnected .connection-status-retry:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.connection-status-indicator.status-failed {
+  background: rgba(240, 80, 110, 0.95);
+  color: #fff;
+}
+
+.connection-status-indicator.status-failed .connection-status-retry {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.connection-status-indicator.status-failed .connection-status-retry:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

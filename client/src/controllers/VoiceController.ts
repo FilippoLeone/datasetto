@@ -1,6 +1,7 @@
 import type { VoiceControllerDeps } from './types';
 import type { Channel, VoicePeerEvent } from '@/types';
 import type { VoicePanelEntry } from '@/ui/VoicePanelController';
+import type { ConnectionQuality, PeerConnectionStats } from '@/services/VoiceService';
 import { MICROPHONE_PERMISSION_HELP_TEXT } from '@/services/AudioService';
 import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '@/services';
 import { generateIdenticonDataUri } from '@/utils/avatarGenerator';
@@ -44,6 +45,8 @@ export class VoiceController {
   private pendingMicRecoverySource: 'stream-interrupted' | 'app-resume' | null = null;
   private voiceJoinTimeoutHandle: number | null = null;
   private desktopAPI: DesktopBridge | null = null;
+  private connectionQualityWarningShown = false;
+  private lastConnectionQuality: ConnectionQuality = 'unknown';
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps;
@@ -278,6 +281,9 @@ export class VoiceController {
     this.deps.state.setActiveVoiceChannel(data.channelId, channelName);
     this.deps.state.setVoiceConnected(true);
 
+    // Start connection quality monitoring
+    this.deps.voice.startStatsMonitoring();
+
     const sessionId = data.sessionId ?? null;
     const hasRemotePeers = Array.isArray(data.peers) && data.peers.length > 0;
     this.startVoiceSessionTimer(data.startedAt ?? null, sessionId, {
@@ -501,6 +507,12 @@ export class VoiceController {
       this.deps.voice.on('voice:speaking', (payload) => {
         const { id, speaking } = payload as { id: string; speaking: boolean };
         this.updateSpeakingIndicator(id, speaking);
+      })
+    );
+
+    this.disposers.push(
+      this.deps.voice.on('voice:stats', (payload) => {
+        this.handleConnectionStats(payload as PeerConnectionStats);
       })
     );
 
@@ -1416,6 +1428,73 @@ export class VoiceController {
     }
   }
 
+  private handleConnectionStats(_stats: PeerConnectionStats): void {
+    const overallQuality = this.deps.voice.getOverallConnectionQuality();
+    
+    // Update connection quality indicator in UI
+    this.updateConnectionQualityIndicator(overallQuality);
+    
+    // Warn user if connection quality degrades significantly
+    if (overallQuality === 'poor' && this.lastConnectionQuality !== 'poor' && !this.connectionQualityWarningShown) {
+      this.connectionQualityWarningShown = true;
+      this.deps.notifications.warning('Voice connection quality is poor. Audio may be choppy.');
+    } else if (overallQuality !== 'poor' && overallQuality !== 'unknown') {
+      this.connectionQualityWarningShown = false;
+    }
+    
+    this.lastConnectionQuality = overallQuality;
+  }
+
+  private updateConnectionQualityIndicator(quality: ConnectionQuality): void {
+    const indicator = this.deps.elements['voice-quality-indicator'] as HTMLElement | null;
+    if (!indicator) {
+      return;
+    }
+
+    indicator.classList.remove('quality-excellent', 'quality-good', 'quality-fair', 'quality-poor', 'quality-unknown');
+    indicator.classList.add(`quality-${quality}`);
+    
+    const qualityLabels: Record<ConnectionQuality, string> = {
+      excellent: 'Excellent',
+      good: 'Good',
+      fair: 'Fair',
+      poor: 'Poor',
+      unknown: 'Checking...',
+    };
+    
+    // SVG signal bars - varying heights based on quality
+    const createSignalBars = (bars: number): string => {
+      // bars: 0-4 representing signal strength
+      const barHeights = [4, 7, 10, 13]; // Heights for each bar
+      const barWidth = 3;
+      const gap = 2;
+      const totalWidth = barHeights.length * barWidth + (barHeights.length - 1) * gap;
+      const maxHeight = 14;
+      
+      let svg = `<svg width="${totalWidth}" height="${maxHeight}" viewBox="0 0 ${totalWidth} ${maxHeight}" fill="currentColor">`;
+      barHeights.forEach((height, i) => {
+        const x = i * (barWidth + gap);
+        const y = maxHeight - height;
+        const opacity = i < bars ? 1 : 0.25;
+        svg += `<rect x="${x}" y="${y}" width="${barWidth}" height="${height}" rx="1" opacity="${opacity}"/>`;
+      });
+      svg += '</svg>';
+      return svg;
+    };
+    
+    const signalBars: Record<ConnectionQuality, number> = {
+      excellent: 4,
+      good: 3,
+      fair: 2,
+      poor: 1,
+      unknown: 0,
+    };
+    
+    indicator.innerHTML = createSignalBars(signalBars[quality]);
+    indicator.title = `Connection quality: ${qualityLabels[quality]}`;
+    indicator.setAttribute('aria-label', `Voice connection quality: ${qualityLabels[quality]}`);
+  }
+
   private resetVoiceState(options: { playSound?: boolean; notify?: string | null } = {}): void {
     const { playSound = false, notify = null } = options;
 
@@ -1426,6 +1505,10 @@ export class VoiceController {
     this.clearVoiceJoinTimeout();
     this.clearVoiceSessionTimer();
     this.clearVoiceChannelTimer();
+    
+    // Reset connection quality tracking
+    this.connectionQualityWarningShown = false;
+    this.lastConnectionQuality = 'unknown';
 
     this.deps.voice.dispose();
     this.deps.audio.stopLocalStream();

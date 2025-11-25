@@ -4,7 +4,11 @@ import { getRandomPacmanMap, FALLBACK_PACMAN_MAP } from '../data/pacmanMaps/inde
 
 const WORLD_WIDTH = 2600;
 const WORLD_HEIGHT = 2000;
-const TICK_INTERVAL_MS = 16; // ~60 updates per second
+// Network optimization: 50ms tick = ~20 updates/sec (was 16ms = ~62 updates/sec)
+// Still smooth for gameplay but 3x less bandwidth
+const TICK_INTERVAL_MS = 50;
+// Reduced segment count for network efficiency
+const MAX_SERIALIZED_SEGMENTS = 40;
 
 const PLAYER_START_LENGTH = 110;
 const PLAYER_MIN_LENGTH = 90;
@@ -18,7 +22,6 @@ const TURN_RATE_RADIANS = Math.PI * 8;
 
 const SEGMENT_SPACING = 14;
 const SELF_COLLISION_SKIP = 10;
-const MAX_SERIALIZED_SEGMENTS = 60;
 
 const PELLET_COUNT = 120;
 const PELLET_VALUE_MIN = 3;
@@ -30,6 +33,9 @@ const PELLET_RESPAWN_BATCH = 8;
 const DROP_PELLET_INTERVAL = 3;
 const WORLD_PADDING = 120;
 const INPUT_EPSILON = 0.02;
+
+// Delta compression: only send full pellet list every N ticks
+const FULL_PELLET_SYNC_INTERVAL = 20;
 
 const COLOR_PALETTE = [
   '#ff6b6b',
@@ -185,6 +191,9 @@ export default class MinigameManager {
       tickIntervalMs: TICK_INTERVAL_MS,
       sequence: 0,
       pellets: new Map(),
+      // Delta compression tracking
+      pelletChanges: { added: new Map(), removed: new Set() },
+      lastFullPelletSync: 0,
       players: new Map(),
       spectators: new Set(),
       intervalHandle: null,
@@ -354,7 +363,8 @@ export default class MinigameManager {
       pellet.value = 60;
       pellet.color = '#fdd835';
       pellet.radius = 9;
-      session.pellets.set(pellet.id, pellet);
+      // Track the change for delta compression
+      session.pelletChanges.added.set(pellet.id, pellet);
     }
   }
 
@@ -365,7 +375,8 @@ export default class MinigameManager {
     }
 
     const player = this.ensurePlayer(session, playerId, playerName, true);
-    const state = this.serialize(session);
+    // Force full pellet sync for the joining player
+    const state = this.serialize(session, true);
     this.io.to(channelId).emit('voice:game:update', state);
     logger.debug('Slither player joined', { channelId, gameId: session.id, playerId });
     return state;
@@ -691,7 +702,7 @@ export default class MinigameManager {
       
       const pellet = session.pellets.get(key);
       if (pellet) {
-        session.pellets.delete(key);
+        this.removePellet(session, key);
         player.score += pellet.value;
         if (pellet.isPowerup) {
           player.powerupExpiresAt = now + PACMAN_POWER_DURATION;
@@ -876,7 +887,7 @@ export default class MinigameManager {
     });
 
     consumedIds.forEach((pelletId) => {
-      session.pellets.delete(pelletId);
+      this.removePellet(session, pelletId);
     });
 
     return consumedIds.size;
@@ -990,7 +1001,7 @@ export default class MinigameManager {
     for (let index = 0; index < segments.length; index += dropSpacing) {
       const point = segments[index];
       const pellet = this.createPellet(point.x, point.y, randomBetween(PELLET_VALUE_MIN, PELLET_VALUE_MAX));
-      session.pellets.set(pellet.id, pellet);
+      this.addPellet(session, pellet);
       if (session.pellets.size > PELLET_COUNT * 2) {
         break;
       }
@@ -1162,7 +1173,7 @@ export default class MinigameManager {
     const desired = Math.min(target + targetBatch, PELLET_COUNT * 2);
     while (session.pellets.size < desired) {
       const pellet = this.spawnPellet(session);
-      session.pellets.set(pellet.id, pellet);
+      this.addPellet(session, pellet);
     }
   }
 
@@ -1205,7 +1216,32 @@ export default class MinigameManager {
     };
   }
 
-  serialize(session) {
+  // Helper to add pellet with delta tracking
+  addPellet(session, pellet) {
+    session.pellets.set(pellet.id, pellet);
+    // Track addition for delta compression (unless it was just removed this tick)
+    if (session.pelletChanges.removed.has(pellet.id)) {
+      session.pelletChanges.removed.delete(pellet.id);
+    } else {
+      session.pelletChanges.added.set(pellet.id, pellet);
+    }
+  }
+
+  // Helper to remove pellet with delta tracking
+  removePellet(session, pelletId) {
+    const pellet = session.pellets.get(pelletId);
+    if (!pellet) return false;
+    session.pellets.delete(pelletId);
+    // Track removal for delta compression (unless it was just added this tick)
+    if (session.pelletChanges.added.has(pelletId)) {
+      session.pelletChanges.added.delete(pelletId);
+    } else {
+      session.pelletChanges.removed.add(pelletId);
+    }
+    return true;
+  }
+
+  serialize(session, forceFullPellets = false) {
     if (!session) {
       return null;
     }
@@ -1258,15 +1294,51 @@ export default class MinigameManager {
       return b.length - a.length;
     });
 
-    const pellets = Array.from(session.pellets.values()).map((pellet) => ({
-      id: pellet.id,
-      x: Number(pellet.x.toFixed(2)),
-      y: Number(pellet.y.toFixed(2)),
-      value: Number(pellet.value.toFixed(1)),
-      radius: Number(pellet.radius.toFixed(2)),
-      color: pellet.color,
-      isPowerup: pellet.isPowerup
-    }));
+    // Delta compression for pellets:
+    // - Send full pellet list periodically or when forced (join, start)
+    // - Otherwise send only added/removed pellets
+    const shouldSendFullPellets = forceFullPellets || 
+      (session.sequence - session.lastFullPelletSync >= FULL_PELLET_SYNC_INTERVAL);
+    
+    let pelletData;
+    if (shouldSendFullPellets) {
+      // Full sync - send all pellets
+      pelletData = {
+        full: true,
+        pellets: Array.from(session.pellets.values()).map((pellet) => ({
+          id: pellet.id,
+          x: Number(pellet.x.toFixed(2)),
+          y: Number(pellet.y.toFixed(2)),
+          value: Number(pellet.value.toFixed(1)),
+          radius: Number(pellet.radius.toFixed(2)),
+          color: pellet.color,
+          isPowerup: pellet.isPowerup
+        })),
+      };
+      session.lastFullPelletSync = session.sequence;
+      // Clear delta tracking after full sync
+      session.pelletChanges.added.clear();
+      session.pelletChanges.removed.clear();
+    } else {
+      // Delta sync - only send changes
+      pelletData = {
+        full: false,
+        added: Array.from(session.pelletChanges.added.values()).map((pellet) => ({
+          id: pellet.id,
+          x: Number(pellet.x.toFixed(2)),
+          y: Number(pellet.y.toFixed(2)),
+          value: Number(pellet.value.toFixed(1)),
+          radius: Number(pellet.radius.toFixed(2)),
+          color: pellet.color,
+          isPowerup: pellet.isPowerup
+        })),
+        removed: Array.from(session.pelletChanges.removed),
+        count: session.pellets.size,
+      };
+      // Clear delta tracking after sending
+      session.pelletChanges.added.clear();
+      session.pelletChanges.removed.clear();
+    }
 
     const pacmanState = session.type === 'pacman'
       ? {
@@ -1291,7 +1363,7 @@ export default class MinigameManager {
       updatedAt: session.updatedAt,
       sequence: session.sequence,
       world: { ...session.world },
-      pellets,
+      pelletData,
       players,
       leaderboard: players.slice(0, 5).map(({ id, name, score, length }) => ({ id, name, score, length })),
       spectators: Array.from(session.spectators.values()),

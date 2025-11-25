@@ -266,7 +266,21 @@ interface VoiceCodecOptions {
 }
 
 const PEER_PREFERENCE_STORAGE_KEY = 'datasetto.voice.peerPreferences.v1';
+const STATS_POLLING_INTERVAL_MS = 2000;
+const CONNECTION_QUALITY_HISTORY_SIZE = 5;
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+export type ConnectionQuality = 'excellent' | 'good' | 'fair' | 'poor' | 'unknown';
+
+export interface PeerConnectionStats {
+  peerId: string;
+  quality: ConnectionQuality;
+  roundTripTime: number | null;
+  packetLoss: number | null;
+  jitter: number | null;
+  bitrate: number | null;
+  timestamp: number;
+}
 
 export class VoiceService extends EventEmitter<EventMap> {
   private peers: Map<string, RTCPeerConnection> = new Map();
@@ -288,6 +302,9 @@ export class VoiceService extends EventEmitter<EventMap> {
   private opusMinPtime = DEFAULT_OPUS_MIN_PTIME;
   private opusMaxPtime = DEFAULT_OPUS_MAX_PTIME;
   private opusMaxPlaybackRate = DEFAULT_OPUS_MAX_PLAYBACK_RATE;
+  private statsPollingHandle: number | null = null;
+  private peerStatsHistory: Map<string, PeerConnectionStats[]> = new Map();
+  private lastStatsTimestamp: Map<string, number> = new Map();
 
   constructor(
     voiceBitrate = OPUS_TARGET_BITRATE,
@@ -913,9 +930,228 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   /**
+   * Start monitoring connection quality for all peers
+   */
+  startStatsMonitoring(): void {
+    if (this.statsPollingHandle !== null) {
+      return;
+    }
+
+    this.statsPollingHandle = window.setInterval(() => {
+      void this.pollConnectionStats();
+    }, STATS_POLLING_INTERVAL_MS);
+  }
+
+  /**
+   * Stop monitoring connection quality
+   */
+  stopStatsMonitoring(): void {
+    if (this.statsPollingHandle !== null) {
+      window.clearInterval(this.statsPollingHandle);
+      this.statsPollingHandle = null;
+    }
+  }
+
+  /**
+   * Get the current connection quality for a peer
+   */
+  getPeerConnectionQuality(peerId: string): ConnectionQuality {
+    const history = this.peerStatsHistory.get(peerId);
+    if (!history || history.length === 0) {
+      return 'unknown';
+    }
+    return history[history.length - 1].quality;
+  }
+
+  /**
+   * Get the latest stats for a peer
+   */
+  getPeerStats(peerId: string): PeerConnectionStats | null {
+    const history = this.peerStatsHistory.get(peerId);
+    if (!history || history.length === 0) {
+      return null;
+    }
+    return history[history.length - 1];
+  }
+
+  /**
+   * Get overall connection quality across all peers
+   */
+  getOverallConnectionQuality(): ConnectionQuality {
+    if (this.peers.size === 0) {
+      return 'unknown';
+    }
+
+    const qualities = Array.from(this.peers.keys()).map((peerId) =>
+      this.getPeerConnectionQuality(peerId)
+    );
+
+    const qualityScore: Record<ConnectionQuality, number> = {
+      excellent: 4,
+      good: 3,
+      fair: 2,
+      poor: 1,
+      unknown: 0,
+    };
+
+    const knownQualities = qualities.filter((q) => q !== 'unknown');
+    if (knownQualities.length === 0) {
+      return 'unknown';
+    }
+
+    const avgScore = knownQualities.reduce((sum, q) => sum + qualityScore[q], 0) / knownQualities.length;
+
+    if (avgScore >= 3.5) return 'excellent';
+    if (avgScore >= 2.5) return 'good';
+    if (avgScore >= 1.5) return 'fair';
+    return 'poor';
+  }
+
+  private async pollConnectionStats(): Promise<void> {
+    const statsPromises = Array.from(this.peers.entries()).map(async ([peerId, pc]) => {
+      try {
+        const stats = await this.gatherPeerStats(peerId, pc);
+        if (stats) {
+          this.recordPeerStats(peerId, stats);
+          this.emit('voice:stats', stats as never);
+        }
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn(`[VoiceService] Failed to gather stats for ${peerId}:`, error);
+        }
+      }
+    });
+
+    await Promise.allSettled(statsPromises);
+  }
+
+  private async gatherPeerStats(
+    peerId: string,
+    pc: RTCPeerConnection
+  ): Promise<PeerConnectionStats | null> {
+    const report = await pc.getStats();
+    let rtt: number | null = null;
+    let packetLoss: number | null = null;
+    let jitter: number | null = null;
+    let bitrate: number | null = null;
+
+    const lastTs = this.lastStatsTimestamp.get(peerId) ?? 0;
+    let currentBytesReceived = 0;
+    let currentTimestamp = 0;
+
+    report.forEach((stat) => {
+      if (stat.type === 'candidate-pair' && stat.state === 'succeeded') {
+        if (typeof stat.currentRoundTripTime === 'number') {
+          rtt = stat.currentRoundTripTime * 1000; // Convert to ms
+        }
+      }
+
+      if (stat.type === 'inbound-rtp' && stat.kind === 'audio') {
+        if (typeof stat.packetsLost === 'number' && typeof stat.packetsReceived === 'number') {
+          const total = stat.packetsLost + stat.packetsReceived;
+          packetLoss = total > 0 ? (stat.packetsLost / total) * 100 : 0;
+        }
+        if (typeof stat.jitter === 'number') {
+          jitter = stat.jitter * 1000; // Convert to ms
+        }
+        if (typeof stat.bytesReceived === 'number' && typeof stat.timestamp === 'number') {
+          currentBytesReceived = stat.bytesReceived;
+          currentTimestamp = stat.timestamp;
+        }
+      }
+    });
+
+    // Calculate bitrate from bytes received
+    if (currentTimestamp > lastTs && currentBytesReceived > 0) {
+      const timeDelta = (currentTimestamp - lastTs) / 1000; // seconds
+      if (timeDelta > 0) {
+        const prevStats = this.peerStatsHistory.get(peerId);
+        const prevBytes = prevStats?.length
+          ? (prevStats[prevStats.length - 1] as PeerConnectionStats & { _bytesReceived?: number })?._bytesReceived ?? 0
+          : 0;
+        const bytesDelta = currentBytesReceived - prevBytes;
+        if (bytesDelta >= 0) {
+          bitrate = (bytesDelta * 8) / timeDelta; // bits per second
+        }
+      }
+    }
+
+    this.lastStatsTimestamp.set(peerId, currentTimestamp);
+
+    const quality = this.calculateConnectionQuality(rtt, packetLoss, jitter);
+
+    const stats: PeerConnectionStats & { _bytesReceived?: number } = {
+      peerId,
+      quality,
+      roundTripTime: rtt,
+      packetLoss,
+      jitter,
+      bitrate,
+      timestamp: Date.now(),
+      _bytesReceived: currentBytesReceived,
+    };
+
+    return stats;
+  }
+
+  private calculateConnectionQuality(
+    rtt: number | null,
+    packetLoss: number | null,
+    jitter: number | null
+  ): ConnectionQuality {
+    // Score based on RTT (< 50ms excellent, < 150ms good, < 300ms fair, otherwise poor)
+    let rttScore = 4;
+    if (rtt !== null) {
+      if (rtt > 300) rttScore = 1;
+      else if (rtt > 150) rttScore = 2;
+      else if (rtt > 50) rttScore = 3;
+    }
+
+    // Score based on packet loss (< 1% excellent, < 3% good, < 5% fair, otherwise poor)
+    let lossScore = 4;
+    if (packetLoss !== null) {
+      if (packetLoss > 5) lossScore = 1;
+      else if (packetLoss > 3) lossScore = 2;
+      else if (packetLoss > 1) lossScore = 3;
+    }
+
+    // Score based on jitter (< 20ms excellent, < 50ms good, < 100ms fair, otherwise poor)
+    let jitterScore = 4;
+    if (jitter !== null) {
+      if (jitter > 100) jitterScore = 1;
+      else if (jitter > 50) jitterScore = 2;
+      else if (jitter > 20) jitterScore = 3;
+    }
+
+    const avgScore = (rttScore + lossScore + jitterScore) / 3;
+
+    if (avgScore >= 3.5) return 'excellent';
+    if (avgScore >= 2.5) return 'good';
+    if (avgScore >= 1.5) return 'fair';
+    return 'poor';
+  }
+
+  private recordPeerStats(peerId: string, stats: PeerConnectionStats): void {
+    let history = this.peerStatsHistory.get(peerId);
+    if (!history) {
+      history = [];
+      this.peerStatsHistory.set(peerId, history);
+    }
+
+    history.push(stats);
+    if (history.length > CONNECTION_QUALITY_HISTORY_SIZE) {
+      history.shift();
+    }
+  }
+
+  /**
    * Cleanup all connections
    */
   dispose(): void {
+    this.stopStatsMonitoring();
+    this.peerStatsHistory.clear();
+    this.lastStatsTimestamp.clear();
+
     // Remove all peers
     for (const peerId of Array.from(this.peers.keys())) {
       this.removePeer(peerId);
@@ -1109,12 +1345,22 @@ class SpeakingMonitor {
   private interval: number | null = null;
   private history: number[] = [];
   private readonly historySize = 10;
+  private isSpeaking = false;
+  private speakingStartTime = 0;
+  private silenceStartTime = 0;
+  private readonly silenceHoldMs = 350;   // Minimum silence before switching to not speaking
+  private hysteresisLow: number; // Lower threshold to stop speaking
+  private hysteresisHigh: number; // Higher threshold to start speaking
 
   constructor(
     private analyser: AnalyserNode,
     private onSpeakingChange: (speaking: boolean) => void,
-    private threshold: number
-  ) {}
+    threshold: number
+  ) {
+    // Use hysteresis to prevent rapid switching
+    this.hysteresisHigh = threshold;
+    this.hysteresisLow = threshold * 0.6;
+  }
 
   start(): void {
     if (this.interval) return;
@@ -1126,21 +1372,28 @@ class SpeakingMonitor {
       clearInterval(this.interval);
       this.interval = null;
     }
+    this.isSpeaking = false;
+    this.history = [];
   }
 
   setThreshold(threshold: number): void {
-    this.threshold = threshold;
+    this.hysteresisHigh = threshold;
+    this.hysteresisLow = threshold * 0.6;
   }
 
   private check(): void {
     const data = new Uint8Array(this.analyser.frequencyBinCount);
     this.analyser.getByteFrequencyData(data);
 
+    // Focus on voice frequency range (roughly 85-255 Hz fundamental, harmonics up to ~3400 Hz)
+    // With 256 FFT size and 48kHz sample rate, each bin is ~187.5 Hz
+    // Bins 0-18 roughly cover the voice frequency range
+    const voiceBins = Math.min(18, data.length);
     let sum = 0;
-    for (const amplitude of data) {
-      sum += amplitude;
+    for (let i = 0; i < voiceBins; i++) {
+      sum += data[i];
     }
-    const average = sum / data.length / 255;
+    const average = sum / voiceBins / 255;
 
     this.history.push(average);
     if (this.history.length > this.historySize) {
@@ -1148,6 +1401,35 @@ class SpeakingMonitor {
     }
 
     const smoothed = this.history.reduce((a, b) => a + b, 0) / this.history.length;
-    this.onSpeakingChange(smoothed > this.threshold);
+    const now = performance.now();
+
+    if (this.isSpeaking) {
+      // Currently speaking - use lower threshold (hysteresis)
+      if (smoothed < this.hysteresisLow) {
+        if (this.silenceStartTime === 0) {
+          this.silenceStartTime = now;
+        }
+        // Wait for silence hold duration before switching off
+        if (now - this.silenceStartTime >= this.silenceHoldMs) {
+          this.isSpeaking = false;
+          this.onSpeakingChange(false);
+          this.speakingStartTime = 0;
+        }
+      } else {
+        // Still speaking, reset silence timer
+        this.silenceStartTime = 0;
+      }
+    } else {
+      // Not currently speaking - use higher threshold
+      if (smoothed > this.hysteresisHigh) {
+        if (this.speakingStartTime === 0) {
+          this.speakingStartTime = now;
+        }
+        // Immediate switch to speaking (but track start time for hold)
+        this.isSpeaking = true;
+        this.onSpeakingChange(true);
+        this.silenceStartTime = 0;
+      }
+    }
   }
 }

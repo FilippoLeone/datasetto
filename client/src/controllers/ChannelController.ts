@@ -7,6 +7,17 @@ import type { Channel, RolePermissions } from '@/types';
 import type { SocketService, AudioNotificationService } from '@/services';
 import type { StateManager, AnimationController } from '@/utils';
 import type { NotificationManager } from '@/components/NotificationManager';
+import { escapeHtml, createSvgIcon } from '@/utils';
+
+// SVG icon templates (trusted, hardcoded strings)
+const CHANNEL_ICONS = {
+  text: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>`,
+  voice: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`,
+  stream: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`,
+  screenshare: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`,
+  key: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>`,
+  users: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>`,
+} as const;
 
 export interface ChannelControllerDeps {
   elements: Record<string, HTMLElement | null>;
@@ -295,9 +306,12 @@ export class ChannelController {
           streamKeyBtn.type = 'button';
           streamKeyBtn.className = 'stream-key-button';
           streamKeyBtn.title = `Show stream key for ${ch.name}`;
-          streamKeyBtn.setAttribute('aria-label', `Show stream key for ${ch.name}`);
-          // Key icon
-          streamKeyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>`;
+          streamKeyBtn.setAttribute('aria-label', `Show stream key for ${escapeHtml(ch.name)}`);
+          // Key icon - safely insert SVG
+          const keyIconSvg = createSvgIcon(CHANNEL_ICONS.key);
+          if (keyIconSvg) {
+            streamKeyBtn.appendChild(keyIconSvg);
+          }
 
           streamKeyBtn.addEventListener('click', (event) => {
             event.stopPropagation();
@@ -337,8 +351,10 @@ export class ChannelController {
         const sessionBadge = document.createElement('span');
         sessionBadge.className = 'channel-meta';
         const hostActive = Boolean(ch.screenshareHostName);
+        // Safely escape user-provided hostname
+        const safeHostName = escapeHtml(ch.screenshareHostName ?? 'Host');
         sessionBadge.textContent = hostActive
-          ? `LIVE – ${ch.screenshareHostName ?? 'Host'}`
+          ? `LIVE – ${safeHostName}`
           : 'Idle';
         sessionBadge.setAttribute('aria-label', hostActive ? 'Screenshare live' : 'Screenshare idle');
         sessionBadge.dataset.state = hostActive ? 'live' : 'idle';
@@ -347,8 +363,12 @@ export class ChannelController {
         const viewerCount = document.createElement('span');
         viewerCount.className = 'channel-count';
         const countValue = ch.screenshareViewerCount ?? 0;
-        // Users icon
-        viewerCount.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg> ${countValue}`;
+        // Safely insert users icon SVG
+        const usersIconSvg = createSvgIcon(CHANNEL_ICONS.users);
+        if (usersIconSvg) {
+          viewerCount.appendChild(usersIconSvg);
+        }
+        viewerCount.appendChild(document.createTextNode(` ${countValue}`));
         viewerCount.title = `${countValue} viewer${countValue === 1 ? '' : 's'}`;
         viewerCount.setAttribute('aria-label', `${countValue} viewer${countValue === 1 ? '' : 's'}`);
         item.appendChild(viewerCount);

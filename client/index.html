@@ -138,12 +138,14 @@
         <div id="voice-status-panel" class="p-3 border-t border-black/30 bg-black/20 hidden">
           <div class="flex items-center gap-2 text-xs font-bold text-success mb-2 uppercase tracking-wide">
             <span class="text-lg voice-pulse flex-shrink-0">🔊</span>
-            <div class="flex flex-col gap-0.5 overflow-hidden">
+            <div class="flex flex-col gap-0.5 overflow-hidden flex-1">
               <span id="connected-voice-channel">Voice Channel</span>
               <span id="watching-stream-indicator"
                 class="text-[10px] font-medium text-brand normal-case tracking-normal opacity-90 whitespace-nowrap overflow-hidden text-ellipsis hidden">📺
                 Watching stream</span>
             </div>
+            <span id="voice-quality-indicator" class="quality-unknown flex-shrink-0" 
+                  aria-label="Voice connection quality" role="status">...</span>
           </div>
           <div class="voice-toggle-group flex gap-2 flex-wrap">
             <button id="mute" class="voice-toggle-btn" aria-label="Toggle microphone" title="Toggle mic">
@@ -250,64 +252,85 @@
       </section>
 
       <section id="minigame-stage"
-        class="minigame-stage hidden w-full max-w-6xl self-center flex flex-col gap-6 px-6 py-8 lg:px-10"
+        class="minigame-stage hidden w-full max-w-5xl self-center flex flex-col gap-4 px-4 py-6 lg:px-8"
         aria-label="Game Arena">
-        <div class="minigame-stage-toolbar flex w-full flex-col gap-3 rounded-2xl border border-white/5 bg-gradient-to-br from-bg-secondary/40 via-bg-tertiary/60 to-black/60 px-6 py-5 shadow-2xl shadow-black/40 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
-          <div class="flex flex-1 flex-col gap-2">
-            <div class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.35em] text-brand-primary">
-              <span class="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-brand-primary"></span>
+        <div class="minigame-stage-toolbar flex w-full items-center justify-between rounded-xl border border-white/5 bg-gradient-to-r from-bg-secondary/60 to-black/40 px-4 py-3 shadow-xl">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand-primary">
+              <span class="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-primary"></span>
               Game Arena
-            </div>
-            <div class="flex flex-col gap-1">
-              <h2 class="text-2xl font-black text-white tracking-tight">Slither Arena</h2>
-              <p class="text-sm text-text-muted">Squad up, claim pellets, and dominate the nebula grid. Keep the arena open to stay synced with your
-                voice squad.</p>
             </div>
           </div>
           <button id="minigame-close"
-            class="self-start rounded-full border border-white/20 bg-transparent px-5 py-2 text-2xs font-semibold uppercase tracking-[0.35em] text-text-muted transition-fast hover:border-white/40 hover:text-white lg:self-auto"
+            class="rounded-full border border-white/20 bg-transparent px-4 py-1.5 text-2xs font-semibold uppercase tracking-wider text-text-muted transition-fast hover:border-white/40 hover:text-white"
             type="button">Back</button>
         </div>
 
         <div id="minigame-container"
-          class="minigame-screen hidden rounded-2xl border border-white/10 bg-black/30 p-6 lg:p-10">
-          <div class="flex flex-col gap-8">
-            <header class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div class="flex flex-col gap-1">
-                <p class="text-[11px] font-semibold uppercase tracking-[0.35em] text-brand-primary">Game Intel</p>
-                <h3 class="text-lg font-semibold text-white">Arena Status</h3>
-                <p id="minigame-status" class="text-sm leading-relaxed text-text-muted">Loading...</p>
+          class="minigame-screen hidden rounded-2xl border border-white/10 bg-black/30 p-4 lg:p-6">
+          <div class="flex flex-col gap-4">
+            <!-- Game Header Bar -->
+            <header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div class="flex items-center gap-4">
+                <!-- Game Selector Dropdown -->
+                <div class="relative" id="game-selector-wrapper">
+                  <button id="game-selector-btn" type="button"
+                    class="flex items-center gap-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm font-semibold text-white transition-fast hover:border-white/20 hover:bg-black/60">
+                    <span id="game-selector-icon" class="text-lg">🎮</span>
+                    <span id="game-selector-label">Select Game</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-1 opacity-60"><path d="m6 9 6 6 6-6"/></svg>
+                  </button>
+                  <div id="game-selector-dropdown" class="absolute left-0 top-full z-dropdown mt-2 hidden min-w-[200px] rounded-xl border border-white/10 bg-bg-tertiary/95 p-2 shadow-2xl backdrop-blur-xl">
+                    <button type="button" data-game="slither" class="game-option flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-fast hover:bg-white/10">
+                      <span class="text-xl">🐍</span>
+                      <div class="flex flex-col">
+                        <span class="text-sm font-semibold text-white">Slither Arena</span>
+                        <span class="text-xs text-text-muted">Neon swarm royale</span>
+                      </div>
+                    </button>
+                    <button type="button" data-game="pacman" class="game-option flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-fast hover:bg-white/10">
+                      <span class="text-xl">👻</span>
+                      <div class="flex flex-col">
+                        <span class="text-sm font-semibold text-white">Pacman Chase</span>
+                        <span class="text-xs text-text-muted">Retro maze chaos</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                <!-- Status -->
+                <div class="flex flex-col gap-0.5">
+                  <p id="minigame-status" class="text-xs leading-tight text-text-muted">Loading...</p>
+                </div>
               </div>
+              <!-- Actions -->
               <div class="flex flex-wrap items-center gap-2 text-2xs font-semibold uppercase">
                 <button id="minigame-start"
                   class="rounded-md bg-brand-primary px-4 py-2 text-white transition-fast hover:bg-brand-hover"
-                  type="button">Start Slither Arena</button>
+                  type="button">Start Game</button>
+                <button id="minigame-join"
+                  class="rounded-md bg-brand-primary px-4 py-2 text-white transition-fast hover:bg-brand-hover"
+                  type="button">Join</button>
+                <button id="minigame-leave"
+                  class="hidden rounded-md bg-bg-floating px-4 py-2 transition-fast hover:bg-brand-primary hover:text-white"
+                  type="button">Leave</button>
                 <button id="minigame-end"
                   class="hidden rounded-md bg-danger/10 px-4 py-2 text-danger transition-fast hover:bg-danger hover:text-white"
                   type="button">End</button>
               </div>
             </header>
 
-            <div class="flex flex-col gap-8 lg:flex-row lg:items-start">
-              <aside class="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-white/10 bg-black/25 p-5">
-                <div class="text-xs font-semibold uppercase tracking-widest text-text-muted">Squad Board</div>
-                <ul id="minigame-scores" class="space-y-2 text-xs text-text-muted"></ul>
-                <div class="flex items-center gap-2 text-xs font-semibold">
-                  <button id="minigame-join"
-                    class="rounded-md bg-brand-primary px-4 py-2 text-white transition-fast hover:bg-brand-hover"
-                    type="button">Join</button>
-                  <button id="minigame-leave"
-                    class="hidden rounded-md bg-bg-floating px-4 py-2 transition-fast hover:bg-brand-primary hover:text-white"
-                    type="button">Leave</button>
-                </div>
-              </aside>
+            <!-- Scores Bar (Horizontal) -->
+            <div id="minigame-scores-bar" class="flex flex-wrap items-center gap-2 rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+              <span class="text-2xs font-semibold uppercase tracking-widest text-text-muted mr-2">Squad:</span>
+              <ul id="minigame-scores" class="flex flex-wrap items-center gap-2 text-xs"></ul>
+            </div>
 
-              <div class="flex flex-1 items-center justify-center">
-                <div class="w-full max-w-2xl">
-                  <canvas id="minigame-canvas"
-                    class="w-full aspect-square rounded-xl border border-white/10 bg-black/60" width="512"
-                    height="512"></canvas>
-                </div>
+            <!-- Game Canvas -->
+            <div class="flex items-center justify-center">
+              <div class="w-full" style="max-width: min(100%, 800px);">
+                <canvas id="minigame-canvas"
+                  class="w-full aspect-[4/3] rounded-xl border border-white/10 bg-black/60" width="800"
+                  height="600"></canvas>
               </div>
             </div>
           </div>

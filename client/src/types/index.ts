@@ -259,6 +259,15 @@ export interface VoiceMinigameState {
     tileSize?: number;
     wrapRows?: number[];
   };
+  // Delta-compressed pellet data from server
+  pelletData?: {
+    full: boolean;
+    pellets?: VoiceMinigamePellet[];  // When full=true
+    added?: VoiceMinigamePellet[];    // When full=false
+    removed?: string[];               // When full=false
+    count?: number;                   // Total pellet count hint
+  };
+  // Reconstructed pellet array (populated by client)
   pellets: VoiceMinigamePellet[];
   players: VoiceMinigamePlayerState[];
   leaderboard: Array<{ id: string; name: string; score: number; length?: number }>;
@@ -321,6 +330,7 @@ export type EventMap = {
   'channel:permissionsUpdated': { channelId: string; permissions: ChannelPermissions };
   'admin:error': { message: string; code?: string };
   'voice:speaking': { id: string; speaking: boolean };
+  'voice:stats': { peerId: string; quality: string; roundTripTime: number | null; packetLoss: number | null; jitter: number | null; bitrate: number | null; timestamp: number };
   'notification': Notification;
   'connection:status': { connected: boolean; reconnecting: boolean };
   'voice:joined': { channelId: string; peers: VoicePeerEvent[]; startedAt?: number | null; sessionId?: string | null };

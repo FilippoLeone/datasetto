@@ -1,6 +1,95 @@
 import { config } from '../config';
 
 /**
+ * HTML entity encoding for XSS prevention
+ */
+const HTML_ENTITIES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#x27;',
+  '/': '&#x2F;',
+  '`': '&#x60;',
+  '=': '&#x3D;',
+};
+
+/**
+ * Escape HTML special characters to prevent XSS attacks
+ * @param str - The string to escape
+ * @returns The escaped string safe for HTML insertion
+ */
+export function escapeHtml(str: string): string {
+  if (typeof str !== 'string') {
+    return '';
+  }
+  return str.replace(/[&<>"'`=/]/g, (char) => HTML_ENTITIES[char] || char);
+}
+
+/**
+ * Sanitize text for safe DOM insertion
+ * Removes or escapes potentially dangerous content
+ */
+export function sanitizeText(text: unknown): string {
+  if (text === null || text === undefined) {
+    return '';
+  }
+  return escapeHtml(String(text));
+}
+
+/**
+ * Safely set text content on an element (preferred over innerHTML for text)
+ */
+export function setTextContent(element: HTMLElement | null, text: string): void {
+  if (element) {
+    element.textContent = text;
+  }
+}
+
+/**
+ * Create a text node safely
+ */
+export function createTextNode(text: string): Text {
+  return document.createTextNode(text);
+}
+
+/**
+ * Sanitize a URL to prevent javascript: and data: URL injection
+ */
+export function sanitizeUrl(url: string): string {
+  if (typeof url !== 'string') {
+    return '';
+  }
+  
+  const trimmed = url.trim().toLowerCase();
+  
+  // Block dangerous protocols
+  if (
+    trimmed.startsWith('javascript:') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('vbscript:')
+  ) {
+    return '';
+  }
+  
+  return url;
+}
+
+/**
+ * Create an SVG element from a trusted template string
+ * Only use this with hardcoded SVG strings, never with user input
+ */
+export function createSvgIcon(svgString: string, className?: string): SVGSVGElement | null {
+  const template = document.createElement('template');
+  template.innerHTML = svgString.trim();
+  const svg = template.content.firstElementChild as SVGSVGElement | null;
+  if (svg && className) {
+    svg.setAttribute('class', className);
+  }
+  return svg;
+}
+
+/**
  * Storage utilities with type safety
  */
 

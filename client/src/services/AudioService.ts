@@ -7,10 +7,13 @@ import { fetchNativeAudioRoutes, isNativeAudioRoutingAvailable, selectNativeAudi
 
 const TARGET_SAMPLE_RATE = 48000;
 const MIN_ACCEPTABLE_SAMPLE_RATE = 32000;
+const FALLBACK_SAMPLE_RATE = 44100;
 const DEFAULT_NOISE_REDUCTION_LEVEL = 0.35;
 const NOISE_THRESHOLD_RANGE = { min: 0.008, max: 0.08 } as const;
 const NOISE_REDUCTION_RANGE = { min: 0.05, max: 0.5 } as const;
 const NOISE_SMOOTHING = 0.0015;
+const MAX_STREAM_RETRY_ATTEMPTS = 3;
+const STREAM_RETRY_DELAY_MS = 500;
 
 const clamp = (value: number, min: number, max: number): number => {
   if (!Number.isFinite(value)) {
@@ -36,6 +39,9 @@ export class AudioService extends EventEmitter {
   private shuttingDownStream = false;
   private noiseReducerNode: AudioWorkletNode | null = null;
   private noiseReducerModulePromise: Promise<void> | null = null;
+  private streamRetryAttempts = 0;
+  private degradedMode = false;
+  private lastSuccessfulConstraints: MediaTrackConstraints | null = null;
 
   constructor(settings: AudioSettings) {
     super();
@@ -162,23 +168,40 @@ export class AudioService extends EventEmitter {
   }
 
   /**
-   * Get audio constraints based on settings
+   * Get audio constraints based on settings, with optional degradation
    */
-  private getAudioConstraints(): MediaTrackConstraints {
+  private getAudioConstraints(degraded = false): MediaTrackConstraints {
+    // If we have working constraints from before, use them
+    if (degraded && this.lastSuccessfulConstraints) {
+      return { ...this.lastSuccessfulConstraints };
+    }
+
     const constraints: MediaTrackConstraints = {
       echoCancellation: this.settings.echoCancel,
       noiseSuppression: this.settings.noiseSuppression,
       autoGainControl: this.settings.autoGain,
-      channelCount: { ideal: 2, min: 1 } as ConstrainULongRange,
-	sampleRate: { ideal: TARGET_SAMPLE_RATE, min: MIN_ACCEPTABLE_SAMPLE_RATE } as ConstrainULongRange,
-	sampleSize: { ideal: 16 } as ConstrainULongRange,
+      channelCount: degraded ? 1 : ({ ideal: 2, min: 1 } as ConstrainULongRange),
+      sampleRate: degraded 
+        ? ({ ideal: FALLBACK_SAMPLE_RATE } as ConstrainULongRange)
+        : ({ ideal: TARGET_SAMPLE_RATE, min: MIN_ACCEPTABLE_SAMPLE_RATE } as ConstrainULongRange),
+      sampleSize: { ideal: 16 } as ConstrainULongRange,
     };
 
-    if (this.settings.micDeviceId) {
+    if (this.settings.micDeviceId && !degraded) {
       constraints.deviceId = { exact: this.settings.micDeviceId };
+    } else if (this.settings.micDeviceId && degraded) {
+      // In degraded mode, use preferred device but not exact
+      constraints.deviceId = { ideal: this.settings.micDeviceId };
     }
 
     return constraints;
+  }
+
+  /**
+   * Check if currently running in degraded mode
+   */
+  isDegradedMode(): boolean {
+    return this.degradedMode;
   }
 
   /**
@@ -189,6 +212,78 @@ export class AudioService extends EventEmitter {
       return this.localStream;
     }
 
+    return this.getLocalStreamWithRetry(forceNew);
+  }
+
+  /**
+   * Get local stream with automatic retry and graceful degradation
+   */
+  private async getLocalStreamWithRetry(forceNew: boolean): Promise<MediaStream> {
+    this.streamRetryAttempts = 0;
+    let lastError: Error | null = null;
+
+    while (this.streamRetryAttempts < MAX_STREAM_RETRY_ATTEMPTS) {
+      try {
+        const shouldDegrade = this.streamRetryAttempts > 0;
+        const stream = await this.attemptGetLocalStream(forceNew, shouldDegrade);
+        
+        // Success - remember these constraints worked
+        this.lastSuccessfulConstraints = this.getAudioConstraints(shouldDegrade);
+        this.degradedMode = shouldDegrade;
+        this.streamRetryAttempts = 0;
+        
+        if (shouldDegrade) {
+          this.emit('stream:degraded', { 
+            reason: 'constraints',
+            message: 'Using reduced audio quality due to device limitations'
+          });
+        }
+        
+        return stream;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        this.streamRetryAttempts++;
+        
+        // Check if this is a retriable error
+        if (!this.isRetriableError(error)) {
+          throw this.mapGetUserMediaError(error);
+        }
+        
+        if (this.streamRetryAttempts < MAX_STREAM_RETRY_ATTEMPTS) {
+          if (import.meta.env.DEV) {
+            console.warn(`[AudioService] Stream attempt ${this.streamRetryAttempts} failed, retrying with degraded constraints...`, error);
+          }
+          await this.delay(STREAM_RETRY_DELAY_MS * this.streamRetryAttempts);
+        }
+      }
+    }
+
+    // All retries exhausted
+    throw this.mapGetUserMediaError(lastError);
+  }
+
+  private isRetriableError(error: unknown): boolean {
+    if (!(error instanceof DOMException)) {
+      return false;
+    }
+    
+    // These errors might be recoverable with different constraints
+    const retriableErrors = [
+      'OverconstrainedError',
+      'ConstraintNotSatisfiedError',
+      'NotReadableError',
+      'TrackStartError',
+      'AbortError',
+    ];
+    
+    return retriableErrors.includes(error.name);
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async attemptGetLocalStream(_forceNew: boolean, degraded: boolean): Promise<MediaStream> {
     try {
       this.assertMicrophoneSupport();
 
@@ -199,7 +294,7 @@ export class AudioService extends EventEmitter {
 
       // Get raw stream from microphone
       const rawStream = await navigator.mediaDevices.getUserMedia({
-        audio: this.getAudioConstraints(),
+        audio: this.getAudioConstraints(degraded),
       });
 
       this.rawStream = rawStream;
