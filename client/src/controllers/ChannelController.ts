@@ -21,6 +21,18 @@ const CHANNEL_ICONS = {
 
 const HIDDEN_CHANNEL_NAMES = new Set(['team-share', 'main-stream']);
 
+const normalizeChannelKey = (value?: string | null): string => {
+  if (!value) {
+    return '';
+  }
+
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '-');
+};
+
 export interface ChannelControllerDeps {
   elements: Record<string, HTMLElement | null>;
   socket: SocketService;
@@ -184,8 +196,9 @@ export class ChannelController {
    */
   private updateChannelsUI(channels: Channel[]): void {
     const visibleChannels = channels.filter((ch) => {
-      const normalizedName = ch.name?.toLowerCase?.() ?? '';
-      return !HIDDEN_CHANNEL_NAMES.has(normalizedName);
+      const normalizedName = normalizeChannelKey(ch.name);
+      const normalizedId = normalizeChannelKey(ch.id);
+      return !HIDDEN_CHANNEL_NAMES.has(normalizedName) && !HIDDEN_CHANNEL_NAMES.has(normalizedId);
     });
 
     const currentChannel = this.deps.state.get('currentChannel');

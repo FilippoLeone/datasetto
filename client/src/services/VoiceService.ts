@@ -350,11 +350,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.loadPeerAudioPreferences();
 
     if (typeof window !== 'undefined') {
-      const bridge = (window as typeof window & { desktopAPI?: DesktopScreenshareBridge }).desktopAPI;
-      if (bridge) {
-        this.desktopBridge = bridge;
-      }
-
+      this.resolveDesktopBridge();
       const unlock = () => {
         this.tryResumeAudioContext();
         window.removeEventListener('click', unlock);
@@ -1378,8 +1374,9 @@ export class VoiceService extends EventEmitter<EventMap> {
 
       let stream: MediaStream | null = null;
       let desktopCancelled = false;
+      const desktopBridge = this.resolveDesktopBridge();
 
-      if (this.desktopBridge?.pickScreenshareSource) {
+      if (desktopBridge?.pickScreenshareSource) {
         const result = await this.requestDesktopScreenshareStream(videoConstraints, true);
         stream = result.stream;
         desktopCancelled = result.cancelled;
@@ -1534,12 +1531,13 @@ export class VoiceService extends EventEmitter<EventMap> {
     videoConstraints: MediaTrackConstraints,
     wantsAudio: boolean
   ): Promise<{ stream: MediaStream | null; cancelled: boolean }> {
-    if (!this.desktopBridge?.pickScreenshareSource) {
+    const desktopBridge = this.resolveDesktopBridge();
+    if (!desktopBridge?.pickScreenshareSource) {
       return { stream: null, cancelled: false };
     }
 
     try {
-      const selection = await this.desktopBridge.pickScreenshareSource({ audio: wantsAudio });
+      const selection = await desktopBridge.pickScreenshareSource({ audio: wantsAudio });
       if (!selection?.success || !selection.source) {
         return { stream: null, cancelled: selection?.error === 'cancelled' };
       }
@@ -1631,6 +1629,19 @@ export class VoiceService extends EventEmitter<EventMap> {
     const error = new Error(message);
     (error as Error & { name: string }).name = 'NotAllowedError';
     return error;
+  }
+
+  private resolveDesktopBridge(): DesktopScreenshareBridge | null {
+    if (this.desktopBridge || typeof window === 'undefined') {
+      return this.desktopBridge;
+    }
+
+    const bridge = (window as typeof window & { desktopAPI?: DesktopScreenshareBridge }).desktopAPI;
+    if (bridge) {
+      this.desktopBridge = bridge;
+    }
+
+    return this.desktopBridge;
   }
 
   getPeerAudioPreference(peerId: string): PeerAudioPreference {

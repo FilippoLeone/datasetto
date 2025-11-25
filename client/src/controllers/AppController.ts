@@ -365,7 +365,7 @@ export class App {
       'emojiPickerBtn', 'emojiPicker', 'emojiGrid',
       'voiceQuality', 'dtx', 'latencyHint', 'vadThreshold', 'vadThresholdVal',
       'inlineVideoContainer', 'inlineVideo', 'inlinePlayerOverlay',
-  'popoutVideo', 'theaterModeToggle', 'mobileStreamTitle', 'popinVideo',
+  'toggle-video-popout', 'theaterModeToggle', 'mobileStreamTitle', 'popinVideo',
   'mobileStreamChatToggle',
   'playPauseBtn', 'volumeBtn', 'volumeSlider', 'volumeIcon',
   'fullscreenBtn', 'videoControlsBar',

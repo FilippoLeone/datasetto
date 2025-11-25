@@ -386,7 +386,7 @@ export class App {
       'voiceQuality', 'dtx', 'latencyHint', 'vadThreshold', 'vadThresholdVal',
       'inlineVideoContainer', 'inlineVideo', 'inlinePlayerOverlay',
       'screenshareControls', 'screenshareStatusLabel', 'screenshareStartBtn', 'screenshareStopBtn',
-  'popoutVideo', 'theaterModeToggle', 'mobileStreamTitle', 'popinVideo',
+  'toggle-video-popout', 'theaterModeToggle', 'mobileStreamTitle', 'popinVideo',
   'mobileStreamChatToggle',
   'playPauseBtn', 'volumeBtn', 'volumeSlider', 'volumeIcon',
   'fullscreenBtn', 'videoControlsBar',
