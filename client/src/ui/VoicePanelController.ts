@@ -314,12 +314,12 @@ export class VoicePanelController {
       slider.type = 'range';
       slider.className = 'voice-user-volume-slider';
       slider.min = '0';
-      slider.max = '100';
+      slider.max = '200';
       slider.step = '1';
-      const initialVolume = Math.round((entry.localVolume ?? 1) * 100);
+      const initialVolume = Math.max(0, Math.min(200, Math.round((entry.localVolume ?? 1) * 100)));
       slider.value = String(initialVolume);
       slider.setAttribute('aria-label', `Adjust ${entry.name}'s volume`);
-      slider.title = `Volume: ${initialVolume}%`;
+      slider.title = `Volume: ${initialVolume}% (Drag past 100% for a boost)`;
 
       const volumeRow = document.createElement('div');
       volumeRow.className = 'voice-user-volume-row flex items-center gap-3 pl-11 pr-3 pb-1 text-xs text-text-muted';
@@ -330,10 +330,12 @@ export class VoicePanelController {
       const updateVolumeIcon = (value: number) => {
         if (value <= 0) {
           volumeIcon.textContent = '🔇';
-        } else if (value < 50) {
+        } else if (value < 60) {
           volumeIcon.textContent = '🔉';
-        } else {
+        } else if (value <= 120) {
           volumeIcon.textContent = '🔊';
+        } else {
+          volumeIcon.textContent = '📢';
         }
       };
 
@@ -341,7 +343,7 @@ export class VoicePanelController {
 
       const updateVolume = (value: number) => {
         const normalized = clampVolume(value);
-        slider.title = `Volume: ${value}%`;
+        slider.title = `Volume: ${value}% (Drag past 100% for a boost)`;
         updateVolumeIcon(value);
         entry.onLocalVolumeChange?.(normalized);
       };
@@ -372,5 +374,5 @@ const clampVolume = (value: number): number => {
   if (Number.isNaN(value)) {
     return 1;
   }
-  return Math.max(0, Math.min(1, value / 100));
+  return Math.max(0, Math.min(2, value / 100));
 };

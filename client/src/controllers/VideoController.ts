@@ -150,6 +150,8 @@ export class VideoController {
   private isDragging = false;
   private dragOffset = { x: 0, y: 0 };
   private isMinimized = false;
+  private popoutPipVideo: HTMLVideoElement | null = null;
+  private popoutPipContainer: HTMLElement | null = null;
   private mobileStreamMode = false;
   private mobileChatOpen = false;
   private nativeFullscreenActive = false;
@@ -170,6 +172,13 @@ export class VideoController {
   private screenshareStatusBeforePause: string | null = null;
   private lastScreenshareStatusMessage: string | null = null;
   private lastViewerJoinAttempt = 0;
+  private externalPopoutWindow: Window | null = null;
+  private externalPopoutVideo: HTMLVideoElement | null = null;
+  private externalPopoutStage: HTMLElement | null = null;
+  private externalPopoutTitleLabel: HTMLElement | null = null;
+  private externalPopoutOverlay: HTMLElement | null = null;
+  private playerRetargetedExternally = false;
+  private externalPopoutClosing = false;
 
   constructor(deps: VideoControllerDeps) {
     this.deps = deps;
@@ -184,7 +193,12 @@ export class VideoController {
 
   initialize(): void {
     this.registerDomListeners();
-    this.setupVideoPopoutDrag();
+    if (!this.shouldUseExternalPopout()) {
+      this.setupVideoPopoutDrag();
+    } else {
+      const minimizeBtn = this.deps.elements['minimize-video'];
+      minimizeBtn?.classList.add('hidden');
+    }
     this.updateVolumeDisplay();
     this.syncFullscreenButton(false);
     this.updateMobileChatToggleUI();
@@ -277,18 +291,6 @@ export class VideoController {
     if (this.screenshareChannelId) {
       this.resetScreenshareContext();
     }
-
-    if (this.deps.state.get('streamingMode')) {
-      this.deps.state.setStreamingMode(false);
-
-      const toggleBtn = this.deps.elements['toggle-video-popout'];
-      if (toggleBtn) {
-        toggleBtn.textContent = '📺';
-      }
-
-      this.deps.notifications.info('Streaming mode disabled');
-    }
-
     this.closePopout();
   }
 
@@ -313,50 +315,614 @@ export class VideoController {
   }
 
   toggleVideoPopout(): void {
-    const popout = this.deps.elements['video-popout'];
-    const btn = this.deps.elements['toggle-video-popout'];
-
-    if (!popout) {
-      return;
-    }
-
     const streamingMode = this.deps.state.toggleStreamingMode();
 
     if (streamingMode) {
-      popout.classList.remove('hidden');
-      if (btn) {
-        btn.textContent = '📺';
+      const opened = this.openStreamPopout();
+      if (opened) {
+        this.deps.notifications.info('Streaming mode enabled');
+      } else {
+        this.deps.state.setStreamingMode(false);
+        this.deps.notifications.error('Unable to open stream popout');
       }
-      this.deps.notifications.info('Streaming mode enabled');
+      return;
+    }
 
-      const channelType = this.deps.state.get('currentChannelType');
-      const channelId = this.deps.state.get('currentChannel');
-      if (channelType === 'stream' && channelId) {
-        const channels = this.deps.state.get('channels') ?? [];
-        const match = channels.find((channel) => channel.id === channelId);
-        if (match) {
-          this.deps.player.loadChannel(match);
-        }
+    this.closePopout();
+    this.deps.notifications.info('Streaming mode disabled');
+  }
+
+  private openStreamPopout(): boolean {
+    const btn = this.deps.elements['toggle-video-popout'];
+
+    const video = this.preparePopoutDisplay('Stream');
+    if (!video) {
+      return false;
+    }
+
+    if (btn) {
+      btn.textContent = '📺';
+    }
+
+    this.detachPopoutMediaStream();
+    this.detachPictureInPicture();
+    this.maybeRetargetPlayerToExternal(video);
+
+    const channelType = this.deps.state.get('currentChannelType');
+    const channelId = this.deps.state.get('currentChannel');
+    if (channelType === 'stream' && channelId) {
+      const channels = this.deps.state.get('channels') ?? [];
+      const match = channels.find((channel) => channel.id === channelId);
+      if (match) {
+        this.deps.player.loadChannel(match);
       }
     } else {
-      const channelType = this.deps.state.get('currentChannelType');
-      if (channelType !== 'stream') {
-        popout.classList.add('hidden');
+      this.deps.player.dispose();
+    }
+
+    return true;
+  }
+
+  showVoicePopout(stream: MediaStream, options?: { label?: string; pipStream?: MediaStream | null; pipLabel?: string }): void {
+    const video = this.preparePopoutDisplay(options?.label ?? 'Voice Video');
+    if (!video) {
+      this.deps.notifications.error('Unable to open voice video popout');
+      return;
+    }
+
+    if (!stream) {
+      this.deps.notifications.warning('Video stream is not available yet');
+      return;
+    }
+
+    this.detachPopoutMediaStream();
+    this.deps.player.dispose();
+
+    try {
+      video.srcObject = stream;
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[VideoController] Failed to attach voice stream, retrying:', error);
       }
-      if (btn) {
-        btn.textContent = '📺';
-      }
-      this.deps.notifications.info('Streaming mode disabled');
+      video.srcObject = null;
+      video.srcObject = stream;
+    }
+
+    video.muted = true;
+    const playAttempt = video.play();
+    if (playAttempt instanceof Promise) {
+      playAttempt.catch((error) => {
+        if (import.meta.env.DEV) {
+          console.warn('[VideoController] Voice popout playback blocked:', error);
+        }
+      });
+    }
+
+    const overlay = this.deps.elements.playerOverlay;
+    overlay?.classList.remove('visible');
+
+    if (!this.deps.state.get('streamingMode')) {
+      this.deps.state.setStreamingMode(true);
+    }
+
+    if (options?.pipStream) {
+      this.attachPictureInPicture(options.pipStream, options.pipLabel);
+    } else {
+      this.detachPictureInPicture();
     }
   }
 
+  private preparePopoutDisplay(title: string): HTMLVideoElement | null {
+    if (this.shouldUseExternalPopout()) {
+      return this.prepareExternalPopoutWindow(title);
+    }
+
+    const popout = this.deps.elements['video-popout'];
+    const video = this.deps.elements.video as HTMLVideoElement | undefined;
+
+    if (!popout || !video) {
+      return null;
+    }
+
+    popout.classList.remove('hidden');
+    popout.classList.remove('minimized');
+    this.isMinimized = false;
+    this.setPopoutTitle(title);
+    return video;
+  }
+
+  private prepareExternalPopoutWindow(title: string): HTMLVideoElement | null {
+    if (!this.externalPopoutWindow || this.externalPopoutWindow.closed) {
+      const features = 'width=960,height=540,resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no';
+      const win = window.open('', 'datasetto-video-popout', features);
+      if (!win) {
+        return null;
+      }
+
+      this.externalPopoutWindow = win;
+      const doc = win.document;
+      doc.open();
+      doc.write('<!DOCTYPE html><html><head><meta charset="utf-8" /></head><body></body></html>');
+      doc.close();
+
+      const style = doc.createElement('style');
+      style.textContent = `
+        :root {
+          color-scheme: dark;
+          font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        * {
+          box-sizing: border-box;
+        }
+        body {
+          margin: 0;
+          background: radial-gradient(120% 120% at 0% 0%, #111425, #05060b 65%);
+          color: white;
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          padding: 1rem;
+          overflow: hidden;
+        }
+        body.popout-fullscreen {
+          padding: 0;
+          background: #000;
+        }
+        body.popout-collapsed .popout-stage {
+          max-height: 320px;
+        }
+        .popout-shell {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+          width: 100%;
+        }
+        .popout-stage {
+          position: relative;
+          flex: 1;
+          background: #000;
+          min-height: 0;
+          border-radius: 20px;
+          overflow: hidden;
+          box-shadow: 0 32px 64px rgba(0, 0, 0, 0.55);
+        }
+        body.popout-fullscreen .popout-stage {
+          border-radius: 0;
+          box-shadow: none;
+        }
+        .popout-video-element {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          background: #000;
+        }
+        .popout-controls {
+          position: absolute;
+          top: 0.75rem;
+          right: 0.75rem;
+          display: flex;
+          gap: 0.4rem;
+          z-index: 3;
+        }
+        .popout-control-btn {
+          width: 34px;
+          height: 34px;
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.25);
+          background: rgba(8, 9, 15, 0.7);
+          color: white;
+          font-size: 0.7rem;
+          font-weight: 600;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.2s ease, border-color 0.2s ease;
+        }
+        .popout-control-btn:hover {
+          background: rgba(255, 255, 255, 0.18);
+          border-color: rgba(255, 255, 255, 0.35);
+        }
+        .popout-control-btn.active {
+          background: rgba(255, 255, 255, 0.35);
+          color: #05060b;
+        }
+        .popout-pip-host {
+          position: absolute;
+          right: 1rem;
+          bottom: 1rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+          pointer-events: none;
+        }
+        .popout-pip-tile {
+          width: clamp(160px, 22vw, 320px);
+          aspect-ratio: 16 / 9;
+          border-radius: 14px;
+          overflow: hidden;
+          background: #000;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          box-shadow: 0 18px 36px rgba(0, 0, 0, 0.55);
+          position: relative;
+          pointer-events: auto;
+        }
+        .popout-pip-tile video {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          background: #000;
+        }
+        .popout-pip-label {
+          position: absolute;
+          top: 0.5rem;
+          left: 0.5rem;
+          padding: 0.2rem 0.55rem;
+          border-radius: 999px;
+          background: rgba(0, 0, 0, 0.65);
+          font-size: 0.75rem;
+          font-weight: 600;
+        }
+        .popout-overlay {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(180deg, rgba(8, 9, 15, 0.65), rgba(8, 9, 15, 0.8));
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.2s ease;
+        }
+        .popout-overlay.visible {
+          opacity: 1;
+        }
+        .popout-overlay .overlay-content {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.8rem;
+        }
+        .popout-overlay .spinner {
+          width: 44px;
+          height: 44px;
+          border-radius: 999px;
+          border: 4px solid rgba(255, 255, 255, 0.12);
+          border-top-color: rgba(255, 255, 255, 0.8);
+          animation: popout-spin 1s linear infinite;
+        }
+        .popout-overlay .message {
+          font-size: 0.9rem;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+        }
+        @keyframes popout-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `;
+      doc.head.appendChild(style);
+
+      const shell = doc.createElement('div');
+      shell.className = 'popout-shell';
+      const stage = doc.createElement('div');
+      stage.className = 'popout-stage';
+      const video = doc.createElement('video');
+      video.autoplay = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.className = 'popout-video-element';
+      const overlay = doc.createElement('div');
+      overlay.className = 'popout-overlay visible';
+      const overlayContent = doc.createElement('div');
+      overlayContent.className = 'overlay-content';
+      const spinner = doc.createElement('div');
+      spinner.className = 'spinner';
+      const message = doc.createElement('p');
+      message.className = 'message';
+      message.textContent = 'No stream';
+      overlayContent.appendChild(spinner);
+      overlayContent.appendChild(message);
+      overlay.appendChild(overlayContent);
+      const controls = doc.createElement('div');
+      controls.className = 'popout-controls';
+      const fullscreenBtn = doc.createElement('button');
+      fullscreenBtn.type = 'button';
+      fullscreenBtn.className = 'popout-control-btn popout-control-fullscreen';
+      fullscreenBtn.title = 'Enter fullscreen';
+      fullscreenBtn.textContent = 'FS';
+      const closeBtn = doc.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'popout-control-btn popout-control-close';
+      closeBtn.title = 'Close popout';
+      closeBtn.textContent = 'X';
+      controls.appendChild(fullscreenBtn);
+      controls.appendChild(closeBtn);
+      const inlineOverlay = this.deps.elements.playerOverlay as HTMLElement | undefined;
+      if (inlineOverlay) {
+        const inlineMessage = inlineOverlay.querySelector('.message');
+        if (inlineMessage) {
+          message.textContent = inlineMessage.textContent ?? 'No stream';
+        }
+        overlay.classList.toggle('visible', inlineOverlay.classList.contains('visible'));
+      }
+      stage.appendChild(video);
+      stage.appendChild(overlay);
+      stage.appendChild(controls);
+
+      shell.appendChild(stage);
+      doc.body.appendChild(shell);
+
+      win.addEventListener('beforeunload', this.handleExternalPopoutClosed);
+
+      closeBtn.addEventListener('click', () => {
+        win.close();
+      });
+
+      const syncFullscreenState = (): void => {
+        const isFullscreen = !!doc.fullscreenElement;
+        fullscreenBtn.classList.toggle('active', isFullscreen);
+        doc.body.classList.toggle('popout-fullscreen', isFullscreen);
+        fullscreenBtn.textContent = isFullscreen ? 'EX' : 'FS';
+        fullscreenBtn.title = isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen';
+      };
+
+      const toggleFullscreen = (): void => {
+        if (doc.fullscreenElement) {
+          if (doc.exitFullscreen) {
+            doc.exitFullscreen().catch(() => {
+              /* ignore fullscreen exit failures */
+            });
+          }
+          return;
+        }
+        if (stage.requestFullscreen) {
+          stage
+            .requestFullscreen()
+            .catch((error) => {
+              if (import.meta.env.DEV) {
+                console.warn('[VideoController] Failed to enter fullscreen', error);
+              }
+            });
+        }
+      };
+
+      fullscreenBtn.addEventListener('click', toggleFullscreen);
+      doc.addEventListener('fullscreenchange', syncFullscreenState);
+      syncFullscreenState();
+
+      this.externalPopoutVideo = video;
+      this.externalPopoutStage = stage;
+      this.externalPopoutOverlay = overlay;
+      this.externalPopoutTitleLabel = null;
+    }
+
+    const activeWindow = this.externalPopoutWindow;
+    if (activeWindow) {
+      this.setPopoutTitle(title);
+      activeWindow.focus();
+    }
+
+    return this.externalPopoutVideo;
+  }
+
+  private shouldUseExternalPopout(): boolean {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    return Boolean((window as typeof window & { desktopAPI?: unknown }).desktopAPI);
+  }
+
+  private getActivePopoutVideo(): HTMLVideoElement | null {
+    if (this.shouldUseExternalPopout()) {
+      return this.externalPopoutVideo;
+    }
+    return (this.deps.elements.video as HTMLVideoElement | undefined) ?? null;
+  }
+
+  private getPopoutStageElement(): HTMLElement | null {
+    if (this.shouldUseExternalPopout()) {
+      return this.externalPopoutStage;
+    }
+    return this.deps.elements['video-popout-stage'];
+  }
+
+  private destroyExternalPopoutWindow(): void {
+    if (!this.externalPopoutWindow) {
+      return;
+    }
+
+    this.externalPopoutClosing = true;
+    try {
+      this.externalPopoutWindow.close();
+    } catch {
+      // ignore
+    }
+    this.externalPopoutClosing = false;
+    this.clearExternalPopoutRefs();
+    this.restoreInlinePlayerTarget();
+  }
+
+  private clearExternalPopoutRefs(): void {
+    if (this.externalPopoutWindow) {
+      this.externalPopoutWindow.removeEventListener('beforeunload', this.handleExternalPopoutClosed);
+    }
+    this.externalPopoutWindow = null;
+    this.externalPopoutVideo = null;
+    this.externalPopoutStage = null;
+    this.externalPopoutTitleLabel = null;
+    this.externalPopoutOverlay = null;
+  }
+
+  private handleExternalPopoutClosed = (): void => {
+    if (this.externalPopoutClosing) {
+      this.clearExternalPopoutRefs();
+      this.restoreInlinePlayerTarget();
+      return;
+    }
+
+    this.clearExternalPopoutRefs();
+    this.restoreInlinePlayerTarget();
+    this.isMinimized = false;
+    this.detachPopoutMediaStream();
+    this.deps.player.dispose();
+    if (this.deps.state.get('streamingMode')) {
+      this.deps.state.setStreamingMode(false);
+    }
+    this.setPopoutTitle('Stream');
+  };
+
+  private restoreInlinePlayerTarget(): void {
+    if (!this.playerRetargetedExternally) {
+      return;
+    }
+    const inlineVideo = this.deps.elements.video as HTMLVideoElement | undefined;
+    if (!inlineVideo) {
+      return;
+    }
+    const overlay = this.deps.elements.playerOverlay as HTMLElement | undefined;
+    this.deps.player.setVideoElement(inlineVideo, overlay ?? null);
+    this.playerRetargetedExternally = false;
+  }
+
+  private maybeRetargetPlayerToExternal(video: HTMLVideoElement | null): void {
+    if (!this.shouldUseExternalPopout() || !video || !this.externalPopoutOverlay) {
+      return;
+    }
+    this.deps.player.setVideoElement(video, this.externalPopoutOverlay);
+    this.playerRetargetedExternally = true;
+  }
+
+  private setPopoutTitle(title: string): void {
+    if (this.shouldUseExternalPopout()) {
+      if (this.externalPopoutTitleLabel) {
+        this.externalPopoutTitleLabel.textContent = title;
+      }
+      if (this.externalPopoutWindow && !this.externalPopoutWindow.closed) {
+        this.externalPopoutWindow.document.title = `Datasetto — ${title}`;
+      }
+      return;
+    }
+
+    const label = this.deps.elements['video-popout-title'];
+    if (label) {
+      label.textContent = title;
+    }
+  }
+
+  private detachPopoutMediaStream(): void {
+    const video = this.getActivePopoutVideo();
+    if (video) {
+      try {
+        video.pause();
+      } catch {
+        // ignore pause errors
+      }
+      video.removeAttribute('src');
+      try {
+        video.srcObject = null;
+      } catch {
+        // Some browsers throw if srcObject was never set.
+      }
+      video.load();
+    }
+    this.detachPictureInPicture();
+  }
+
+  private attachPictureInPicture(stream: MediaStream, label?: string): void {
+    const stage = this.getPopoutStageElement();
+    if (!stage) {
+      return;
+    }
+
+    this.detachPictureInPicture();
+
+    const isExternal = stage.ownerDocument !== document;
+    const container = stage.ownerDocument.createElement('div');
+    container.className = isExternal ? 'popout-pip-host' : 'screen-share-pip-container';
+
+    const tile = stage.ownerDocument.createElement('div');
+    tile.className = isExternal ? 'popout-pip-tile' : 'video-tile pip-tile';
+
+    const video = stage.ownerDocument.createElement('video');
+    video.autoplay = true;
+    video.muted = true;
+    video.playsInline = true;
+
+    try {
+      video.srcObject = stream;
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[VideoController] Failed to attach PiP stream, retrying:', error);
+      }
+      video.srcObject = null;
+      video.srcObject = stream;
+    }
+
+    video.play().catch((error) => {
+      if (import.meta.env.DEV) {
+        console.warn('[VideoController] PiP playback blocked:', error);
+      }
+    });
+
+    if (label) {
+      const overlay = stage.ownerDocument.createElement('div');
+      overlay.className = isExternal ? 'popout-pip-label' : 'video-tile-overlay';
+      const name = stage.ownerDocument.createElement('span');
+      name.className = isExternal ? '' : 'video-tile-name';
+      name.textContent = label;
+      overlay.appendChild(name);
+      tile.appendChild(overlay);
+    }
+
+    tile.appendChild(video);
+    container.appendChild(tile);
+    stage.appendChild(container);
+
+    this.popoutPipVideo = video;
+    this.popoutPipContainer = container;
+  }
+
+  private detachPictureInPicture(): void {
+    if (this.popoutPipVideo) {
+      try {
+        this.popoutPipVideo.pause();
+      } catch {
+        // ignore pause errors
+      }
+      try {
+        this.popoutPipVideo.srcObject = null;
+      } catch {
+        // ignore cleanup issues
+      }
+    }
+
+    if (this.popoutPipContainer?.parentElement) {
+      this.popoutPipContainer.parentElement.removeChild(this.popoutPipContainer);
+    }
+
+    this.popoutPipVideo = null;
+    this.popoutPipContainer = null;
+  }
+
   minimizeVideo(): void {
+    this.isMinimized = !this.isMinimized;
+
+    if (this.shouldUseExternalPopout()) {
+      if (this.externalPopoutWindow && !this.externalPopoutWindow.closed) {
+        this.externalPopoutWindow.document.body.classList.toggle('popout-collapsed', this.isMinimized);
+      }
+      return;
+    }
+
     const popout = this.deps.elements['video-popout'];
     if (!popout) {
       return;
     }
 
-    this.isMinimized = !this.isMinimized;
     popout.classList.toggle('minimized', this.isMinimized);
 
     const btn = this.deps.elements['minimize-video'];
@@ -367,14 +933,25 @@ export class VideoController {
   }
 
   closePopout(): void {
-    const popout = this.deps.elements['video-popout'];
-    if (!popout) {
-      return;
+    if (this.shouldUseExternalPopout()) {
+      this.detachPopoutMediaStream();
+      this.destroyExternalPopoutWindow();
+    } else {
+      const popout = this.deps.elements['video-popout'];
+      if (!popout) {
+        return;
+      }
+      popout.classList.add('hidden');
+      popout.classList.remove('minimized');
+      this.detachPopoutMediaStream();
     }
 
-    popout.classList.add('hidden');
     this.isMinimized = false;
-    popout.classList.remove('minimized');
+    this.deps.player.dispose();
+    if (this.deps.state.get('streamingMode')) {
+      this.deps.state.setStreamingMode(false);
+    }
+    this.setPopoutTitle('Stream');
   }
 
   async showInlineVideo(channelId: string, channelName: string): Promise<void> {

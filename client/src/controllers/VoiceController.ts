@@ -27,6 +27,14 @@ interface PendingVoiceJoin {
   name: string;
 }
 
+type VoicePopoutCandidate = {
+  ownerId: string;
+  stream: MediaStream;
+  label: string;
+  type: 'screen' | 'camera';
+  isLocal: boolean;
+};
+
 export class VoiceController {
   private deps: VoiceControllerDeps;
   private voiceUsers: Map<string, { id: string; name: string; muted?: boolean; deafened?: boolean; speaking?: boolean; cameraEnabled?: boolean; screenEnabled?: boolean }> = new Map();
@@ -51,6 +59,7 @@ export class VoiceController {
   private cameraActive = false;
   private screenShareActive = false;
   private remoteVideoTracks: Map<string, { camera?: MediaStreamTrack; screen?: MediaStreamTrack }> = new Map();
+  private remoteVideoStreams: Map<string, { camera?: MediaStream; screen?: MediaStream }> = new Map();
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps;
@@ -71,6 +80,7 @@ export class VoiceController {
     this.updateVoiceStatusPanel();
     this.updateVideoButtons();
     this.updateLocalVideoPreview();
+    this.updateVoiceVideoToolbar();
     void this.applySpeakerPreference();
 
     const channels = this.deps.state.get('channels') ?? [];
@@ -335,6 +345,11 @@ export class VoiceController {
     // Show video grid
     videoGrid.classList.remove('hidden');
 
+    if (!this.remoteVideoStreams.has(peerId)) {
+      this.remoteVideoStreams.set(peerId, {});
+    }
+    this.remoteVideoStreams.get(peerId)![streamType] = stream;
+
     const tileId = `video-tile-${peerId}-${streamType}`;
     let tile = videoGrid.querySelector(`#${tileId}`) as HTMLElement | null;
 
@@ -384,6 +399,18 @@ export class VoiceController {
     let stateChanged = false;
 
     if (streamType) {
+      const streams = this.remoteVideoStreams.get(peerId);
+      if (streams) {
+        delete streams[streamType];
+        if (!streams.camera && !streams.screen) {
+          this.remoteVideoStreams.delete(peerId);
+        }
+      }
+    } else {
+      this.remoteVideoStreams.delete(peerId);
+    }
+
+    if (streamType) {
       const tileId = `video-tile-${peerId}-${streamType}`;
       const tile = videoGrid.querySelector(`#${tileId}`);
       tile?.remove();
@@ -428,6 +455,47 @@ export class VoiceController {
     if (count === 0) {
       videoGrid.classList.add('hidden');
     }
+
+    this.updateVoiceVideoToolbar();
+  }
+
+  private updateVoiceVideoToolbar(): void {
+    const toolbar = this.deps.elements.voiceVideoToolbar;
+    const popoutBtn = this.deps.elements['voice-popout-video'] as HTMLButtonElement | undefined;
+    if (!toolbar || !popoutBtn) {
+      return;
+    }
+
+    const activeChannelType = this.deps.state.get('currentChannelType');
+    const mainContent = document.querySelector('.main-content');
+    const inVoiceStage = activeChannelType === 'voice' && mainContent?.classList.contains('voice-mode');
+    const hasVideo = this.hasActiveVoiceVideo();
+
+    toolbar.classList.toggle('hidden', !(inVoiceStage && hasVideo));
+    popoutBtn.disabled = !hasVideo;
+    popoutBtn.setAttribute('aria-disabled', hasVideo ? 'false' : 'true');
+  }
+
+  private hasActiveVoiceVideo(): boolean {
+    if (this.streamHasLiveTrack(this.deps.voice.getCameraStream())) {
+      return true;
+    }
+    if (this.streamHasLiveTrack(this.deps.voice.getScreenStream())) {
+      return true;
+    }
+    for (const streams of this.remoteVideoStreams.values()) {
+      if (this.streamHasLiveTrack(streams.camera) || this.streamHasLiveTrack(streams.screen)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private streamHasLiveTrack(stream?: MediaStream | null): stream is MediaStream {
+    if (!stream) {
+      return false;
+    }
+    return stream.getTracks().some((track) => track.readyState === 'live');
   }
 
   private stopAllVideo(): void {
@@ -446,10 +514,121 @@ export class VoiceController {
       videoGrid.querySelectorAll('.video-tile[data-peer-id]').forEach((el) => el.remove());
     }
     this.remoteVideoTracks.clear();
+    this.remoteVideoStreams.clear();
     
     this.updateVideoButtons();
     this.updateLocalVideoPreview();
     this.renderVoiceUsers();
+    this.updateVoiceVideoToolbar();
+  }
+
+  openActiveVideoPopout(): void {
+    if (!this.deps.openVideoPopout) {
+      this.deps.notifications.error('Video popout is not available in this build');
+      return;
+    }
+
+    if (!this.deps.state.get('voiceConnected')) {
+      this.deps.notifications.info('Join a voice channel to pop out video');
+      return;
+    }
+
+    const selection = this.resolveVoicePopoutSelection();
+    if (!selection) {
+      this.deps.notifications.warning('No cameras or screen shares are active yet');
+      return;
+    }
+
+    this.deps.openVideoPopout({
+      stream: selection.primary.stream,
+      label: selection.primary.label,
+      pipStream: selection.pip?.stream ?? null,
+      pipLabel: selection.pip?.label,
+    });
+  }
+
+  private resolveVoicePopoutSelection(): { primary: VoicePopoutCandidate; pip?: VoicePopoutCandidate } | null {
+    const candidates = this.collectVoicePopoutCandidates();
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const findCandidate = (predicate: (candidate: VoicePopoutCandidate) => boolean): VoicePopoutCandidate | undefined =>
+      candidates.find(predicate);
+
+    const primary =
+      findCandidate((candidate) => candidate.type === 'screen' && !candidate.isLocal)
+      ?? findCandidate((candidate) => candidate.type === 'screen' && candidate.isLocal)
+      ?? findCandidate((candidate) => candidate.type === 'camera' && !candidate.isLocal)
+      ?? findCandidate((candidate) => candidate.type === 'camera' && candidate.isLocal);
+
+    if (!primary) {
+      return null;
+    }
+
+    let pip: VoicePopoutCandidate | undefined;
+    if (primary.type === 'screen') {
+      pip = candidates.find((candidate) => candidate.ownerId === primary.ownerId && candidate.type === 'camera');
+    }
+
+    return { primary, pip };
+  }
+
+  private collectVoicePopoutCandidates(): VoicePopoutCandidate[] {
+    const candidates: VoicePopoutCandidate[] = [];
+    const account = this.deps.state.get('account');
+    const selfBaseLabel = account?.displayName?.trim() || account?.username || 'You';
+    const selfLabel = this.deps.resolveUserLabel(selfBaseLabel, 'You');
+
+    const localCamera = this.deps.voice.getCameraStream();
+    if (this.streamHasLiveTrack(localCamera)) {
+      candidates.push({
+        ownerId: 'local',
+        stream: localCamera,
+        label: `${selfLabel} • Camera`,
+        type: 'camera',
+        isLocal: true,
+      });
+    }
+
+    const localScreen = this.deps.voice.getScreenStream();
+    if (this.streamHasLiveTrack(localScreen)) {
+      candidates.push({
+        ownerId: 'local',
+        stream: localScreen,
+        label: `${selfLabel} • Screen`,
+        type: 'screen',
+        isLocal: true,
+      });
+    }
+
+    for (const [peerId, streams] of this.remoteVideoStreams) {
+      const fallback = peerId || 'Participant';
+      const knownName = this.voiceUsers.get(peerId)?.name ?? null;
+      const peerLabel = this.deps.resolveUserLabel(knownName, fallback) || fallback;
+
+      if (this.streamHasLiveTrack(streams.screen)) {
+        candidates.push({
+          ownerId: peerId,
+          stream: streams.screen,
+          label: `${peerLabel} • Screen`,
+          type: 'screen',
+          isLocal: false,
+        });
+      }
+
+      if (this.streamHasLiveTrack(streams.camera)) {
+        candidates.push({
+          ownerId: peerId,
+          stream: streams.camera,
+          label: `${peerLabel} • Camera`,
+          type: 'camera',
+          isLocal: false,
+        });
+      }
+    }
+
+    return candidates;
   }
 
   async joinChannel(channelId: string, channelName: string): Promise<void> {
@@ -921,6 +1100,7 @@ export class VoiceController {
         this.updateMuteButtons();
         this.updateVoiceStatusPanel();
         void this.applySpeakerPreference();
+        this.updateVoiceVideoToolbar();
       })
     );
   }
@@ -1249,6 +1429,8 @@ export class VoiceController {
     if (!gallery) {
       return;
     }
+
+    this.updateVoiceVideoToolbar();
 
     const activeChannelType = this.deps.state.get('currentChannelType');
     const isVoiceChannelActive = activeChannelType === 'voice';

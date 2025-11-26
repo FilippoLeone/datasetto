@@ -12,18 +12,22 @@ export class PlayerService {
   private currentChannelId: string | null = null;
   private overlayElement: HTMLElement | null = null;
   private candidateUrls: string[] = [];
+  private handleVideoPlaying = (): void => {
+    this.hideOverlay();
+  };
+  private handleVideoError = (): void => {
+    this.showOverlay('Error loading stream');
+  };
+  private handleVideoWaiting = (): void => {
+    this.showOverlay('Buffering...');
+  };
 
   constructor(videoElement: HTMLVideoElement, baseUrl: string, overlayElement?: HTMLElement) {
     this.videoElement = videoElement;
     this.baseUrl = baseUrl;
     this.overlayElement = overlayElement || null;
 
-    this.videoElement.playsInline = true;
-    this.videoElement.autoplay = true;
-    this.videoElement.muted = true;
-    this.videoElement.setAttribute('playsinline', '');
-    this.videoElement.setAttribute('webkit-playsinline', 'true');
-    
+    this.initializeVideoElement(this.videoElement);
     this.setupVideoEvents();
   }
 
@@ -31,17 +35,38 @@ export class PlayerService {
    * Setup video element event listeners
    */
   private setupVideoEvents(): void {
-    this.videoElement.onplaying = () => {
-      this.hideOverlay();
-    };
+    this.videoElement.addEventListener('playing', this.handleVideoPlaying);
+    this.videoElement.addEventListener('error', this.handleVideoError);
+    this.videoElement.addEventListener('waiting', this.handleVideoWaiting);
+  }
 
-    this.videoElement.onerror = () => {
-      this.showOverlay('Error loading stream');
-    };
+  private detachVideoEvents(): void {
+    this.videoElement.removeEventListener('playing', this.handleVideoPlaying);
+    this.videoElement.removeEventListener('error', this.handleVideoError);
+    this.videoElement.removeEventListener('waiting', this.handleVideoWaiting);
+  }
 
-    this.videoElement.onwaiting = () => {
-      this.showOverlay('Buffering...');
-    };
+  private initializeVideoElement(element: HTMLVideoElement): void {
+    element.playsInline = true;
+    element.autoplay = true;
+    element.muted = true;
+    element.setAttribute('playsinline', '');
+    element.setAttribute('webkit-playsinline', 'true');
+  }
+
+  private resetVideoElement(element: HTMLVideoElement): void {
+    try {
+      element.pause();
+    } catch {
+      // ignore
+    }
+    element.removeAttribute('src');
+    try {
+      element.srcObject = null;
+    } catch {
+      // ignore
+    }
+    element.load();
   }
 
   /**
@@ -154,6 +179,47 @@ export class PlayerService {
     tryCandidate(0);
   }
 
+  setVideoElement(videoElement: HTMLVideoElement, overlayElement?: HTMLElement | null): void {
+    if (this.videoElement === videoElement) {
+      if (overlayElement !== undefined) {
+        this.overlayElement = overlayElement ?? null;
+      }
+      return;
+    }
+
+    this.detachVideoEvents();
+    this.resetVideoElement(this.videoElement);
+
+    this.videoElement = videoElement;
+    if (overlayElement !== undefined) {
+      this.overlayElement = overlayElement ?? null;
+    }
+
+    this.initializeVideoElement(this.videoElement);
+    this.setupVideoEvents();
+
+    if (this.hls) {
+      try {
+        this.hls.detachMedia();
+        this.hls.attachMedia(this.videoElement);
+        this.videoElement.play().catch((error) => {
+          console.error('Error auto-playing video after HLS retarget:', error);
+        });
+      } catch (error) {
+        console.error('Failed to reattach HLS media element:', error);
+      }
+      return;
+    }
+
+    if (this.candidateUrls.length > 0 && this.currentChannelId) {
+      const source = this.candidateUrls[0];
+      this.videoElement.src = source;
+      this.videoElement.play().catch((error) => {
+        console.error('Error auto-playing video after retarget:', error);
+      });
+    }
+  }
+
   /**
    * Show overlay with message
    */
@@ -188,13 +254,7 @@ export class PlayerService {
       this.hls.destroy();
       this.hls = null;
     }
-    this.videoElement.pause();
-    this.videoElement.removeAttribute('src');
-    try {
-      this.videoElement.srcObject = null;
-    } catch {
-      // Some browsers may throw if srcObject isn't set; ignore safely.
-    }
-    this.videoElement.load();
+    this.detachVideoEvents();
+    this.resetVideoElement(this.videoElement);
   }
 }

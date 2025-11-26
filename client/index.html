@@ -267,6 +267,16 @@
 
       <section id="voice-call-stage"
         class="voice-call-stage hidden w-full max-w-6xl self-center flex flex-col gap-6 px-6 py-8 lg:px-10">
+        <div id="voiceVideoToolbar" class="voice-video-toolbar hidden">
+          <span class="voice-video-toolbar__label">Live video</span>
+          <div class="voice-video-toolbar__actions">
+            <button id="voice-popout-video" type="button"
+              class="voice-video-toolbar__btn" aria-label="Pop out active video" title="Pop out active video">
+              <span class="icon" aria-hidden="true">⇱</span>
+              <span class="label">Pop out</span>
+            </button>
+          </div>
+        </div>
         <!-- Video Grid for camera/screen share -->
         <div id="video-call-grid" class="video-call-grid hidden" role="region" aria-label="Video call participants">
           <!-- Local video preview -->
@@ -485,7 +495,7 @@
       class="video-popout fixed bottom-4 right-4 w-96 bg-bg-tertiary rounded-lg shadow-lg overflow-hidden z-modal hidden"
       role="region" aria-label="Video player">
       <div class="px-4 py-3 bg-bg-secondary flex items-center justify-between cursor-move" id="video-popout-header">
-        <span class="font-bold text-text-normal">Stream</span>
+        <span id="video-popout-title" class="font-bold text-text-normal">Stream</span>
         <div class="flex gap-2">
           <button id="popinVideo"
             class="w-8 h-8 rounded flex items-center justify-center transition-fast hover:bg-bg-floating text-text-muted hover:text-text-normal"
@@ -504,7 +514,7 @@
           </button>
         </div>
       </div>
-      <div class="relative aspect-video bg-black">
+      <div id="video-popout-stage" class="relative aspect-video bg-black">
         <video id="video" class="w-full h-full" aria-label="Video player" autoplay muted playsinline
           webkit-playsinline></video>
         <div id="playerOverlay" class="video-player-overlay" aria-live="polite">

@@ -42,6 +42,7 @@ async function promptScreenshareSource(options = {}) {
     fetchWindowIcons: true,
   };
   const sources = await desktopCapturer.getSources(pickerOptions);
+  const allowAudio = options?.requestAudio !== false;
 
   if (!sources || sources.length === 0) {
     throw new Error('No capture sources available');
@@ -107,7 +108,7 @@ async function promptScreenshareSource(options = {}) {
       pickerWindow.show();
       pickerWindow.focus();
       pickerWindow.webContents.send('screenshare-picker:sources', {
-        allowAudio: Boolean(options?.requestAudio),
+        allowAudio,
         sources: buildPickerPayload(sources),
       });
     });
@@ -475,7 +476,7 @@ ipcMain.handle('notification:check-permission', async () => {
 
 ipcMain.handle('screenshare:pick-source', async (_event, payload) => {
   try {
-    const selection = await promptScreenshareSource({ requestAudio: Boolean(payload?.audio) });
+    const selection = await promptScreenshareSource({ requestAudio: payload?.audio !== false });
     if (!selection || !selection.source) {
       return { success: false, error: 'cancelled' };
     }

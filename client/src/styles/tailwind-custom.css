@@ -1642,6 +1642,7 @@ body:not(.stream-inline-active) .stream-chat-status {
 .video-call-grid.has-screen-share {
   grid-template-columns: 1fr;
   grid-template-rows: auto 1fr;
+  position: relative;
 }
 
 .video-call-grid.has-screen-share .video-tile.screen-share {
@@ -1752,6 +1753,92 @@ body:not(.stream-inline-active) .stream-chat-status {
 
 .video-tile:not(.no-video) .video-tile-avatar {
   display: none;
+}
+
+.voice-video-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 0.5rem;
+  color: var(--color-text-muted);
+}
+
+.voice-video-toolbar__label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.voice-video-toolbar__actions {
+  margin-left: auto;
+}
+
+.voice-video-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.voice-video-toolbar__btn .icon {
+  font-size: 0.85rem;
+}
+
+.voice-video-toolbar__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.voice-video-toolbar__btn:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.screen-share-pip-container {
+  position: absolute;
+  bottom: 1.25rem;
+  right: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  pointer-events: none;
+}
+
+.video-tile.pip-tile {
+  width: clamp(140px, 20vw, 220px);
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.video-tile.pip-tile .video-element {
+  object-fit: cover;
+}
+
+.screen-share-pip-container .video-tile-overlay {
+  top: 0.6rem;
+  bottom: auto;
+  right: auto;
+  left: 0.6rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.screen-share-pip-container .video-tile-name {
+  font-size: 0.75rem;
 }
 
 /* Video toggle button active states */

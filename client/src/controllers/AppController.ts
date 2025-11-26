@@ -179,6 +179,9 @@ export class App {
       updateStreamIndicator: () => this.updateStreamIndicator(),
       resolveUserLabel: (label, fallback) => this.userListController?.resolveUserLabel(label, fallback) || 'Unknown User',
       closeMobileVoicePanel: () => this.closeMobileVoicePanel(),
+      openVideoPopout: ({ stream, label, pipStream, pipLabel }) => {
+        this.videoController?.showVoicePopout(stream, { label, pipStream, pipLabel });
+      },
     });
 
     this.voiceController.initialize();
@@ -348,6 +351,7 @@ export class App {
     'playerOverlay', 'channelsList',
   'app',
     'video-popout', 'video-popout-header',
+    'video-popout-title', 'video-popout-stage',
     'minimize-video', 'close-video',
       'user-settings-btn', 'current-channel-name',
     'user-avatar', 'user-status-text', 'voice-status-panel',
@@ -365,7 +369,8 @@ export class App {
       'emojiPickerBtn', 'emojiPicker', 'emojiGrid',
       'voiceQuality', 'dtx', 'latencyHint', 'vadThreshold', 'vadThresholdVal',
       'inlineVideoContainer', 'inlineVideo', 'inlinePlayerOverlay',
-  'toggle-video-popout', 'theaterModeToggle', 'mobileStreamTitle', 'popinVideo',
+      'toggle-video-popout', 'theaterModeToggle', 'mobileStreamTitle', 'popinVideo',
+      'voiceVideoToolbar', 'voice-popout-video',
   'mobileStreamChatToggle',
   'playPauseBtn', 'volumeBtn', 'volumeSlider', 'volumeIcon',
   'fullscreenBtn', 'videoControlsBar',

@@ -269,6 +269,9 @@ const PEER_PREFERENCE_STORAGE_KEY = 'datasetto.voice.peerPreferences.v1';
 const STATS_POLLING_INTERVAL_MS = 2000;
 const CONNECTION_QUALITY_HISTORY_SIZE = 5;
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+const DEFAULT_PEER_VOLUME = 1;
+const MAX_PEER_VOLUME = 2;
+const BOOST_THRESHOLD = 1;
 
 export type ConnectionQuality = 'excellent' | 'good' | 'fair' | 'poor' | 'unknown';
 
@@ -307,9 +310,16 @@ type DesktopScreenshareBridge = {
   pickScreenshareSource?: (options?: { audio?: boolean }) => Promise<DesktopScreensharePickResult>;
 };
 
+type PeerAudioPipeline = {
+  source: MediaStreamAudioSourceNode;
+  gain: GainNode;
+  destination: MediaStreamAudioDestinationNode;
+};
+
 export class VoiceService extends EventEmitter<EventMap> {
   private peers: Map<string, RTCPeerConnection> = new Map();
   private remoteAudios: Map<string, HTMLAudioElement> = new Map();
+  private peerAudioPipelines: Map<string, PeerAudioPipeline> = new Map();
   private remoteMonitors: Map<string, SpeakingMonitor> = new Map();
   private iceRestartTimers: Map<string, number> = new Map();
   private iceRestartAttempts: Map<string, number> = new Map();
@@ -595,7 +605,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       pitchSafeElement.preservesPitch = true;
       pitchSafeElement.mozPreservesPitch = true;
       pitchSafeElement.webkitPreservesPitch = true;
-    audioElement.volume = this.computeEffectiveVolume(1);
+    audioElement.volume = this.computeEffectiveVolume(DEFAULT_PEER_VOLUME);
     audioElement.dataset.peerId = peerId;
       
       // Set output device if available
@@ -607,7 +617,8 @@ export class VoiceService extends EventEmitter<EventMap> {
       this.remoteAudios.set(peerId, audioElement);
     }
 
-    audioElement.srcObject = stream;
+    const playbackStream = this.createPeerAudioPipeline(peerId, stream) ?? stream;
+    audioElement.srcObject = playbackStream;
     this.applyPeerAudioState(peerId);
     const playResult = audioElement.play();
     if (playResult instanceof Promise) {
@@ -740,14 +751,13 @@ export class VoiceService extends EventEmitter<EventMap> {
    */
   private setupSpeakingDetection(peerId: string, stream: MediaStream): void {
     try {
-      if (!this.audioContext) {
-        this.audioContext = new (window.AudioContext || (window as never)['webkitAudioContext'])();
+      const context = this.ensureAudioContext();
+      if (!context) {
+        return;
       }
 
-      this.tryResumeAudioContext();
-
-      const source = this.audioContext.createMediaStreamSource(stream);
-      const analyser = this.audioContext.createAnalyser();
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
       
@@ -762,6 +772,24 @@ export class VoiceService extends EventEmitter<EventMap> {
     } catch (error) {
       console.error(`Error setting up speaking detection for ${peerId}:`, error);
     }
+  }
+
+  private ensureAudioContext(): AudioContext | null {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const AudioContextCtor = window.AudioContext || (window as never)['webkitAudioContext'];
+    if (!AudioContextCtor) {
+      return null;
+    }
+
+    if (!this.audioContext) {
+      this.audioContext = new AudioContextCtor();
+    }
+
+    this.tryResumeAudioContext();
+    return this.audioContext;
   }
 
   private tryResumeAudioContext(): void {
@@ -896,6 +924,8 @@ export class VoiceService extends EventEmitter<EventMap> {
       audio.remove();
       this.remoteAudios.delete(peerId);
     }
+
+    this.destroyPeerAudioPipeline(peerId);
 
     // Stop speaking monitor
     const monitor = this.remoteMonitors.get(peerId);
@@ -1299,6 +1329,10 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.remoteVideoElements.clear();
     this.videoSenders.clear();
     this.remoteVideoTracks.clear();
+    for (const peerId of Array.from(this.peerAudioPipelines.keys())) {
+      this.destroyPeerAudioPipeline(peerId);
+    }
+    this.peerAudioPipelines.clear();
   }
 
   // ==================== VIDEO METHODS ====================
@@ -1648,7 +1682,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     const pref = this.peerAudioPreferences.get(peerId);
     return {
       muted: pref?.muted ?? false,
-      volume: clamp(pref?.volume ?? 1, 0, 1),
+      volume: this.normalizePeerVolume(pref?.volume),
     };
   }
 
@@ -1657,15 +1691,21 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   setPeerVolume(peerId: string, volume: number): void {
-    const clampedVolume = clamp(volume, 0, 1);
-    const existing = this.peerAudioPreferences.get(peerId) ?? { muted: false, volume: 1 };
+    const clampedVolume = this.normalizePeerVolume(volume);
+    const existing = this.peerAudioPreferences.get(peerId) ?? {
+      muted: false,
+      volume: DEFAULT_PEER_VOLUME,
+    };
     this.peerAudioPreferences.set(peerId, { ...existing, volume: clampedVolume });
     this.applyPeerAudioState(peerId);
     this.persistPeerAudioPreferences();
   }
 
   setPeerMuted(peerId: string, muted: boolean): void {
-    const existing = this.peerAudioPreferences.get(peerId) ?? { muted: false, volume: 1 };
+    const existing = this.peerAudioPreferences.get(peerId) ?? {
+      muted: false,
+      volume: DEFAULT_PEER_VOLUME,
+    };
     this.peerAudioPreferences.set(peerId, { ...existing, muted });
     this.applyPeerAudioState(peerId);
     this.persistPeerAudioPreferences();
@@ -1686,7 +1726,7 @@ export class VoiceService extends EventEmitter<EventMap> {
 
     for (const [peerId, pref] of Object.entries(stored)) {
       if (!peerId) continue;
-      const volume = clamp(pref?.volume ?? 1, 0, 1);
+      const volume = this.normalizePeerVolume(pref?.volume);
       const muted = Boolean(pref?.muted);
       this.peerAudioPreferences.set(peerId, { muted, volume });
     }
@@ -1695,7 +1735,10 @@ export class VoiceService extends EventEmitter<EventMap> {
   private persistPeerAudioPreferences(): void {
     const serialized: Record<string, PeerAudioPreference> = {};
     for (const [peerId, pref] of this.peerAudioPreferences.entries()) {
-      serialized[peerId] = { muted: pref.muted, volume: clamp(pref.volume, 0, 1) };
+      serialized[peerId] = {
+        muted: pref.muted,
+        volume: this.normalizePeerVolume(pref.volume),
+      };
     }
 
     Storage.set(PEER_PREFERENCE_STORAGE_KEY, serialized);
@@ -1709,18 +1752,101 @@ export class VoiceService extends EventEmitter<EventMap> {
 
     const pref = this.peerAudioPreferences.get(peerId);
     const localMuted = pref?.muted ?? false;
-    const localVolume = clamp(pref?.volume ?? 1, 0, 1);
+    const localVolume = this.normalizePeerVolume(pref?.volume);
+    const boostFactor = localVolume > BOOST_THRESHOLD ? localVolume : 1;
 
     audio.muted = this.deafened || localMuted;
     audio.volume = this.computeEffectiveVolume(localVolume);
     audio.dataset.localMuted = String(localMuted);
     audio.dataset.localVolume = localVolume.toString();
     audio.dataset.deafened = String(this.deafened);
+    audio.dataset.volumeBoost = boostFactor.toString();
+
+    this.applyPeerGain(peerId, boostFactor);
   }
 
   private computeEffectiveVolume(localVolume: number): number {
-    const clampedLocal = clamp(localVolume, 0, 1);
-    return clamp(Number((clampedLocal * this.outputVolume).toFixed(4)), 0, 1);
+    const normalized = this.normalizePeerVolume(localVolume);
+    const cappedLocal = Math.min(normalized, 1);
+    return clamp(Number((cappedLocal * this.outputVolume).toFixed(4)), 0, 1);
+  }
+
+  private applyPeerGain(peerId: string, boostFactor: number): void {
+    const pipeline = this.peerAudioPipelines.get(peerId);
+    if (!pipeline) {
+      return;
+    }
+
+    const normalizedBoost = boostFactor > BOOST_THRESHOLD ? Math.min(boostFactor, MAX_PEER_VOLUME) : 1;
+    pipeline.gain.gain.value = normalizedBoost;
+  }
+
+  private createPeerAudioPipeline(peerId: string, stream: MediaStream): MediaStream | null {
+    const context = this.ensureAudioContext();
+    if (!context) {
+      this.destroyPeerAudioPipeline(peerId);
+      return null;
+    }
+
+    try {
+      this.destroyPeerAudioPipeline(peerId);
+      const source = context.createMediaStreamSource(stream);
+      const gain = context.createGain();
+      gain.gain.value = 1;
+      const destination = context.createMediaStreamDestination();
+      source.connect(gain);
+      gain.connect(destination);
+      this.peerAudioPipelines.set(peerId, { source, gain, destination });
+      return destination.stream;
+    } catch (error) {
+      console.warn(`[VoiceService] Unable to create gain pipeline for peer ${peerId}:`, error);
+      this.destroyPeerAudioPipeline(peerId);
+      return null;
+    }
+  }
+
+  private destroyPeerAudioPipeline(peerId: string): void {
+    const pipeline = this.peerAudioPipelines.get(peerId);
+    if (!pipeline) {
+      return;
+    }
+
+    try {
+      pipeline.source.disconnect();
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.debug('[VoiceService] source disconnect failed:', error);
+      }
+    }
+
+    try {
+      pipeline.gain.disconnect();
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.debug('[VoiceService] gain disconnect failed:', error);
+      }
+    }
+
+    try {
+      for (const track of pipeline.destination.stream.getTracks()) {
+        track.stop();
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.debug('[VoiceService] destination cleanup failed:', error);
+      }
+    }
+
+    this.peerAudioPipelines.delete(peerId);
+  }
+
+  private normalizePeerVolume(volume: number | undefined): number {
+    const numeric = typeof volume === 'number' ? volume : DEFAULT_PEER_VOLUME;
+    if (!Number.isFinite(numeric)) {
+      return DEFAULT_PEER_VOLUME;
+    }
+
+    return clamp(numeric, 0, MAX_PEER_VOLUME);
   }
 
   private applySenderQualityHints(sender: RTCRtpSender): void {

@@ -182,6 +182,9 @@ export class App {
       updateStreamIndicator: () => this.updateStreamIndicator(),
       resolveUserLabel: (label, fallback) => this.userListController?.resolveUserLabel(label, fallback) || 'Unknown User',
       closeMobileVoicePanel: () => this.closeMobileVoicePanel(),
+      openVideoPopout: ({ stream, label, pipStream, pipLabel }) => {
+        this.videoController?.showVoicePopout(stream, { label, pipStream, pipLabel });
+      },
     });
 
     this.voiceController.initialize();
@@ -365,6 +368,7 @@ export class App {
     'playerOverlay', 'channelsList',
   'app',
     'video-popout', 'video-popout-header',
+    'video-popout-title', 'video-popout-stage',
     'minimize-video', 'close-video',
       'user-settings-btn', 'current-channel-name',
     'user-avatar', 'user-status-text', 'voice-status-panel',
@@ -373,7 +377,8 @@ export class App {
   'minigame-open', 'minigame-close', 'minigame-launcher-status',
   'minigame-container', 'minigame-canvas', 'minigame-start', 'minigame-end',
   'minigame-join', 'minigame-leave', 'minigame-status', 'minigame-scores', 'minigame-stage',
-  'voice-call-stage', 'toggle-camera', 'toggle-screenshare',
+  'voice-call-stage', 'toggle-camera', 'toggle-screenshare', 'voiceVideoToolbar',
+  'voice-popout-video',
   'local-video-container', 'local-video', 'video-call-grid',
       'text-channels', 'stream-channels', 'screenshare-channels', 'member-count',
       'create-text-channel', 'create-voice-channel', 'create-stream-channel',
@@ -579,6 +584,9 @@ export class App {
   this.addTrackedListener(this.elements.deafen, 'click', () => { void this.voiceController?.toggleDeafen(); });
   this.addTrackedListener(this.elements['toggle-camera'], 'click', () => { void this.voiceController?.toggleCamera(); });
   this.addTrackedListener(this.elements['toggle-screenshare'], 'click', () => { void this.voiceController?.toggleScreenShare(); });
+    this.addTrackedListener(this.elements['voice-popout-video'], 'click', () => {
+      this.voiceController?.openActiveVideoPopout();
+    });
 
     // Gear icon -> Audio Settings
     const settingsBtn = document.getElementById('user-settings-btn');
