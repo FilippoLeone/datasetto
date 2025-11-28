@@ -180,7 +180,6 @@ export class NavigationController {
       this.deps.socketJoinChannel(channelId);
 
       this.deps.videoHandleVoiceChannelSelected();
-      this.deps.voiceRefreshInterface?.();
     } else if (type === 'stream') {
       // Stream channel: load video stream in inline player by default (theater mode)
       // This works seamlessly with voice - users can be in voice and watch streams
@@ -191,6 +190,9 @@ export class NavigationController {
       this.deps.socketJoinChannel(channelId);
       this.deps.videoHandleScreenshareChannelSelected(channelId, channelName);
     }
+
+    // Refresh voice interface to update visibility (e.g. hide voice gallery/toolbar on text channels)
+    this.deps.voiceRefreshInterface?.();
 
     this.deps.mobileClosePanels?.();
   }
