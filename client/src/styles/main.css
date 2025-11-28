@@ -229,11 +229,7 @@
     min-width: 0;
     min-height: 0;
     position: relative;
-    background: var(--color-bg-chat);
-    /* Subtle gradient overlay for depth */
-    background-image: 
-      radial-gradient(ellipse 80% 50% at 50% 0%, rgba(62, 213, 214, 0.03), transparent),
-      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(99, 102, 241, 0.02), transparent);
+    background: var(--color-bg-primary);
   }
 
   .chat-header {

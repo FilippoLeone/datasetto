@@ -1685,14 +1685,15 @@
   display: none;
 }
 
-.stream-layout.is-text-mode .stream-chat-dock {
+/* Only apply card styling when stream is active */
+body.stream-inline-active .stream-layout.is-text-mode .stream-chat-dock {
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.04);
   box-shadow: 0 16px 28px rgba(6, 6, 12, 0.28);
   background: linear-gradient(180deg, rgba(22, 22, 30, 0.95) 0%, rgba(16, 16, 24, 0.92) 100%);
 }
 
-.stream-layout.is-text-mode .stream-chat-header {
+body.stream-inline-active .stream-layout.is-text-mode .stream-chat-header {
   background: rgba(28, 28, 38, 0.92);
   border-bottom-color: rgba(255, 255, 255, 0.04);
 }
@@ -1864,10 +1865,10 @@ body.mobile-chat-open::before {
 }
 
 body:not(.stream-inline-active) .stream-chat-dock {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
   padding: 0;
 }
 
@@ -1877,8 +1878,8 @@ body.stream-chat-hidden .stream-chat-header {
 }
 
 body:not(.stream-inline-active) .stream-chat-dock .chat-log {
-  padding: 0;
-  background: transparent;
+  padding: 1rem 1.5rem 0.5rem;
+  background: transparent !important;
 }
 
 body:not(.stream-inline-active) .stream-chat-dock .chat-input-container {
