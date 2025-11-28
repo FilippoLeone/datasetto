@@ -80,6 +80,13 @@ services:
       - MAX_CONNECTIONS_PER_IP=${MAX_CONNECTIONS_PER_IP:-10}
       - MAX_CHANNELS=${MAX_CHANNELS:-50}
       - MAX_USERS_PER_CHANNEL=${MAX_USERS_PER_CHANNEL:-50}
+      # Release directories for the downloads API
+      - RELEASES_DESKTOP_DIR=/releases/desktop
+      - RELEASES_MOBILE_DIR=/releases/mobile
+    volumes:
+      # Mount release directories for the downloads API
+      - ../desktop/release:/releases/desktop:ro
+      - ../mobile/release:/releases/mobile:ro
     networks:
       - app-network
     depends_on:

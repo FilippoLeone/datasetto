@@ -1,6 +1,6 @@
 /**
  * Releases API Service
- * Handles listing and serving desktop application releases
+ * Handles listing and serving desktop and mobile application releases
  */
 
 import express from 'express';
@@ -12,8 +12,12 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Default release directory (can be overridden via config)
-const DEFAULT_RELEASE_DIR = path.resolve(__dirname, '../../../desktop/release');
+// Release directories - use environment variables in production (Docker)
+// Fall back to relative paths for local development
+const DEFAULT_DESKTOP_RELEASE_DIR = process.env.RELEASES_DESKTOP_DIR || 
+  path.resolve(__dirname, '../../../desktop/release');
+const DEFAULT_MOBILE_RELEASE_DIR = process.env.RELEASES_MOBILE_DIR || 
+  path.resolve(__dirname, '../../../mobile/release');
 const DESKTOP_DIR = path.resolve(__dirname, '../../../desktop');
 
 // Build state tracking
@@ -26,22 +30,108 @@ let buildState = {
 
 export function createReleasesRouter(options = {}) {
   const router = express.Router();
-  const releaseDir = options.releaseDir || DEFAULT_RELEASE_DIR;
+  const desktopReleaseDir = options.releaseDir || DEFAULT_DESKTOP_RELEASE_DIR;
+  const mobileReleaseDir = options.mobileReleaseDir || DEFAULT_MOBILE_RELEASE_DIR;
   const desktopDir = options.desktopDir || DESKTOP_DIR;
   
   // Track download counts in memory (could be persisted to file/db)
   const downloadCounts = new Map();
 
   /**
+   * Scan a directory for release files
+   */
+  async function scanReleaseDir(dir, existingBuilds = []) {
+    try {
+      await fs.access(dir);
+    } catch {
+      return existingBuilds;
+    }
+
+    const files = await fs.readdir(dir);
+    const builds = [...existingBuilds];
+
+    for (const file of files) {
+      const filePath = path.join(dir, file);
+      const fileStat = await fs.stat(filePath);
+
+      // Skip directories and meta files
+      if (fileStat.isDirectory()) continue;
+      if (file.endsWith('.blockmap')) continue;
+      if (file.endsWith('.yml') || file.endsWith('.yaml')) continue;
+      if (file === 'builds.json') continue;
+
+      // Parse platform from filename
+      let platform = 'unknown';
+      let arch = 'x64';
+
+      if (file.endsWith('.apk')) {
+        platform = 'android';
+        arch = 'universal';
+      } else if (file.includes('-win-') || file.endsWith('.exe')) {
+        platform = 'windows';
+      } else if (file.includes('-mac-') || file.endsWith('.dmg')) {
+        platform = 'macos';
+      } else if (file.includes('-linux-') || file.endsWith('.AppImage') || file.endsWith('.deb')) {
+        platform = 'linux';
+      }
+
+      if (file.includes('arm64') || file.includes('aarch64')) {
+        arch = 'arm64';
+      }
+
+      // Determine source directory for download URL
+      const isDesktop = dir.includes('desktop');
+      const downloadPath = isDesktop ? 'desktop' : 'mobile';
+
+      builds.push({
+        filename: file,
+        platform,
+        arch,
+        size: fileStat.size,
+        sizeFormatted: formatBytes(fileStat.size),
+        downloads: downloadCounts.get(file) || 0,
+        downloadUrl: `/api/releases/download/${downloadPath}/${encodeURIComponent(file)}`,
+        source: downloadPath,
+      });
+    }
+
+    return builds;
+  }
+
+  /**
    * GET /api/releases
-   * List all available releases
+   * List all available releases (desktop + mobile)
    */
   router.get('/', async (req, res) => {
     try {
-      // Check if release directory exists
+      let builds = [];
+      let version = 'unknown';
+      let buildDate = null;
+
+      // Log directories being scanned (helpful for debugging)
+      console.log('[Releases] Scanning directories:', {
+        desktop: desktopReleaseDir,
+        mobile: mobileReleaseDir
+      });
+
+      // Try to read desktop manifest first
       try {
-        await fs.access(releaseDir);
+        const manifestPath = path.join(desktopReleaseDir, 'builds.json');
+        const manifestData = await fs.readFile(manifestPath, 'utf-8');
+        const manifest = JSON.parse(manifestData);
+        version = manifest.version;
+        buildDate = manifest.buildDate;
       } catch {
+        // No manifest
+      }
+
+      // Scan both directories
+      builds = await scanReleaseDir(desktopReleaseDir, builds);
+      builds = await scanReleaseDir(mobileReleaseDir, builds);
+
+      console.log(`[Releases] Found ${builds.length} release files`);
+
+      if (builds.length === 0) {
         return res.json({
           version: null,
           builds: [],
@@ -49,72 +139,11 @@ export function createReleasesRouter(options = {}) {
         });
       }
 
-      // Try to read the builds manifest
-      const manifestPath = path.join(releaseDir, 'builds.json');
-      
-      try {
-        const manifestData = await fs.readFile(manifestPath, 'utf-8');
-        const manifest = JSON.parse(manifestData);
-        
-        // Enrich with download counts
-        const builds = manifest.builds.map(build => ({
-          ...build,
-          downloads: downloadCounts.get(build.filename) || 0,
-          downloadUrl: `/api/releases/download/${encodeURIComponent(build.filename)}`,
-        }));
-        
-        return res.json({
-          version: manifest.version,
-          buildDate: manifest.buildDate,
-          builds,
-        });
-      } catch {
-        // No manifest, scan directory manually
-        const files = await fs.readdir(releaseDir);
-        const builds = [];
-        
-        for (const file of files) {
-          const filePath = path.join(releaseDir, file);
-          const fileStat = await fs.stat(filePath);
-          
-          // Skip directories and meta files
-          if (fileStat.isDirectory()) continue;
-          if (file.endsWith('.blockmap')) continue;
-          if (file.endsWith('.yml') || file.endsWith('.yaml')) continue;
-          if (file === 'builds.json') continue;
-          
-          // Parse platform from filename
-          let platform = 'unknown';
-          let arch = 'x64';
-          
-          if (file.includes('-win-') || file.endsWith('.exe')) {
-            platform = 'windows';
-          } else if (file.includes('-mac-') || file.endsWith('.dmg')) {
-            platform = 'macos';
-          } else if (file.includes('-linux-') || file.endsWith('.AppImage') || file.endsWith('.deb')) {
-            platform = 'linux';
-          }
-          
-          if (file.includes('arm64')) {
-            arch = 'arm64';
-          }
-          
-          builds.push({
-            filename: file,
-            platform,
-            arch,
-            size: fileStat.size,
-            sizeFormatted: formatBytes(fileStat.size),
-            downloads: downloadCounts.get(file) || 0,
-            downloadUrl: `/api/releases/download/${encodeURIComponent(file)}`,
-          });
-        }
-        
-        return res.json({
-          version: 'unknown',
-          builds,
-        });
-      }
+      return res.json({
+        version,
+        buildDate,
+        builds,
+      });
     } catch (error) {
       console.error('Error listing releases:', error);
       return res.status(500).json({ error: 'Failed to list releases' });
@@ -127,7 +156,7 @@ export function createReleasesRouter(options = {}) {
    */
   router.get('/latest', async (req, res) => {
     try {
-      const manifestPath = path.join(releaseDir, 'builds.json');
+      const manifestPath = path.join(desktopReleaseDir, 'builds.json');
       
       try {
         const manifestData = await fs.readFile(manifestPath, 'utf-8');
@@ -148,12 +177,15 @@ export function createReleasesRouter(options = {}) {
   });
 
   /**
-   * GET /api/releases/download/:filename
-   * Download a specific release file
+   * GET /api/releases/download/:source/:filename
+   * Download a specific release file (source = desktop or mobile)
    */
-  router.get('/download/:filename', async (req, res) => {
+  router.get('/download/:source/:filename', async (req, res) => {
     try {
-      const { filename } = req.params;
+      const { source, filename } = req.params;
+      
+      // Determine release directory based on source
+      const releaseDir = source === 'mobile' ? mobileReleaseDir : desktopReleaseDir;
       
       // Security: prevent directory traversal
       const sanitizedFilename = path.basename(filename);

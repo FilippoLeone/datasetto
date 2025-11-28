@@ -1,0 +1,16 @@
+# Android APK Builder for Radxa/ARM64
+# 
+# Usage:
+#   docker compose -f docker-compose.builder.yml up --build
+#
+# APK will be in ./release/
+
+services:
+  builder:
+    build:
+      context: ..
+      dockerfile: mobile/Dockerfile.builder
+    volumes:
+      - ./release:/build/mobile/release
+    environment:
+      - GRADLE_USER_HOME=/tmp/gradle-cache
