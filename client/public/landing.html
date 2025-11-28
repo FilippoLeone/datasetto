@@ -1123,6 +1123,23 @@
   </footer>
 
   <script>
+    // Check if user is logged in - redirect to app if they have a session
+    (function() {
+      try {
+        const authData = localStorage.getItem('rtmpdisc.auth.v1');
+        if (authData) {
+          const parsed = JSON.parse(authData);
+          if (parsed && parsed.session && parsed.session.token) {
+            // User has an active session, redirect to the app
+            window.location.replace('/app');
+            return;
+          }
+        }
+      } catch (e) {
+        // Ignore parse errors, just show landing page
+      }
+    })();
+
     // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
       anchor.addEventListener('click', function (e) {
