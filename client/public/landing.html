@@ -13,6 +13,34 @@
   <meta property="og:description" content="Stream, chat, and connect on your own terms. Self-hosted, open-source, and privacy-first.">
   <meta property="og:type" content="website">
   
+  <!-- Structured Data (JSON-LD) for SEO -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "#organization",
+        "name": "Datasetto",
+        "url": "https://datasetto.com",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://datasetto.com/favicon.svg"
+        }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "#website",
+        "url": "https://datasetto.com",
+        "name": "Datasetto",
+        "publisher": {
+          "@id": "#organization"
+        }
+      }
+    ]
+  }
+  </script>
+
   <style>
     :root {
       --bg-primary: #0a0a0b;
