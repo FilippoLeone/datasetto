@@ -1,7 +1,3 @@
-import { config } from '@/config';
-
-type SchemaType = 'Organization' | 'WebSite' | 'BreadcrumbList' | 'VideoObject' | 'BroadcastEvent' | 'Person';
-
 interface BreadcrumbItem {
   name: string;
   item: string;
