@@ -1340,7 +1340,7 @@ io.on('connection', (socket) => {
   /**
    * Delete channel
    */
-  socket.on('channels:delete', (channelId) => {
+  socket.on('channels:delete', (channelIdOrName) => {
     try {
       if (!currentUser) {
         throw new Error('User not registered');
@@ -1350,22 +1350,28 @@ io.on('connection', (socket) => {
         throw new Error('No permission to delete channels');
       }
 
-      const channel = channelManager.getChannel(channelId);
+      // Try to find by ID first, then by name
+      let channel = channelManager.getChannel(channelIdOrName);
+      if (!channel) {
+        channel = channelManager.getChannelByName(channelIdOrName);
+      }
       if (!channel) {
         throw new Error('Channel not found');
       }
+      
+      const channelId = channel.id;
 
       // Kick all users from channel
-      const users = channelManager.getChannelUsers(channelId);
+      const users = channelManager.getChannelUsers(channel.id);
       users.forEach(user => {
-        io.to(user.id).emit('channel:deleted', { channelId });
-        socket.to(user.id).leave(channelId);
+        io.to(user.id).emit('channel:deleted', { channelId: channel.id });
+        socket.to(user.id).leave(channel.id);
       });
 
-      channelManager.deleteChannel(channelId);
+      channelManager.deleteChannel(channel.id);
       broadcastChannels();
 
-  logger.info(`Channel deleted: ${channel.name} by ${currentUser.displayName}`, { channelId });
+      logger.info(`Channel deleted: ${channel.name} by ${currentUser.displayName}`, { channelId: channel.id });
     } catch (error) {
       logger.error(`Channel delete error: ${error.message}`, { socketId: socket.id });
       socket.emit('error', formatError(error.message, 'CHANNEL_DELETE_FAILED'));

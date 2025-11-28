@@ -122,12 +122,18 @@ export class ChannelController {
     // Clear inputs
     if (nameInput) {
       nameInput.value = '';
-      nameInput.focus();
     }
     if (errorEl) errorEl.textContent = '';
 
     this.deps.animator.openModal(modal);
     this.deps.soundFX.play('click', 0.4);
+
+    // Focus input after modal animation completes
+    if (nameInput) {
+      setTimeout(() => {
+        nameInput.focus();
+      }, 350);
+    }
   }
 
   /**

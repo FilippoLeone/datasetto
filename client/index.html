@@ -614,33 +614,29 @@
     </div>
 
     <!-- Create Channel Modal -->
-    <div id="createChannelModal"
-      class="fixed inset-0 bg-black/70 flex items-center justify-center z-modal backdrop-blur-sm hidden" role="dialog"
+    <div id="createChannelModal" class="modal hidden" role="dialog"
       aria-modal="true" aria-labelledby="create-channel-title">
-      <div class="bg-bg-tertiary rounded-xl shadow-lg w-full max-w-md mx-4 overflow-hidden">
-        <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
-          <h3 id="create-channel-title" class="text-xl font-bold text-text-normal">Create Channel</h3>
-          <button id="createChannelCancel"
-            class="w-8 h-8 rounded flex items-center justify-center transition-fast hover:bg-bg-floating hover:text-danger"
-            aria-label="Close">✕</button>
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 id="create-channel-title">Create Channel</h3>
+          <button id="createChannelCancel" class="modal-close-btn" aria-label="Close">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
         </div>
-        <div class="px-6 py-4">
-          <div class="mb-4">
-            <label for="newChannelName" class="block text-sm font-semibold text-text-normal mb-2">Channel Name</label>
-            <input type="text" id="newChannelName"
-              class="w-full px-4 py-3 bg-bg-elevated border border-transparent text-text-normal rounded-md transition-fast focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="newChannelName">Channel Name</label>
+            <input type="text" id="newChannelName" class="form-input"
               placeholder="e.g., general, lobby, main-stream" aria-label="Channel name" maxlength="32" />
-            <span class="block mt-2 text-xs text-text-muted">Letters, numbers, hyphens only</span>
+            <span class="form-hint">Letters, numbers, hyphens only</span>
           </div>
 
           <input type="hidden" id="newChannelType" value="text" />
 
-          <div id="createChannelError" class="text-danger text-sm mt-2"></div>
+          <div id="createChannelError" class="form-error"></div>
         </div>
-        <div class="px-6 py-4 border-t border-white/10 flex justify-end">
-          <button id="createChannelBtn"
-            class="px-6 py-3 bg-brand-primary text-white rounded-md font-semibold transition-fast hover:bg-brand-hover active:bg-brand-active">Create
-            Channel</button>
+        <div class="modal-footer">
+          <button id="createChannelBtn" class="button-primary">Create Channel</button>
         </div>
       </div>
     </div>
