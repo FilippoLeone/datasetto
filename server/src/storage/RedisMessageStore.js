@@ -243,6 +243,24 @@ export default class RedisMessageStore {
   }
 
   /**
+   * Enumerate channel IDs that have history (for MessageManager compatibility)
+   */
+  listChannels() {
+    return Array.from(this._cache.keys());
+  }
+
+  /**
+   * Total messages across all channels (for MessageManager compatibility)
+   */
+  countAllMessages() {
+    let total = 0;
+    for (const history of this._cache.values()) {
+      total += history.length;
+    }
+    return total;
+  }
+
+  /**
    * Clear all messages (for MessageManager compatibility)
    */
   clearAll() {
