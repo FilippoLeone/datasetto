@@ -669,7 +669,7 @@ app.post('/api/stream/end', (req, res) => {
 // Create HTTP server
 const server = http.createServer(app);
 
-// Initialize Socket.IO with minimal, proven configuration
+// Initialize Socket.IO with configuration optimized for proxies (Cloudflare, nginx, etc.)
 const io = new Server(server, {
   path: '/socket.io/',
   serveClient: false,
@@ -687,13 +687,25 @@ const io = new Server(server, {
     credentials: true,
     methods: ["GET", "POST"]
   },
-  transports: ['polling', 'websocket'], // Polling first for better compatibility
+  // Support both transports - let client choose based on environment
+  transports: ['polling', 'websocket'],
   allowUpgrades: true,
+  // Cloudflare has 100s timeout, so keep pings well under that
   pingTimeout: 60000,
   pingInterval: 25000,
   upgradeTimeout: 30000,
   maxHttpBufferSize: 1e6,
   connectTimeout: 45000,
+  // Trust proxy headers (X-Forwarded-*, CF-Connecting-IP, etc.)
+  allowRequest: (req, callback) => {
+    // Extract real IP from proxy headers
+    const realIp = req.headers['cf-connecting-ip'] || 
+                   req.headers['x-real-ip'] || 
+                   req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+                   req.socket?.remoteAddress;
+    req._realIp = realIp;
+    callback(null, true);
+  },
 });
 
 logger.info("🔧 Socket.IO server initialized");

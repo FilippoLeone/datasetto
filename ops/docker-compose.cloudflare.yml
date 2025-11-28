@@ -1,0 +1,209 @@
+# Docker Compose for Cloudflare Tunnel Deployment
+#
+# Use this when deploying behind a Cloudflare tunnel (cloudflared).
+# 
+# Key differences from docker-compose.prod.yml:
+# - Caddy listens on port 80 only (Cloudflare handles HTTPS)
+# - TURN server ports are exposed for direct access (not through tunnel)
+# - Optimized for tunnel latency
+#
+# Usage:
+#   docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare up -d
+#
+# Requirements:
+# - cloudflared tunnel running separately, pointing to http://localhost:80
+# - Router port forwarding for TURN (UDP 3478, 49160-49200) if voice is needed
+
+services:
+  turn:
+    build:
+      context: .
+      dockerfile: Dockerfile.turn
+    container_name: turn-server
+    restart: unless-stopped
+    networks:
+      - app-network
+    # TURN must be exposed directly - Cloudflare tunnel doesn't support UDP
+    ports:
+      - "${TURN_PORT:-3478}:${TURN_PORT:-3478}"
+      - "${TURN_PORT:-3478}:${TURN_PORT:-3478}/udp"
+      - '${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp'
+    env_file:
+      - .env
+    environment:
+      # CRITICAL: Set this to your PUBLIC IP for TURN to work through NAT
+      - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-}
+      - TURN_REALM=${TURN_REALM:-localhost}
+      - TURN_USERNAME=${TURN_USERNAME:-turnuser}
+      - TURN_PASSWORD=${TURN_PASSWORD:-turnpass}
+      - TURN_PORT=${TURN_PORT:-3478}
+      - TURN_MIN_PORT=${TURN_MIN_PORT:-49160}
+      - TURN_MAX_PORT=${TURN_MAX_PORT:-49200}
+    volumes:
+      - ./turn-entrypoint.sh:/usr/local/bin/turn-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/turn-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "turnutils_uclient", "-T", "-u", "${TURN_USERNAME:-turnuser}", "-w", "${TURN_PASSWORD:-turnpass}", "127.0.0.1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # NGINX RTMP Server
+  rtmp:
+    build:
+      context: .
+      dockerfile: Dockerfile.rtmp
+    container_name: rtmp-server
+    restart: unless-stopped
+    depends_on:
+      - server
+    # RTMP exposed directly for OBS ingestion
+    ports:
+      - "1935:1935"
+    tmpfs:
+      - /tmp/hls:rw,size=512m
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.4'
+          memory: 768M
+        reservations:
+          cpus: '0.6'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+  
+  # Backend Server (Node.js + Socket.IO)
+  server:
+    build:
+      context: ../server
+      dockerfile: Dockerfile.prod
+    container_name: backend-server
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT:-4000}
+      - HOST=0.0.0.0
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - HLS_BASE_URL=${HLS_BASE_URL:-/hls}
+      - MAX_CONNECTIONS_PER_IP=${MAX_CONNECTIONS_PER_IP:-10}
+      - MAX_CHANNELS=${MAX_CHANNELS:-50}
+      - MAX_USERS_PER_CHANNEL=${MAX_USERS_PER_CHANNEL:-50}
+    networks:
+      - app-network
+    depends_on:
+      - turn
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  
+  # Frontend (Static files served by nginx)
+  client:
+    build:
+      context: ../client
+      dockerfile: Dockerfile.prod
+    container_name: frontend-client
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - VITE_SERVER_URL=${SERVER_URL:-/}
+      - VITE_HLS_BASE_URL=${HLS_BASE_URL:-/hls}
+      - VITE_API_BASE_URL=${API_BASE_URL:-/api}
+      - VITE_WEBRTC_ICE_SERVERS=${VITE_WEBRTC_ICE_SERVERS:-}
+      # Use PUBLIC IP for TURN, not the Cloudflare domain
+      - VITE_TURN_URL=${VITE_TURN_URL:-}
+      - VITE_TURN_USERNAME=${VITE_TURN_USERNAME:-}
+      - VITE_TURN_CREDENTIAL=${VITE_TURN_CREDENTIAL:-}
+      - VITE_VOICE_OPUS_BITRATE=${VITE_VOICE_OPUS_BITRATE:-64000}
+      - VITE_VOICE_DTX_ENABLED=${VITE_VOICE_DTX_ENABLED:-true}
+      - VITE_VOICE_OPUS_STEREO=${VITE_VOICE_OPUS_STEREO:-false}
+      - VITE_VOICE_OPUS_MIN_PTIME=${VITE_VOICE_OPUS_MIN_PTIME:-10}
+      - VITE_VOICE_OPUS_MAX_PTIME=${VITE_VOICE_OPUS_MAX_PTIME:-20}
+      - VITE_VOICE_OPUS_MAX_PLAYBACK_RATE=${VITE_VOICE_OPUS_MAX_PLAYBACK_RATE:-48000}
+      - VITE_VOICE_VAD_THRESHOLD=${VITE_VOICE_VAD_THRESHOLD:-0.07}
+      - VITE_MOBILE_DEFAULT_SERVER_URL=${VITE_MOBILE_DEFAULT_SERVER_URL:-}
+      - VITE_MOBILE_DEFAULT_HLS_URL=${VITE_MOBILE_DEFAULT_HLS_URL:-}
+      - VITE_MOBILE_DEFAULT_RTMP_URL=${VITE_MOBILE_DEFAULT_RTMP_URL:-}
+    networks:
+      - app-network
+    depends_on:
+      - server
+      - turn
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 96M
+        reservations:
+          cpus: '0.04'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Caddy Reverse Proxy - HTTP only for Cloudflare tunnel
+  caddy:
+    image: caddy:2.7-alpine
+    container_name: caddy-reverse-proxy
+    restart: unless-stopped
+    # Only expose port 80 - Cloudflare tunnel handles HTTPS
+    ports:
+      - "80:80"
+    networks:
+      - app-network
+    volumes:
+      - ./Caddyfile.cloudflare:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    depends_on:
+      - client
+      - server
+      - rtmp
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  app-network:
+    driver: bridge

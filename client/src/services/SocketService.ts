@@ -35,22 +35,31 @@ export class SocketService extends EventEmitter<EventMap> {
       return;
     }
 
-    // Add cache-busting timestamp for mobile to bypass Cloudflare cache
+    // Add cache-busting timestamp for mobile/cloudflare to bypass cache
     const isMobile = typeof globalThis !== 'undefined' && 
       (globalThis as typeof globalThis & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() === true;
     
+    // Detect if we're behind Cloudflare (check for cf-ray header or known patterns)
+    const isCloudflare = document.cookie.includes('__cf') || 
+      (window as Window & { __CF?: unknown }).__CF !== undefined;
+    
     this.socket = io(this.serverUrl, {
       path: '/socket.io/',
-      transports: ['polling', 'websocket'],
+      // Start with websocket for Cloudflare to avoid polling issues
+      // Fall back to polling if websocket fails
+      transports: isCloudflare ? ['websocket', 'polling'] : ['polling', 'websocket'],
       withCredentials: true,
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       reconnectionAttempts: this.maxReconnectAttempts,
-      timeout: 20000,
+      timeout: 30000, // Increased for Cloudflare
       autoConnect: true,
-      // Add cache-busting query parameter for mobile to bypass Cloudflare
-      query: isMobile ? { _t: Date.now() } : undefined,
+      // Cloudflare-friendly options
+      upgrade: true,
+      forceNew: false,
+      // Add cache-busting query parameter for mobile/cloudflare to bypass cache
+      query: (isMobile || isCloudflare) ? { _t: Date.now() } : undefined,
     });
 
     this.setupSocketListeners();

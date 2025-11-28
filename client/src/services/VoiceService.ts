@@ -1940,6 +1940,107 @@ export class VoiceService extends EventEmitter<EventMap> {
       sdp: lines.join('\r\n'),
     };
   }
+
+  /**
+   * Diagnostic method to test ICE/TURN connectivity
+   * Can be called from browser console: app.voice.runDiagnostics()
+   */
+  async runDiagnostics(): Promise<{
+    iceServers: RTCIceServer[];
+    turnConfigured: boolean;
+    candidates: { type: string; protocol: string; address: string }[];
+    hasRelay: boolean;
+    connectionTest: string;
+  }> {
+    console.log('[VoiceService Diagnostics] Starting connectivity test...');
+    console.log('[VoiceService Diagnostics] ICE Servers:', ICE_SERVERS);
+    console.log('[VoiceService Diagnostics] TURN configured:', TURN_CONFIGURED);
+
+    const candidates: { type: string; protocol: string; address: string }[] = [];
+    let hasRelay = false;
+    let connectionTest = 'pending';
+
+    try {
+      const testPc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const dc = testPc.createDataChannel('diagnostics');
+
+      const gatheringComplete = new Promise<void>((resolve) => {
+        testPc.onicecandidate = (event) => {
+          if (event.candidate) {
+            const c = event.candidate;
+            const candidateInfo = {
+              type: c.type || 'unknown',
+              protocol: c.protocol || 'unknown',
+              address: c.address || c.candidate?.split(' ')[4] || 'unknown',
+            };
+            candidates.push(candidateInfo);
+            console.log(`[VoiceService Diagnostics] ICE Candidate: ${c.type} ${c.protocol} ${candidateInfo.address}`);
+            
+            if (c.type === 'relay') {
+              hasRelay = true;
+              console.log('[VoiceService Diagnostics] ✓ TURN relay candidate found!');
+            }
+          } else {
+            // null candidate means gathering is complete
+            resolve();
+          }
+        };
+
+        testPc.onicegatheringstatechange = () => {
+          if (testPc.iceGatheringState === 'complete') {
+            resolve();
+          }
+        };
+      });
+
+      await testPc.createOffer().then((offer) => testPc.setLocalDescription(offer));
+
+      // Wait for gathering with timeout
+      await Promise.race([
+        gatheringComplete,
+        new Promise<void>((resolve) => setTimeout(resolve, 10000)),
+      ]);
+
+      dc.close();
+      testPc.close();
+
+      if (candidates.length === 0) {
+        connectionTest = 'failed - no candidates gathered';
+      } else if (!hasRelay && TURN_CONFIGURED) {
+        connectionTest = 'warning - TURN configured but no relay candidates (TURN may be unreachable)';
+      } else if (hasRelay) {
+        connectionTest = 'success - relay candidates available';
+      } else {
+        connectionTest = 'partial - only host/srflx candidates (may fail behind strict NAT)';
+      }
+    } catch (error) {
+      connectionTest = `error - ${(error as Error).message}`;
+    }
+
+    const result = {
+      iceServers: ICE_SERVERS,
+      turnConfigured: TURN_CONFIGURED,
+      candidates,
+      hasRelay,
+      connectionTest,
+    };
+
+    console.log('[VoiceService Diagnostics] Results:', result);
+    console.log('[VoiceService Diagnostics] Summary:', connectionTest);
+
+    if (!hasRelay && TURN_CONFIGURED) {
+      console.warn(
+        '[VoiceService Diagnostics] ⚠️ TURN server appears unreachable.\n' +
+        'If using Cloudflare tunnel, TURN cannot work through it.\n' +
+        'Options:\n' +
+        '1. Port forward UDP 3478 and 49160-49200 directly\n' +
+        '2. Use an external TURN service\n' +
+        '3. Set TURN_EXTERNAL_IP to your public IP'
+      );
+    }
+
+    return result;
+  }
 }
 
 class SpeakingMonitor {
