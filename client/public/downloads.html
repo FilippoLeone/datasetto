@@ -290,6 +290,30 @@
       height: 16px;
     }
 
+    .build-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: rgba(99, 102, 241, 0.2);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 8px;
+      color: var(--text-normal);
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .build-btn:hover:not(:disabled) {
+      background: rgba(99, 102, 241, 0.3);
+      border-color: rgba(99, 102, 241, 0.5);
+    }
+
+    .build-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     @media (max-width: 640px) {
       .container {
         padding: 1rem;
@@ -373,6 +397,32 @@
             Internet connection for voice/streaming
           </li>
         </ul>
+      </div>
+
+      <!-- Admin Build Panel (hidden by default) -->
+      <div id="admin-panel" class="requirements" style="display: none; margin-top: 2rem; border-color: rgba(99, 102, 241, 0.3);">
+        <h3>🔧 Build Management</h3>
+        <p style="color: var(--text-muted); margin: 0.5rem 0 1rem;">Trigger new builds directly from the server via Docker.</p>
+        
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
+          <button onclick="triggerBuild('linux')" class="build-btn" id="btn-linux">
+            <span>🐧</span> Build Linux
+          </button>
+          <button onclick="triggerBuild('win')" class="build-btn" id="btn-win">
+            <span>🪟</span> Build Windows
+          </button>
+          <button onclick="triggerBuild('all')" class="build-btn" id="btn-all">
+            <span>🌍</span> Build All
+          </button>
+        </div>
+        
+        <div id="build-status" style="display: none; padding: 1rem; background: rgba(0,0,0,0.3); border-radius: 8px; margin-top: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <div class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></div>
+            <span id="build-status-text">Building...</span>
+          </div>
+          <pre id="build-logs" style="font-size: 0.75rem; color: var(--text-muted); max-height: 200px; overflow-y: auto; margin: 0;"></pre>
+        </div>
       </div>
     </main>
 
@@ -537,8 +587,101 @@
       }
     }
 
+    // Check if user is admin (via URL param ?admin=1 for now)
+    function checkAdminAccess() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('admin') === '1') {
+        document.getElementById('admin-panel').style.display = 'block';
+      }
+    }
+
+    // Trigger a build
+    async function triggerBuild(platform) {
+      const statusDiv = document.getElementById('build-status');
+      const statusText = document.getElementById('build-status-text');
+      const logsDiv = document.getElementById('build-logs');
+      const buttons = document.querySelectorAll('.build-btn');
+
+      // Disable all buttons
+      buttons.forEach(btn => btn.disabled = true);
+      
+      // Show status
+      statusDiv.style.display = 'block';
+      statusText.textContent = `Starting ${platform} build...`;
+      logsDiv.textContent = '';
+
+      try {
+        const response = await fetch('/api/releases/build', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Build failed to start');
+        }
+
+        statusText.textContent = `Building ${platform}... This may take several minutes.`;
+        
+        // Poll for status updates
+        pollBuildStatus();
+
+      } catch (error) {
+        statusText.textContent = `Error: ${error.message}`;
+        buttons.forEach(btn => btn.disabled = false);
+      }
+    }
+
+    // Poll build status
+    let pollInterval = null;
+    async function pollBuildStatus() {
+      const statusText = document.getElementById('build-status-text');
+      const logsDiv = document.getElementById('build-logs');
+      const buttons = document.querySelectorAll('.build-btn');
+
+      if (pollInterval) clearInterval(pollInterval);
+
+      pollInterval = setInterval(async () => {
+        try {
+          const response = await fetch('/api/releases/build/status');
+          const data = await response.json();
+
+          if (data.recentLogs) {
+            logsDiv.textContent = data.recentLogs.join('\n');
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+          }
+
+          if (data.isBuilding) {
+            const duration = data.duration ? ` (${Math.floor(data.duration / 60)}m ${data.duration % 60}s)` : '';
+            statusText.textContent = `Building ${data.platform}...${duration}`;
+          } else {
+            clearInterval(pollInterval);
+            pollInterval = null;
+            
+            const lastLog = data.recentLogs?.[data.recentLogs.length - 1] || '';
+            if (lastLog.includes('✅')) {
+              statusText.textContent = 'Build completed successfully!';
+              // Reload releases
+              setTimeout(() => {
+                loadReleases();
+              }, 1000);
+            } else {
+              statusText.textContent = 'Build finished (check logs for details)';
+            }
+            
+            buttons.forEach(btn => btn.disabled = false);
+          }
+        } catch (error) {
+          console.error('Failed to poll status:', error);
+        }
+      }, 2000);
+    }
+
     // Load releases on page load
     loadReleases();
+    checkAdminAccess();
   </script>
 </body>
 </html>

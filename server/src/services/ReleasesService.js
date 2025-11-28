@@ -5,6 +5,7 @@
 
 import express from 'express';
 import { promises as fs } from 'fs';
+import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,10 +14,20 @@ const __dirname = path.dirname(__filename);
 
 // Default release directory (can be overridden via config)
 const DEFAULT_RELEASE_DIR = path.resolve(__dirname, '../../../desktop/release');
+const DESKTOP_DIR = path.resolve(__dirname, '../../../desktop');
+
+// Build state tracking
+let buildState = {
+  isBuilding: false,
+  currentPlatform: null,
+  startedAt: null,
+  logs: [],
+};
 
 export function createReleasesRouter(options = {}) {
   const router = express.Router();
   const releaseDir = options.releaseDir || DEFAULT_RELEASE_DIR;
+  const desktopDir = options.desktopDir || DESKTOP_DIR;
   
   // Track download counts in memory (could be persisted to file/db)
   const downloadCounts = new Map();
@@ -206,6 +217,119 @@ export function createReleasesRouter(options = {}) {
       console.error('Error getting stats:', error);
       return res.status(500).json({ error: 'Failed to get stats' });
     }
+  });
+
+  /**
+   * GET /api/releases/build/status
+   * Get current build status
+   */
+  router.get('/build/status', (req, res) => {
+    return res.json({
+      isBuilding: buildState.isBuilding,
+      platform: buildState.currentPlatform,
+      startedAt: buildState.startedAt,
+      duration: buildState.startedAt 
+        ? Math.floor((Date.now() - new Date(buildState.startedAt).getTime()) / 1000) 
+        : null,
+      recentLogs: buildState.logs.slice(-20),
+    });
+  });
+
+  /**
+   * POST /api/releases/build
+   * Trigger a new build via Docker
+   * Requires admin authentication (should be protected)
+   */
+  router.post('/build', async (req, res) => {
+    // Check if already building
+    if (buildState.isBuilding) {
+      return res.status(409).json({ 
+        error: 'Build already in progress',
+        platform: buildState.currentPlatform,
+        startedAt: buildState.startedAt,
+      });
+    }
+
+    const { platform = 'linux' } = req.body;
+    
+    // Validate platform
+    const validPlatforms = ['linux', 'win', 'windows', 'all'];
+    if (!validPlatforms.includes(platform)) {
+      return res.status(400).json({ 
+        error: 'Invalid platform',
+        validPlatforms,
+      });
+    }
+
+    // Check if Docker is available
+    try {
+      await new Promise((resolve, reject) => {
+        const check = spawn('docker', ['--version'], { shell: true });
+        check.on('close', (code) => code === 0 ? resolve() : reject());
+        check.on('error', reject);
+      });
+    } catch {
+      return res.status(500).json({ 
+        error: 'Docker is not available on this system',
+      });
+    }
+
+    // Start build in background
+    buildState = {
+      isBuilding: true,
+      currentPlatform: platform,
+      startedAt: new Date().toISOString(),
+      logs: ['Build started...'],
+    };
+
+    // Determine docker compose command
+    const composeFile = path.join(desktopDir, 'docker-compose.builder.yml');
+    let composeArgs = ['-f', composeFile, 'up', '--build', '--abort-on-container-exit'];
+    
+    if (platform === 'win' || platform === 'windows') {
+      composeArgs.push('--profile', 'windows', 'builder-win');
+    } else {
+      composeArgs.push('builder');
+    }
+
+    // Run docker compose
+    const buildProcess = spawn('docker', ['compose', ...composeArgs], {
+      cwd: desktopDir,
+      shell: true,
+    });
+
+    buildProcess.stdout.on('data', (data) => {
+      const lines = data.toString().split('\n').filter(Boolean);
+      buildState.logs.push(...lines);
+      // Keep only last 100 lines
+      if (buildState.logs.length > 100) {
+        buildState.logs = buildState.logs.slice(-100);
+      }
+    });
+
+    buildProcess.stderr.on('data', (data) => {
+      const lines = data.toString().split('\n').filter(Boolean);
+      buildState.logs.push(...lines);
+      if (buildState.logs.length > 100) {
+        buildState.logs = buildState.logs.slice(-100);
+      }
+    });
+
+    buildProcess.on('close', (code) => {
+      buildState.logs.push(code === 0 ? '✅ Build completed successfully!' : `❌ Build failed with code ${code}`);
+      buildState.isBuilding = false;
+    });
+
+    buildProcess.on('error', (error) => {
+      buildState.logs.push(`❌ Build error: ${error.message}`);
+      buildState.isBuilding = false;
+    });
+
+    return res.json({
+      message: 'Build started',
+      platform,
+      statusUrl: '/api/releases/build/status',
+    });
   });
 
   return router;
