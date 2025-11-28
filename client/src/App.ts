@@ -372,7 +372,7 @@ export class App {
     'playerOverlay', 'channelsList',
   'app',
     'video-popout', 'video-popout-header',
-    'video-popout-title', 'video-popout-stage',
+    'video-popout-title', 'video-popout-stage', 'video-popout-resize',
     'minimize-video', 'close-video',
       'user-settings-btn', 'current-channel-name',
     'user-avatar', 'user-status-text', 'voice-status-panel',

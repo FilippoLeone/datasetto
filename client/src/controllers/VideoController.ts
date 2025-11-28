@@ -179,6 +179,8 @@ export class VideoController {
   private externalPopoutOverlay: HTMLElement | null = null;
   private playerRetargetedExternally = false;
   private externalPopoutClosing = false;
+  private isResizing = false;
+  private resizeStart = { width: 0, height: 0, x: 0, y: 0 };
 
   constructor(deps: VideoControllerDeps) {
     this.deps = deps;
@@ -195,6 +197,7 @@ export class VideoController {
     this.registerDomListeners();
     if (!this.shouldUseExternalPopout()) {
       this.setupVideoPopoutDrag();
+      this.setupVideoPopoutResize();
     } else {
       const minimizeBtn = this.deps.elements['minimize-video'];
       minimizeBtn?.classList.add('hidden');
@@ -2656,6 +2659,66 @@ export class VideoController {
       }
 
       this.isDragging = false;
+      const popoutEl = this.deps.elements['video-popout'];
+      if (popoutEl) {
+        popoutEl.style.transition = '';
+      }
+    });
+  }
+
+  private setupVideoPopoutResize(): void {
+    const popout = this.deps.elements['video-popout'];
+    const handle = this.deps.elements['video-popout-resize'];
+
+    if (!popout || !handle) {
+      return;
+    }
+
+    this.deps.addListener(handle, 'mousedown', (event: Event) => {
+      const mouseEvent = event as MouseEvent;
+      mouseEvent.stopPropagation(); // Prevent drag
+      
+      this.isResizing = true;
+      const rect = popout.getBoundingClientRect();
+      this.resizeStart = {
+        width: rect.width,
+        height: rect.height,
+        x: mouseEvent.clientX,
+        y: mouseEvent.clientY
+      };
+      
+      popout.style.transition = 'none';
+    });
+
+    this.deps.addListener(document, 'mousemove', (event: Event) => {
+      if (!this.isResizing) {
+        return;
+      }
+
+      const mouseEvent = event as MouseEvent;
+      const popoutEl = this.deps.elements['video-popout'];
+      if (!popoutEl) {
+        return;
+      }
+
+      const dx = mouseEvent.clientX - this.resizeStart.x;
+      const dy = mouseEvent.clientY - this.resizeStart.y;
+
+      // Use the maximum relative change to drive resize while maintaining aspect ratio
+      const scaleX = (this.resizeStart.width + dx) / this.resizeStart.width;
+      const scaleY = (this.resizeStart.height + dy) / this.resizeStart.height;
+      const scale = Math.max(scaleX, scaleY);
+      
+      const finalWidth = Math.max(320, this.resizeStart.width * scale);
+      popoutEl.style.width = `${finalWidth}px`;
+    });
+
+    this.deps.addListener(document, 'mouseup', () => {
+      if (!this.isResizing) {
+        return;
+      }
+
+      this.isResizing = false;
       const popoutEl = this.deps.elements['video-popout'];
       if (popoutEl) {
         popoutEl.style.transition = '';
