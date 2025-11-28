@@ -60,6 +60,8 @@ export class VoiceController {
   private screenShareActive = false;
   private remoteVideoTracks: Map<string, { camera?: MediaStreamTrack; screen?: MediaStreamTrack }> = new Map();
   private remoteVideoStreams: Map<string, { camera?: MediaStream; screen?: MediaStream }> = new Map();
+  private availableVideoDevices: MediaDeviceInfo[] = [];
+  private currentCameraDeviceId: string | null = null;
   // Debug mode
   private debugMode = false;
   private debugUpdateHandle: number | null = null;
@@ -169,6 +171,38 @@ export class VoiceController {
 
   // ==================== VIDEO CONTROLS ====================
 
+  private async loadVideoDevices(): Promise<void> {
+    this.availableVideoDevices = await this.deps.voice.getVideoDevices();
+  }
+
+  async flipCamera(): Promise<void> {
+    if (!this.cameraActive || this.availableVideoDevices.length < 2) {
+      return;
+    }
+
+    // Find current index
+    let currentIndex = this.availableVideoDevices.findIndex(d => d.deviceId === this.currentCameraDeviceId);
+    if (currentIndex === -1) currentIndex = 0;
+
+    const nextIndex = (currentIndex + 1) % this.availableVideoDevices.length;
+    const nextDevice = this.availableVideoDevices[nextIndex];
+
+    try {
+      const stream = await this.deps.voice.switchCamera(nextDevice.deviceId);
+      this.currentCameraDeviceId = nextDevice.deviceId;
+      
+      // Update local preview with new stream
+      this.updateLocalVideoPreview();
+      
+      // Also update the stream in the controller's state if needed, 
+      // but VoiceService emits 'video:camera:started' which we might be listening to?
+      // Let's check if we need to manually update anything else.
+    } catch (error) {
+      console.error('[VoiceController] Failed to flip camera:', error);
+      this.deps.notifications.error('Failed to switch camera');
+    }
+  }
+
   async toggleCamera(): Promise<void> {
     if (!this.deps.state.get('voiceConnected')) {
       this.deps.notifications.warning('Join a voice channel first to share your camera');
@@ -179,11 +213,31 @@ export class VoiceController {
       if (this.cameraActive) {
         this.deps.voice.stopCamera();
         this.cameraActive = false;
+        this.currentCameraDeviceId = null;
         this.updateVideoButtons();
         this.updateLocalVideoPreview();
         this.deps.notifications.info('Camera stopped');
       } else {
-        await this.deps.voice.startCamera();
+        // Load devices if needed
+        if (this.availableVideoDevices.length === 0) {
+          await this.loadVideoDevices();
+        }
+
+        // Use current device ID or default
+        const stream = await this.deps.voice.startCamera(this.currentCameraDeviceId || undefined);
+        
+        // Update current device ID from stream if not set
+        if (!this.currentCameraDeviceId) {
+          const track = stream.getVideoTracks()[0];
+          const settings = track.getSettings();
+          if (settings.deviceId) {
+            this.currentCameraDeviceId = settings.deviceId;
+          } else if (this.availableVideoDevices.length > 0) {
+            // Fallback: assume first device if we can't get ID from settings
+            this.currentCameraDeviceId = this.availableVideoDevices[0].deviceId;
+          }
+        }
+
         this.cameraActive = true;
         this.updateVideoButtons();
         this.updateLocalVideoPreview();
@@ -283,6 +337,34 @@ export class VoiceController {
       
       if (cameraBadge) cameraBadge.classList.toggle('hidden', !this.cameraActive);
       if (screenBadge) screenBadge.classList.toggle('hidden', !this.screenShareActive);
+
+      // Add flip button if camera is active and multiple devices available
+      let flipBtn = localVideoContainer.querySelector('.flip-camera-btn') as HTMLButtonElement;
+      if (this.cameraActive && this.availableVideoDevices.length > 1 && !this.screenShareActive) {
+        if (!flipBtn) {
+          flipBtn = document.createElement('button');
+          flipBtn.className = 'flip-camera-btn absolute top-2 right-2 p-2 bg-black/50 rounded-full hover:bg-black/70 text-white transition-colors z-10';
+          flipBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 1.5.4 2.9 1.1 4.1l-1.1 1.1"></path>
+              <path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8c0-1.5-.4-2.9-1.1-4.1l1.1-1.1"></path>
+              <path d="M12 2v4"></path>
+              <path d="M12 18v4"></path>
+              <path d="M22 10l-4-4"></path>
+              <path d="M2 14l4 4"></path>
+            </svg>
+          `;
+          flipBtn.title = 'Flip Camera';
+          flipBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.flipCamera();
+          };
+          localVideoContainer.appendChild(flipBtn);
+        }
+        flipBtn.classList.remove('hidden');
+      } else if (flipBtn) {
+        flipBtn.classList.add('hidden');
+      }
     }
 
     // Attach stream to local video element

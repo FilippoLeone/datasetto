@@ -1599,6 +1599,76 @@ export class VoiceService extends EventEmitter<EventMap> {
   // ==================== VIDEO METHODS ====================
 
   /**
+   * Get available video input devices
+   */
+  async getVideoDevices(): Promise<MediaDeviceInfo[]> {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter((device) => device.kind === 'videoinput');
+    } catch (error) {
+      console.error('[VoiceService] Failed to enumerate devices:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Switch camera to a specific device
+   */
+  async switchCamera(deviceId: string): Promise<MediaStream> {
+    if (!this.localVideoStream) {
+      return this.startCamera(deviceId);
+    }
+
+    const constraints: MediaStreamConstraints = {
+      video: {
+        width: { ideal: 1280, max: 1920 },
+        height: { ideal: 720, max: 1080 },
+        frameRate: { ideal: 30, max: 60 },
+        facingMode: 'user',
+        deviceId: { exact: deviceId },
+      },
+      audio: false,
+    };
+
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const newTrack = newStream.getVideoTracks()[0];
+
+      if (!newTrack) {
+        throw new Error('No video track found in new stream');
+      }
+
+      // Stop old tracks
+      this.localVideoStream.getTracks().forEach((track) => track.stop());
+
+      // Update local stream reference
+      this.localVideoStream = newStream;
+
+      newTrack.contentHint = 'motion';
+      newTrack.addEventListener('ended', () => {
+        this.handleCameraTrackEnded();
+      });
+
+      // Replace track in all peer connections
+      const promises: Promise<void>[] = [];
+      for (const [peerId, senders] of this.videoSenders) {
+        const sender = senders.camera;
+        if (sender) {
+          promises.push(sender.replaceTrack(newTrack));
+        }
+      }
+
+      await Promise.all(promises);
+
+      this.emit('video:camera:started', { stream: newStream } as never);
+      return newStream;
+    } catch (error) {
+      console.error('[VoiceService] Failed to switch camera:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Start camera and add video track to all peers
    */
   async startCamera(deviceId?: string): Promise<MediaStream> {
