@@ -1299,4 +1299,28 @@ export class App {
       console.error('❌ Error clearing app data:', error);
     }
   }
+
+  /**
+   * Run voice/TURN diagnostics
+   * Call from browser console: window.datasettoApp.runVoiceDiagnostics()
+   */
+  async runVoiceDiagnostics(): Promise<unknown> {
+    if (!this.voice) {
+      console.error('Voice service not initialized');
+      return null;
+    }
+    return this.voice.runDiagnostics();
+  }
+
+  /**
+   * Get socket connection status for debugging
+   * Call from browser console: window.datasettoApp.getConnectionStatus()
+   */
+  getConnectionStatus(): { connected: boolean; transport: string | null; id: string | null } {
+    return {
+      connected: this.socket?.isConnected() ?? false,
+      transport: (this.socket as unknown as { socket?: { io?: { engine?: { transport?: { name?: string } } } } })?.socket?.io?.engine?.transport?.name ?? null,
+      id: this.socket?.getId() ?? null,
+    };
+  }
 }
