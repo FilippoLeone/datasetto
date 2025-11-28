@@ -22,7 +22,12 @@
   "build:renderer": "cross-env VITE_BUILD_TARGET=desktop npm run build --prefix ../client",
     "prepare:renderer": "node ./scripts/copy-dist.mjs",
     "generate:icon": "node ./scripts/generate-icon.mjs",
-    "package": "npm run build"
+    "package": "npm run build",
+    "release": "node ./scripts/build-release.mjs",
+    "release:win": "node ./scripts/build-release.mjs --platform win",
+    "release:linux": "node ./scripts/build-release.mjs --platform linux",
+    "release:mac": "node ./scripts/build-release.mjs --platform mac",
+    "release:all": "node ./scripts/build-release.mjs --platform all"
   },
   "dependencies": {},
   "devDependencies": {

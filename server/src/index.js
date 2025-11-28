@@ -28,6 +28,7 @@ import userManager from './models/UserManager.js';
 import messageManager from './models/MessageManager.js';
 import accountManager from './models/AccountManager.js';
 import MinigameManager from './services/MinigameManager.js';
+import { createReleasesRouter } from './services/ReleasesService.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -342,6 +343,9 @@ const healthCheck = (req, res) => {
 
 app.get('/health', healthCheck);
 app.get('/api/health', healthCheck);
+
+// Releases API
+app.use('/api/releases', createReleasesRouter());
 
 // Stats endpoint
 app.get('/api/stats', (req, res) => {
