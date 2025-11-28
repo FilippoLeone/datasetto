@@ -816,7 +816,10 @@ export class AudioService extends EventEmitter {
    * Set output device (speaker) for an audio element
    */
   async setOutputDevice(audioElement: HTMLAudioElement, deviceId: string): Promise<void> {
-    const normalizedId = deviceId ?? '';
+    let normalizedId = deviceId ?? '';
+    if (normalizedId === 'default') {
+      normalizedId = '';
+    }
     const nativeRouteId = normalizedId.startsWith('native:') ? normalizedId.slice(7) : null;
 
     if ((nativeRouteId !== null || normalizedId === '') && isNativeAudioRoutingAvailable()) {

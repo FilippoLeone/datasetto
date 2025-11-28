@@ -303,7 +303,7 @@ const CONNECTION_QUALITY_HISTORY_SIZE = 5;
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 const DEFAULT_PEER_VOLUME = 1;
 const MAX_PEER_VOLUME = 2;
-const BOOST_THRESHOLD = 1;
+
 
 export type ConnectionQuality = 'excellent' | 'good' | 'fair' | 'poor' | 'unknown';
 
@@ -342,17 +342,241 @@ type DesktopScreenshareBridge = {
   pickScreenshareSource?: (options?: { audio?: boolean }) => Promise<DesktopScreensharePickResult>;
 };
 
-type PeerAudioPipeline = {
-  source: MediaStreamAudioSourceNode;
-  gain: GainNode;
-  destination: MediaStreamAudioDestinationNode;
-};
+class SpeakingMonitor {
+  private interval: number | null = null;
+  private history: number[] = [];
+  private readonly historySize = 10;
+  private isSpeaking = false;
+  private speakingStartTime = 0;
+  private silenceStartTime = 0;
+  private readonly silenceHoldMs = 350;
+  private hysteresisLow: number;
+  private hysteresisHigh: number;
+
+  constructor(
+    private analyser: AnalyserNode,
+    private onSpeakingChange: (speaking: boolean) => void,
+    threshold: number
+  ) {
+    this.hysteresisHigh = threshold;
+    this.hysteresisLow = threshold * 0.6;
+  }
+
+  start(): void {
+    if (this.interval) return;
+    this.interval = window.setInterval(() => this.check(), 50);
+  }
+
+  stop(): void {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+    }
+    this.isSpeaking = false;
+    this.history = [];
+  }
+
+  setThreshold(threshold: number): void {
+    this.hysteresisHigh = threshold;
+    this.hysteresisLow = threshold * 0.6;
+  }
+
+  private check(): void {
+    const data = new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.getByteFrequencyData(data);
+
+    const voiceBins = Math.min(18, data.length);
+    let sum = 0;
+    for (let i = 0; i < voiceBins; i++) {
+      sum += data[i];
+    }
+    const average = sum / voiceBins / 255;
+
+    this.history.push(average);
+    if (this.history.length > this.historySize) {
+      this.history.shift();
+    }
+
+    const smoothed = this.history.reduce((a, b) => a + b, 0) / this.history.length;
+    const now = performance.now();
+
+    if (this.isSpeaking) {
+      if (smoothed < this.hysteresisLow) {
+        if (this.silenceStartTime === 0) {
+          this.silenceStartTime = now;
+        }
+        if (now - this.silenceStartTime >= this.silenceHoldMs) {
+          this.isSpeaking = false;
+          this.onSpeakingChange(false);
+          this.speakingStartTime = 0;
+        }
+      } else {
+        this.silenceStartTime = 0;
+      }
+    } else {
+      if (smoothed > this.hysteresisHigh) {
+        if (this.speakingStartTime === 0) {
+          this.speakingStartTime = now;
+        }
+        this.isSpeaking = true;
+        this.onSpeakingChange(true);
+        this.silenceStartTime = 0;
+      }
+    }
+  }
+}
+
+class PeerAudioManager {
+  private audioElement: HTMLAudioElement | null = null;
+  private sourceNode: AudioNode | null = null;
+  private gainNode: GainNode | null = null;
+  private analyserNode: AnalyserNode | null = null;
+  private speakingMonitor: SpeakingMonitor | null = null;
+  private mediaElementSource: MediaElementAudioSourceNode | null = null;
+  
+  constructor(
+    private peerId: string,
+    private context: AudioContext,
+    private onSpeaking: (speaking: boolean) => void,
+    private vadThreshold: number
+  ) {}
+
+  attachStream(stream: MediaStream, outputDeviceId: string | null) {
+    this.dispose();
+
+    this.audioElement = document.createElement('audio');
+    this.audioElement.id = `audio-${this.peerId}`;
+    this.audioElement.autoplay = true;
+    this.audioElement.setAttribute('playsinline', 'true');
+    this.audioElement.dataset.peerId = this.peerId;
+    
+    if (isElectron()) {
+      console.log(`[PeerAudioManager] Using Electron strategy for ${this.peerId}`);
+      this.audioElement.srcObject = stream;
+      this.audioElement.muted = false;
+      this.audioElement.volume = 1.0;
+      this.audioElement.play().catch(e => console.warn(`[PeerAudioManager] Play failed:`, e));
+
+      this.mediaElementSource = this.context.createMediaElementSource(this.audioElement);
+      this.sourceNode = this.mediaElementSource;
+      this.gainNode = this.context.createGain();
+      this.analyserNode = this.context.createAnalyser();
+      
+      this.sourceNode.connect(this.gainNode);
+      this.gainNode.connect(this.analyserNode);
+      this.analyserNode.connect(this.context.destination);
+    } 
+    else if (isCapacitor()) {
+      console.log(`[PeerAudioManager] Using Capacitor strategy for ${this.peerId}`);
+      this.audioElement.srcObject = stream;
+      this.audioElement.muted = true;
+      this.audioElement.play().catch(() => {});
+      
+      this.sourceNode = this.context.createMediaStreamSource(stream);
+      this.gainNode = this.context.createGain();
+      this.analyserNode = this.context.createAnalyser();
+      
+      this.sourceNode.connect(this.gainNode);
+      this.gainNode.connect(this.analyserNode);
+      this.analyserNode.connect(this.context.destination);
+    }
+    else {
+      console.log(`[PeerAudioManager] Using Web strategy for ${this.peerId}`);
+      this.audioElement.srcObject = stream;
+      this.audioElement.muted = false;
+      this.audioElement.play().catch(() => {});
+      
+      this.sourceNode = this.context.createMediaStreamSource(stream);
+      this.analyserNode = this.context.createAnalyser();
+      this.sourceNode.connect(this.analyserNode);
+      
+      if (outputDeviceId && typeof (this.audioElement as any).setSinkId === 'function') {
+        (this.audioElement as any).setSinkId(outputDeviceId).catch(console.error);
+      }
+    }
+
+    if (this.analyserNode) {
+      this.analyserNode.fftSize = 256;
+      this.analyserNode.smoothingTimeConstant = 0.8;
+      this.speakingMonitor = new SpeakingMonitor(this.analyserNode, this.onSpeaking, this.vadThreshold);
+      this.speakingMonitor.start();
+    }
+    
+    document.body.appendChild(this.audioElement);
+  }
+
+  applyState(deafened: boolean, localMuted: boolean, localVolume: number, masterVolume: number = 1) {
+    const effectiveMuted = deafened || localMuted;
+    const effectiveVolume = localVolume * masterVolume;
+    
+    if (isElectron() || isCapacitor()) {
+      if (this.gainNode) {
+        // For Electron/Capacitor, we use the gain node for all volume control including boost
+        this.gainNode.gain.value = effectiveMuted ? 0 : effectiveVolume;
+      }
+    } else {
+      if (this.audioElement) {
+        // For Web, we clamp volume to 1.0 as HTMLMediaElement doesn't support > 1.0
+        this.audioElement.volume = Math.min(effectiveVolume, 1.0);
+        this.audioElement.muted = effectiveMuted;
+      }
+    }
+  }
+  
+  async setSinkId(deviceId: string): Promise<void> {
+    if (this.audioElement && !isElectron() && !isCapacitor() && typeof (this.audioElement as any).setSinkId === 'function') {
+       return (this.audioElement as any).setSinkId(deviceId).catch(console.error);
+    }
+  }
+  
+  setThreshold(threshold: number) {
+    this.vadThreshold = threshold;
+    if (this.speakingMonitor) {
+      this.speakingMonitor.setThreshold(threshold);
+    }
+  }
+
+  resume() {
+    if (this.audioElement && this.audioElement.paused && this.audioElement.srcObject) {
+      this.audioElement.play().catch(() => {});
+    }
+  }
+
+  dispose() {
+    if (this.speakingMonitor) {
+      this.speakingMonitor.stop();
+      this.speakingMonitor = null;
+    }
+    
+    if (this.sourceNode) {
+      try { this.sourceNode.disconnect(); } catch {}
+      this.sourceNode = null;
+    }
+    
+    if (this.gainNode) {
+      try { this.gainNode.disconnect(); } catch {}
+      this.gainNode = null;
+    }
+    
+    if (this.analyserNode) {
+      try { this.analyserNode.disconnect(); } catch {}
+      this.analyserNode = null;
+    }
+    
+    if (this.audioElement) {
+      this.audioElement.pause();
+      this.audioElement.srcObject = null;
+      this.audioElement.remove();
+      this.audioElement = null;
+    }
+    
+    this.mediaElementSource = null;
+  }
+}
 
 export class VoiceService extends EventEmitter<EventMap> {
   private peers: Map<string, RTCPeerConnection> = new Map();
-  private remoteAudios: Map<string, HTMLAudioElement> = new Map();
-  private peerAudioPipelines: Map<string, PeerAudioPipeline> = new Map();
-  private remoteMonitors: Map<string, SpeakingMonitor> = new Map();
+  private peerManagers: Map<string, PeerAudioManager> = new Map();
   private iceRestartTimers: Map<string, number> = new Map();
   private iceRestartAttempts: Map<string, number> = new Map();
   private localStream: MediaStream | null = null;
@@ -618,71 +842,25 @@ export class VoiceService extends EventEmitter<EventMap> {
    * Handle incoming remote audio track
    */
   private handleRemoteTrack(peerId: string, stream: MediaStream): void {
-    // Create or reuse audio element
-    let audioElement = this.remoteAudios.get(peerId);
-    const isNative = isElectron() || isCapacitor();
-    
-    if (!audioElement) {
-    audioElement = document.createElement('audio');
-    audioElement.id = `audio-${peerId}`;
-    audioElement.autoplay = true;
-  audioElement.setAttribute('playsinline', 'true');
-    // For native apps, mute the audio element since we output via context.destination
-    // This avoids double audio while still allowing play() lifecycle management
-    audioElement.muted = isNative;
-      audioElement.defaultPlaybackRate = 1;
-      audioElement.playbackRate = 1;
-      const pitchSafeElement = audioElement as HTMLAudioElement & {
-        preservesPitch?: boolean;
-        mozPreservesPitch?: boolean;
-        webkitPreservesPitch?: boolean;
-      };
-      pitchSafeElement.preservesPitch = true;
-      pitchSafeElement.mozPreservesPitch = true;
-      pitchSafeElement.webkitPreservesPitch = true;
-    audioElement.volume = this.computeEffectiveVolume(DEFAULT_PEER_VOLUME);
-    audioElement.dataset.peerId = peerId;
-      
-      // Set output device if available (not used for native apps since audio goes through AudioContext)
-      if (!isNative && this.outputDeviceId && typeof audioElement.setSinkId === 'function') {
-        audioElement.setSinkId(this.outputDeviceId).catch(console.error);
-      }
-
-      document.body.appendChild(audioElement);
-      this.remoteAudios.set(peerId, audioElement);
-    } else if (isNative) {
-      // Ensure audio element is muted on native for reused elements
-      audioElement.muted = true;
+    const context = this.ensureAudioContext();
+    if (!context) {
+      console.warn(`[VoiceService] No AudioContext available for peer ${peerId}`);
+      return;
     }
 
-    const playbackStream = this.createPeerAudioPipeline(peerId, stream) ?? stream;
-    audioElement.srcObject = playbackStream;
+    let manager = this.peerManagers.get(peerId);
+    if (!manager) {
+      manager = new PeerAudioManager(
+        peerId, 
+        context, 
+        (speaking) => this.emit('voice:speaking', { id: peerId, speaking }),
+        this.vadThreshold
+      );
+      this.peerManagers.set(peerId, manager);
+    }
+
+    manager.attachStream(stream, this.outputDeviceId);
     this.applyPeerAudioState(peerId);
-    
-    // Log audio element state for debugging
-    console.log(`[VoiceService] Audio element for ${peerId}: muted=${audioElement.muted}, volume=${audioElement.volume}, paused=${audioElement.paused}, isNative=${isNative}`);
-    
-    const playResult = audioElement.play();
-    if (playResult instanceof Promise) {
-      playResult
-        .then(() => {
-          console.log(`[VoiceService] Audio playback started for peer ${peerId}${isNative ? ' (muted, using AudioContext)' : ''}`);
-        })
-        .catch((error) => {
-          console.warn(`[VoiceService] Unable to autoplay remote audio for peer ${peerId}:`, error);
-          // On mobile/desktop, autoplay may fail - try again on next user interaction
-          const resumeAudio = () => {
-            audioElement?.play().catch(() => {});
-            document.removeEventListener('click', resumeAudio);
-            document.removeEventListener('touchstart', resumeAudio);
-          };
-          document.addEventListener('click', resumeAudio, { once: true });
-          document.addEventListener('touchstart', resumeAudio, { once: true });
-        });
-    }
-
-    // Setup speaking detection
-    this.setupSpeakingDetection(peerId, stream);
   }
 
   private scheduleIceRestart(peerId: string, reason: string): void {
@@ -803,30 +981,7 @@ export class VoiceService extends EventEmitter<EventMap> {
   /**
    * Setup speaking detection for a remote peer
    */
-  private setupSpeakingDetection(peerId: string, stream: MediaStream): void {
-    try {
-      const context = this.ensureAudioContext();
-      if (!context) {
-        return;
-      }
 
-      const source = context.createMediaStreamSource(stream);
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
-      
-      source.connect(analyser);
-
-      const monitor = new SpeakingMonitor(analyser, (speaking) => {
-        this.emit('voice:speaking', { id: peerId, speaking });
-      }, this.vadThreshold);
-
-      monitor.start();
-      this.remoteMonitors.set(peerId, monitor);
-    } catch (error) {
-      console.error(`Error setting up speaking detection for ${peerId}:`, error);
-    }
-  }
 
   private ensureAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') {
@@ -840,6 +995,13 @@ export class VoiceService extends EventEmitter<EventMap> {
 
     if (!this.audioContext) {
       this.audioContext = new AudioContextCtor();
+
+      // Apply output device if already selected
+      if (this.outputDeviceId && typeof (this.audioContext as any).setSinkId === 'function') {
+        (this.audioContext as any).setSinkId(this.outputDeviceId).catch((error: unknown) => {
+          console.warn('[VoiceService] Error setting initial AudioContext output device:', error);
+        });
+      }
     }
 
     this.tryResumeAudioContext();
@@ -883,12 +1045,8 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     // Also try to resume any existing audio elements
-    for (const [peerId, audioElement] of this.remoteAudios) {
-      if (audioElement.paused && audioElement.srcObject) {
-        audioElement.play().catch(() => {
-          console.warn(`[VoiceService] Could not resume audio for peer ${peerId}`);
-        });
-      }
+    for (const manager of this.peerManagers.values()) {
+      manager.resume();
     }
   }
 
@@ -1010,20 +1168,11 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.resetIceRecovery(peerId);
     this.clearRemoteVideoTracks(peerId);
 
-    // Remove audio element
-    const audio = this.remoteAudios.get(peerId);
-    if (audio) {
-      audio.remove();
-      this.remoteAudios.delete(peerId);
-    }
-
-    this.destroyPeerAudioPipeline(peerId);
-
-    // Stop speaking monitor
-    const monitor = this.remoteMonitors.get(peerId);
-    if (monitor) {
-      monitor.stop();
-      this.remoteMonitors.delete(peerId);
+    // Remove peer manager
+    const manager = this.peerManagers.get(peerId);
+    if (manager) {
+      manager.dispose();
+      this.peerManagers.delete(peerId);
     }
   }
 
@@ -1037,7 +1186,7 @@ export class VoiceService extends EventEmitter<EventMap> {
   setOutputVolume(volume: number): void {
     this.outputVolume = clamp(volume, 0, 1);
 
-    for (const peerId of this.remoteAudios.keys()) {
+    for (const peerId of this.peerManagers.keys()) {
       this.applyPeerAudioState(peerId);
     }
   }
@@ -1046,7 +1195,10 @@ export class VoiceService extends EventEmitter<EventMap> {
    * Set output device for all remote audios
    */
   async setOutputDevice(deviceId: string): Promise<void> {
-    const normalizedId = deviceId ?? '';
+    let normalizedId = deviceId ?? '';
+    if (normalizedId === 'default') {
+      normalizedId = '';
+    }
     const nativeRouteId = normalizedId.startsWith('native:') ? normalizedId.slice(7) : null;
 
     // If it's a native route, try to use the native audio routing
@@ -1080,14 +1232,17 @@ export class VoiceService extends EventEmitter<EventMap> {
 
     const promises: Promise<void>[] = [];
 
-    for (const audio of this.remoteAudios.values()) {
-      if (typeof audio.setSinkId === 'function') {
-        promises.push(
-          audio.setSinkId(normalizedId).catch((error) => {
-            console.error('Error setting output device:', error);
-          })
-        );
-      }
+    // Try to set sink ID on AudioContext (for native/Web Audio API output)
+    if (this.audioContext && typeof (this.audioContext as any).setSinkId === 'function') {
+      promises.push(
+        (this.audioContext as any).setSinkId(normalizedId).catch((error: unknown) => {
+          console.warn('[VoiceService] Error setting AudioContext output device:', error);
+        })
+      );
+    }
+
+    for (const manager of this.peerManagers.values()) {
+      promises.push(manager.setSinkId(normalizedId));
     }
 
     await Promise.all(promises);
@@ -1110,8 +1265,8 @@ export class VoiceService extends EventEmitter<EventMap> {
       this.vadThreshold = nextThreshold;
       
       // Update all existing speaking monitors with new threshold
-      for (const monitor of this.remoteMonitors.values()) {
-        monitor.setThreshold(nextThreshold);
+      for (const manager of this.peerManagers.values()) {
+        manager.setThreshold(nextThreshold);
       }
     }
 
@@ -1161,7 +1316,7 @@ export class VoiceService extends EventEmitter<EventMap> {
   setDeafened(deafened: boolean): void {
     this.deafened = deafened;
 
-    for (const peerId of this.remoteAudios.keys()) {
+    for (const peerId of this.peerManagers.keys()) {
       this.applyPeerAudioState(peerId);
     }
   }
@@ -1416,15 +1571,10 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.localVideoStream = null;
     this.localScreenStream = null;
     this.peers.clear();
-    this.remoteAudios.clear();
-    this.remoteMonitors.clear();
+    this.peerManagers.clear();
     this.remoteVideoElements.clear();
     this.videoSenders.clear();
     this.remoteVideoTracks.clear();
-    for (const peerId of Array.from(this.peerAudioPipelines.keys())) {
-      this.destroyPeerAudioPipeline(peerId);
-    }
-    this.peerAudioPipelines.clear();
   }
 
   // ==================== VIDEO METHODS ====================
@@ -1837,149 +1987,24 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   private applyPeerAudioState(peerId: string): void {
-    const audio = this.remoteAudios.get(peerId);
-    if (!audio) {
+    const manager = this.peerManagers.get(peerId);
+    if (!manager) {
       return;
     }
 
     const pref = this.peerAudioPreferences.get(peerId);
     const localMuted = pref?.muted ?? false;
     const localVolume = this.normalizePeerVolume(pref?.volume);
-    const boostFactor = localVolume > BOOST_THRESHOLD ? localVolume : 1;
-    const isNative = isElectron() || isCapacitor();
-
-    // For native apps, audio element is always muted (audio plays via AudioContext.destination)
-    // For web, audio element muted state depends on deafened/localMuted settings
-    audio.muted = isNative || this.deafened || localMuted;
-    audio.volume = this.computeEffectiveVolume(localVolume);
-    audio.dataset.localMuted = String(localMuted);
-    audio.dataset.localVolume = localVolume.toString();
-    audio.dataset.deafened = String(this.deafened);
-    audio.dataset.volumeBoost = boostFactor.toString();
-
-    // For native apps, we need to handle muting via the AudioContext gain node
-    // when user mutes a peer or enables deafen mode
-    if (isNative && (this.deafened || localMuted)) {
-      this.applyPeerGain(peerId, 0); // Mute by setting gain to 0
-    } else {
-      this.applyPeerGain(peerId, boostFactor);
-    }
-  }
-
-  private computeEffectiveVolume(localVolume: number): number {
-    const normalized = this.normalizePeerVolume(localVolume);
-    const cappedLocal = Math.min(normalized, 1);
-    return clamp(Number((cappedLocal * this.outputVolume).toFixed(4)), 0, 1);
-  }
-
-  private applyPeerGain(peerId: string, boostFactor: number): void {
-    const pipeline = this.peerAudioPipelines.get(peerId);
-    if (!pipeline) {
-      return;
-    }
-
-    const isNative = isElectron() || isCapacitor();
-    let gainValue: number;
     
-    if (boostFactor === 0) {
-      // Explicit mute (deafened or peer muted)
-      gainValue = 0;
-    } else if (isNative) {
-      // For native apps, apply full volume control through gain node
-      // (since audio element is muted)
-      const normalizedBoost = boostFactor > BOOST_THRESHOLD ? Math.min(boostFactor, MAX_PEER_VOLUME) : 1;
-      gainValue = normalizedBoost * this.outputVolume;
-    } else {
-      // For web, only apply boost (volume is controlled by audio element)
-      const normalizedBoost = boostFactor > BOOST_THRESHOLD ? Math.min(boostFactor, MAX_PEER_VOLUME) : 1;
-      gainValue = normalizedBoost;
-    }
-    
-    pipeline.gain.gain.value = gainValue;
+    manager.applyState(this.deafened, localMuted, localVolume, this.outputVolume);
   }
 
-  private createPeerAudioPipeline(peerId: string, stream: MediaStream): MediaStream | null {
-    const context = this.ensureAudioContext();
-    if (!context) {
-      console.warn(`[VoiceService] No AudioContext available for peer ${peerId}, using raw stream`);
-      this.destroyPeerAudioPipeline(peerId);
-      return null;
-    }
 
-    // On mobile/Electron, AudioContext may be suspended and won't resume without user gesture
-    // In that case, fall back to raw stream to ensure audio plays
-    if (context.state === 'suspended') {
-      console.warn(`[VoiceService] AudioContext suspended for peer ${peerId}, using raw stream`);
-      // Try to resume for next time
-      context.resume().catch(() => {});
-      return null;
-    }
 
-    try {
-      this.destroyPeerAudioPipeline(peerId);
-      const source = context.createMediaStreamSource(stream);
-      const gain = context.createGain();
-      gain.gain.value = 1;
-      
-      const destination = context.createMediaStreamDestination();
-      source.connect(gain);
-      gain.connect(destination);
-      
-      // For native apps (Electron/Capacitor), ALSO connect to context.destination
-      // This is a workaround for a Chromium bug where MediaStreamDestination.stream
-      // doesn't always route audio correctly when used as srcObject for an audio element.
-      // By connecting to context.destination as well, audio plays directly to speakers.
-      // The audio element will be muted in handleRemoteTrack to avoid double audio.
-      const isNative = isElectron() || isCapacitor();
-      if (isNative) {
-        gain.connect(context.destination);
-        console.log(`[VoiceService] Native app: also connected gain to context.destination for peer ${peerId}`);
-      }
-      
-      this.peerAudioPipelines.set(peerId, { source, gain, destination });
-      console.log(`[VoiceService] Audio pipeline created for peer ${peerId}, context state: ${context.state}, isNative: ${isNative}`);
-      return destination.stream;
-    } catch (error) {
-      console.warn(`[VoiceService] Unable to create gain pipeline for peer ${peerId}:`, error);
-      this.destroyPeerAudioPipeline(peerId);
-      return null;
-    }
-  }
 
-  private destroyPeerAudioPipeline(peerId: string): void {
-    const pipeline = this.peerAudioPipelines.get(peerId);
-    if (!pipeline) {
-      return;
-    }
 
-    try {
-      pipeline.source.disconnect();
-    } catch (error) {
-      if (import.meta.env.DEV) {
-        console.debug('[VoiceService] source disconnect failed:', error);
-      }
-    }
 
-    try {
-      pipeline.gain.disconnect();
-    } catch (error) {
-      if (import.meta.env.DEV) {
-        console.debug('[VoiceService] gain disconnect failed:', error);
-      }
-    }
 
-    try {
-      for (const track of pipeline.destination.stream.getTracks()) {
-        track.stop();
-      }
-    } catch (error) {
-      if (import.meta.env.DEV) {
-        console.debug('[VoiceService] destination cleanup failed:', error);
-      }
-    }
-
-    this.peerAudioPipelines.delete(peerId);
-  }
 
   private normalizePeerVolume(volume: number | undefined): number {
     const numeric = typeof volume === 'number' ? volume : DEFAULT_PEER_VOLUME;
@@ -2181,98 +2206,5 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     return result;
-  }
-}
-
-class SpeakingMonitor {
-  private interval: number | null = null;
-  private history: number[] = [];
-  private readonly historySize = 10;
-  private isSpeaking = false;
-  private speakingStartTime = 0;
-  private silenceStartTime = 0;
-  private readonly silenceHoldMs = 350;   // Minimum silence before switching to not speaking
-  private hysteresisLow: number; // Lower threshold to stop speaking
-  private hysteresisHigh: number; // Higher threshold to start speaking
-
-  constructor(
-    private analyser: AnalyserNode,
-    private onSpeakingChange: (speaking: boolean) => void,
-    threshold: number
-  ) {
-    // Use hysteresis to prevent rapid switching
-    this.hysteresisHigh = threshold;
-    this.hysteresisLow = threshold * 0.6;
-  }
-
-  start(): void {
-    if (this.interval) return;
-    this.interval = window.setInterval(() => this.check(), 50);
-  }
-
-  stop(): void {
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
-    this.isSpeaking = false;
-    this.history = [];
-  }
-
-  setThreshold(threshold: number): void {
-    this.hysteresisHigh = threshold;
-    this.hysteresisLow = threshold * 0.6;
-  }
-
-  private check(): void {
-    const data = new Uint8Array(this.analyser.frequencyBinCount);
-    this.analyser.getByteFrequencyData(data);
-
-    // Focus on voice frequency range (roughly 85-255 Hz fundamental, harmonics up to ~3400 Hz)
-    // With 256 FFT size and 48kHz sample rate, each bin is ~187.5 Hz
-    // Bins 0-18 roughly cover the voice frequency range
-    const voiceBins = Math.min(18, data.length);
-    let sum = 0;
-    for (let i = 0; i < voiceBins; i++) {
-      sum += data[i];
-    }
-    const average = sum / voiceBins / 255;
-
-    this.history.push(average);
-    if (this.history.length > this.historySize) {
-      this.history.shift();
-    }
-
-    const smoothed = this.history.reduce((a, b) => a + b, 0) / this.history.length;
-    const now = performance.now();
-
-    if (this.isSpeaking) {
-      // Currently speaking - use lower threshold (hysteresis)
-      if (smoothed < this.hysteresisLow) {
-        if (this.silenceStartTime === 0) {
-          this.silenceStartTime = now;
-        }
-        // Wait for silence hold duration before switching off
-        if (now - this.silenceStartTime >= this.silenceHoldMs) {
-          this.isSpeaking = false;
-          this.onSpeakingChange(false);
-          this.speakingStartTime = 0;
-        }
-      } else {
-        // Still speaking, reset silence timer
-        this.silenceStartTime = 0;
-      }
-    } else {
-      // Not currently speaking - use higher threshold
-      if (smoothed > this.hysteresisHigh) {
-        if (this.speakingStartTime === 0) {
-          this.speakingStartTime = now;
-        }
-        // Immediate switch to speaking (but track start time for hold)
-        this.isSpeaking = true;
-        this.onSpeakingChange(true);
-        this.silenceStartTime = 0;
-      }
-    }
   }
 }
