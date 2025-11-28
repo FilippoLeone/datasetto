@@ -1651,7 +1651,7 @@ export class VoiceService extends EventEmitter<EventMap> {
 
       // Replace track in all peer connections
       const promises: Promise<void>[] = [];
-      for (const [peerId, senders] of this.videoSenders) {
+      for (const senders of this.videoSenders.values()) {
         const sender = senders.camera;
         if (sender) {
           promises.push(sender.replaceTrack(newTrack));

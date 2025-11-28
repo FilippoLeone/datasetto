@@ -188,7 +188,7 @@ export class VoiceController {
     const nextDevice = this.availableVideoDevices[nextIndex];
 
     try {
-      const stream = await this.deps.voice.switchCamera(nextDevice.deviceId);
+      await this.deps.voice.switchCamera(nextDevice.deviceId);
       this.currentCameraDeviceId = nextDevice.deviceId;
       
       // Update local preview with new stream
