@@ -31,5 +31,9 @@ window.env = {
 };
 EOF
 
+# Replace __SITE_URL__ placeholder in index.html for SEO meta tags and JSON-LD
+SITE_URL="${SITE_URL:-https://datasetto.com}"
+sed -i "s|__SITE_URL__|${SITE_URL}|g" /usr/share/nginx/html/index.html
+
 # Execute CMD
 exec "$@"

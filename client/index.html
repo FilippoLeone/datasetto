@@ -4,9 +4,128 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  
+  <!-- Primary Meta Tags -->
+  <title>Datasetto - Self-Hosted Streaming Platform</title>
+  <meta name="title" content="Datasetto - Self-Hosted Streaming Platform" />
+  <meta name="description" content="Open-source self-hosted streaming platform with RTMP streaming, WebRTC voice chat, and real-time text chat. Stream privately on your own infrastructure." />
+  <meta name="keywords" content="streaming platform, self-hosted, RTMP, WebRTC, voice chat, live streaming, open source, private streaming" />
+  <meta name="author" content="Datasetto" />
+  <meta name="robots" content="index, follow" />
+  <meta name="language" content="English" />
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="__SITE_URL__" />
+  <meta property="og:title" content="Datasetto - Self-Hosted Streaming Platform" />
+  <meta property="og:description" content="Open-source self-hosted streaming platform with RTMP streaming, WebRTC voice chat, and real-time text chat." />
+  <meta property="og:image" content="__SITE_URL__/og-image.png" />
+  <meta property="og:site_name" content="Datasetto" />
+  <meta property="og:locale" content="en_US" />
+  
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image" />
+  <meta property="twitter:url" content="__SITE_URL__" />
+  <meta property="twitter:title" content="Datasetto - Self-Hosted Streaming Platform" />
+  <meta property="twitter:description" content="Open-source self-hosted streaming platform with RTMP streaming, WebRTC voice chat, and real-time text chat." />
+  <meta property="twitter:image" content="__SITE_URL__/og-image.png" />
+  
+  <!-- Additional SEO -->
+  <link rel="canonical" href="__SITE_URL__" />
+  <meta name="theme-color" content="#5865F2" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Datasetto" />
+  
+  <!-- Favicons -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  
   <script src="/env-config.js"></script>
-  <title>Datasetto</title>
+  
+  <!-- Structured Data (JSON-LD) for SEO -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "#organization",
+        "name": "Datasetto",
+        "url": "__SITE_URL__",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "__SITE_URL__/favicon.svg"
+        }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "#website",
+        "name": "Datasetto",
+        "url": "__SITE_URL__",
+        "publisher": { "@id": "#organization" }
+      },
+      {
+        "@type": "WebApplication",
+        "name": "Datasetto",
+        "description": "Self-hosted streaming platform with RTMP streaming, WebRTC voice chat, and real-time text chat",
+        "applicationCategory": "MultimediaApplication",
+        "browserRequirements": "Requires JavaScript. Requires HTML5.",
+        "url": "__SITE_URL__",
+        "operatingSystem": "Any",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "author": { "@id": "#organization" }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "Datasetto Desktop",
+        "description": "Desktop application for Datasetto streaming platform with native performance",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": ["Windows", "macOS", "Linux"],
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "author": { "@id": "#organization" }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "Datasetto Mobile",
+        "description": "Mobile application for Datasetto streaming platform",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": ["Android", "iOS"],
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "author": { "@id": "#organization" }
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "__SITE_URL__"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "App",
+            "item": "__SITE_URL__/app"
+          }
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 
 <body>
