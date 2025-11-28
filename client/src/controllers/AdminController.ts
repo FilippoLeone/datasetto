@@ -148,6 +148,8 @@ export class AdminController {
     const button = this.deps.elements['superuser-menu-btn'] as HTMLButtonElement | undefined;
 
     if (menu) {
+      // Remove hidden class when opening, add it back when closing
+      menu.classList.toggle('hidden', !open);
       menu.classList.toggle('is-visible', open);
       menu.setAttribute('aria-hidden', open ? 'false' : 'true');
     }
@@ -662,6 +664,7 @@ export class AdminController {
     if (!this.hasManagementAccess) {
       const menu = this.deps.elements['superuser-menu'];
       if (menu) {
+        menu.classList.add('hidden');
         menu.classList.remove('is-visible');
         menu.setAttribute('aria-hidden', 'true');
       }
