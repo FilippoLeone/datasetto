@@ -97,7 +97,6 @@ generate_turn_password() {
 }
 
 TURN_PASSWORD=$(generate_turn_password)
-TURN_URL="turn:${DOMAIN}:3478"
 
 PUBLIC_IP_DETECTED=$(detect_public_ip)
 if [ -z "$PUBLIC_IP_DETECTED" ]; then
@@ -131,6 +130,25 @@ else
   TURN_ALT_LISTENING_IP="$TURN_ALT_LISTENING_IP_INPUT"
 fi
 
+# Check if using Cloudflare or similar proxy
+echo ""
+printf "Are you using Cloudflare tunnel or proxy? (yes/no) [no]: "
+read USING_CLOUDFLARE
+if [ "$USING_CLOUDFLARE" = "yes" ]; then
+  echo ""
+  echo "⚠️  Cloudflare tunnels do NOT support UDP traffic."
+  echo "   TURN server must be accessed via public IP, not domain."
+  echo "   Make sure to port-forward UDP 3478 and 49160-49200 on your router."
+  echo ""
+  # Use public IP for TURN when behind Cloudflare
+  TURN_URL="turn:${TURN_EXTERNAL_IP}:3478"
+  RTMP_URL="rtmp://${TURN_EXTERNAL_IP}/live"
+else
+  # Use domain for TURN when not behind proxy
+  TURN_URL="turn:${DOMAIN}:3478"
+  RTMP_URL="rtmp://${DOMAIN}/live"
+fi
+
 # Navigate to ops directory (assuming script is run from project root)
 echo ""
 echo "[1/3] Configuring environment..."
@@ -161,7 +179,7 @@ API_BASE_URL=/api
 # Mobile/Desktop Defaults (Absolute URLs required)
 VITE_MOBILE_DEFAULT_SERVER_URL=$SERVER_URL_ABSOLUTE
 VITE_MOBILE_DEFAULT_HLS_URL=$SERVER_URL_ABSOLUTE/hls
-VITE_MOBILE_DEFAULT_RTMP_URL=rtmp://$DOMAIN/live
+VITE_MOBILE_DEFAULT_RTMP_URL=$RTMP_URL
 
 # CORS Configuration
 CORS_ORIGIN=$CORS_ORIGIN
@@ -255,17 +273,25 @@ if [ "$HAS_DOMAIN" = "yes" ]; then
   echo "  HLS Streams: https://$DOMAIN/hls"
   echo ""
   echo "Note: Using Caddy reverse proxy - web traffic routes through port 80/443"
-  echo "Ensure RTMP port 1935 is reachable (direct or via proxy)"
-  echo "If using Cloudflare or similar proxy, set DNS A record to: $SERVER_IP"
+  if [ "$USING_CLOUDFLARE" = "yes" ]; then
+    echo ""
+    echo "⚠️  CLOUDFLARE MODE:"
+    echo "  TURN uses public IP: $TURN_EXTERNAL_IP (not proxied through Cloudflare)"
+    echo "  Make sure UDP ports 3478 and 49160-49200 are forwarded to this server"
+  else
+    echo "Ensure RTMP port 1935 is reachable (direct or via proxy)"
+    echo "If using Cloudflare or similar proxy, set DNS A record to: $SERVER_IP"
+  fi
 else
   echo "  Web Interface: http://$DOMAIN"
   echo "  Backend API: http://$DOMAIN"
   echo "  HLS Streams: http://$DOMAIN/hls"
 fi
-echo "  RTMP Server: rtmp://$DOMAIN/live"
+echo "  RTMP Server: $RTMP_URL"
+echo "  TURN Server: $TURN_URL"
 echo ""
 echo "OBS Streaming Setup:"
-echo "  Server: rtmp://$DOMAIN/live"
+echo "  Server: $RTMP_URL"
 echo "  Stream Key: Generated in app (admin feature)"
 echo ""
 echo "Useful commands:"

@@ -1,0 +1,33 @@
+# Coturn TURN Server Configuration
+# This file is processed by turn-entrypoint.sh to substitute environment variables
+
+listening-port=${TURN_PORT:-3478}
+min-port=${TURN_MIN_PORT:-49160}
+max-port=${TURN_MAX_PORT:-49200}
+
+# Authentication
+lt-cred-mech
+realm=${TURN_REALM:-localhost}
+server-name=${TURN_REALM:-localhost}
+
+# Security
+fingerprint
+stale-nonce
+
+# Disable TLS (handled by reverse proxy)
+no-tls
+no-dtls
+
+# Logging
+simple-log
+log-file=stdout
+verbose
+
+# Disable CLI
+no-cli
+
+# Allow relay to private networks (required for NAT traversal)
+allowed-peer-ip=10.0.0.0/8
+allowed-peer-ip=172.16.0.0/12
+allowed-peer-ip=192.168.0.0/16
+allowed-peer-ip=127.0.0.0/8
