@@ -15,5 +15,5 @@ services:
     environment:
       - ELECTRON_CACHE=/tmp/electron-cache
       - ELECTRON_BUILDER_CACHE=/tmp/electron-builder-cache
-    # Build Linux AppImage and deb for ARM64
-    command: ["--linux", "AppImage", "deb"]
+    # Build Linux AppImage and deb for ARM64 (native on Radxa)
+    command: ["--linux", "AppImage", "deb", "--arm64"]
