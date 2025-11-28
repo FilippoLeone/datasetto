@@ -86,6 +86,7 @@ export class SocketService extends EventEmitter<EventMap> {
    * Join a channel
    */
   joinChannel(channel: string): void {
+    console.log('[SocketService] Joining channel:', channel);
     this.socket?.emit('channel:join', channel);
   }
 
@@ -536,10 +537,12 @@ export class SocketService extends EventEmitter<EventMap> {
 
     // Chat events
     this.socket.on('chat', (message: ChatMessage) => {
+      console.log('[SocketService] Received chat message:', message);
       this.emit('chat:message', message);
     });
 
     this.socket.on('chat:history', (messages: ChatMessage[]) => {
+      console.log('[SocketService] Received chat:history:', messages.length, 'messages');
       this.emit('chat:history', messages);
     });
 
