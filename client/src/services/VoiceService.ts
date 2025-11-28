@@ -4,6 +4,7 @@
 import type { EventMap } from '@/types';
 import { EventEmitter, Storage } from '@/utils';
 import { isNativeAudioRoutingAvailable, selectNativeAudioRoute } from './NativeAudioRouteService';
+import { isElectron, isCapacitor } from '@/utils/device';
 import { config } from '@/config';
 
 // Default ICE servers: Google STUN + Metered.ca TURN (free tier: 500MB/month)
@@ -619,13 +620,16 @@ export class VoiceService extends EventEmitter<EventMap> {
   private handleRemoteTrack(peerId: string, stream: MediaStream): void {
     // Create or reuse audio element
     let audioElement = this.remoteAudios.get(peerId);
+    const isNative = isElectron() || isCapacitor();
     
     if (!audioElement) {
     audioElement = document.createElement('audio');
     audioElement.id = `audio-${peerId}`;
     audioElement.autoplay = true;
   audioElement.setAttribute('playsinline', 'true');
-    audioElement.muted = false;
+    // For native apps, mute the audio element since we output via context.destination
+    // This avoids double audio while still allowing play() lifecycle management
+    audioElement.muted = isNative;
       audioElement.defaultPlaybackRate = 1;
       audioElement.playbackRate = 1;
       const pitchSafeElement = audioElement as HTMLAudioElement & {
@@ -639,13 +643,16 @@ export class VoiceService extends EventEmitter<EventMap> {
     audioElement.volume = this.computeEffectiveVolume(DEFAULT_PEER_VOLUME);
     audioElement.dataset.peerId = peerId;
       
-      // Set output device if available
-      if (this.outputDeviceId && typeof audioElement.setSinkId === 'function') {
+      // Set output device if available (not used for native apps since audio goes through AudioContext)
+      if (!isNative && this.outputDeviceId && typeof audioElement.setSinkId === 'function') {
         audioElement.setSinkId(this.outputDeviceId).catch(console.error);
       }
 
       document.body.appendChild(audioElement);
       this.remoteAudios.set(peerId, audioElement);
+    } else if (isNative) {
+      // Ensure audio element is muted on native for reused elements
+      audioElement.muted = true;
     }
 
     const playbackStream = this.createPeerAudioPipeline(peerId, stream) ?? stream;
@@ -653,13 +660,13 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.applyPeerAudioState(peerId);
     
     // Log audio element state for debugging
-    console.log(`[VoiceService] Audio element for ${peerId}: muted=${audioElement.muted}, volume=${audioElement.volume}, paused=${audioElement.paused}`);
+    console.log(`[VoiceService] Audio element for ${peerId}: muted=${audioElement.muted}, volume=${audioElement.volume}, paused=${audioElement.paused}, isNative=${isNative}`);
     
     const playResult = audioElement.play();
     if (playResult instanceof Promise) {
       playResult
         .then(() => {
-          console.log(`[VoiceService] Audio playback started for peer ${peerId}`);
+          console.log(`[VoiceService] Audio playback started for peer ${peerId}${isNative ? ' (muted, using AudioContext)' : ''}`);
         })
         .catch((error) => {
           console.warn(`[VoiceService] Unable to autoplay remote audio for peer ${peerId}:`, error);
@@ -1839,15 +1846,24 @@ export class VoiceService extends EventEmitter<EventMap> {
     const localMuted = pref?.muted ?? false;
     const localVolume = this.normalizePeerVolume(pref?.volume);
     const boostFactor = localVolume > BOOST_THRESHOLD ? localVolume : 1;
+    const isNative = isElectron() || isCapacitor();
 
-    audio.muted = this.deafened || localMuted;
+    // For native apps, audio element is always muted (audio plays via AudioContext.destination)
+    // For web, audio element muted state depends on deafened/localMuted settings
+    audio.muted = isNative || this.deafened || localMuted;
     audio.volume = this.computeEffectiveVolume(localVolume);
     audio.dataset.localMuted = String(localMuted);
     audio.dataset.localVolume = localVolume.toString();
     audio.dataset.deafened = String(this.deafened);
     audio.dataset.volumeBoost = boostFactor.toString();
 
-    this.applyPeerGain(peerId, boostFactor);
+    // For native apps, we need to handle muting via the AudioContext gain node
+    // when user mutes a peer or enables deafen mode
+    if (isNative && (this.deafened || localMuted)) {
+      this.applyPeerGain(peerId, 0); // Mute by setting gain to 0
+    } else {
+      this.applyPeerGain(peerId, boostFactor);
+    }
   }
 
   private computeEffectiveVolume(localVolume: number): number {
@@ -1862,8 +1878,24 @@ export class VoiceService extends EventEmitter<EventMap> {
       return;
     }
 
-    const normalizedBoost = boostFactor > BOOST_THRESHOLD ? Math.min(boostFactor, MAX_PEER_VOLUME) : 1;
-    pipeline.gain.gain.value = normalizedBoost;
+    const isNative = isElectron() || isCapacitor();
+    let gainValue: number;
+    
+    if (boostFactor === 0) {
+      // Explicit mute (deafened or peer muted)
+      gainValue = 0;
+    } else if (isNative) {
+      // For native apps, apply full volume control through gain node
+      // (since audio element is muted)
+      const normalizedBoost = boostFactor > BOOST_THRESHOLD ? Math.min(boostFactor, MAX_PEER_VOLUME) : 1;
+      gainValue = normalizedBoost * this.outputVolume;
+    } else {
+      // For web, only apply boost (volume is controlled by audio element)
+      const normalizedBoost = boostFactor > BOOST_THRESHOLD ? Math.min(boostFactor, MAX_PEER_VOLUME) : 1;
+      gainValue = normalizedBoost;
+    }
+    
+    pipeline.gain.gain.value = gainValue;
   }
 
   private createPeerAudioPipeline(peerId: string, stream: MediaStream): MediaStream | null {
@@ -1888,11 +1920,24 @@ export class VoiceService extends EventEmitter<EventMap> {
       const source = context.createMediaStreamSource(stream);
       const gain = context.createGain();
       gain.gain.value = 1;
+      
       const destination = context.createMediaStreamDestination();
       source.connect(gain);
       gain.connect(destination);
+      
+      // For native apps (Electron/Capacitor), ALSO connect to context.destination
+      // This is a workaround for a Chromium bug where MediaStreamDestination.stream
+      // doesn't always route audio correctly when used as srcObject for an audio element.
+      // By connecting to context.destination as well, audio plays directly to speakers.
+      // The audio element will be muted in handleRemoteTrack to avoid double audio.
+      const isNative = isElectron() || isCapacitor();
+      if (isNative) {
+        gain.connect(context.destination);
+        console.log(`[VoiceService] Native app: also connected gain to context.destination for peer ${peerId}`);
+      }
+      
       this.peerAudioPipelines.set(peerId, { source, gain, destination });
-      console.log(`[VoiceService] Audio pipeline created for peer ${peerId}, context state: ${context.state}`);
+      console.log(`[VoiceService] Audio pipeline created for peer ${peerId}, context state: ${context.state}, isNative: ${isNative}`);
       return destination.stream;
     } catch (error) {
       console.warn(`[VoiceService] Unable to create gain pipeline for peer ${peerId}:`, error);

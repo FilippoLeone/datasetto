@@ -9,16 +9,85 @@ const LOG_MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB max log size
 let logFilePath = null;
 let logStream = null;
 
-function initLogging() {
+/**
+ * Determine the best log directory:
+ * 1. For portable/standalone: use the directory where the exe is located
+ * 2. For installed apps: use userData (AppData)
+ * 3. Fallback to Desktop if all else fails
+ */
+function getLogDirectory() {
+  const tryWrite = (dir) => {
+    try {
+      const testFile = path.join(dir, '.datasetto-write-test');
+      fs.writeFileSync(testFile, 'test', { flag: 'w' });
+      fs.unlinkSync(testFile);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
   try {
-    const userDataPath = app.getPath('userData');
-    logFilePath = path.join(userDataPath, 'datasetto.log');
+    // For packaged app, try exe directory first (portable mode)
+    if (app.isPackaged) {
+      const exeDir = path.dirname(process.execPath);
+      if (tryWrite(exeDir)) {
+        return exeDir;
+      }
+    }
+    
+    // Try userData directory
+    try {
+      const userDataPath = app.getPath('userData');
+      if (!fs.existsSync(userDataPath)) {
+        fs.mkdirSync(userDataPath, { recursive: true });
+      }
+      if (tryWrite(userDataPath)) {
+        return userDataPath;
+      }
+    } catch (e) {
+      // Continue to next fallback
+    }
+    
+    // Fallback to Desktop (should always be writable)
+    try {
+      const desktopPath = app.getPath('desktop');
+      if (tryWrite(desktopPath)) {
+        return desktopPath;
+      }
+    } catch (e) {
+      // Continue to next fallback
+    }
+    
+    // Last resort: temp directory
+    return app.getPath('temp');
+  } catch (err) {
+    // Absolute fallback
+    return app.getPath('temp');
+  }
+}
+
+function initLogging() {
+  // Store original console methods before overriding
+  const originalConsoleLog = console.log;
+  const originalConsoleWarn = console.warn;
+  const originalConsoleError = console.error;
+  const originalConsoleInfo = console.info;
+  
+  try {
+    const logDir = getLogDirectory();
+    logFilePath = path.join(logDir, 'datasetto.log');
+    
+    originalConsoleLog('[Desktop] Log directory:', logDir);
+    originalConsoleLog('[Desktop] Log file path:', logFilePath);
+    originalConsoleLog('[Desktop] App packaged:', app.isPackaged);
+    originalConsoleLog('[Desktop] Exe path:', process.execPath);
     
     // Rotate log if too large
     try {
       const stats = fs.statSync(logFilePath);
       if (stats.size > LOG_MAX_SIZE_BYTES) {
-        const oldLogPath = path.join(userDataPath, 'datasetto.old.log');
+        const oldLogPath = path.join(logDir, 'datasetto.old.log');
         if (fs.existsSync(oldLogPath)) {
           fs.unlinkSync(oldLogPath);
         }
@@ -30,15 +99,14 @@ function initLogging() {
     
     logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
     
-    // Write startup header
-    const startupMsg = `\n${'='.repeat(60)}\n[${new Date().toISOString()}] Datasetto Desktop starting...\nPlatform: ${process.platform}, Arch: ${process.arch}, Electron: ${process.versions.electron}, Node: ${process.versions.node}\n${'='.repeat(60)}\n`;
-    logStream.write(startupMsg);
+    // Handle stream errors
+    logStream.on('error', (err) => {
+      originalConsoleError('[Desktop] Log stream error:', err);
+    });
     
-    // Override console methods to also write to log file
-    const originalConsoleLog = console.log;
-    const originalConsoleWarn = console.warn;
-    const originalConsoleError = console.error;
-    const originalConsoleInfo = console.info;
+    // Write startup header
+    const startupMsg = `\n${'='.repeat(60)}\n[${new Date().toISOString()}] Datasetto Desktop starting...\nPlatform: ${process.platform}, Arch: ${process.arch}, Electron: ${process.versions.electron}, Node: ${process.versions.node}\nLog file: ${logFilePath}\nExe path: ${process.execPath}\nPackaged: ${app.isPackaged}\n${'='.repeat(60)}\n`;
+    logStream.write(startupMsg);
     
     const writeToLog = (level, args) => {
       if (!logStream) return;
@@ -78,7 +146,9 @@ function initLogging() {
     
     console.log('[Desktop] Logging initialized at:', logFilePath);
   } catch (error) {
-    console.error('[Desktop] Failed to initialize logging:', error);
+    // Use original console.error since we haven't overridden it yet
+    const origError = console.error;
+    origError('[Desktop] Failed to initialize logging:', error);
   }
 }
 
@@ -90,8 +160,8 @@ function closeLogging() {
   }
 }
 
-// Initialize logging as early as possible
-initLogging();
+// Don't initialize logging here - do it after app is ready
+// initLogging() is called in app.whenReady()
 
 // ============================================
 // App Setup
@@ -374,6 +444,22 @@ function createWindow() {
     mainWindow.loadFile(resolveRendererFile());
   }
 
+  // Register keyboard shortcuts for debugging (works in production too)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    // Ctrl+Shift+I or F12 to open DevTools
+    if ((input.control && input.shift && input.key === 'I') || input.key === 'F12') {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+    // Ctrl+Shift+L to open log file location
+    if (input.control && input.shift && input.key === 'L') {
+      if (logFilePath) {
+        shell.showItemInFolder(logFilePath);
+      }
+      event.preventDefault();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -503,6 +589,9 @@ function showAlreadyRunningWarning() {
 }
 
 app.whenReady().then(() => {
+  // Initialize logging first (needs app to be ready for getPath)
+  initLogging();
+  
   // Set app user model ID for Windows notifications
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.datasetto.desktop');
