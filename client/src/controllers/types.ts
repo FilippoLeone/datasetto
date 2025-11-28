@@ -1,5 +1,5 @@
 import type { StateManager } from '@/utils';
-import type { SocketService, AudioNotificationService, PlayerService, AudioService, VoiceService } from '@/services';
+import type { SocketService, AudioNotificationService, PlayerService, AudioService, VoiceService, SEOService } from '@/services';
 import type { NotificationManager } from '@/components/NotificationManager';
 import type { AnimationController } from '@/utils/AnimationController';
 import type { AuthStateSnapshot } from './AuthController';
@@ -122,6 +122,7 @@ export interface NavigationControllerDeps {
   elements: ElementMap;
   animator: AnimationController;
   soundFX: AudioNotificationService;
+  seo: SEOService;
   addListener: (
     element: EventTarget | null | undefined,
     event: string,

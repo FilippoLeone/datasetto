@@ -76,6 +76,9 @@ export class NavigationController {
 
     this.deps.soundFX.play('channelVoice', 0.55);
     
+    // Update SEO
+    this.deps.seo.setChannelSchema(channelName, `Voice channel: ${channelName}`, false);
+
     if (import.meta.env.DEV) {
       console.log('📍 Voice channel selected (viewing, not voice connected):', channelName);
     }
@@ -132,6 +135,13 @@ export class NavigationController {
     const headerIcon = document.querySelector('.chat-header .channel-icon');
     if (headerIcon) {
       headerIcon.textContent = channelIcon;
+    }
+
+    // Update SEO
+    if (type === 'stream') {
+      this.deps.seo.setChannelSchema(channelName, `Live stream: ${channelName}`, true);
+    } else {
+      this.deps.seo.setChannelSchema(channelName, `${type} channel: ${channelName}`, false);
     }
 
     this.updateStreamLayoutMode(type, channelName);

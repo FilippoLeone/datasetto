@@ -6,3 +6,4 @@ export * from './PlayerService';
 export * from './AudioNotificationService';
 export * from './ForegroundServiceManager';
 export * from './NativeAudioRouteService';
+export * from './SEOService';

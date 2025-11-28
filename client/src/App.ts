@@ -2,7 +2,7 @@
  * Main Application Controller
  * Coordinates all services and manages application lifecycle
  */
-import { SocketService, AudioService, VoiceService, PlayerService, AudioNotificationService } from '@/services';
+import { SocketService, AudioService, VoiceService, PlayerService, AudioNotificationService, SEOService } from '@/services';
 import { VoicePanelController } from '@/ui/VoicePanelController';
 import { StateManager, AnimationController, hasPermission } from '@/utils';
 import { NotificationManager } from '@/components/NotificationManager';
@@ -44,6 +44,7 @@ export class App {
   private notifications: NotificationManager;
   private soundFX: AudioNotificationService;
   private animator: AnimationController;
+  private seo: SEOService;
 
   // DOM Elements
   private elements: Record<string, HTMLElement> = {};
@@ -82,6 +83,7 @@ export class App {
     this.notifications = new NotificationManager();
     this.soundFX = new AudioNotificationService();
     this.animator = new AnimationController();
+    this.seo = new SEOService();
 
     // Initialize services
     this.socket = new SocketService(SERVER_URL);
@@ -271,6 +273,7 @@ export class App {
       elements: this.elements,
       animator: this.animator,
       soundFX: this.soundFX,
+      seo: this.seo,
       addListener: (element, event, handler, options) => this.addTrackedListener(element, event, handler, options),
       socketJoinChannel: (channelId) => this.socket.joinChannel(channelId),
       stateSetChannelWithType: (channelId, type) => this.state.setChannelWithType(channelId, type),
