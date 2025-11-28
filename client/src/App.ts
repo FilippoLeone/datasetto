@@ -74,6 +74,9 @@ export class App {
   constructor() {
     validateEnv();
 
+    // Detect native app context (Electron or Capacitor)
+    this.detectNativeApp();
+
     // Initialize state and notifications
     this.state = new StateManager();
     this.notifications = new NotificationManager();
@@ -1252,6 +1255,19 @@ export class App {
 
   private isMobileLayout(): boolean {
     return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  /**
+   * Detect if running in a native app context (Electron or Capacitor)
+   * and add appropriate class to body for CSS targeting
+   */
+  private detectNativeApp(): void {
+    const isElectron = !!(window as any).desktopAPI;
+    const isCapacitor = !!(window as any).Capacitor?.isNativePlatform?.();
+    
+    if (isElectron || isCapacitor) {
+      document.body.classList.add('native-app');
+    }
   }
 
   /**

@@ -20,7 +20,8 @@ function defineGlobals() {
     showNotification: (options) => ipcRenderer.invoke('notification:show', options),
     checkNotificationPermission: () => ipcRenderer.invoke('notification:check-permission'),
     updateVoiceActivity: (state) => ipcRenderer.send('voice:activity', state),
-    pickScreenshareSource: (options) => ipcRenderer.invoke('screenshare:pick-source', options)
+    pickScreenshareSource: (options) => ipcRenderer.invoke('screenshare:pick-source', options),
+    openExternal: (url) => ipcRenderer.invoke('shell:open-external', url)
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);

@@ -4256,3 +4256,9 @@ body.native-fullscreen-active #inlineVideoContainer .inline-video-stage>canvas {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* Hide elements in native apps (Electron/Capacitor) */
+/* Applied via JS when running in desktop or mobile app context */
+body.native-app .native-app-hidden {
+  display: none !important;
+}
