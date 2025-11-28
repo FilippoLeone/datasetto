@@ -4,20 +4,21 @@
 # Builds Electron app using Docker - no npm/node required on host
 #
 # Usage:
-#   ./build-desktop.sh              # Build for Linux ARM64 (native)
-#   ./build-desktop.sh linux        # Build Linux x64 + ARM64
-#   ./build-desktop.sh win          # Build Windows x64 (via Wine)
-#   ./build-desktop.sh all          # Build all platforms
+#   ./build-desktop.sh              # Build Linux for current arch (ARM64 on Radxa)
+#   ./build-desktop.sh linux        # Build Linux AppImage + deb
+#
+# NOTE: Windows builds do NOT work on ARM64 - use GitHub Actions instead!
 #
 # Requirements:
-#   - Docker and Docker Compose installed
+#   - Docker installed
 #   - Sufficient disk space (~2GB for builder image + builds)
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLATFORM="${1:-linux-native}"
+PLATFORM="${1:-linux}"
+HOST_ARCH=$(uname -m)
 
 # Colors for output
 RED='\033[0;31m'
@@ -158,25 +159,29 @@ EOF
 
 # Main build logic
 case "$PLATFORM" in
-    linux-native|native)
-        # Build for host architecture (ARM64 on Radxa)
+    linux|linux-native|native)
+        # Build for host architecture
         build_with_docker "--linux AppImage deb" "Linux $(uname -m)"
-        ;;
-    linux)
-        # Build for x64 (may need QEMU on ARM)
-        build_with_docker "--linux AppImage deb --x64" "Linux x64"
         ;;
     linux-arm|arm|arm64)
         build_with_docker "--linux AppImage deb --arm64" "Linux ARM64"
         ;;
-    win|windows)
-        echo -e "${YELLOW}⚠️  Windows builds use Wine and may be slow on ARM${NC}"
-        build_with_docker "--win nsis portable --x64" "Windows x64"
-        ;;
-    all)
-        echo -e "${YELLOW}⚠️  Building all platforms - this will take a while${NC}"
-        build_with_docker "--linux AppImage deb --arm64" "Linux ARM64"
+    linux-x64|x64)
         build_with_docker "--linux AppImage deb --x64" "Linux x64"
+        ;;
+    win|windows)
+        if [ "$HOST_ARCH" = "aarch64" ]; then
+            echo -e "${RED}❌ Windows builds are NOT supported on ARM64!${NC}"
+            echo ""
+            echo "Wine does not work properly on ARM64 architecture."
+            echo ""
+            echo "Alternatives:"
+            echo "  1. Build Linux instead: ./build-desktop.sh linux"
+            echo "  2. Use GitHub Actions for Windows builds"
+            echo "  3. Use an x86_64 machine"
+            echo ""
+            exit 1
+        fi
         build_with_docker "--win nsis portable --x64" "Windows x64"
         ;;
     *)
@@ -185,11 +190,17 @@ case "$PLATFORM" in
         echo "Usage: $0 [platform]"
         echo ""
         echo "Platforms:"
-        echo "  linux-native  Build for host architecture (default)"
-        echo "  linux         Build Linux x64"
-        echo "  linux-arm     Build Linux ARM64"
-        echo "  win           Build Windows x64 (via Wine)"
-        echo "  all           Build all platforms"
+        echo "  linux       Build Linux for current architecture (default)"
+        echo "  linux-arm   Build Linux ARM64"
+        echo "  linux-x64   Build Linux x64"
+        if [ "$HOST_ARCH" != "aarch64" ]; then
+            echo "  win         Build Windows x64 (x86 hosts only)"
+        fi
+        echo ""
+        if [ "$HOST_ARCH" = "aarch64" ]; then
+            echo -e "${YELLOW}Note: Windows builds require an x86_64 host.${NC}"
+            echo "      Use GitHub Actions for Windows releases."
+        fi
         exit 1
         ;;
 esac

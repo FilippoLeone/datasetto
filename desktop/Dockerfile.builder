@@ -1,26 +1,20 @@
-# Multi-platform Electron Builder
-# Builds Datasetto desktop app without requiring npm on host
+# Datasetto Desktop Builder for ARM64 (Radxa)
+# Builds Linux releases natively on ARM64 hosts
+#
+# Usage:
+#   docker compose -f docker-compose.builder.yml up --build
 
 FROM node:20-bookworm
 
-# Install build dependencies
+# Install build dependencies for Linux
 RUN apt-get update && apt-get install -y \
-    # For Linux builds
-    rpm \
     fakeroot \
     dpkg \
-    # For Windows builds (Wine)
-    wine64 \
-    # For icon generation
+    rpm \
     imagemagick \
-    # Utilities
     git \
     zip \
     && rm -rf /var/lib/apt/lists/*
-
-# Set Wine to 64-bit mode
-ENV WINEARCH=win64
-ENV WINEPREFIX=/root/.wine
 
 # Create app directory
 WORKDIR /build
@@ -56,7 +50,5 @@ RUN node ./scripts/generate-icon.mjs || true
 # Clean previous release
 RUN node ./scripts/clean-release.mjs || true
 
-# Default: build for current platform
-# Override with: docker run ... --platform linux
 ENTRYPOINT ["npx", "electron-builder"]
 CMD ["--linux", "AppImage", "deb"]

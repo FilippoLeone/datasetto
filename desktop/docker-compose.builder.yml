@@ -1,5 +1,8 @@
-# Desktop Builder Service
-# Run with: docker compose -f docker-compose.builder.yml up --build
+# Datasetto Desktop Builder for Radxa/ARM64
+# 
+# Usage:
+#   docker compose -f docker-compose.builder.yml up --build
+#
 # Artifacts will be in ./release/
 
 services:
@@ -8,24 +11,9 @@ services:
       context: ..
       dockerfile: desktop/Dockerfile.builder
     volumes:
-      # Mount release directory to get built artifacts
       - ./release:/build/desktop/release
     environment:
       - ELECTRON_CACHE=/tmp/electron-cache
       - ELECTRON_BUILDER_CACHE=/tmp/electron-builder-cache
-    # Build for Linux by default (fastest, no Wine needed)
-    command: ["--linux", "AppImage", "deb", "--x64"]
-
-  # Alternative: Build for Windows (slower, uses Wine)
-  builder-win:
-    build:
-      context: ..
-      dockerfile: desktop/Dockerfile.builder
-    volumes:
-      - ./release:/build/desktop/release
-    environment:
-      - ELECTRON_CACHE=/tmp/electron-cache
-      - ELECTRON_BUILDER_CACHE=/tmp/electron-builder-cache
-    command: ["--win", "nsis", "portable", "--x64"]
-    profiles:
-      - windows
+    # Build Linux AppImage and deb for ARM64
+    command: ["--linux", "AppImage", "deb"]
