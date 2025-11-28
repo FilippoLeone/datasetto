@@ -32,16 +32,19 @@ export class ChatController {
 
   sendMessage(message: string): void {
     if (!message.trim()) return;
+    console.log('[ChatController] sendMessage:', message);
 
     this.deps.socket.sendMessage(message);
     this.deps.soundFX.play('messageSent', 0.6);
   }
 
   handleChatMessage(message: ChatMessage, options?: { muteSound?: boolean }): void {
+    console.log('[ChatController] handleChatMessage:', message);
     this.appendChatMessage(message, options);
   }
 
   handleChatHistory(messages: ChatMessage[]): void {
+    console.log('[ChatController] handleChatHistory:', messages.length, 'messages');
     messages.forEach((message) => {
       this.appendChatMessage(message, { muteSound: true });
     });
@@ -126,7 +129,11 @@ export class ChatController {
 
   private appendChatMessage(message: ChatMessage, options?: { muteSound?: boolean }): void {
     const msgsContainer = this.deps.elements.msgs;
-    if (!msgsContainer) return;
+    console.log('[ChatController] appendChatMessage - msgsContainer:', msgsContainer, 'message:', message);
+    if (!msgsContainer) {
+      console.error('[ChatController] appendChatMessage - NO msgs container found!');
+      return;
+    }
 
     const previousMessage = msgsContainer.lastElementChild as HTMLElement | null;
     const previousTimestamp = previousMessage?.dataset.timestamp ? Number(previousMessage.dataset.timestamp) : null;
