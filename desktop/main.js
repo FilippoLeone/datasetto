@@ -12,8 +12,10 @@ let trayHintShown = false;
 const supportsTrayMinimize = process.platform === 'win32';
 const SINGLE_INSTANCE_WARNING_COOLDOWN_MS = 8000;
 const trayIconImages = {
-  idle: null,
-  speaking: null,
+  idle: null,       // Gray microphone - not connected
+  connected: null,  // White microphone - connected to voice
+  speaking: null,   // White microphone with green glow - speaking
+  muted: null,      // Gray microphone with red slash - muted
 };
 const trayVoiceState = {
   connected: false,
@@ -153,18 +155,31 @@ function loadTrayImages() {
     return;
   }
 
-  const winIcon = resolveResourcePath('icon.ico');
-  const winSpeakingIcon = resolveResourcePath('icon-speaking.ico');
-  const pngIcon = resolveResourcePath('icon.png');
-  const pngSpeakingIcon = resolveResourcePath('icon-speaking.png');
+  // Load microphone-based tray icons (Discord-style)
+  const states = ['idle', 'connected', 'speaking', 'muted'];
+  
+  for (const state of states) {
+    const icoPath = resolveResourcePath(`tray-${state}.ico`);
+    const pngPath = resolveResourcePath(`tray-${state}.png`);
+    const imagePath = process.platform === 'win32' ? icoPath : pngPath;
+    
+    const image = nativeImage.createFromPath(imagePath);
+    trayIconImages[state] = image && typeof image.isEmpty === 'function' && !image.isEmpty() ? image : null;
+  }
 
-  const idleImage = nativeImage.createFromPath(process.platform === 'win32' ? winIcon : pngIcon);
-  const speakingImage = nativeImage.createFromPath(process.platform === 'win32' ? winSpeakingIcon : pngSpeakingIcon);
-
-  trayIconImages.idle = idleImage && typeof idleImage.isEmpty === 'function' && !idleImage.isEmpty() ? idleImage : null;
-  trayIconImages.speaking = speakingImage && typeof speakingImage.isEmpty === 'function' && !speakingImage.isEmpty()
-    ? speakingImage
-    : trayIconImages.idle;
+  // Fallback to legacy icons if new ones don't exist
+  if (!trayIconImages.idle) {
+    const fallbackIco = resolveResourcePath('icon.ico');
+    const fallbackPng = resolveResourcePath('icon.png');
+    const fallbackPath = process.platform === 'win32' ? fallbackIco : fallbackPng;
+    const fallbackImage = nativeImage.createFromPath(fallbackPath);
+    trayIconImages.idle = fallbackImage && !fallbackImage.isEmpty() ? fallbackImage : null;
+  }
+  
+  // Use idle as fallback for other states if they don't exist
+  if (!trayIconImages.connected) trayIconImages.connected = trayIconImages.idle;
+  if (!trayIconImages.speaking) trayIconImages.speaking = trayIconImages.idle;
+  if (!trayIconImages.muted) trayIconImages.muted = trayIconImages.idle;
 }
 
 function updateTrayVoiceIndicator(partialState = {}) {
@@ -176,19 +191,29 @@ function updateTrayVoiceIndicator(partialState = {}) {
   trayVoiceState.speaking = typeof partialState.speaking === 'boolean' ? partialState.speaking : trayVoiceState.speaking;
   trayVoiceState.muted = typeof partialState.muted === 'boolean' ? partialState.muted : trayVoiceState.muted;
 
-  const shouldHighlight = trayVoiceState.connected && trayVoiceState.speaking && !trayVoiceState.muted;
-  const nextImage = shouldHighlight && trayIconImages.speaking ? trayIconImages.speaking : trayIconImages.idle;
+  // Determine which icon state to show (Discord-style priority)
+  let iconState = 'idle';
+  let tooltipDetail = 'Click to reopen';
+
+  if (trayVoiceState.connected) {
+    if (trayVoiceState.muted) {
+      iconState = 'muted';
+      tooltipDetail = 'Muted in voice channel';
+    } else if (trayVoiceState.speaking) {
+      iconState = 'speaking';
+      tooltipDetail = 'Speaking in voice channel';
+    } else {
+      iconState = 'connected';
+      tooltipDetail = 'Connected to voice channel';
+    }
+  }
+
+  const nextImage = trayIconImages[iconState] ?? trayIconImages.idle;
   if (nextImage) {
     tray.setImage(nextImage);
   }
 
-  const tooltipBase = 'Datasetto';
-  const tooltipDetail = !trayVoiceState.connected
-    ? 'Click to reopen'
-    : shouldHighlight
-      ? 'Speaking in voice channel'
-      : 'Connected to voice channel';
-  tray.setToolTip(`${tooltipBase}${tooltipDetail ? ` — ${tooltipDetail}` : ''}`);
+  tray.setToolTip(`Datasetto — ${tooltipDetail}`);
 }
 
 function createWindow() {
@@ -219,6 +244,31 @@ function createWindow() {
   if (typeof mainWindow.setMenuBarVisibility === 'function') {
     mainWindow.setMenuBarVisibility(false);
   }
+
+  // Handle window.open() popouts (e.g., screenshare video popout)
+  mainWindow.webContents.setWindowOpenHandler(({ url, frameName, features }) => {
+    // Allow the video popout window with native look (no menu bar)
+    if (frameName === 'datasetto-video-popout' || features?.includes('menubar=no')) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          autoHideMenuBar: true,
+          menuBarVisible: false,
+          backgroundColor: '#05060b',
+          title: 'Datasetto - Video',
+          icon: resolveResourcePath('icon.png'),
+        }
+      };
+    }
+    // Default: allow other windows but also hide menu bar
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        autoHideMenuBar: true,
+        menuBarVisible: false,
+      }
+    };
+  });
 
   const startUrl = process.env.ELECTRON_START_URL;
   if (isDev && startUrl) {

@@ -122,6 +122,7 @@ export class VoiceController {
     this.deps.soundFX.play(muted ? 'mute' : 'unmute');
     this.updateMuteButtons();
     this.renderVoiceUsers();
+    this.emitDesktopVoiceState();
   }
 
   async toggleDeafen(): Promise<void> {
@@ -138,6 +139,7 @@ export class VoiceController {
     this.deps.soundFX.play(deafened ? 'deafen' : 'undeafen');
     this.updateMuteButtons();
     this.renderVoiceUsers();
+    this.emitDesktopVoiceState();
   }
 
   async toggleMuteAndDeafen(): Promise<void> {
@@ -158,6 +160,7 @@ export class VoiceController {
     this.deps.soundFX.play(enableSilence ? 'deafen' : 'undeafen');
     this.updateMuteButtons();
     this.renderVoiceUsers();
+    this.emitDesktopVoiceState();
   }
 
   // ==================== VIDEO CONTROLS ====================
