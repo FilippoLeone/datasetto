@@ -60,9 +60,13 @@ WORKDIR /build/client
 ENV VITE_BUILD_TARGET=mobile
 RUN npm run build
 
-# Sync Capacitor
+# Copy built client to mobile www folder
 WORKDIR /build/mobile
-RUN npx cap sync android
+RUN mkdir -p www && cp -r ../client/dist/* www/
+
+# Add Android platform if not exists, then sync
+# The android folder from the repo should be copied, but cap sync will update it
+RUN npx cap add android 2>/dev/null || true && npx cap sync android
 
 # Build APK
 WORKDIR /build/mobile/android
