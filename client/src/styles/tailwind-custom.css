@@ -106,6 +106,31 @@
 
   .modal-header h3 {
     @apply text-xl font-bold text-text-normal m-0 tracking-tight;
+    display: flex;
+    align-items: center;
+  }
+
+  .modal-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: none;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+
+  .modal-close-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-normal);
+  }
+
+  .modal-close-btn:active {
+    transform: scale(0.95);
   }
 
   .modal-body {
@@ -414,9 +439,9 @@
     min-width: 0;
     /* Allow flex items to shrink below content size */
     display: flex;
-    gap: 0.65rem;
+    gap: 0.5rem;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     padding: 0.75rem 1rem;
     border-radius: calc(var(--radius-md) + 2px);
     border: 1px solid transparent;
@@ -424,7 +449,19 @@
     color: var(--color-text-muted);
     text-align: left;
     cursor: pointer;
+    font-weight: 500;
+    font-size: 0.9rem;
     transition: border-color var(--transition-base) ease, background var(--transition-base) ease, color var(--transition-base) ease, transform var(--transition-fast) ease;
+  }
+
+  .modal-tab svg {
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+
+  .modal-tab:hover svg,
+  .modal-tab[aria-selected="true"] svg {
+    opacity: 1;
   }
 
   .modal-tab:hover,
@@ -522,6 +559,235 @@
   .modal-subtitle {
     font-size: 0.85rem;
     color: rgba(173, 173, 184, 0.75);
+  }
+
+  /* ========================================
+     Superuser Control Center Styles
+     ======================================== */
+  
+  .superuser-modal-card {
+    width: min(95vw, 720px) !important;
+    max-width: 720px !important;
+  }
+
+  .superuser-panels {
+    margin-top: 1rem;
+  }
+
+  .superuser-panel {
+    display: none;
+  }
+
+  .superuser-panel.active {
+    display: block;
+  }
+
+  .superuser-panel-header {
+    margin-bottom: 1rem;
+  }
+
+  .superuser-panel-header p {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .superuser-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .superuser-empty {
+    text-align: center;
+    padding: 2rem;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 12px;
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+  }
+
+  /* Account & Channel Cards */
+  .superuser-account-card,
+  .superuser-channel-card {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    transition: all 150ms ease;
+  }
+
+  .superuser-account-card:hover,
+  .superuser-channel-card:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .superuser-account-info,
+  .superuser-channel-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .superuser-account-name,
+  .superuser-channel-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-text-normal);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .superuser-account-meta,
+  .superuser-channel-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+  }
+
+  .superuser-account-status {
+    font-size: 0.8rem;
+    color: #22c55e;
+    font-weight: 500;
+  }
+
+  .superuser-account-status.disabled {
+    color: #ef4444;
+  }
+
+  /* Role Tags */
+  .superuser-role-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-radius: 6px;
+    background: rgba(99, 102, 241, 0.15);
+    color: #a5b4fc;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+  }
+
+  .superuser-role-tag.superuser {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.15));
+    color: #fcd34d;
+    border-color: rgba(251, 191, 36, 0.35);
+  }
+
+  /* Action Buttons */
+  .superuser-account-actions,
+  .superuser-channel-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .superuser-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-normal);
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+
+  .superuser-action-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+  }
+
+  .superuser-action-btn:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  .superuser-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .superuser-action-btn.danger {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.25);
+    color: #f87171;
+  }
+
+  .superuser-action-btn.danger:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.4);
+  }
+
+  /* Channel Type Badge */
+  .superuser-channel-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-muted);
+  }
+
+  .superuser-channel-type.voice {
+    background: rgba(34, 197, 94, 0.1);
+    color: #4ade80;
+  }
+
+  .superuser-channel-type.text {
+    background: rgba(59, 130, 246, 0.1);
+    color: #60a5fa;
+  }
+
+  /* Mobile responsiveness */
+  @media (max-width: 640px) {
+    .superuser-modal-card {
+      width: 100% !important;
+      max-width: 100% !important;
+      border-radius: 16px 16px 0 0;
+      max-height: 85vh;
+    }
+
+    .superuser-account-card,
+    .superuser-channel-card {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.75rem;
+    }
+
+    .superuser-account-actions,
+    .superuser-channel-actions {
+      justify-content: flex-end;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 0.75rem;
+      margin-top: 0.25rem;
+    }
+
+    .superuser-action-btn {
+      flex: 1;
+    }
   }
 
   /* Buttons */
