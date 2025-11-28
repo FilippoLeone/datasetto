@@ -80,6 +80,8 @@ services:
       - MAX_CONNECTIONS_PER_IP=${MAX_CONNECTIONS_PER_IP:-10}
       - MAX_CHANNELS=${MAX_CHANNELS:-50}
       - MAX_USERS_PER_CHANNEL=${MAX_USERS_PER_CHANNEL:-50}
+      # Redis connection for persistent storage
+      - REDIS_URL=redis://redis:6379
       # Release directories for the downloads API
       - RELEASES_DESKTOP_DIR=/releases/desktop
       - RELEASES_MOBILE_DIR=/releases/mobile
@@ -87,10 +89,13 @@ services:
       # Mount release directories for the downloads API
       - ../desktop/release:/releases/desktop:ro
       - ../mobile/release:/releases/mobile:ro
+      # Persistent storage volume for file-based fallback
+      - datasetto_storage:/app/storage
     networks:
       - app-network
     depends_on:
       - turn
+      - redis
     deploy:
       resources:
         limits:
@@ -193,9 +198,48 @@ services:
       retries: 3
       start_period: 10s
 
+  # Redis Database (Persistent storage for accounts, messages, sessions)
+  redis:
+    image: redis:7-alpine
+    container_name: redis-db
+    restart: unless-stopped
+    networks:
+      - app-network
+    volumes:
+      # Persistent volume - survives container destruction
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 160M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 volumes:
   caddy_data:
   caddy_config:
+  redis_data:
+    # This volume persists Redis data outside of containers
+    # Even if you destroy all containers, data will be preserved
+    # Location on host: /var/lib/docker/volumes/ops_redis_data/_data
+    driver: local
+  datasetto_storage:
+    # Persistent storage for server data (accounts, messages, etc.)
+    driver: local
 
 networks:
   app-network:

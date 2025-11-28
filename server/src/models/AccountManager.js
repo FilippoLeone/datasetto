@@ -6,7 +6,14 @@ import { generateId, validateUsername } from '../utils/helpers.js';
 import { appConfig } from '../config/index.js';
 import logger from '../utils/logger.js';
 
+// Redis imports (dynamically loaded)
+let RedisStore = null;
+let redisInstance = null;
+
 const ACCOUNT_FILE_VERSION = 1;
+const REDIS_ACCOUNTS_NS = 'accounts';
+const REDIS_SESSIONS_NS = 'sessions';
+const REDIS_USERNAME_INDEX = 'username_index';
 
 function validatePassword(password) {
   const minLength = Math.max(appConfig.security?.passwordMinLength || 8, 8);
@@ -38,8 +45,135 @@ export class AccountManager {
     this.saltRounds = options.saltRounds || 10;
 
     this._pendingPersist = null;
+    this._useRedis = false;
+    this._redisInitialized = false;
 
+    // Try to initialize Redis if REDIS_URL is set
+    this._initRedis();
+    
+    // Load from disk as fallback/initial data
     this.loadFromDisk();
+  }
+
+  async _initRedis() {
+    if (!appConfig.storage.redisUrl) {
+      logger.info('[AccountManager] No REDIS_URL configured, using file storage');
+      return;
+    }
+
+    try {
+      // Dynamic import of Redis store
+      const { getRedisStore } = await import('../storage/RedisStore.js');
+      redisInstance = await getRedisStore();
+      
+      if (redisInstance && redisInstance.isConnected) {
+        this._useRedis = true;
+        this._redisInitialized = true;
+        logger.info('[AccountManager] Connected to Redis for account storage');
+        
+        // Migrate existing file-based accounts to Redis
+        await this._migrateToRedis();
+      }
+    } catch (error) {
+      logger.warn(`[AccountManager] Redis not available, using file storage: ${error.message}`);
+      this._useRedis = false;
+    }
+  }
+
+  async _migrateToRedis() {
+    if (!this._useRedis || !redisInstance) return;
+    
+    // Check if Redis already has accounts
+    const existingIndex = await redisInstance.hgetall(REDIS_ACCOUNTS_NS, REDIS_USERNAME_INDEX);
+    if (Object.keys(existingIndex).length > 0) {
+      // Redis has data, load from Redis instead
+      logger.info('[AccountManager] Loading accounts from Redis');
+      await this._loadFromRedis();
+      return;
+    }
+
+    // Migrate file accounts to Redis
+    if (this.accounts.size > 0) {
+      logger.info(`[AccountManager] Migrating ${this.accounts.size} accounts to Redis`);
+      for (const account of this.accounts.values()) {
+        await this._saveToRedis(account);
+      }
+      logger.info('[AccountManager] Migration to Redis complete');
+    }
+  }
+
+  async _loadFromRedis() {
+    if (!this._useRedis || !redisInstance) return;
+
+    try {
+      const usernameIndex = await redisInstance.hgetall(REDIS_ACCOUNTS_NS, REDIS_USERNAME_INDEX);
+      
+      for (const accountId of Object.values(usernameIndex)) {
+        const account = await redisInstance.get(REDIS_ACCOUNTS_NS, accountId);
+        if (account) {
+          this.accounts.set(account.id, account);
+        }
+      }
+      
+      logger.info(`[AccountManager] Loaded ${this.accounts.size} account(s) from Redis`);
+    } catch (error) {
+      logger.error(`[AccountManager] Failed to load from Redis: ${error.message}`);
+    }
+  }
+
+  async _saveToRedis(account) {
+    if (!this._useRedis || !redisInstance) return false;
+
+    try {
+      await redisInstance.set(REDIS_ACCOUNTS_NS, account.id, account);
+      await redisInstance.hset(REDIS_ACCOUNTS_NS, REDIS_USERNAME_INDEX, account.username.toLowerCase(), account.id);
+      return true;
+    } catch (error) {
+      logger.error(`[AccountManager] Failed to save to Redis: ${error.message}`);
+      return false;
+    }
+  }
+
+  async _deleteFromRedis(account) {
+    if (!this._useRedis || !redisInstance) return false;
+
+    try {
+      await redisInstance.hdel(REDIS_ACCOUNTS_NS, REDIS_USERNAME_INDEX, account.username.toLowerCase());
+      await redisInstance.delete(REDIS_ACCOUNTS_NS, account.id);
+      return true;
+    } catch (error) {
+      logger.error(`[AccountManager] Failed to delete from Redis: ${error.message}`);
+      return false;
+    }
+  }
+
+  async _saveSessionToRedis(session) {
+    if (!this._useRedis || !redisInstance) return false;
+
+    try {
+      const ttlSeconds = Math.floor(this.sessionTtlMs / 1000);
+      await redisInstance.set(REDIS_SESSIONS_NS, session.token, session, ttlSeconds);
+      await redisInstance.sadd(REDIS_SESSIONS_NS, `account:${session.accountId}`, session.token);
+      return true;
+    } catch (error) {
+      logger.error(`[AccountManager] Failed to save session to Redis: ${error.message}`);
+      return false;
+    }
+  }
+
+  async _deleteSessionFromRedis(token, accountId) {
+    if (!this._useRedis || !redisInstance) return false;
+
+    try {
+      await redisInstance.delete(REDIS_SESSIONS_NS, token);
+      if (accountId) {
+        await redisInstance.srem(REDIS_SESSIONS_NS, `account:${accountId}`, token);
+      }
+      return true;
+    } catch (error) {
+      logger.error(`[AccountManager] Failed to delete session from Redis: ${error.message}`);
+      return false;
+    }
   }
 
   loadFromDisk() {
@@ -73,7 +207,15 @@ export class AccountManager {
     }
   }
 
-  schedulePersist() {
+  schedulePersist(account = null) {
+    // If Redis is enabled and we have an account, save immediately to Redis
+    if (this._useRedis && account) {
+      this._saveToRedis(account).catch(err => {
+        logger.error(`[AccountManager] Redis save failed: ${err.message}`);
+      });
+    }
+
+    // Also persist to disk as backup
     if (this._pendingPersist) {
       clearTimeout(this._pendingPersist);
     }
@@ -195,7 +337,7 @@ export class AccountManager {
     });
 
     this.accounts.set(account.id, account);
-    this.schedulePersist();
+    this.schedulePersist(account);
 
     logger.info('[AccountManager] Account registered', { username: normalizedUsername, accountId: account.id, roles });
 
@@ -257,6 +399,11 @@ export class AccountManager {
 
     this.sessionsByAccount.get(accountId).add(token);
 
+    // Also save to Redis if available
+    this._saveSessionToRedis(session).catch(err => {
+      logger.error(`[AccountManager] Failed to save session to Redis: ${err.message}`);
+    });
+
     return session;
   }
 
@@ -298,6 +445,11 @@ export class AccountManager {
         this.sessionsByAccount.delete(session.accountId);
       }
     }
+
+    // Also delete from Redis if available
+    this._deleteSessionFromRedis(token, session.accountId).catch(err => {
+      logger.error(`[AccountManager] Failed to delete session from Redis: ${err.message}`);
+    });
 
     return true;
   }
@@ -369,7 +521,7 @@ export class AccountManager {
     };
 
     this.accounts.set(accountId, updatedAccount);
-    this.schedulePersist();
+    this.schedulePersist(updatedAccount);
 
     logger.info('[AccountManager] Account updated', { accountId });
 
@@ -399,7 +551,7 @@ export class AccountManager {
     };
 
     this.accounts.set(accountId, updatedAccount);
-    this.schedulePersist();
+    this.schedulePersist(updatedAccount);
 
     logger.info('[AccountManager] Roles updated', { accountId, roles: validRoles });
 
@@ -422,7 +574,7 @@ export class AccountManager {
 
     this.accounts.set(accountId, updatedAccount);
     this.revokeAllSessions(accountId);
-    this.schedulePersist();
+    this.schedulePersist(updatedAccount);
 
     logger.warn('[AccountManager] Account disabled', { accountId, reason });
 
@@ -444,7 +596,7 @@ export class AccountManager {
     };
 
     this.accounts.set(accountId, updatedAccount);
-    this.schedulePersist();
+    this.schedulePersist(updatedAccount);
 
     logger.info('[AccountManager] Account enabled', { accountId });
 
