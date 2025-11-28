@@ -676,8 +676,11 @@ export class VoiceController {
         console.log('Joining voice channel:', channelName);
       }
 
+      // Prepare audio playback on user interaction (unlocks audio on mobile/desktop)
+      this.deps.voice.prepareAudioPlayback();
+
       this.pendingVoiceJoin = { id: channelId, name: channelName };
-  this.startVoiceJoinTimeout(channelId, channelName);
+      this.startVoiceJoinTimeout(channelId, channelName);
 
       this.voiceUsers.clear();
       this.renderVoiceUsers();

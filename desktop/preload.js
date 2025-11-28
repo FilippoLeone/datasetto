@@ -21,7 +21,10 @@ function defineGlobals() {
     checkNotificationPermission: () => ipcRenderer.invoke('notification:check-permission'),
     updateVoiceActivity: (state) => ipcRenderer.send('voice:activity', state),
     pickScreenshareSource: (options) => ipcRenderer.invoke('screenshare:pick-source', options),
-    openExternal: (url) => ipcRenderer.invoke('shell:open-external', url)
+    openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+    getLogPath: () => ipcRenderer.invoke('app:get-log-path'),
+    openLogFile: () => ipcRenderer.invoke('app:open-log-file'),
+    log: (level, ...args) => ipcRenderer.send('renderer:log', { level, args })
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);

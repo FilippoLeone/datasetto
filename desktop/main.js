@@ -1,5 +1,101 @@
 const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
+
+// ============================================
+// Logging Setup
+// ============================================
+const LOG_MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB max log size
+let logFilePath = null;
+let logStream = null;
+
+function initLogging() {
+  try {
+    const userDataPath = app.getPath('userData');
+    logFilePath = path.join(userDataPath, 'datasetto.log');
+    
+    // Rotate log if too large
+    try {
+      const stats = fs.statSync(logFilePath);
+      if (stats.size > LOG_MAX_SIZE_BYTES) {
+        const oldLogPath = path.join(userDataPath, 'datasetto.old.log');
+        if (fs.existsSync(oldLogPath)) {
+          fs.unlinkSync(oldLogPath);
+        }
+        fs.renameSync(logFilePath, oldLogPath);
+      }
+    } catch (e) {
+      // File doesn't exist yet, that's fine
+    }
+    
+    logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+    
+    // Write startup header
+    const startupMsg = `\n${'='.repeat(60)}\n[${new Date().toISOString()}] Datasetto Desktop starting...\nPlatform: ${process.platform}, Arch: ${process.arch}, Electron: ${process.versions.electron}, Node: ${process.versions.node}\n${'='.repeat(60)}\n`;
+    logStream.write(startupMsg);
+    
+    // Override console methods to also write to log file
+    const originalConsoleLog = console.log;
+    const originalConsoleWarn = console.warn;
+    const originalConsoleError = console.error;
+    const originalConsoleInfo = console.info;
+    
+    const writeToLog = (level, args) => {
+      if (!logStream) return;
+      const timestamp = new Date().toISOString();
+      const message = args.map(arg => {
+        if (typeof arg === 'object') {
+          try {
+            return JSON.stringify(arg, null, 2);
+          } catch {
+            return String(arg);
+          }
+        }
+        return String(arg);
+      }).join(' ');
+      logStream.write(`[${timestamp}] [${level}] ${message}\n`);
+    };
+    
+    console.log = (...args) => {
+      originalConsoleLog.apply(console, args);
+      writeToLog('LOG', args);
+    };
+    
+    console.warn = (...args) => {
+      originalConsoleWarn.apply(console, args);
+      writeToLog('WARN', args);
+    };
+    
+    console.error = (...args) => {
+      originalConsoleError.apply(console, args);
+      writeToLog('ERROR', args);
+    };
+    
+    console.info = (...args) => {
+      originalConsoleInfo.apply(console, args);
+      writeToLog('INFO', args);
+    };
+    
+    console.log('[Desktop] Logging initialized at:', logFilePath);
+  } catch (error) {
+    console.error('[Desktop] Failed to initialize logging:', error);
+  }
+}
+
+function closeLogging() {
+  if (logStream) {
+    logStream.write(`[${new Date().toISOString()}] [INFO] Datasetto Desktop shutting down...\n`);
+    logStream.end();
+    logStream = null;
+  }
+}
+
+// Initialize logging as early as possible
+initLogging();
+
+// ============================================
+// App Setup
+// ============================================
 
 // Allow screen capture APIs (getDisplayMedia) inside our file:// based renderer
 app.commandLine.appendSwitch('allow-http-screen-capture');
@@ -438,6 +534,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  closeLogging();
 });
 
 ipcMain.handle('app:get-info', () => ({
@@ -533,6 +630,19 @@ ipcMain.handle('notification:check-permission', async () => {
   return Notification.isSupported();
 });
 
+// Log file handlers
+ipcMain.handle('app:get-log-path', () => {
+  return logFilePath;
+});
+
+ipcMain.handle('app:open-log-file', async () => {
+  if (logFilePath && fs.existsSync(logFilePath)) {
+    await shell.openPath(logFilePath);
+    return true;
+  }
+  return false;
+});
+
 ipcMain.handle('screenshare:pick-source', async (_event, payload) => {
   try {
     const selection = await promptScreenshareSource({ requestAudio: payload?.audio !== false });
@@ -548,6 +658,26 @@ ipcMain.handle('screenshare:pick-source', async (_event, payload) => {
   } catch (error) {
     console.error('[Desktop] Failed to select screenshare source:', error);
     return { success: false, error: error?.message || 'selection-failed' };
+  }
+});
+
+// Receive logs from renderer process
+ipcMain.on('renderer:log', (_event, payload) => {
+  const { level, args } = payload || {};
+  const prefix = '[Renderer]';
+  
+  switch (level) {
+    case 'error':
+      console.error(prefix, ...(args || []));
+      break;
+    case 'warn':
+      console.warn(prefix, ...(args || []));
+      break;
+    case 'info':
+      console.info(prefix, ...(args || []));
+      break;
+    default:
+      console.log(prefix, ...(args || []));
   }
 });
 

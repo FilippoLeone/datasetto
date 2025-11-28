@@ -651,11 +651,27 @@ export class VoiceService extends EventEmitter<EventMap> {
     const playbackStream = this.createPeerAudioPipeline(peerId, stream) ?? stream;
     audioElement.srcObject = playbackStream;
     this.applyPeerAudioState(peerId);
+    
+    // Log audio element state for debugging
+    console.log(`[VoiceService] Audio element for ${peerId}: muted=${audioElement.muted}, volume=${audioElement.volume}, paused=${audioElement.paused}`);
+    
     const playResult = audioElement.play();
     if (playResult instanceof Promise) {
-      playResult.catch((error) => {
-        console.warn(`[VoiceService] Unable to autoplay remote audio for peer ${peerId}:`, error);
-      });
+      playResult
+        .then(() => {
+          console.log(`[VoiceService] Audio playback started for peer ${peerId}`);
+        })
+        .catch((error) => {
+          console.warn(`[VoiceService] Unable to autoplay remote audio for peer ${peerId}:`, error);
+          // On mobile/desktop, autoplay may fail - try again on next user interaction
+          const resumeAudio = () => {
+            audioElement?.play().catch(() => {});
+            document.removeEventListener('click', resumeAudio);
+            document.removeEventListener('touchstart', resumeAudio);
+          };
+          document.addEventListener('click', resumeAudio, { once: true });
+          document.addEventListener('touchstart', resumeAudio, { once: true });
+        });
     }
 
     // Setup speaking detection
@@ -828,6 +844,44 @@ export class VoiceService extends EventEmitter<EventMap> {
       this.audioContext.resume().catch((error) => {
         console.warn('[VoiceService] Unable to auto-resume AudioContext:', error);
       });
+    }
+  }
+
+  /**
+   * Prepare audio playback for voice channels.
+   * Should be called on user interaction (e.g., joining a voice channel)
+   * to unlock audio on mobile/desktop platforms.
+   */
+  prepareAudioPlayback(): void {
+    // Ensure AudioContext is created and resumed
+    const context = this.ensureAudioContext();
+    if (context) {
+      console.log(`[VoiceService] AudioContext state: ${context.state}`);
+    }
+
+    // On mobile/Electron, try to play a silent audio to unlock audio playback
+    // This helps with autoplay restrictions
+    try {
+      const silentAudio = document.createElement('audio');
+      silentAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      silentAudio.volume = 0.001;
+      silentAudio.play().then(() => {
+        silentAudio.remove();
+        console.log('[VoiceService] Audio playback unlocked');
+      }).catch(() => {
+        silentAudio.remove();
+      });
+    } catch (error) {
+      // Ignore errors - this is just a best-effort unlock
+    }
+
+    // Also try to resume any existing audio elements
+    for (const [peerId, audioElement] of this.remoteAudios) {
+      if (audioElement.paused && audioElement.srcObject) {
+        audioElement.play().catch(() => {
+          console.warn(`[VoiceService] Could not resume audio for peer ${peerId}`);
+        });
+      }
     }
   }
 
@@ -1815,7 +1869,17 @@ export class VoiceService extends EventEmitter<EventMap> {
   private createPeerAudioPipeline(peerId: string, stream: MediaStream): MediaStream | null {
     const context = this.ensureAudioContext();
     if (!context) {
+      console.warn(`[VoiceService] No AudioContext available for peer ${peerId}, using raw stream`);
       this.destroyPeerAudioPipeline(peerId);
+      return null;
+    }
+
+    // On mobile/Electron, AudioContext may be suspended and won't resume without user gesture
+    // In that case, fall back to raw stream to ensure audio plays
+    if (context.state === 'suspended') {
+      console.warn(`[VoiceService] AudioContext suspended for peer ${peerId}, using raw stream`);
+      // Try to resume for next time
+      context.resume().catch(() => {});
       return null;
     }
 
@@ -1828,6 +1892,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       source.connect(gain);
       gain.connect(destination);
       this.peerAudioPipelines.set(peerId, { source, gain, destination });
+      console.log(`[VoiceService] Audio pipeline created for peer ${peerId}, context state: ${context.state}`);
       return destination.stream;
     } catch (error) {
       console.warn(`[VoiceService] Unable to create gain pipeline for peer ${peerId}:`, error);

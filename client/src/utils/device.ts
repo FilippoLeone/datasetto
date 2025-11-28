@@ -47,6 +47,18 @@ export const isMobileDevice = (): boolean => {
   return /mobile/.test(ua);
 };
 
+export const isElectron = (): boolean => {
+  return typeof window !== 'undefined' && !!(window as any).desktopAPI;
+};
+
+export const isCapacitor = (): boolean => {
+  return typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
+};
+
+export const isNativeApp = (): boolean => {
+  return isElectron() || isCapacitor();
+};
+
 export const detectDeviceKind = (): DeviceKind => {
   if (isIOS()) {
     return 'ios';
