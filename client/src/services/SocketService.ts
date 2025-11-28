@@ -205,6 +205,17 @@ export class SocketService extends EventEmitter<EventMap> {
   }
 
   /**
+   * Send a custom event to the server
+   */
+  sendEvent(event: string, data?: unknown): void {
+    if (data !== undefined) {
+      this.socket?.emit(event, data);
+    } else {
+      this.socket?.emit(event);
+    }
+  }
+
+  /**
    * Announce voice join
    */
   joinVoiceChannel(channelId: string): void {

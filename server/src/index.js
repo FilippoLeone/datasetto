@@ -917,6 +917,13 @@ io.on('connection', (socket) => {
 
       const { username, password } = payload;
       const account = await accountManager.authenticate(username, password);
+
+      // Check if the user is banned
+      if (userManager.isUserBanned(account.id)) {
+        const banInfo = userManager.getBanInfo(account.id);
+        throw new Error(banInfo?.reason || 'You are banned from this server');
+      }
+
       const session = accountManager.createSession(account.id);
       finalizeAuthentication({ account, session, isNewAccount: false });
     } catch (error) {
@@ -944,6 +951,13 @@ io.on('connection', (socket) => {
       if (!accountRecord || accountRecord.status !== 'active') {
         accountManager.revokeSession(token);
         throw new Error('Account is no longer active');
+      }
+
+      // Check if the user is banned
+      if (userManager.isUserBanned(accountRecord.id)) {
+        const banInfo = userManager.getBanInfo(accountRecord.id);
+        accountManager.revokeSession(token);
+        throw new Error(banInfo?.reason || 'You are banned from this server');
       }
 
       // If user is already authenticated with the same account, just confirm success
@@ -1659,6 +1673,13 @@ io.on('connection', (socket) => {
         throw new Error('User not registered');
       }
 
+      // Check if user is timed out from voice
+      if (userManager.isVoiceTimedOut(socket.id)) {
+        const remaining = userManager.getVoiceTimeoutRemaining(socket.id);
+        const remainingMinutes = Math.ceil(remaining / 60000);
+        throw new Error(`You are timed out from voice for ${remainingMinutes} more minute(s)`);
+      }
+
       const channel = channelManager.getChannel(channelId);
       if (!channel || channel.type !== 'voice') {
         throw new Error('Invalid voice channel');
@@ -1770,6 +1791,261 @@ io.on('connection', (socket) => {
       currentVoiceChannel = null;
     } catch (error) {
       logger.error(`Voice leave error: ${error.message}`, { socketId: socket.id });
+    }
+  });
+
+  /**
+   * Kick a user from voice channel (moderation)
+   */
+  socket.on('voice:kick', ({ targetSocketId, targetName }) => {
+    try {
+      if (!currentUser) {
+        throw new Error('User not registered');
+      }
+
+      if (!userManager.hasPermission(socket.id, 'canModerate')) {
+        throw new Error('No permission to kick users');
+      }
+
+      if (!currentVoiceChannel) {
+        throw new Error('Not in a voice channel');
+      }
+
+      // Validate targetSocketId is a string
+      if (typeof targetSocketId !== 'string' || !targetSocketId.trim()) {
+        throw new Error('Invalid target user');
+      }
+
+      const targetSocket = io.sockets.sockets.get(targetSocketId);
+      if (!targetSocket) {
+        throw new Error('Target user not found');
+      }
+
+      const targetUser = userManager.getUser(targetSocketId);
+      if (!targetUser) {
+        throw new Error('Target user not registered');
+      }
+
+      // Prevent kicking yourself
+      if (targetSocketId === socket.id) {
+        throw new Error('Cannot kick yourself');
+      }
+
+      // Verify target is in the same voice channel
+      if (targetUser.voiceChannel !== currentVoiceChannel) {
+        throw new Error('Target user is not in your voice channel');
+      }
+
+      // Prevent kicking users with equal or higher roles
+      if (targetUser.isSuperuser) {
+        throw new Error('Cannot kick a superuser');
+      }
+      if (targetUser.roles?.includes('admin') && !currentUser.isSuperuser) {
+        throw new Error('Cannot kick an admin');
+      }
+      if (targetUser.roles?.includes('moderator') && !currentUser.roles?.includes('admin') && !currentUser.isSuperuser) {
+        throw new Error('Cannot kick a moderator');
+      }
+
+      // Force the target to leave voice
+      targetSocket.to(currentVoiceChannel).emit('voice:peer-leave', { id: targetSocketId });
+      targetSocket.leave(currentVoiceChannel);
+      channelManager.removeVoiceParticipant(currentVoiceChannel, targetSocketId);
+      channelManager.removeUserFromChannel(currentVoiceChannel, targetSocketId);
+      minigameManager.handleVoiceMemberLeft(currentVoiceChannel, targetSocketId);
+      userManager.setVoiceChannel(targetSocketId, null);
+
+      // Notify the kicked user
+      targetSocket.emit('voice:kicked', {
+        by: currentUser.displayName,
+        reason: 'You were kicked from the voice channel',
+      });
+
+      broadcastUserUpdate(currentVoiceChannel);
+      broadcastChannels();
+
+      logger.info(`User ${targetName} was kicked from voice by ${currentUser.displayName}`, {
+        targetSocketId,
+        kickedBy: socket.id,
+        channelId: currentVoiceChannel,
+      });
+    } catch (error) {
+      logger.error(`Voice kick error: ${error.message}`, { socketId: socket.id });
+      socket.emit('error', formatError(error.message, 'VOICE_KICK_FAILED'));
+    }
+  });
+
+  /**
+   * Timeout a user from voice (moderation) - prevents rejoining for a duration
+   */
+  socket.on('voice:timeout', ({ targetSocketId, targetName, duration }) => {
+    try {
+      if (!currentUser) {
+        throw new Error('User not registered');
+      }
+
+      if (!userManager.hasPermission(socket.id, 'canModerate')) {
+        throw new Error('No permission to timeout users');
+      }
+
+      if (!currentVoiceChannel) {
+        throw new Error('Not in a voice channel');
+      }
+
+      // Validate targetSocketId is a string
+      if (typeof targetSocketId !== 'string' || !targetSocketId.trim()) {
+        throw new Error('Invalid target user');
+      }
+
+      // Validate and limit duration (max 7 days, min 1 minute)
+      const MAX_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+      const MIN_TIMEOUT_MS = 60 * 1000; // 1 minute
+      let safeDuration = typeof duration === 'number' ? duration : 60000;
+      safeDuration = Math.max(MIN_TIMEOUT_MS, Math.min(MAX_TIMEOUT_MS, safeDuration));
+
+      const targetSocket = io.sockets.sockets.get(targetSocketId);
+      if (!targetSocket) {
+        throw new Error('Target user not found');
+      }
+
+      const targetUser = userManager.getUser(targetSocketId);
+      if (!targetUser) {
+        throw new Error('Target user not registered');
+      }
+
+      // Prevent timing out yourself
+      if (targetSocketId === socket.id) {
+        throw new Error('Cannot timeout yourself');
+      }
+
+      // Verify target is in the same voice channel
+      if (targetUser.voiceChannel !== currentVoiceChannel) {
+        throw new Error('Target user is not in your voice channel');
+      }
+
+      // Prevent timing out users with equal or higher roles
+      if (targetUser.isSuperuser) {
+        throw new Error('Cannot timeout a superuser');
+      }
+      if (targetUser.roles?.includes('admin') && !currentUser.isSuperuser) {
+        throw new Error('Cannot timeout an admin');
+      }
+      if (targetUser.roles?.includes('moderator') && !currentUser.roles?.includes('admin') && !currentUser.isSuperuser) {
+        throw new Error('Cannot timeout a moderator');
+      }
+
+      // Set timeout on the user (they cannot rejoin voice until timeout expires)
+      const timeoutUntil = Date.now() + safeDuration;
+      userManager.setVoiceTimeout(targetSocketId, timeoutUntil);
+
+      // Force the target to leave voice
+      targetSocket.to(currentVoiceChannel).emit('voice:peer-leave', { id: targetSocketId });
+      targetSocket.leave(currentVoiceChannel);
+      channelManager.removeVoiceParticipant(currentVoiceChannel, targetSocketId);
+      channelManager.removeUserFromChannel(currentVoiceChannel, targetSocketId);
+      minigameManager.handleVoiceMemberLeft(currentVoiceChannel, targetSocketId);
+      userManager.setVoiceChannel(targetSocketId, null);
+
+      // Notify the timed out user
+      const durationMinutes = Math.ceil(safeDuration / 60000);
+      targetSocket.emit('voice:timeout', {
+        by: currentUser.displayName,
+        duration: safeDuration,
+        reason: `You have been timed out from voice for ${durationMinutes} minute(s)`,
+      });
+
+      broadcastUserUpdate(currentVoiceChannel);
+      broadcastChannels();
+
+      logger.info(`User ${targetName} was timed out from voice by ${currentUser.displayName}`, {
+        targetSocketId,
+        timedOutBy: socket.id,
+        channelId: currentVoiceChannel,
+        duration: safeDuration,
+      });
+    } catch (error) {
+      logger.error(`Voice timeout error: ${error.message}`, { socketId: socket.id });
+      socket.emit('error', formatError(error.message, 'VOICE_TIMEOUT_FAILED'));
+    }
+  });
+
+  /**
+   * Ban a user from the server (moderation)
+   */
+  socket.on('user:ban', ({ targetSocketId, targetName, reason }) => {
+    try {
+      if (!currentUser) {
+        throw new Error('User not registered');
+      }
+
+      if (!userManager.hasPermission(socket.id, 'canBanUsers')) {
+        throw new Error('No permission to ban users');
+      }
+
+      // Validate targetSocketId is a string
+      if (typeof targetSocketId !== 'string' || !targetSocketId.trim()) {
+        throw new Error('Invalid target user');
+      }
+
+      // Prevent banning yourself
+      if (targetSocketId === socket.id) {
+        throw new Error('Cannot ban yourself');
+      }
+
+      const targetUser = userManager.getUser(targetSocketId);
+      if (!targetUser) {
+        throw new Error('Target user not found');
+      }
+
+      // Get the account ID for permanent ban
+      const targetAccountId = targetUser.accountId;
+      if (!targetAccountId) {
+        throw new Error('Cannot ban guest users');
+      }
+
+      // Check if target is admin/superuser - cannot ban them (even by other admins)
+      if (targetUser.isSuperuser) {
+        throw new Error('Cannot ban a superuser');
+      }
+      if (targetUser.roles?.includes('admin') || targetUser.roles?.includes('superuser')) {
+        throw new Error('Cannot ban an admin');
+      }
+      // Moderators can only be banned by admins or superusers
+      if (targetUser.roles?.includes('moderator') && !currentUser.roles?.includes('admin') && !currentUser.isSuperuser) {
+        throw new Error('Only admins can ban moderators');
+      }
+
+      // Sanitize reason (max 500 chars)
+      const safeReason = typeof reason === 'string' ? reason.slice(0, 500).trim() : 'Banned by moderator';
+
+      // Ban the user
+      userManager.banUser(targetAccountId, safeReason || 'Banned by moderator', currentUser.displayName);
+
+      // Notify and disconnect the banned user
+      const targetSocket = io.sockets.sockets.get(targetSocketId);
+      if (targetSocket) {
+        targetSocket.emit('user:banned', {
+          by: currentUser.displayName,
+          reason: reason || 'You have been banned from this server',
+        });
+        targetSocket.disconnect(true);
+      }
+
+      logger.warn(`User ${targetName} (${targetAccountId}) was banned by ${currentUser.displayName}`, {
+        targetSocketId,
+        targetAccountId,
+        bannedBy: socket.id,
+        reason,
+      });
+
+      socket.emit('moderation:success', {
+        action: 'ban',
+        target: targetName,
+        message: `${targetName} has been banned`,
+      });
+    } catch (error) {
+      logger.error(`User ban error: ${error.message}`, { socketId: socket.id });
+      socket.emit('error', formatError(error.message, 'USER_BAN_FAILED'));
     }
   });
 

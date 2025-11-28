@@ -76,6 +76,7 @@ export interface VoiceControllerDeps {
   resolveUserLabel: (label?: string | null, fallback?: string) => string;
   closeMobileVoicePanel?: () => void;
   openVideoPopout?: (options: { stream: MediaStream; label?: string; pipStream?: MediaStream | null; pipLabel?: string }) => void;
+  getRolePermissions?: () => import('@/types').RolePermissions | null;
 }
 
 export interface ChatControllerDeps {

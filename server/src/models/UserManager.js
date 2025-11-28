@@ -290,6 +290,51 @@ export class UserManager {
   }
 
   /**
+   * Set voice timeout for a user (prevents joining voice until timeout expires)
+   */
+  setVoiceTimeout(socketId, timeoutUntil) {
+    const user = this.getUser(socketId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    user.voiceTimeoutUntil = timeoutUntil;
+    logger.info(`Voice timeout set for user ${user.displayName} until ${new Date(timeoutUntil).toISOString()}`);
+    return user;
+  }
+
+  /**
+   * Check if user is currently timed out from voice
+   */
+  isVoiceTimedOut(socketId) {
+    const user = this.getUser(socketId);
+    if (!user || !user.voiceTimeoutUntil) {
+      return false;
+    }
+
+    if (Date.now() >= user.voiceTimeoutUntil) {
+      // Timeout has expired, clear it
+      user.voiceTimeoutUntil = null;
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Get remaining voice timeout duration in ms
+   */
+  getVoiceTimeoutRemaining(socketId) {
+    const user = this.getUser(socketId);
+    if (!user || !user.voiceTimeoutUntil) {
+      return 0;
+    }
+
+    const remaining = user.voiceTimeoutUntil - Date.now();
+    return remaining > 0 ? remaining : 0;
+  }
+
+  /**
    * Get users in a specific channel
    */
   getUsersInChannel(channelId) {

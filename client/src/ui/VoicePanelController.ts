@@ -1,3 +1,11 @@
+export type ModerationAction = 'kick' | 'timeout' | 'ban';
+
+export interface ModerationCallbacks {
+  onKick?: (userId: string, userName: string) => void;
+  onTimeout?: (userId: string, userName: string, duration: number) => void;
+  onBan?: (userId: string, userName: string, reason?: string) => void;
+}
+
 export interface VoicePanelEntry {
   id: string;
   name: string;
@@ -12,6 +20,9 @@ export interface VoicePanelEntry {
   onLocalVolumeChange?: (volume: number) => void;
   cameraEnabled?: boolean;
   screenEnabled?: boolean;
+  // Moderation props
+  canModerate?: boolean;
+  moderationCallbacks?: ModerationCallbacks;
 }
 
 interface VoicePanelRefs {
@@ -122,10 +133,13 @@ export class VoicePanelController {
       return;
     }
 
+    // Also toggle the parent timer group visibility
+    const timerGroup = this.timer.parentElement;
+
     if (display) {
       this.timer.textContent = display;
-      this.timer.classList.remove('hidden');
       this.timer.classList.add('active');
+      timerGroup?.classList.remove('hidden');
       if (title) {
         this.timer.title = title;
       } else {
@@ -133,8 +147,8 @@ export class VoicePanelController {
       }
     } else {
       this.timer.textContent = '--:--';
-      this.timer.classList.add('hidden');
       this.timer.classList.remove('active');
+      timerGroup?.classList.add('hidden');
       this.timer.removeAttribute('title');
     }
   }
@@ -242,7 +256,164 @@ export class VoicePanelController {
       item.appendChild(controlElements.volumeRow);
     }
 
+    // Add moderation button if user can moderate and this is not the current user
+    if (entry.canModerate && !entry.isCurrentUser && entry.moderationCallbacks) {
+      this.addModerationMenu(item, entry);
+    }
+
     return item;
+  }
+
+  private addModerationMenu(item: HTMLElement, entry: VoicePanelEntry): void {
+    const modButton = document.createElement('button');
+    modButton.type = 'button';
+    modButton.className = 'voice-user-mod-btn';
+    modButton.title = 'Moderation actions';
+    modButton.innerHTML = `
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="5" r="1.5"></circle>
+        <circle cx="12" cy="12" r="1.5"></circle>
+        <circle cx="12" cy="19" r="1.5"></circle>
+      </svg>
+    `;
+
+    let menuEl: HTMLElement | null = null;
+
+    const closeMenu = () => {
+      if (menuEl) {
+        menuEl.remove();
+        menuEl = null;
+      }
+    };
+
+    const showMenu = (event: MouseEvent) => {
+      event.stopPropagation();
+
+      // Close any existing menus
+      document.querySelectorAll('.voice-mod-menu').forEach((m) => m.remove());
+
+      menuEl = document.createElement('div');
+      menuEl.className = 'voice-mod-menu';
+
+      const menuItems: Array<{ label: string; icon: string; action: () => void; danger?: boolean }> = [
+        {
+          label: 'Kick from voice',
+          icon: `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>`,
+          action: () => {
+            closeMenu();
+            entry.moderationCallbacks?.onKick?.(entry.id, entry.name);
+          },
+        },
+        {
+          label: 'Timeout 1 min',
+          icon: `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>`,
+          action: () => {
+            closeMenu();
+            entry.moderationCallbacks?.onTimeout?.(entry.id, entry.name, 60 * 1000);
+          },
+        },
+        {
+          label: 'Timeout 5 min',
+          icon: `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>`,
+          action: () => {
+            closeMenu();
+            entry.moderationCallbacks?.onTimeout?.(entry.id, entry.name, 5 * 60 * 1000);
+          },
+        },
+        {
+          label: 'Timeout 1 hour',
+          icon: `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>`,
+          action: () => {
+            closeMenu();
+            entry.moderationCallbacks?.onTimeout?.(entry.id, entry.name, 60 * 60 * 1000);
+          },
+        },
+        {
+          label: 'Timeout 24 hours',
+          icon: `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>`,
+          action: () => {
+            closeMenu();
+            entry.moderationCallbacks?.onTimeout?.(entry.id, entry.name, 24 * 60 * 60 * 1000);
+          },
+        },
+      ];
+
+      // Only add ban option if user has ban permission
+      if (entry.moderationCallbacks?.onBan) {
+        menuItems.push({
+          label: 'Ban from server',
+          icon: `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M4.93 4.93l14.14 14.14"/>
+          </svg>`,
+          action: () => {
+            closeMenu();
+            entry.moderationCallbacks?.onBan?.(entry.id, entry.name);
+          },
+          danger: true,
+        });
+      }
+
+      menuItems.forEach((menuItem) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `voice-mod-menu-item${menuItem.danger ? ' danger' : ''}`;
+        btn.innerHTML = `${menuItem.icon}<span>${menuItem.label}</span>`;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          menuItem.action();
+        });
+        menuEl?.appendChild(btn);
+      });
+
+      // Position menu
+      const rect = modButton.getBoundingClientRect();
+      menuEl.style.position = 'fixed';
+      menuEl.style.top = `${rect.bottom + 4}px`;
+      menuEl.style.right = `${window.innerWidth - rect.right}px`;
+
+      document.body.appendChild(menuEl);
+
+      // Close on outside click
+      const handleOutsideClick = (e: MouseEvent) => {
+        if (!menuEl?.contains(e.target as Node) && !modButton.contains(e.target as Node)) {
+          closeMenu();
+          document.removeEventListener('click', handleOutsideClick);
+        }
+      };
+      setTimeout(() => document.addEventListener('click', handleOutsideClick), 0);
+
+      // Close on escape
+      const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          closeMenu();
+          document.removeEventListener('keydown', handleEscape);
+        }
+      };
+      document.addEventListener('keydown', handleEscape);
+    };
+
+    modButton.addEventListener('click', showMenu);
+
+    // Add to the header (top right of user item)
+    const header = item.querySelector('.voice-user-header');
+    if (header) {
+      header.appendChild(modButton);
+    }
   }
 
   private createLocalControls(entry: VoicePanelEntry): {

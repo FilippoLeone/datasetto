@@ -185,6 +185,7 @@ export class App {
       openVideoPopout: ({ stream, label, pipStream, pipLabel }) => {
         this.videoController?.showVoicePopout(stream, { label, pipStream, pipLabel });
       },
+      getRolePermissions: () => this.rolePermissions,
     });
 
     this.voiceController.initialize();
@@ -743,6 +744,15 @@ export class App {
 
     // Socket events
     this.socket.on('user:update', (users) => this.userListController?.handleUsersUpdate(users));
+    this.socket.on('user:banned', (data) => {
+      const { by, reason } = data as { by: string; reason?: string };
+      this.notifications.error(reason || `You have been banned from this server by ${by}`);
+      this.soundFX.play('error', 0.7);
+      // Disconnect and show banned message
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
+    });
     this.socket.on('channel:update', (channels) => {
       this.channelController?.handleChannelsUpdate(channels);
       this.voiceController?.handleChannelsUpdate(Array.isArray(channels) ? channels : channels.channels);

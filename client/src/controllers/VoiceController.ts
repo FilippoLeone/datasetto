@@ -879,6 +879,37 @@ export class VoiceController {
     }
   }
 
+  // ========== Moderation Handlers ==========
+
+  private handleKicked(data: { by: string; reason?: string }): void {
+    // Force leave voice
+    this.resetVoiceState({ playSound: true });
+    this.deps.notifications.warning(data.reason || `You were kicked from voice by ${data.by}`);
+  }
+
+  private handleTimedOut(data: { by: string; duration: number; reason?: string }): void {
+    // Force leave voice
+    this.resetVoiceState({ playSound: true });
+    const durationMinutes = Math.ceil(data.duration / 60000);
+    this.deps.notifications.warning(data.reason || `You have been timed out from voice for ${durationMinutes} minute(s) by ${data.by}`);
+  }
+
+  private handleModeratorKick(targetSocketId: string, targetName: string): void {
+    this.deps.socket.sendEvent('voice:kick', { targetSocketId, targetName });
+  }
+
+  private handleModeratorTimeout(targetSocketId: string, targetName: string, duration: number): void {
+    this.deps.socket.sendEvent('voice:timeout', { targetSocketId, targetName, duration });
+  }
+
+  private handleModeratorBan(targetSocketId: string, targetName: string): void {
+    // Show confirmation dialog
+    const confirmed = confirm(`Are you sure you want to ban ${targetName} from the server? This action cannot be easily undone.`);
+    if (confirmed) {
+      this.deps.socket.sendEvent('user:ban', { targetSocketId, targetName, reason: 'Banned by moderator' });
+    }
+  }
+
   async handleVoiceSignal(data: { from: string; data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }): Promise<void> {
     if (!this.shouldProcessRemoteVoiceEvent()) {
       if (import.meta.env.DEV) {
@@ -988,6 +1019,24 @@ export class VoiceController {
     this.disposers.push(
       this.deps.socket.on('voice:video:state', (data) => {
         this.handleVoiceVideoState(data as never);
+      })
+    );
+
+    // Moderation listeners
+    this.disposers.push(
+      this.deps.socket.on('voice:kicked', (data) => {
+        this.handleKicked(data as { by: string; reason?: string });
+      })
+    );
+    this.disposers.push(
+      this.deps.socket.on('voice:timeout', (data) => {
+        this.handleTimedOut(data as { by: string; duration: number; reason?: string });
+      })
+    );
+    this.disposers.push(
+      this.deps.socket.on('moderation:success', (data) => {
+        const { action, target, message } = data as { action: string; target: string; message: string };
+        this.deps.notifications.success(message || `${action}: ${target}`);
       })
     );
 
@@ -1379,6 +1428,9 @@ export class VoiceController {
     const state = this.deps.state.getState();
     const account = this.deps.state.get('account');
     const currentUserLabel = account ? (account.displayName?.trim() || account.username) : 'You';
+    const permissions = this.deps.getRolePermissions?.();
+    const canModerate = Boolean(permissions?.canModerate);
+    const canBan = Boolean(permissions?.canBanUsers);
 
     if (state.voiceConnected) {
       entries.push({
@@ -1412,6 +1464,13 @@ export class VoiceController {
         onLocalVolumeChange: (volume) => {
           this.deps.voice.setPeerVolume(id, volume);
         },
+        // Moderation props
+        canModerate,
+        moderationCallbacks: canModerate ? {
+          onKick: (userId, userName) => this.handleModeratorKick(userId, userName),
+          onTimeout: (userId, userName, duration) => this.handleModeratorTimeout(userId, userName, duration),
+          onBan: canBan ? (userId, userName) => this.handleModeratorBan(userId, userName) : undefined,
+        } : undefined,
       });
     }
 
