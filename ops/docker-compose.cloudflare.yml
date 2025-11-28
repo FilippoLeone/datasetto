@@ -1,14 +1,16 @@
 # Docker Compose for Cloudflare Tunnel Deployment
 #
+# Optimized for Radxa Zero 2 Pro (4GB RAM, Quad-core A53)
+#
 # Use this when deploying behind a Cloudflare tunnel (cloudflared).
 # 
 # Key differences from docker-compose.prod.yml:
 # - Caddy listens on port 80 only (Cloudflare handles HTTPS)
 # - TURN server ports are exposed for direct access (not through tunnel)
-# - Optimized for tunnel latency
+# - Resource limits tuned for ARM SBCs with 4GB RAM
 #
 # Usage:
-#   docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare up -d
+#   docker compose -f docker-compose.cloudflare.yml up -d
 #
 # Requirements:
 # - cloudflared tunnel running separately, pointing to http://localhost:80
@@ -42,6 +44,14 @@ services:
     volumes:
       - ./turn-entrypoint.sh:/usr/local/bin/turn-entrypoint.sh:ro
     entrypoint: ["/bin/sh", "/usr/local/bin/turn-entrypoint.sh"]
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
     healthcheck:
       test: ["CMD", "turnutils_uclient", "-T", "-u", "${TURN_USERNAME:-turnuser}", "-w", "${TURN_PASSWORD:-turnpass}", "127.0.0.1"]
       interval: 30s
@@ -62,17 +72,17 @@ services:
     ports:
       - "1935:1935"
     tmpfs:
-      - /tmp/hls:rw,size=512m
+      - /tmp/hls:rw,size=256m
     networks:
       - app-network
     deploy:
       resources:
         limits:
-          cpus: '1.4'
-          memory: 768M
+          cpus: '2.0'
+          memory: 1024M
         reservations:
-          cpus: '0.6'
-          memory: 512M
+          cpus: '0.5'
+          memory: 256M
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
       interval: 30s
@@ -105,10 +115,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '1.5'
+          memory: 512M
         reservations:
-          cpus: '0.1'
+          cpus: '0.2'
           memory: 128M
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
@@ -153,10 +163,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.15'
-          memory: 96M
+          cpus: '0.5'
+          memory: 256M
         reservations:
-          cpus: '0.04'
+          cpus: '0.1'
           memory: 64M
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
@@ -188,11 +198,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.3'
+          cpus: '0.5'
           memory: 128M
         reservations:
-          cpus: '0.05'
-          memory: 64M
+          cpus: '0.1'
+          memory: 32M
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
       interval: 30s
