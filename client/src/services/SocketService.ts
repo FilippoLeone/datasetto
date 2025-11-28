@@ -371,6 +371,11 @@ export class SocketService extends EventEmitter<EventMap> {
   private setupSocketListeners(): void {
     if (!this.socket) return;
 
+    // Debug: log all incoming events
+    this.socket.onAny((eventName, ...args) => {
+      console.log(`[Socket] Received event: ${eventName}`, args);
+    });
+
     this.socket.io.on('reconnect_attempt', () => {
       console.log('Reconnecting to server...');
     });

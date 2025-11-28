@@ -1606,6 +1606,7 @@ io.on('connection', (socket) => {
    * Join channel
    */
   socket.on('channel:join', (channelId) => {
+    logger.info(`channel:join received`, { socketId: socket.id, channelId, hasCurrentUser: !!currentUser });
     try {
       if (!currentUser) {
         throw new Error('User not registered');
@@ -2063,6 +2064,7 @@ io.on('connection', (socket) => {
    * Chat message
    */
   socket.on('chat', (text) => {
+    logger.info(`chat message received`, { socketId: socket.id, text, currentChannel, hasCurrentUser: !!currentUser });
     try {
       if (!currentUser) {
         throw new Error('User not registered');

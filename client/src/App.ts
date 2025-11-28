@@ -830,6 +830,7 @@ export class App {
       this.notifications.error(message || 'Unable to retrieve stream key');
     });
     this.socket.on('error', (error) => {
+      console.error('[App] Socket error received:', error);
       const details = error as { message?: string; code?: string };
       this.soundFX.play('error', 0.5);
       if (details?.message) {
