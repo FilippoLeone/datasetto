@@ -1,4 +1,4 @@
-# Production docker-compose for RTMP-Disc
+# Production docker-compose for Datasetto
 #
 # Architecture Overview:
 # - caddy: The public HTTP/HTTPS entry point (ports 80/443). Handles SSL and routing.

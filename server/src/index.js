@@ -1,5 +1,5 @@
 /**
- * RTMP-Disc Backend Server
+ * Datasetto Backend Server
  * Modular, production-ready WebSocket and REST API server
  */
 
@@ -2374,7 +2374,7 @@ process.on('uncaughtException', (error) => {
 
 // Start server
 server.listen(appConfig.server.port, appConfig.server.host, () => {
-  logger.info(`🚀 RTMP-Disc Server started`);
+  logger.info(`🚀 Datasetto Server started`);
   logger.info(`   Host: ${appConfig.server.host}`);
   logger.info(`   Port: ${appConfig.server.port}`);
   logger.info(`   Environment: ${appConfig.server.env}`);

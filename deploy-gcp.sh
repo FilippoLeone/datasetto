@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# GCP Deployment Script for RTMP-Disc
+# GCP Deployment Script for Datasetto
 # Deploys to Google Cloud Platform Compute Engine
 #
 
 set -e
 
 echo "========================================"
-echo "  RTMP-Disc GCP Deployment Script"
+echo "  Datasetto GCP Deployment Script"
 echo "========================================"
 echo ""
 
@@ -40,8 +40,8 @@ read -p "Enter zone (default: us-central1-a): " ZONE
 ZONE=${ZONE:-us-central1-a}
 
 # Instance configuration
-read -p "Enter instance name (default: rtmp-disc): " INSTANCE_NAME
-INSTANCE_NAME=${INSTANCE_NAME:-rtmp-disc}
+read -p "Enter instance name (default: datasetto): " INSTANCE_NAME
+INSTANCE_NAME=${INSTANCE_NAME:-datasetto}
 
 # Machine type selection
 echo ""
@@ -104,11 +104,11 @@ systemctl enable docker
 apt-get install -y docker-compose-plugin git
 
 # Create application directory
-mkdir -p /opt/rtmp-disc
-cd /opt/rtmp-disc
+mkdir -p /opt/datasetto
+cd /opt/datasetto
 
 # Mark instance as configured
-touch /opt/rtmp-disc/.configured
+touch /opt/datasetto/.configured
 echo "Docker and dependencies installed. Ready for deployment."
 EOFSTARTUP
 
@@ -131,8 +131,8 @@ echo -e "${GREEN}Instance created!${NC}"
 # Create firewall rules
 echo -e "\n${GREEN}Creating firewall rules...${NC}"
 
-gcloud compute firewall-rules create rtmp-disc-web --project=$PROJECT_ID --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:80,tcp:443 --source-ranges=0.0.0.0/0 --target-tags=http-server,https-server || true
-gcloud compute firewall-rules create rtmp-disc-streaming --project=$PROJECT_ID --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:1935,tcp:80,tcp:4000 --source-ranges=0.0.0.0/0 --target-tags=rtmp-server || true
+gcloud compute firewall-rules create datasetto-web --project=$PROJECT_ID --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:80,tcp:443 --source-ranges=0.0.0.0/0 --target-tags=http-server,https-server || true
+gcloud compute firewall-rules create datasetto-streaming --project=$PROJECT_ID --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:1935,tcp:80,tcp:4000 --source-ranges=0.0.0.0/0 --target-tags=rtmp-server || true
 
 # Get external IP
 echo -e "\n${YELLOW}Waiting for instance...${NC}"

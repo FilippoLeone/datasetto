@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# VPS Deployment Script for RTMP-Disc with Docker Nginx Proxy
+# VPS Deployment Script for Datasetto with Docker Nginx Proxy
 # Prerequisites: Docker and Docker Compose already installed
 #
 # Usage: sudo bash deploy-vps.sh
@@ -8,7 +8,7 @@
 set -e
 
 echo "========================================"
-echo "  RTMP-Disc Deployment"
+echo "  Datasetto Deployment"
 echo "========================================"
 echo ""
 

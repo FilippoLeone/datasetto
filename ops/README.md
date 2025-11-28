@@ -4,7 +4,7 @@
 
 ```bash
 # On VPS
-cd ~/rtmp-disc/ops
+cd ~/datasetto/ops
 chmod +x deploy-vps.sh
 ./deploy-vps.sh
 ```
