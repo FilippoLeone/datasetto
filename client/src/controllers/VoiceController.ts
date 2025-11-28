@@ -60,6 +60,9 @@ export class VoiceController {
   private screenShareActive = false;
   private remoteVideoTracks: Map<string, { camera?: MediaStreamTrack; screen?: MediaStreamTrack }> = new Map();
   private remoteVideoStreams: Map<string, { camera?: MediaStream; screen?: MediaStream }> = new Map();
+  // Debug mode
+  private debugMode = false;
+  private debugUpdateHandle: number | null = null;
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps;
@@ -93,6 +96,7 @@ export class VoiceController {
     this.clearVoiceSessionTimer();
     this.clearVoiceChannelTimer();
     this.clearVoiceJoinTimeout();
+    this.stopDebugUpdates();
 
     if (this.micRecoveryTimeout !== null) {
       window.clearTimeout(this.micRecoveryTimeout);
@@ -1488,6 +1492,7 @@ export class VoiceController {
   private renderVoiceGallery(entries: VoicePanelEntry[], voiceConnected: boolean): void {
     const gallery = this.deps.elements.voiceGallery;
     const stage = this.deps.elements['voice-call-stage'] ?? null;
+    const debugToolbar = this.deps.elements['voiceDebugToolbar'] ?? null;
     if (!gallery) {
       return;
     }
@@ -1499,12 +1504,14 @@ export class VoiceController {
 
     if (!isVoiceChannelActive) {
       stage?.classList.add('hidden');
+      debugToolbar?.classList.add('hidden');
       this.updateVoiceGalleryLayoutState(gallery, 0);
       gallery.classList.add('hidden');
       gallery.classList.remove('empty', 'loading');
       gallery.setAttribute('aria-hidden', 'true');
       gallery.removeAttribute('aria-busy');
       gallery.replaceChildren();
+      this.stopDebugUpdates();
       return;
     }
 
@@ -1513,17 +1520,21 @@ export class VoiceController {
 
     if (!isVoiceMode) {
       stage?.classList.add('hidden');
+      debugToolbar?.classList.add('hidden');
       this.updateVoiceGalleryLayoutState(gallery, 0);
       gallery.classList.add('hidden');
       gallery.classList.remove('empty', 'loading');
       gallery.setAttribute('aria-hidden', 'true');
       gallery.removeAttribute('aria-busy');
+      this.stopDebugUpdates();
       return;
     }
 
     stage?.classList.remove('hidden');
     gallery.classList.remove('hidden');
     gallery.setAttribute('aria-hidden', 'false');
+    // Show debug toolbar when voice gallery is visible
+    debugToolbar?.classList.remove('hidden');
 
     if (this.pendingVoiceJoin && entries.length === 0) {
       const channelName = this.pendingVoiceJoin.name?.trim() || 'voice';
@@ -1597,6 +1608,12 @@ export class VoiceController {
     const meta = document.createElement('div');
     meta.className = 'voice-gallery-meta';
     tile.appendChild(meta);
+
+    // Debug overlay (hidden by default)
+    const debugOverlay = document.createElement('div');
+    debugOverlay.className = 'voice-debug-overlay';
+    debugOverlay.style.display = this.debugMode ? 'block' : 'none';
+    tile.appendChild(debugOverlay);
 
   this.refreshVoiceGalleryTile(tile, Boolean(entry.speaking));
 
@@ -2302,5 +2319,354 @@ export class VoiceController {
 
   private shouldProcessRemoteVoiceEvent(): boolean {
     return Boolean(this.deps.state.get('voiceConnected'));
+  }
+
+  // ============== Debug Mode ==============
+
+  toggleDebugMode(): void {
+    this.debugMode = !this.debugMode;
+    this.updateDebugModeUI();
+    
+    if (this.debugMode) {
+      this.startDebugUpdates();
+    } else {
+      this.stopDebugUpdates();
+    }
+  }
+
+  private updateDebugModeUI(): void {
+    const gallery = this.deps.elements.voiceGallery;
+    if (!gallery) return;
+
+    // Update debug toggle button state
+    const debugBtn = gallery.parentElement?.querySelector('.voice-debug-toggle') as HTMLButtonElement | null;
+    if (debugBtn) {
+      debugBtn.classList.toggle('active', this.debugMode);
+      debugBtn.setAttribute('aria-pressed', String(this.debugMode));
+      debugBtn.title = this.debugMode ? 'Hide Debug Info' : 'Show Debug Info';
+    }
+
+    // Toggle debug overlays on all tiles
+    const overlays = gallery.querySelectorAll('.voice-debug-overlay');
+    overlays.forEach((overlay) => {
+      (overlay as HTMLElement).style.display = this.debugMode ? 'block' : 'none';
+    });
+
+    if (this.debugMode) {
+      this.updateAllDebugOverlays();
+    }
+  }
+
+  private startDebugUpdates(): void {
+    this.stopDebugUpdates();
+    this.debugUpdateHandle = window.setInterval(() => {
+      if (this.debugMode) {
+        this.updateAllDebugOverlays();
+      }
+    }, 1000);
+  }
+
+  private stopDebugUpdates(): void {
+    if (this.debugUpdateHandle !== null) {
+      window.clearInterval(this.debugUpdateHandle);
+      this.debugUpdateHandle = null;
+    }
+  }
+
+  private updateAllDebugOverlays(): void {
+    const gallery = this.deps.elements.voiceGallery;
+    if (!gallery) return;
+
+    const tiles = gallery.querySelectorAll('.voice-gallery-item');
+    tiles.forEach((tile) => {
+      const userId = (tile as HTMLElement).dataset.userId;
+      if (userId) {
+        this.updateDebugOverlay(tile as HTMLElement, userId);
+      }
+    });
+  }
+
+  private updateDebugOverlay(tile: HTMLElement, peerId: string): void {
+    const overlay = tile.querySelector('.voice-debug-overlay') as HTMLElement | null;
+    if (!overlay) return;
+
+    const isCurrentUser = tile.dataset.currentUser === 'true';
+    
+    if (isCurrentUser) {
+      // Local user debug info
+      overlay.innerHTML = this.getLocalDebugInfo();
+    } else {
+      // Remote peer debug info
+      const stats = this.deps.voiceService.getPeerStats(peerId);
+      overlay.innerHTML = this.getPeerDebugInfo(peerId, stats);
+    }
+  }
+
+  /**
+   * Calculate Mean Opinion Score (MOS) based on E-model simplified formula
+   * Based on ITU-T G.107 E-model approximation
+   * Returns a value between 1 (bad) and 5 (excellent)
+   */
+  private calculateMOS(rttMs: number | null, packetLossPct: number | null, jitterMs: number | null): number {
+    // Default R-factor base (assumes codec like Opus)
+    const R0 = 93.2;
+    
+    // Delay impairment (Id) - based on one-way delay (RTT/2)
+    const oneWayDelay = (rttMs ?? 0) / 2;
+    const Id = oneWayDelay > 177.3 
+      ? 0.024 * oneWayDelay + 0.11 * (oneWayDelay - 177.3) 
+      : 0.024 * oneWayDelay;
+    
+    // Effective equipment impairment (Ie-eff) - packet loss impact
+    // Opus codec is more resilient, so lower impact
+    const loss = packetLossPct ?? 0;
+    const Ie_eff = 0 + 30 * Math.log(1 + 15 * loss);
+    
+    // Jitter buffer impact (approximation)
+    const jitterImpact = Math.min((jitterMs ?? 0) * 0.1, 10);
+    
+    // R-factor calculation
+    const R = Math.max(0, Math.min(100, R0 - Id - Ie_eff - jitterImpact));
+    
+    // Convert R to MOS using ITU-T formula
+    if (R < 0) return 1;
+    if (R > 100) return 4.5;
+    
+    const MOS = 1 + 0.035 * R + R * (R - 60) * (100 - R) * 7e-6;
+    return Math.max(1, Math.min(5, MOS));
+  }
+
+  /**
+   * Format MOS score with quality descriptor
+   */
+  private formatMOS(mos: number): { value: string; label: string; cssClass: string } {
+    const value = mos.toFixed(2);
+    if (mos >= 4.3) return { value, label: 'Excellent', cssClass: 'debug-excellent' };
+    if (mos >= 4.0) return { value, label: 'Good', cssClass: 'debug-good' };
+    if (mos >= 3.6) return { value, label: 'Fair', cssClass: 'debug-fair' };
+    if (mos >= 3.1) return { value, label: 'Poor', cssClass: 'debug-poor' };
+    return { value, label: 'Bad', cssClass: 'debug-critical' };
+  }
+
+  /**
+   * Calculate effective bandwidth utilization
+   */
+  private calculateBandwidthEfficiency(bitrate: number | null, packetLoss: number | null): number {
+    if (bitrate === null || bitrate <= 0) return 0;
+    const lossMultiplier = 1 - (packetLoss ?? 0) / 100;
+    return Math.max(0, lossMultiplier * 100);
+  }
+
+  private getLocalDebugInfo(): string {
+    const voiceConnected = this.deps.state.get('voiceConnected');
+    const muted = this.deps.state.get('muted');
+    const deafened = this.deps.state.get('deafened');
+    const peerCount = this.voiceUsers.size;
+    const quality = this.deps.voiceService.getOverallConnectionQuality();
+    const uptime = this.voiceSessionStart ? Math.floor((Date.now() - this.voiceSessionStart) / 1000) : 0;
+    
+    // Gather aggregate stats from all peers
+    let avgRtt = 0, avgLoss = 0, avgJitter = 0, totalBitrate = 0, statCount = 0;
+    this.voiceUsers.forEach((_, oderId) => {
+      const stats = this.deps.voiceService.getPeerStats(oderId);
+      if (stats) {
+        if (stats.roundTripTime !== null) avgRtt += stats.roundTripTime;
+        if (stats.packetLoss !== null) avgLoss += stats.packetLoss;
+        if (stats.jitter !== null) avgJitter += stats.jitter;
+        if (stats.bitrate !== null) totalBitrate += stats.bitrate;
+        statCount++;
+      }
+    });
+    
+    if (statCount > 0) {
+      avgRtt /= statCount;
+      avgLoss /= statCount;
+      avgJitter /= statCount;
+    }
+
+    const mos = this.calculateMOS(avgRtt, avgLoss, avgJitter);
+    const mosInfo = this.formatMOS(mos);
+    
+    const stateIcon = voiceConnected ? '●' : '○';
+    const stateClass = voiceConnected ? 'debug-good' : 'debug-critical';
+    
+    return `
+      <div class="debug-header">
+        <span class="debug-title">LOCAL ENDPOINT</span>
+        <span class="debug-badge ${stateClass}">${stateIcon} ${voiceConnected ? 'LIVE' : 'OFFLINE'}</span>
+      </div>
+      <div class="debug-section">
+        <div class="debug-row">
+          <span class="debug-key">Session</span>
+          <span class="debug-value">${this.formatDuration(uptime)}</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-key">Peers</span>
+          <span class="debug-value">${peerCount} connected</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-key">Audio</span>
+          <span class="debug-value">${muted ? '🔇 Muted' : '🔊 Active'}${deafened ? ' · Deaf' : ''}</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-key">Media</span>
+          <span class="debug-value">${this.cameraActive ? '📹' : ''}${this.screenShareActive ? '🖥️' : ''}${!this.cameraActive && !this.screenShareActive ? '—' : ''}</span>
+        </div>
+      </div>
+      ${statCount > 0 ? `
+      <div class="debug-section debug-metrics">
+        <div class="debug-metric">
+          <span class="debug-metric-value ${mosInfo.cssClass}">${mosInfo.value}</span>
+          <span class="debug-metric-label">MOS</span>
+        </div>
+        <div class="debug-metric">
+          <span class="debug-metric-value">${Math.round(avgRtt)}ms</span>
+          <span class="debug-metric-label">Avg RTT</span>
+        </div>
+        <div class="debug-metric">
+          <span class="debug-metric-value">${this.formatBitrate(totalBitrate)}</span>
+          <span class="debug-metric-label">↓ Total</span>
+        </div>
+      </div>
+      ` : ''}
+      <div class="debug-footer">
+        <span class="debug-quality-bar">
+          <span class="debug-quality-fill" style="width: ${this.qualityToPercent(quality)}%"></span>
+        </span>
+        <span class="debug-quality-label">${quality.toUpperCase()}</span>
+      </div>
+    `;
+  }
+
+  private getPeerDebugInfo(peerId: string, stats: PeerConnectionStats | null): string {
+    const shortId = peerId.slice(0, 8);
+    
+    if (!stats) {
+      return `
+        <div class="debug-header">
+          <span class="debug-title">PEER ${shortId}</span>
+          <span class="debug-badge debug-muted">NO DATA</span>
+        </div>
+        <div class="debug-section">
+          <span class="debug-empty">Awaiting statistics...</span>
+        </div>
+      `;
+    }
+
+    const rttMs = stats.roundTripTime ?? 0;
+    const lossPercent = stats.packetLoss ?? 0;
+    const jitterMs = stats.jitter ?? 0;
+    const bitrate = stats.bitrate ?? 0;
+    
+    const mos = this.calculateMOS(rttMs, lossPercent, jitterMs);
+    const mosInfo = this.formatMOS(mos);
+    const efficiency = this.calculateBandwidthEfficiency(bitrate, lossPercent);
+    
+    // Determine health indicators
+    const rttHealth = this.getMetricHealth(rttMs, [50, 100, 200]);
+    const lossHealth = this.getMetricHealth(lossPercent, [1, 3, 8]);
+    const jitterHealth = this.getMetricHealth(jitterMs, [20, 50, 100]);
+
+    return `
+      <div class="debug-header">
+        <span class="debug-title">PEER ${shortId}</span>
+        <span class="debug-badge ${mosInfo.cssClass}">${mosInfo.label.toUpperCase()}</span>
+      </div>
+      <div class="debug-section debug-metrics">
+        <div class="debug-metric debug-metric-large">
+          <span class="debug-metric-value ${mosInfo.cssClass}">${mosInfo.value}</span>
+          <span class="debug-metric-label">MOS Score</span>
+        </div>
+      </div>
+      <div class="debug-section">
+        <div class="debug-row">
+          <span class="debug-key">RTT (Latency)</span>
+          <span class="debug-value ${rttHealth.cssClass}">${Math.round(rttMs)} ms ${rttHealth.icon}</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-key">Packet Loss</span>
+          <span class="debug-value ${lossHealth.cssClass}">${lossPercent.toFixed(2)}% ${lossHealth.icon}</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-key">Jitter</span>
+          <span class="debug-value ${jitterHealth.cssClass}">${jitterMs.toFixed(1)} ms ${jitterHealth.icon}</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-key">Bitrate</span>
+          <span class="debug-value">${this.formatBitrate(bitrate)}</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-key">Efficiency</span>
+          <span class="debug-value">${efficiency.toFixed(1)}%</span>
+        </div>
+      </div>
+      <div class="debug-footer">
+        <span class="debug-quality-bar">
+          <span class="debug-quality-fill" style="width: ${this.qualityToPercent(stats.quality)}%"></span>
+        </span>
+        <span class="debug-ts">${this.formatTimestamp(stats.timestamp)}</span>
+      </div>
+    `;
+  }
+
+  private getMetricHealth(value: number, thresholds: [number, number, number]): { icon: string; cssClass: string } {
+    if (value <= thresholds[0]) return { icon: '✓', cssClass: 'debug-excellent' };
+    if (value <= thresholds[1]) return { icon: '●', cssClass: 'debug-good' };
+    if (value <= thresholds[2]) return { icon: '▲', cssClass: 'debug-fair' };
+    return { icon: '✗', cssClass: 'debug-critical' };
+  }
+
+  private formatBitrate(bps: number): string {
+    if (bps <= 0) return '—';
+    if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`;
+    if (bps >= 1_000) return `${(bps / 1_000).toFixed(0)} kbps`;
+    return `${Math.round(bps)} bps`;
+  }
+
+  private formatDuration(seconds: number): string {
+    if (seconds < 60) return `${seconds}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins < 60) return `${mins}m ${secs}s`;
+    const hours = Math.floor(mins / 60);
+    return `${hours}h ${mins % 60}m`;
+  }
+
+  private formatTimestamp(ts: number): string {
+    const date = new Date(ts);
+    return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  private qualityToPercent(quality: ConnectionQuality): number {
+    const map: Record<ConnectionQuality, number> = {
+      excellent: 100,
+      good: 75,
+      fair: 50,
+      poor: 25,
+      unknown: 0,
+    };
+    return map[quality];
+  }
+
+  private formatQuality(quality: ConnectionQuality): string {
+    const icons: Record<ConnectionQuality, string> = {
+      excellent: '●',
+      good: '●',
+      fair: '▲',
+      poor: '✗',
+      unknown: '○',
+    };
+    return `${icons[quality]} ${quality.charAt(0).toUpperCase() + quality.slice(1)}`;
+  }
+
+  createDebugToggleButton(): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.className = 'voice-debug-toggle';
+    btn.type = 'button';
+    btn.setAttribute('aria-pressed', 'false');
+    btn.title = 'Show Debug Info';
+    btn.innerHTML = `<span class="icon">🔧</span><span class="label">Debug</span>`;
+    btn.addEventListener('click', () => this.toggleDebugMode());
+    return btn;
   }
 }

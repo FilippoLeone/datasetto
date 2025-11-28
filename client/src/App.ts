@@ -403,6 +403,7 @@ export class App {
   'mobile-open-channels', 'mobile-open-settings', 'mobile-open-profile',
   'mobile-sidebar-close',
   'mobile-voice-close',
+  'voiceDebugToolbar', 'voiceDebugToggle',
       'audioSettingsModal', 'audioSettingsCancel', 'audioSettingsSave',
       'superuser-menu-btn', 'superuser-menu',
       'superuser-manage-users', 'superuser-manage-channels',
@@ -593,6 +594,10 @@ export class App {
   this.addTrackedListener(this.elements['toggle-screenshare'], 'click', () => { void this.voiceController?.toggleScreenShare(); });
     this.addTrackedListener(this.elements['voice-popout-video'], 'click', () => {
       this.voiceController?.openActiveVideoPopout();
+    });
+    // Voice debug toggle
+    this.addTrackedListener(this.elements['voiceDebugToggle'], 'click', () => {
+      this.voiceController?.toggleDebugMode();
     });
 
     // Gear icon -> Audio Settings
