@@ -1878,15 +1878,17 @@ body.stream-chat-hidden .stream-chat-header {
 }
 
 body:not(.stream-inline-active) .stream-chat-dock .chat-log {
-  padding: 1rem 1.5rem 0.5rem;
+  padding: 1rem 1.5rem 0.75rem;
   background: transparent !important;
+  flex: 1;
+  min-height: 0;
 }
 
 body:not(.stream-inline-active) .stream-chat-dock .chat-input-container {
   border: none;
   background: transparent;
-  padding: 0 1.5rem 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 0.75rem 1.5rem 1rem;
+  margin: 0;
 }
 
 body:not(.stream-inline-active) .stream-chat-dock .chat-input-container form {

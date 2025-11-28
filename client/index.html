@@ -430,7 +430,7 @@
         </section>
 
         <!-- Stream Chat Column -->
-        <aside id="streamChatDock" class="stream-chat-dock hidden" aria-hidden="true" role="complementary" aria-label="Channel chat">
+        <aside id="streamChatDock" class="stream-chat-dock" aria-hidden="false" role="complementary" aria-label="Channel chat">
           <header class="stream-chat-header">
             <div class="stream-chat-title text-channel-title" id="streamChatTitle">#general</div>
             <div class="stream-chat-status" id="streamChatStatus" aria-live="polite">Chat docked</div>
@@ -438,7 +438,17 @@
 
           <!-- Chat Messages -->
           <div id="msgs" class="chat-log flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar" role="log" aria-live="polite" aria-label="Chat messages">
-            <!-- Messages will be dynamically inserted here -->
+            <!-- Test message to verify CSS is working -->
+            <div class="message" data-author="System" data-timestamp="0">
+              <div class="message-avatar">S</div>
+              <div class="message-content message-bubble">
+                <div class="message-header">
+                  <span class="message-author">System</span>
+                  <time class="message-timestamp">Welcome</time>
+                </div>
+                <div class="message-text">Welcome to the chat! This is a test message.</div>
+              </div>
+            </div>
           </div>
 
           <!-- Chat Input -->

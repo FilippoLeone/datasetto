@@ -342,7 +342,7 @@
   }
 
   #chat-input-container {
-    margin-bottom: 5px;
+    margin: 0;
   }
 
   @media (max-width: 768px) {
