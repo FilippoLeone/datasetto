@@ -143,10 +143,13 @@ if [ "$USING_CLOUDFLARE" = "yes" ]; then
   # Use public IP for TURN when behind Cloudflare
   TURN_URL="turn:${TURN_EXTERNAL_IP}:3478"
   RTMP_URL="rtmp://${TURN_EXTERNAL_IP}/live"
+  # Caddy should listen on HTTP only - Cloudflare handles HTTPS
+  CADDY_SITE_ADDRESS=":80"
 else
   # Use domain for TURN when not behind proxy
   TURN_URL="turn:${DOMAIN}:3478"
   RTMP_URL="rtmp://${DOMAIN}/live"
+  # Keep CADDY_SITE_ADDRESS as domain (Caddy manages TLS)
 fi
 
 # Navigate to ops directory (assuming script is run from project root)

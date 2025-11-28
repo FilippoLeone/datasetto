@@ -6,9 +6,29 @@ import { EventEmitter, Storage } from '@/utils';
 import { isNativeAudioRoutingAvailable, selectNativeAudioRoute } from './NativeAudioRouteService';
 import { config } from '@/config';
 
+// Default ICE servers: Google STUN + OpenRelay free TURN
+// These are always included as baseline connectivity
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  // Google STUN servers (reliable, free, unlimited)
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  // OpenRelay free TURN (metered.ca - 500MB/month free)
+  { urls: 'stun:openrelay.metered.ca:80' },
+  { 
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
+  },
+  { 
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
+  },
+  { 
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
+  },
 ];
 
 const parseNumberEnv = (
@@ -153,8 +173,10 @@ const dedupeIceServers = (servers: RTCIceServer[]): RTCIceServer[] => {
 };
 
 const resolveIceServers = (): RTCIceServer[] => {
+  // Start with defaults (Google STUN + OpenRelay free TURN)
   const servers: RTCIceServer[] = [...DEFAULT_ICE_SERVERS];
 
+  // If custom ICE servers JSON is provided, use it exclusively
   const customIce = config.WEBRTC_ICE_SERVERS;
   if (customIce) {
     try {
@@ -168,6 +190,8 @@ const resolveIceServers = (): RTCIceServer[] => {
     }
   }
 
+  // Add self-hosted TURN as additional option (tried after free servers)
+  // This provides fallback if free quota is exceeded
   const turnUrls = splitEnvList(config.TURN_URL);
   if (turnUrls.length > 0) {
     const username = config.TURN_USERNAME;
@@ -183,6 +207,7 @@ const resolveIceServers = (): RTCIceServer[] => {
     }
   }
 
+  console.log('[VoiceService] ICE servers configured:', servers.length, 'servers');
   return dedupeIceServers(servers);
 };
 
