@@ -2397,7 +2397,7 @@ export class VoiceController {
       overlay.innerHTML = this.getLocalDebugInfo();
     } else {
       // Remote peer debug info
-      const stats = this.deps.voiceService.getPeerStats(peerId);
+      const stats = this.deps.voice.getPeerStats(peerId);
       overlay.innerHTML = this.getPeerDebugInfo(peerId, stats);
     }
   }
@@ -2462,13 +2462,13 @@ export class VoiceController {
     const muted = this.deps.state.get('muted');
     const deafened = this.deps.state.get('deafened');
     const peerCount = this.voiceUsers.size;
-    const quality = this.deps.voiceService.getOverallConnectionQuality();
+    const quality = this.deps.voice.getOverallConnectionQuality();
     const uptime = this.voiceSessionStart ? Math.floor((Date.now() - this.voiceSessionStart) / 1000) : 0;
     
     // Gather aggregate stats from all peers
     let avgRtt = 0, avgLoss = 0, avgJitter = 0, totalBitrate = 0, statCount = 0;
     this.voiceUsers.forEach((_, oderId) => {
-      const stats = this.deps.voiceService.getPeerStats(oderId);
+      const stats = this.deps.voice.getPeerStats(oderId);
       if (stats) {
         if (stats.roundTripTime !== null) avgRtt += stats.roundTripTime;
         if (stats.packetLoss !== null) avgLoss += stats.packetLoss;
@@ -2498,7 +2498,7 @@ export class VoiceController {
       <div class="debug-section">
         <div class="debug-row">
           <span class="debug-key">Session</span>
-          <span class="debug-value">${this.formatDuration(uptime)}</span>
+          <span class="debug-value">${this.formatDurationCompact(uptime)}</span>
         </div>
         <div class="debug-row">
           <span class="debug-key">Peers</span>
@@ -2623,7 +2623,7 @@ export class VoiceController {
     return `${Math.round(bps)} bps`;
   }
 
-  private formatDuration(seconds: number): string {
+  private formatDurationCompact(seconds: number): string {
     if (seconds < 60) return `${seconds}s`;
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -2646,17 +2646,6 @@ export class VoiceController {
       unknown: 0,
     };
     return map[quality];
-  }
-
-  private formatQuality(quality: ConnectionQuality): string {
-    const icons: Record<ConnectionQuality, string> = {
-      excellent: '●',
-      good: '●',
-      fair: '▲',
-      poor: '✗',
-      unknown: '○',
-    };
-    return `${icons[quality]} ${quality.charAt(0).toUpperCase() + quality.slice(1)}`;
   }
 
   createDebugToggleButton(): HTMLButtonElement {
