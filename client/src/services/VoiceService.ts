@@ -6,28 +6,34 @@ import { EventEmitter, Storage } from '@/utils';
 import { isNativeAudioRoutingAvailable, selectNativeAudioRoute } from './NativeAudioRouteService';
 import { config } from '@/config';
 
-// Default ICE servers: Google STUN + OpenRelay free TURN
+// Default ICE servers: Google STUN + Metered.ca TURN (free tier: 500MB/month)
 // These are always included as baseline connectivity
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   // Google STUN servers (reliable, free, unlimited)
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  // OpenRelay free TURN (metered.ca - 500MB/month free)
-  { urls: 'stun:openrelay.metered.ca:80' },
+  // Metered.ca STUN
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  // Metered.ca TURN (free tier - 500MB/month)
   { 
-    urls: 'turn:openrelay.metered.ca:80',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
+    urls: 'turn:standard.relay.metered.ca:80',
+    username: '990e0534ea70a2c639435b06',
+    credential: 'F6Z59TCsBPkGLjSR'
   },
   { 
-    urls: 'turn:openrelay.metered.ca:443',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
+    urls: 'turn:standard.relay.metered.ca:80?transport=tcp',
+    username: '990e0534ea70a2c639435b06',
+    credential: 'F6Z59TCsBPkGLjSR'
   },
   { 
-    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
+    urls: 'turn:standard.relay.metered.ca:443',
+    username: '990e0534ea70a2c639435b06',
+    credential: 'F6Z59TCsBPkGLjSR'
+  },
+  { 
+    urls: 'turns:standard.relay.metered.ca:443?transport=tcp',
+    username: '990e0534ea70a2c639435b06',
+    credential: 'F6Z59TCsBPkGLjSR'
   },
 ];
 
