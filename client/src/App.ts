@@ -563,6 +563,9 @@ export class App {
     // Join channel
     this.addTrackedListener(this.elements.join, 'click', () => this.channelController?.handleJoinChannel());
 
+    // Channel folder collapse/expand
+    this.setupChannelFolders();
+
     // Chat
     this.addTrackedListener(this.elements.chatForm, 'submit', (e) => {
       (e as Event).preventDefault();
@@ -975,6 +978,53 @@ export class App {
 
   private updateStreamIndicator(): void {
     this.videoController?.updateStreamWatchingIndicator();
+  }
+
+  /**
+   * Setup channel folder collapse/expand functionality
+   */
+  private setupChannelFolders(): void {
+    const folders = document.querySelectorAll('.channel-folder');
+    
+    folders.forEach(folder => {
+      const header = folder.querySelector('.channel-folder-header');
+      const addBtn = folder.querySelector('.folder-add-btn');
+      
+      if (!header) return;
+      
+      // Load saved state from localStorage
+      const folderType = folder.getAttribute('data-folder');
+      if (folderType) {
+        const savedState = localStorage.getItem(`folder-${folderType}-collapsed`);
+        if (savedState === 'true') {
+          folder.classList.add('collapsed');
+          header.setAttribute('aria-expanded', 'false');
+        }
+      }
+      
+      // Click on header toggles collapse (but not on add button)
+      this.addTrackedListener(header, 'click', (e: Event) => {
+        const target = e.target as HTMLElement;
+        
+        // Don't toggle if clicking the add button
+        if (addBtn && (addBtn === target || addBtn.contains(target))) {
+          return;
+        }
+        
+        e.stopPropagation();
+        
+        const isCollapsed = folder.classList.toggle('collapsed');
+        header.setAttribute('aria-expanded', String(!isCollapsed));
+        
+        // Save state to localStorage
+        if (folderType) {
+          localStorage.setItem(`folder-${folderType}-collapsed`, String(isCollapsed));
+        }
+        
+        // Play subtle click sound
+        this.soundFX.play('click', 0.2);
+      });
+    });
   }
 
   private toggleSidebar(forceState?: boolean): void {

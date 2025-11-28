@@ -14,120 +14,92 @@
     <!-- Left Sidebar: Channels + User Area -->
     <aside class="sidebar flex flex-col w-[260px] bg-bg-sidebar flex-shrink-0 overflow-hidden border-r border-white/5"
       role="navigation" aria-label="Server navigation">
-      <!-- Sidebar Header -->
-      <div
-        class="sidebar-header px-4 py-3 flex items-center justify-between min-h-[52px] shadow-sm sticky top-0 z-sticky bg-bg-sidebar/95 backdrop-blur-sm">
-        <strong class="text-base font-bold text-white tracking-tight flex items-center gap-2.5">
-          <div
-            class="w-6 h-6 rounded bg-brand-primary flex items-center justify-center text-white shadow-lg shadow-brand-primary/20">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-            </svg>
-          </div>
-          Datasetto
-        </strong>
-        <button id="mobile-sidebar-close" class="mobile-sidebar-close-btn" type="button"
-          aria-label="Close navigation">✕</button>
-      </div>
+      <!-- Mobile Close Button (floating) -->
+      <button id="mobile-sidebar-close" class="mobile-sidebar-close-btn absolute top-3 right-3 z-50 md:hidden" type="button"
+        aria-label="Close navigation">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
 
       <!-- Channels Section -->
-      <div class="sidebar-scroller flex-1 overflow-y-auto overflow-x-hidden py-3 pl-2 pr-1 custom-scrollbar">
+      <div class="sidebar-scroller flex-1 overflow-y-auto overflow-x-hidden pt-3 pb-2 px-2 custom-scrollbar">
+        
         <!-- Text Channels -->
-        <div class="mb-5">
-          <div
-            class="group flex items-center justify-between px-2 py-1 mb-1 cursor-pointer select-none rounded transition-fast hover:text-text-normal">
-            <span
-              class="text-xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-2 transition-colors group-hover:text-text-normal">Text
-              Channels</span>
-            <button id="create-text-channel" class="create-channel-btn" title="Create Text Channel">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+        <div class="channel-folder" data-folder="text">
+          <button class="channel-folder-header" type="button" aria-expanded="true">
+            <svg class="folder-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+            <svg class="folder-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span class="folder-label">Text Channels</span>
+            <button id="create-text-channel" class="folder-add-btn" title="Create Text Channel" type="button">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
             </button>
-          </div>
-          <div class="channel-list space-y-[2px]" id="text-channels">
-            <!-- Dynamic text channels will be inserted here -->
-          </div>
+          </button>
+          <div class="channel-folder-content" id="text-channels"></div>
         </div>
 
         <!-- Voice Channels -->
-        <div class="mb-5">
-          <div
-            class="group flex items-center justify-between px-2 py-1 mb-1 cursor-pointer select-none rounded transition-fast hover:text-text-normal">
-            <span
-              class="text-xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-2 transition-colors group-hover:text-text-normal">Voice
-              Channels</span>
-            <button id="create-voice-channel" class="create-channel-btn" title="Create Voice Channel">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+        <div class="channel-folder" data-folder="voice">
+          <button class="channel-folder-header" type="button" aria-expanded="true">
+            <svg class="folder-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+            <svg class="folder-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            </svg>
+            <span class="folder-label">Voice Channels</span>
+            <button id="create-voice-channel" class="folder-add-btn" title="Create Voice Channel" type="button">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
             </button>
-          </div>
-          <div class="channel-list space-y-[2px]" id="channelsList">
-            <!-- Dynamic voice channels will be inserted here -->
-          </div>
+          </button>
+          <div class="channel-folder-content" id="channelsList"></div>
         </div>
 
         <!-- Minigames -->
-        <div class="mb-5">
-          <div
-            class="group flex items-center justify-between px-2 py-1 mb-1 cursor-pointer select-none rounded transition-fast hover:text-text-normal">
-            <span
-              class="text-xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-2 transition-colors group-hover:text-text-normal">Minigames</span>
-            <span class="text-[10px] font-semibold uppercase tracking-wider text-brand-primary">Beta</span>
-          </div>
-          <div class="channel-list space-y-[2px]" id="minigame-launchers">
-            <button id="minigame-open" type="button"
-              class="channel-item flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-text-muted transition-fast hover:bg-white/5 hover:text-white">
-              <span class="channel-icon text-lg" aria-hidden="true">🎮</span>
-              <span class="channel-name truncate flex-1">Slither Arena</span>
-              <span id="minigame-launcher-status"
-                class="rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">Available</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Streams -->
-        <div class="mb-5">
-          <div
-            class="group flex items-center justify-between px-2 py-1 mb-1 cursor-pointer select-none rounded transition-fast hover:text-text-normal">
-            <span
-              class="text-xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-2 transition-colors group-hover:text-text-normal">Live
-              Streams</span>
-            <button id="create-stream-channel" class="create-channel-btn" title="Create Stream Channel">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+        <div class="channel-folder" data-folder="minigames">
+          <button class="channel-folder-header" type="button" aria-expanded="true">
+            <svg class="folder-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+            <svg class="folder-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="6" width="20" height="12" rx="2"/>
+              <circle cx="8" cy="12" r="2"/>
+              <path d="M15 9v6"/>
+              <path d="M18 9v6"/>
+            </svg>
+            <span class="folder-label">Minigames</span>
+            <span class="folder-badge">Beta</span>
+          </button>
+          <div class="channel-folder-content" id="minigame-launchers">
+            <button id="minigame-open" type="button" class="channel-item">
+              <svg class="channel-icon text-brand-primary" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <circle cx="12" cy="12" r="10"/>
+                <polygon points="10 8 16 12 10 16 10 8"/>
               </svg>
+              <span class="channel-name">Slither Arena</span>
             </button>
-          </div>
-          <div class="channel-list space-y-[2px]" id="stream-channels">
-            <!-- Dynamic stream channels will be inserted here -->
-          </div>
-        </div>
-
-        <!-- Screenshare Rooms -->
-        <div class="mb-5">
-          <div
-            class="group flex items-center justify-between px-2 py-1 mb-1 cursor-pointer select-none rounded transition-fast hover:text-text-normal">
-            <span
-              class="text-xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-2 transition-colors group-hover:text-text-normal">Screenshare</span>
-            <button id="create-screenshare-channel" class="create-channel-btn" title="Create Screenshare Room">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </button>
-          </div>
-          <div class="channel-list space-y-[2px]" id="screenshare-channels">
-            <!-- Dynamic screenshare channels will be inserted here -->
           </div>
         </div>
       </div>
@@ -218,9 +190,9 @@
             </div>
             <div class="voice-panel-status">
               <div class="voice-panel-timer-group" id="voice-timer-group">
-                <svg class="voice-panel-mic-icon" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                <svg class="voice-panel-timer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
                 </svg>
                 <span class="voice-panel-timer" id="voice-session-timer" aria-live="polite">--:--</span>
               </div>

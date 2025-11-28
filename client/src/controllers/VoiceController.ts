@@ -1939,7 +1939,7 @@ export class VoiceController {
     } catch {
       title = undefined;
     }
-    this.deps.voicePanel.updateSessionTimer(`⏱️ ${formatted}`, title);
+    this.deps.voicePanel.updateSessionTimer(formatted, title);
   }
 
   private formatDuration(milliseconds: number): string {
