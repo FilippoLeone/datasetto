@@ -1064,6 +1064,14 @@ export class VoiceService extends EventEmitter<EventMap> {
     // Ensure local audio track is attached without duplicating senders
     await this.replaceAudioTrack(peerId, pc);
 
+    // Add video tracks if they exist
+    if (this.localVideoStream) {
+      this.addVideoTrackToPeer(peerId, pc, 'camera', this.localVideoStream);
+    }
+    if (this.localScreenStream) {
+      this.addVideoTrackToPeer(peerId, pc, 'screen', this.localScreenStream);
+    }
+
     try {
       await this.createAndSendOffer(peerId, pc);
     } catch (error) {
@@ -1091,6 +1099,14 @@ export class VoiceService extends EventEmitter<EventMap> {
 
       // Reuse existing sender when renegotiating to avoid InvalidAccessError
       await this.replaceAudioTrack(peerId, pc);
+
+      // Add video tracks if they exist
+      if (this.localVideoStream) {
+        this.addVideoTrackToPeer(peerId, pc, 'camera', this.localVideoStream);
+      }
+      if (this.localScreenStream) {
+        this.addVideoTrackToPeer(peerId, pc, 'screen', this.localScreenStream);
+      }
 
       const answer = await pc.createAnswer();
       const enhancedAnswer = this.enhanceOpusSdp(answer);
@@ -1167,6 +1183,9 @@ export class VoiceService extends EventEmitter<EventMap> {
 
     this.resetIceRecovery(peerId);
     this.clearRemoteVideoTracks(peerId);
+    
+    // Clean up video senders
+    this.videoSenders.delete(peerId);
 
     // Remove peer manager
     const manager = this.peerManagers.get(peerId);
@@ -1739,27 +1758,39 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   /**
-   * Add video track to all connected peers
+   * Add video track to a specific peer
    */
-  private async addVideoTrackToAllPeers(type: 'camera' | 'screen', stream: MediaStream): Promise<void> {
+  private addVideoTrackToPeer(peerId: string, pc: RTCPeerConnection, type: 'camera' | 'screen', stream: MediaStream): void {
     const track = stream.getVideoTracks()[0];
     if (!track) return;
 
-    for (const [peerId, pc] of this.peers) {
-      try {
-        const sender = pc.addTrack(track, stream);
-        
-        // Store sender for later removal
-        if (!this.videoSenders.has(peerId)) {
-          this.videoSenders.set(peerId, {});
-        }
-        this.videoSenders.get(peerId)![type] = sender;
-
-        // Renegotiate connection
-        await this.createAndSendOffer(peerId, pc);
-      } catch (error) {
-        console.error(`[VoiceService] Failed to add ${type} track to peer ${peerId}:`, error);
+    try {
+      // Check if we already have a sender for this type
+      const senders = this.videoSenders.get(peerId);
+      if (senders?.[type]) {
+        return;
       }
+
+      const sender = pc.addTrack(track, stream);
+      
+      // Store sender for later removal
+      if (!this.videoSenders.has(peerId)) {
+        this.videoSenders.set(peerId, {});
+      }
+      this.videoSenders.get(peerId)![type] = sender;
+    } catch (error) {
+      console.error(`[VoiceService] Failed to add ${type} track to peer ${peerId}:`, error);
+    }
+  }
+
+  /**
+   * Add video track to all connected peers
+   */
+  private async addVideoTrackToAllPeers(type: 'camera' | 'screen', stream: MediaStream): Promise<void> {
+    for (const [peerId, pc] of this.peers) {
+      this.addVideoTrackToPeer(peerId, pc, type, stream);
+      // Renegotiate connection
+      await this.createAndSendOffer(peerId, pc);
     }
   }
 
