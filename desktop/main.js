@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell } = require('electron');
 const path = require('node:path');
 
 // Allow screen capture APIs (getDisplayMedia) inside our file:// based renderer
@@ -268,6 +268,35 @@ function createWindow() {
         menuBarVisible: false,
       }
     };
+  });
+
+  // Handle navigation - intercept downloads.html and open in external browser
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // Check if navigating to downloads.html (local file navigation)
+    if (url.includes('downloads.html')) {
+      event.preventDefault();
+      
+      // Try to read server URL from runtime config
+      let serverUrl = 'https://datasetto.com';
+      try {
+        const configPath = resolveResourcePath('runtime-config.json');
+        const fs = require('node:fs');
+        if (fs.existsSync(configPath)) {
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+          if (config.serverUrl) {
+            serverUrl = config.serverUrl;
+          }
+        }
+      } catch (err) {
+        console.warn('[Desktop] Could not read runtime-config.json:', err.message);
+      }
+      
+      // Open downloads page in external browser
+      const downloadsUrl = serverUrl.replace(/\/$/, '') + '/downloads.html';
+      shell.openExternal(downloadsUrl).catch(err => {
+        console.error('[Desktop] Failed to open downloads page:', err);
+      });
+    }
   });
 
   const startUrl = process.env.ELECTRON_START_URL;
