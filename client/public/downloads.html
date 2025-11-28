@@ -5,6 +5,52 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Datasetto - Downloads</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  
+  <!-- Structured Data (JSON-LD) for SEO -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "#organization",
+        "name": "Datasetto",
+        "url": "https://datasetto.com",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://datasetto.com/favicon.svg"
+        }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "#website",
+        "url": "https://datasetto.com",
+        "name": "Datasetto",
+        "publisher": {
+          "@id": "#organization"
+        }
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://datasetto.com"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Downloads",
+            "item": "https://datasetto.com/downloads.html"
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+
   <style>
     :root {
       --bg-primary: #0a0a0b;
