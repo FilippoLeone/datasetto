@@ -1,4 +1,3 @@
-import { isMobileDevice } from '@/utils/device';
 /**
  * Voice minigame coordinator for the Slither arena
  */
