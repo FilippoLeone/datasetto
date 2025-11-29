@@ -1,4 +1,5 @@
 import Hls from 'hls.js';
+import { config } from '@/config';
 import { buildHlsUrlCandidates } from '@/utils/streaming';
 import type { ScreenshareSessionEvent } from '@/types';
 import type { VideoControllerDeps } from './types';
@@ -104,7 +105,7 @@ const SCREENSHARE_CAPTURE_CONFIG = {
   idealFps: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_FPS, 60),
   maxFps: withFallback(import.meta.env.VITE_SCREENSHARE_MAX_FPS, 90),
   minFps: withFallback(import.meta.env.VITE_SCREENSHARE_MIN_FPS, 30),
-  maxBitrateKbps: withFallback(import.meta.env.VITE_SCREENSHARE_MAX_BITRATE_KBPS, 12000),
+  maxBitrateKbps: withFallback(config.SCREENSHARE_MAX_BITRATE_KBPS, 12000),
 };
 
 const SCREENSHARE_MAX_BITRATE_BPS = SCREENSHARE_CAPTURE_CONFIG.maxBitrateKbps
@@ -1675,7 +1676,7 @@ export class VideoController {
       };
 
       const isScreen = Boolean(selection.source.isScreen || selection.source.type === 'screen');
-      const enableAudio = Boolean(wantsAudio && selection.shareAudio && isScreen);
+      const enableAudio = Boolean(wantsAudio && selection.shareAudio);
       const audioConstraints: MediaTrackConstraints | boolean = enableAudio
         ? ({
             mandatory: {

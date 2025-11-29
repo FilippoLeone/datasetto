@@ -41,10 +41,12 @@ export class AccountManager {
     this.sessionsByAccount = new Map();
 
     this.storePath = options.storePath || appConfig.storage.accountStorePath;
+    this.sessionStorePath = options.sessionStorePath || appConfig.storage.sessionStorePath;
     this.sessionTtlMs = options.sessionTtlMs || appConfig.storage.accountSessionTtlMs;
     this.saltRounds = options.saltRounds || 10;
 
     this._pendingPersist = null;
+    this._pendingSessionPersist = null;
     this._useRedis = false;
     this._redisInitialized = false;
 
@@ -53,6 +55,7 @@ export class AccountManager {
     
     // Load from disk as fallback/initial data
     this.loadFromDisk();
+    this.loadSessionsFromDisk();
   }
 
   async _initRedis() {
@@ -98,6 +101,15 @@ export class AccountManager {
       for (const account of this.accounts.values()) {
         await this._saveToRedis(account);
       }
+      
+      // Migrate active sessions to Redis
+      if (this.sessions.size > 0) {
+        logger.info(`[AccountManager] Migrating ${this.sessions.size} sessions to Redis`);
+        for (const session of this.sessions.values()) {
+          await this._saveSessionToRedis(session);
+        }
+      }
+
       logger.info('[AccountManager] Migration to Redis complete');
     }
   }
@@ -112,10 +124,39 @@ export class AccountManager {
         const account = await redisInstance.get(REDIS_ACCOUNTS_NS, accountId);
         if (account) {
           this.accounts.set(account.id, account);
+
+          // Load sessions for this account
+          try {
+            const tokens = await redisInstance.smembers(REDIS_SESSIONS_NS, `account:${account.id}`);
+            if (tokens && Array.isArray(tokens)) {
+              for (const token of tokens) {
+                const session = await redisInstance.get(REDIS_SESSIONS_NS, token);
+                if (session) {
+                  // Verify session hasn't expired
+                  if (!session.expiresAt || session.expiresAt > Date.now()) {
+                    this.sessions.set(token, session);
+                    if (!this.sessionsByAccount.has(account.id)) {
+                      this.sessionsByAccount.set(account.id, new Set());
+                    }
+                    this.sessionsByAccount.get(account.id).add(token);
+                  } else {
+                    // Clean up expired session from Redis
+                    await this._deleteSessionFromRedis(token, account.id);
+                  }
+                } else {
+                   // Token exists in set but session object is gone (expired/deleted)
+                   // Clean up set
+                   await redisInstance.srem(REDIS_SESSIONS_NS, `account:${account.id}`, token);
+                }
+              }
+            }
+          } catch (err) {
+            logger.warn(`[AccountManager] Failed to load sessions for account ${account.id}: ${err.message}`);
+          }
         }
       }
       
-      logger.info(`[AccountManager] Loaded ${this.accounts.size} account(s) from Redis`);
+      logger.info(`[AccountManager] Loaded ${this.accounts.size} account(s) and ${this.sessions.size} session(s) from Redis`);
     } catch (error) {
       logger.error(`[AccountManager] Failed to load from Redis: ${error.message}`);
     }
@@ -242,6 +283,85 @@ export class AccountManager {
       writeFileSync(this.storePath, JSON.stringify(payload, null, 2));
     } catch (error) {
       logger.error(`[AccountManager] Failed to persist accounts: ${error.message}`);
+    }
+  }
+
+  loadSessionsFromDisk() {
+    if (!this.sessionStorePath || !existsSync(this.sessionStorePath)) {
+      return;
+    }
+
+    try {
+      const raw = readFileSync(this.sessionStorePath, 'utf-8');
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.sessions)) {
+        logger.warn('[AccountManager] Invalid session store format');
+        return;
+      }
+
+      const now = Date.now();
+      let loadedCount = 0;
+      let expiredCount = 0;
+
+      parsed.sessions.forEach((session) => {
+        if (!session || !session.token || !session.accountId || !session.expiresAt) {
+          return;
+        }
+
+        if (session.expiresAt <= now) {
+          expiredCount++;
+          return;
+        }
+
+        // Verify account still exists
+        if (!this.accounts.has(session.accountId)) {
+          return;
+        }
+
+        this.sessions.set(session.token, session);
+        
+        if (!this.sessionsByAccount.has(session.accountId)) {
+          this.sessionsByAccount.set(session.accountId, new Set());
+        }
+        this.sessionsByAccount.get(session.accountId).add(session.token);
+        loadedCount++;
+      });
+
+      logger.info(`[AccountManager] Loaded ${loadedCount} session(s) (${expiredCount} expired pruned)`);
+    } catch (error) {
+      logger.error(`[AccountManager] Failed to load sessions: ${error.message}`);
+    }
+  }
+
+  scheduleSessionPersist() {
+    if (this._pendingSessionPersist) {
+      clearTimeout(this._pendingSessionPersist);
+    }
+
+    this._pendingSessionPersist = setTimeout(() => {
+      this.persistSessionsToDisk();
+    }, 1000).unref?.();
+  }
+
+  persistSessionsToDisk() {
+    this._pendingSessionPersist = null;
+
+    try {
+      if (!this.sessionStorePath) return;
+
+      const payload = {
+        version: 1,
+        generatedAt: Date.now(),
+        sessions: Array.from(this.sessions.values()),
+      };
+
+      const dir = dirname(this.sessionStorePath);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(this.sessionStorePath, JSON.stringify(payload, null, 2));
+    } catch (error) {
+      logger.error(`[AccountManager] Failed to persist sessions: ${error.message}`);
     }
   }
 
@@ -404,6 +524,8 @@ export class AccountManager {
       logger.error(`[AccountManager] Failed to save session to Redis: ${err.message}`);
     });
 
+    this.scheduleSessionPersist();
+
     return session;
   }
 
@@ -450,6 +572,8 @@ export class AccountManager {
     this._deleteSessionFromRedis(token, session.accountId).catch(err => {
       logger.error(`[AccountManager] Failed to delete session from Redis: ${err.message}`);
     });
+
+    this.scheduleSessionPersist();
 
     return true;
   }

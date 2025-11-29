@@ -137,6 +137,7 @@ export const appConfig = {
     messageStorePath: process.env.MESSAGE_STORE_PATH || join(process.cwd(), 'storage/messages.json'),
     flushDebounceMs: parseInt(process.env.MESSAGE_STORE_FLUSH_DEBOUNCE_MS || '500', 10),
     accountStorePath: process.env.ACCOUNT_STORE_PATH || join(process.cwd(), 'storage/accounts.json'),
+    sessionStorePath: process.env.SESSION_STORE_PATH || join(process.cwd(), 'storage/sessions.json'),
     accountSessionTtlMs: parseInt(process.env.ACCOUNT_SESSION_TTL_MS || '86400000', 10), // 24 hours
     redisUrl: process.env.REDIS_URL || null,
   },

@@ -1950,7 +1950,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       };
 
       const isScreen = Boolean(selection.source.isScreen || selection.source.type === 'screen');
-      const enableAudio = Boolean(wantsAudio && selection.shareAudio && isScreen);
+      const enableAudio = Boolean(wantsAudio && selection.shareAudio);
       const audioConstraints: MediaTrackConstraints | boolean = enableAudio
         ? ({
             mandatory: {

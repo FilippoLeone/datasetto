@@ -325,7 +325,14 @@ export class VoiceController {
 
     // Show/hide video grid
     if (videoGrid) {
-      videoGrid.classList.toggle('hidden', !hasVideo && this.remoteVideoTracks.size === 0);
+      let hasVisibleRemoteVideo = false;
+      for (const tracks of this.remoteVideoTracks.values()) {
+        if (tracks.camera) {
+          hasVisibleRemoteVideo = true;
+          break;
+        }
+      }
+      videoGrid.classList.toggle('hidden', !hasVideo && !hasVisibleRemoteVideo);
     }
 
     // Show/hide local video container
@@ -438,6 +445,11 @@ export class VoiceController {
       this.remoteVideoStreams.set(peerId, {});
     }
     this.remoteVideoStreams.get(peerId)![streamType] = stream;
+
+    // Skip creating grid tile for screenshares (user must watch via gallery button)
+    if (streamType === 'screen') {
+      return;
+    }
 
     const tileId = `video-tile-${peerId}-${streamType}`;
     let tile = videoGrid.querySelector(`#${tileId}`) as HTMLElement | null;
@@ -1728,6 +1740,24 @@ export class VoiceController {
       this.populateVoiceGalleryMeta(metaEl, { muted, deafened, speaking, cameraEnabled, screenEnabled });
     }
 
+    // Manage "Watch Stream" button
+    let watchBtn = tile.querySelector('.voice-gallery-watch-btn') as HTMLButtonElement | null;
+    if (screenEnabled && !isCurrentUser) {
+      if (!watchBtn) {
+        watchBtn = document.createElement('button');
+        watchBtn.className = 'voice-gallery-watch-btn mt-2 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs rounded-full transition-colors z-10 relative';
+        watchBtn.textContent = 'Watch Stream';
+        watchBtn.onclick = (e) => {
+          e.stopPropagation();
+          const userId = tile.dataset.userId;
+          if (userId) this.watchUserStream(userId);
+        };
+        tile.appendChild(watchBtn);
+      }
+    } else if (watchBtn) {
+      watchBtn.remove();
+    }
+
     const labelParts: string[] = [];
     if (isCurrentUser) {
       labelParts.push('You');
@@ -1746,6 +1776,20 @@ export class VoiceController {
   const displayName = tile.dataset.displayName ?? 'Participant';
     const labelDescription = labelParts.length > 0 ? labelParts.join(', ') : 'Connected';
     tile.setAttribute('aria-label', `${displayName} — ${labelDescription}`);
+  }
+
+  private watchUserStream(userId: string): void {
+    const streams = this.remoteVideoStreams.get(userId);
+    if (streams?.screen) {
+      this.deps.openVideoPopout?.({
+        stream: streams.screen,
+        label: `${this.voiceUsers.get(userId)?.name ?? 'User'}'s Screen`,
+        pipStream: streams.camera,
+        pipLabel: this.voiceUsers.get(userId)?.name
+      });
+    } else {
+      this.deps.notifications.warning('Stream not available yet');
+    }
   }
 
   private populateVoiceGalleryMeta(

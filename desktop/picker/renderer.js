@@ -92,10 +92,6 @@ function selectSource(id) {
     return;
   }
   selectedId = id;
-  const selectedSource = getSelectedSource();
-  if (selectedSource?.type === 'window') {
-    shareAudio = false;
-  }
   updateControls();
   renderSources();
 }
@@ -104,7 +100,7 @@ function updateControls() {
   const selectedSource = getSelectedSource();
   shareBtn.disabled = !selectedSource;
 
-  const audioAllowed = allowAudio && selectedSource?.type === 'screen';
+  const audioAllowed = allowAudio && selectedSource;
   audioToggle.disabled = !audioAllowed;
   if (!audioAllowed) {
     audioToggle.checked = false;
@@ -126,7 +122,7 @@ function confirmSelection() {
       type: source.type,
       isScreen: source.type === 'screen',
     },
-    shareAudio: Boolean(audioToggle.checked && allowAudio && source.type === 'screen'),
+    shareAudio: Boolean(audioToggle.checked && allowAudio),
   });
 }
 
