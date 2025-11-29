@@ -1949,7 +1949,6 @@ export class VoiceService extends EventEmitter<EventMap> {
         ...(typeof maxFrameRate === 'number' ? { maxFrameRate: Math.round(maxFrameRate) } : {}),
       };
 
-      const isScreen = Boolean(selection.source.isScreen || selection.source.type === 'screen');
       const enableAudio = Boolean(wantsAudio && selection.shareAudio);
       const audioConstraints: MediaTrackConstraints | boolean = enableAudio
         ? ({

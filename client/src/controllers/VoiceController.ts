@@ -457,7 +457,7 @@ export class VoiceController {
     if (!tile) {
       tile = document.createElement('div');
       tile.id = tileId;
-      tile.className = `video-tile ${streamType === 'screen' ? 'screen-share' : ''}`;
+      tile.className = 'video-tile';
       tile.dataset.peerId = peerId;
       tile.dataset.streamType = streamType;
 
@@ -465,7 +465,7 @@ export class VoiceController {
       video.className = 'video-element';
       video.autoplay = true;
       video.playsInline = true;
-      video.muted = streamType === 'screen'; // Mute screen shares to avoid echo
+      video.muted = false;
 
       const overlay = document.createElement('div');
       overlay.className = 'video-tile-overlay';
@@ -477,7 +477,7 @@ export class VoiceController {
 
       const badge = document.createElement('span');
       badge.className = 'video-tile-badge';
-      badge.textContent = streamType === 'screen' ? '🖥️' : '📹';
+      badge.textContent = '📹';
 
       overlay.appendChild(nameSpan);
       overlay.appendChild(badge);
