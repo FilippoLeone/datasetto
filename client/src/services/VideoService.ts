@@ -217,7 +217,7 @@ export class VideoService extends EventEmitter<EventMap> {
 
     try {
       // Set content hint for better encoding
-      videoTrack.contentHint = streamType === 'screen' ? 'detail' : 'motion';
+      videoTrack.contentHint = streamType === 'screen' ? 'motion' : 'motion';
 
       const sender = pc.addTrack(videoTrack, stream);
 

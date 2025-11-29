@@ -105,7 +105,7 @@ const SCREENSHARE_CAPTURE_CONFIG = {
   idealFps: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_FPS, 60),
   maxFps: withFallback(import.meta.env.VITE_SCREENSHARE_MAX_FPS, 90),
   minFps: withFallback(import.meta.env.VITE_SCREENSHARE_MIN_FPS, 30),
-  maxBitrateKbps: withFallback(config.SCREENSHARE_MAX_BITRATE_KBPS, 12000),
+  maxBitrateKbps: withFallback(config.SCREENSHARE_MAX_BITRATE_KBPS, 25000),
 };
 
 const SCREENSHARE_MAX_BITRATE_BPS = SCREENSHARE_CAPTURE_CONFIG.maxBitrateKbps
@@ -1661,13 +1661,11 @@ export class VideoController {
         chromeMediaSourceId: sourceId,
         ...(resolvedWidth
           ? {
-              minWidth: Math.round(resolvedWidth),
               maxWidth: Math.round(resolvedWidth),
             }
           : {}),
         ...(resolvedHeight
           ? {
-              minHeight: Math.round(resolvedHeight),
               maxHeight: Math.round(resolvedHeight),
             }
           : {}),
@@ -2002,6 +2000,7 @@ export class VideoController {
         let dirty = false;
 
         if (SCREENSHARE_MAX_BITRATE_BPS && encoding.maxBitrate !== SCREENSHARE_MAX_BITRATE_BPS) {
+          console.log('[VideoController] Applying maxBitrate:', SCREENSHARE_MAX_BITRATE_BPS);
           encoding.maxBitrate = SCREENSHARE_MAX_BITRATE_BPS;
           dirty = true;
         }
@@ -2047,18 +2046,14 @@ export class VideoController {
     }
 
     try {
-      const dpr = window.devicePixelRatio || 1;
-      const baseWidth = window.screen?.width ?? fallback.width ?? SCREENSHARE_CAPTURE_CONFIG.idealWidth;
-      const baseHeight = window.screen?.height ?? fallback.height ?? SCREENSHARE_CAPTURE_CONFIG.idealHeight;
-      const screenWidth = Math.round(baseWidth * dpr);
-      const screenHeight = Math.round(baseHeight * dpr);
-
-      const widthLimit = SCREENSHARE_CAPTURE_CONFIG.maxWidth ?? screenWidth;
-      const heightLimit = SCREENSHARE_CAPTURE_CONFIG.maxHeight ?? screenHeight;
+      // Do not clamp to window.screen as the user might be sharing a different screen
+      // with a higher resolution.
+      const widthLimit = SCREENSHARE_CAPTURE_CONFIG.maxWidth ?? 3840; // Default max 4K
+      const heightLimit = SCREENSHARE_CAPTURE_CONFIG.maxHeight ?? 2160;
 
       return {
-        width: Math.min(screenWidth, widthLimit) || fallback.width,
-        height: Math.min(screenHeight, heightLimit) || fallback.height,
+        width: widthLimit,
+        height: heightLimit,
       };
     } catch (error) {
       if (import.meta.env.DEV) {
@@ -2073,6 +2068,7 @@ export class VideoController {
       frameRate: {
         ideal: SCREENSHARE_CAPTURE_CONFIG.idealFps,
         max: SCREENSHARE_CAPTURE_CONFIG.maxFps,
+        min: SCREENSHARE_CAPTURE_CONFIG.minFps,
       },
       cursor: 'always',
     };
@@ -2117,7 +2113,7 @@ export class VideoController {
     }
 
     try {
-      videoTrack.contentHint = 'detail';
+      videoTrack.contentHint = 'motion';
     } catch {
       // Ignore if the browser disallows custom content hints
     }
