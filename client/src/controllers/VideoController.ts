@@ -2742,7 +2742,7 @@ export class VideoController {
   }
 
   private isMobileLayout(): boolean {
-    return window.matchMedia('(max-width: 768px)').matches;
+    return window.matchMedia('(max-width: 1024px)').matches;
   }
 
   private syncChatDockState(isHidden: boolean): void {

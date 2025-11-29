@@ -218,7 +218,7 @@ export class MinigameController {
 
   constructor(deps: MinigameControllerDeps) {
     this.deps = deps;
-    this.isMobile = isMobileDevice();
+    this.isMobile = window.matchMedia('(max-width: 1024px)').matches;
   }
 
   initialize(): void {

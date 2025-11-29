@@ -518,7 +518,7 @@
     line-height: 1.4;
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: 1024px) {
     .modal-tabs {
       padding: 0.5rem;
     }
@@ -1747,14 +1747,14 @@ body.stream-inline-active .stream-layout.is-text-mode .stream-chat-header {
   }
 }
 
-@media (min-width: 769px) and (max-width: 1024px) {
+/* @media (min-width: 769px) and (max-width: 1024px) {
   body.stream-inline-active:not(.stream-fullscreen-active) .stream-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(280px, var(--stream-chat-dock-width));
     gap: 1.75rem;
     align-items: stretch;
   }
-}
+} */
 
 .stream-player-column {
   display: flex;
@@ -2421,7 +2421,7 @@ body:not(.stream-inline-active) .stream-chat-status {
 }
 
 /* Responsive video grid */
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .video-call-grid {
     grid-template-columns: 1fr;
     padding: 0.5rem;
@@ -2933,7 +2933,7 @@ body:not(.stream-inline-active) .stream-chat-status {
   color: #f87171;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .voice-debug-overlay {
     font-size: 0.52rem;
   }
@@ -2959,7 +2959,7 @@ body:not(.stream-inline-active) .stream-chat-status {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .main-content.voice-mode .voice-gallery {
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
     gap: clamp(0.85rem, 4vw, 1.35rem);
@@ -3525,7 +3525,7 @@ body:not(.stream-inline-active) .stream-chat-status {
   box-shadow: 0 24px 64px rgba(5, 5, 9, 0.65);
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 1025px) {
   body.stream-inline-active:not(.stream-fullscreen-active) .chat-content {
     background: radial-gradient(circle at top left, rgba(15, 164, 165, 0.12), transparent 55%),
       radial-gradient(circle at bottom right, rgba(255, 138, 61, 0.1), transparent 60%),
@@ -4201,7 +4201,7 @@ body.native-fullscreen-active #inlineVideoContainer .inline-video-stage>canvas {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .app-shell {
     flex-direction: column;
   }

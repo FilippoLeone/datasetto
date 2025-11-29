@@ -1252,7 +1252,7 @@ export class App {
     breakpoint.addEventListener('change', handleChange);
     this.cleanupCallbacks.push(() => breakpoint.removeEventListener('change', handleChange));
 
-    const mobileBreakpoint = window.matchMedia('(max-width: 768px)');
+    const mobileBreakpoint = window.matchMedia('(max-width: 1024px)');
     const handleMobileChange = (event: MediaQueryListEvent): void => {
       this.videoController?.handleMobileBreakpointChange(event);
       this.updateMobileToolbarState();
@@ -1263,7 +1263,7 @@ export class App {
   }
 
   private isMobileLayout(): boolean {
-    return window.matchMedia('(max-width: 768px)').matches;
+    return window.matchMedia('(max-width: 1024px)').matches;
   }
 
   /**
