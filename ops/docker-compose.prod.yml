@@ -90,7 +90,7 @@ services:
       - ../desktop/release:/releases/desktop:ro
       - ../mobile/release:/releases/mobile:ro
       # Persistent storage volume for file-based fallback
-      - datasetto_storage:/app/storage
+      - ./data/storage:/app/storage
     networks:
       - app-network
     depends_on:
@@ -209,7 +209,7 @@ services:
       - app-network
     volumes:
       # Persistent volume - survives container destruction
-      - redis_data:/data
+      - ./data/redis:/data
     command: >
       redis-server
       --appendonly yes
@@ -234,14 +234,6 @@ services:
 volumes:
   caddy_data:
   caddy_config:
-  redis_data:
-    # This volume persists Redis data outside of containers
-    # Even if you destroy all containers, data will be preserved
-    # Location on host: /var/lib/docker/volumes/ops_redis_data/_data
-    driver: local
-  datasetto_storage:
-    # Persistent storage for server data (accounts, messages, etc.)
-    driver: local
 
 networks:
   app-network:

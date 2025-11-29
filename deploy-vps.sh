@@ -252,6 +252,15 @@ fi
 # Deploy application
 echo ""
 echo "[2/3] Building and starting containers..."
+
+# Create data directories for persistence
+echo "Creating data directories..."
+mkdir -p data/redis
+mkdir -p data/storage
+# Set permissions to ensure containers can write (Redis often runs as non-root)
+chmod 777 data/redis
+chmod 777 data/storage
+
 docker compose -f docker-compose.prod.yml down 2>/dev/null || true
 docker compose -f docker-compose.prod.yml build --no-cache
 docker compose -f docker-compose.prod.yml up -d
