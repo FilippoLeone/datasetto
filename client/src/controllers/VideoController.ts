@@ -97,14 +97,14 @@ const readBoolean = (value: string | undefined, fallback: boolean): boolean => {
 };
 
 const SCREENSHARE_CAPTURE_CONFIG = {
-  idealWidth: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_WIDTH, 2560),
-  idealHeight: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_HEIGHT, 1440),
+  idealWidth: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_WIDTH, 1920),
+  idealHeight: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_HEIGHT, 1080),
   maxWidth: readPositiveNumber(import.meta.env.VITE_SCREENSHARE_MAX_WIDTH),
   maxHeight: readPositiveNumber(import.meta.env.VITE_SCREENSHARE_MAX_HEIGHT),
   preferNativeResolution: readBoolean(import.meta.env.VITE_SCREENSHARE_PREFER_NATIVE_RESOLUTION, true),
-  idealFps: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_FPS, 60),
-  maxFps: withFallback(import.meta.env.VITE_SCREENSHARE_MAX_FPS, 90),
-  minFps: withFallback(import.meta.env.VITE_SCREENSHARE_MIN_FPS, 30),
+  idealFps: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_FPS, 90),
+  maxFps: withFallback(import.meta.env.VITE_SCREENSHARE_MAX_FPS, 120),
+  minFps: withFallback(import.meta.env.VITE_SCREENSHARE_MIN_FPS, 60),
   maxBitrateKbps: withFallback(config.SCREENSHARE_MAX_BITRATE_KBPS, 25000),
 };
 
@@ -1886,6 +1886,14 @@ export class VideoController {
   private async createOfferForViewer(viewerId: string, peer: RTCPeerConnection, viewerName?: string): Promise<void> {
     try {
       const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+      
+      if (SCREENSHARE_MAX_BITRATE_BPS) {
+        const bitrateKbps = Math.round(SCREENSHARE_MAX_BITRATE_BPS / 1000);
+        if (offer.sdp) {
+          offer.sdp = this.applySdpBandwidthHack(offer.sdp, bitrateKbps);
+        }
+      }
+
       await peer.setLocalDescription(offer);
       this.deps.socket.sendScreenshareSignal(viewerId, { sdp: offer }, this.screenshareChannelId);
       this.flushCandidateQueue(viewerId);
@@ -1895,6 +1903,32 @@ export class VideoController {
     } catch (error) {
       console.error('[VideoController] Failed to create viewer offer:', error);
     }
+  }
+
+  private applySdpBandwidthHack(sdp: string, bitrateKbps: number): string {
+    const lines = sdp.split('\r\n');
+    let videoSection = false;
+    const newLines: string[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith('m=video')) {
+        videoSection = true;
+      } else if (line.startsWith('m=')) {
+        videoSection = false;
+      }
+
+      newLines.push(line);
+
+      if (videoSection && line.startsWith('c=IN')) {
+        newLines.push(`b=AS:${bitrateKbps}`);
+        newLines.push(`b=TIAS:${bitrateKbps * 1000}`);
+      }
+
+      if (videoSection && line.startsWith('a=fmtp:')) {
+        newLines[newLines.length - 1] = `${line};x-google-min-bitrate=${Math.floor(bitrateKbps * 0.5)};x-google-max-bitrate=${bitrateKbps};x-google-start-bitrate=${Math.floor(bitrateKbps * 0.7)}`;
+      }
+    }
+    return newLines.join('\r\n');
   }
 
   private handleScreenshareError(payload: { channelId?: string | null; message: string; code?: string }): void {
