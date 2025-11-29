@@ -302,6 +302,10 @@ export class AudioService extends EventEmitter {
 
       let ctx = this.initAudioContext();
 
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
       await this.alignInputStreamSampleRate(rawStream, ctx).catch((error) => {
         if (import.meta.env.DEV) {
           console.warn('[AudioService] Failed to normalize microphone sample rate:', error);
