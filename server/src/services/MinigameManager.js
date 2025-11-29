@@ -64,6 +64,22 @@ const PACMAN_OVERTIME_PELLET_RATIO = 0.25;
 const PACMAN_OVERTIME_SPEED_MULTIPLIER = 1.35;
 const PACMAN_POWERUP_BURST_COUNT = 3;
 
+// Fighter Constants
+const FIGHTER_STAGE_WIDTH = 1200;
+const FIGHTER_STAGE_HEIGHT = 600;
+const FIGHTER_GROUND_Y = 500;
+const FIGHTER_GRAVITY = 2000;
+const FIGHTER_JUMP_FORCE = -900;
+const FIGHTER_MOVE_SPEED = 400;
+const FIGHTER_ATTACK_DURATION = 300; // ms
+const FIGHTER_HIT_STUN = 400; // ms
+const FIGHTER_BLOCK_COOLDOWN = 500;
+const FIGHTER_MAX_HEALTH = 100;
+const FIGHTER_DAMAGE_PUNCH = 8;
+const FIGHTER_DAMAGE_KICK = 12;
+const FIGHTER_HITBOX_RANGE = 100;
+const FIGHTER_ROUND_DURATION_MS = 99000; // 99 seconds
+
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 const randomBetween = (min, max) => Math.random() * (max - min) + min;
@@ -208,7 +224,7 @@ export default class MinigameManager {
       throw new Error('A minigame is already running in this channel');
     }
 
-    if (type !== 'slither' && type !== 'pacman') {
+    if (type !== 'slither' && type !== 'pacman' && type !== 'fighter') {
       throw new Error('Unsupported minigame type');
     }
 
@@ -223,6 +239,8 @@ export default class MinigameManager {
           tileSize: selectedPacmanMap.tileSize,
               wrapRows: selectedPacmanMap.wrapRows,
         }
+      : type === 'fighter'
+      ? { width: FIGHTER_STAGE_WIDTH, height: FIGHTER_STAGE_HEIGHT }
       : { width: WORLD_WIDTH, height: WORLD_HEIGHT };
 
     const session = {
@@ -250,6 +268,8 @@ export default class MinigameManager {
 
     if (type === 'pacman') {
       this.initializePacmanState(session);
+    } else if (type === 'fighter') {
+      this.initializeFighterState(session);
     }
 
     this.sessions.set(channelId, session);
@@ -341,6 +361,13 @@ export default class MinigameManager {
     session.pacmanSpeedMultiplier = 1;
     session.initialPelletCount = 0;
     session.pacmanRound = 1;
+  }
+
+  initializeFighterState(session) {
+    session.fighterRound = 1;
+    session.roundStartedAt = Date.now();
+    session.roundEndsAt = Date.now() + FIGHTER_ROUND_DURATION_MS;
+    session.fighterPhase = 'fighting';
   }
 
   transitionPacmanPhase(session, phase, now, duration) {
@@ -467,7 +494,7 @@ export default class MinigameManager {
     return state;
   }
 
-  handleInput(channelId, playerId, vector) {
+  handleInput(channelId, playerId, payload) {
     const session = this.sessions.get(channelId);
     if (!session || session.status !== 'running') {
       throw new Error('No active minigame in this channel');
@@ -478,8 +505,22 @@ export default class MinigameManager {
       throw new Error('Player is not part of this game');
     }
 
-    const { x, y } = normalizeVector(vector);
-    player.input = { x, y };
+    if (session.type === 'fighter') {
+      // Fighter input handling
+      if (payload.action) {
+        player.pendingAction = payload.action; // jump, punch, kick, block
+      }
+      if (payload.vector) {
+        const { x, y } = normalizeVector(payload.vector);
+        player.input = { x, y };
+      }
+    } else {
+      // Slither/Pacman input handling (vector only)
+      const vector = payload.vector || payload; // Handle both {vector: {x,y}} and {x,y}
+      const { x, y } = normalizeVector(vector);
+      player.input = { x, y };
+    }
+    
     player.lastInputAt = Date.now();
   }
 
@@ -563,6 +604,11 @@ export default class MinigameManager {
       return;
     }
 
+    if (session.type === 'fighter') {
+      this.tickFighter(session);
+      return;
+    }
+
     const now = Date.now();
     const deltaSeconds = session.tickIntervalMs / 1000;
 
@@ -587,6 +633,182 @@ export default class MinigameManager {
 
     const state = this.serialize(session);
     this.io.to(session.channelId).emit('voice:game:update', state);
+  }
+
+  tickFighter(session) {
+    const now = Date.now();
+    const deltaSeconds = session.tickIntervalMs / 1000;
+
+    session.sequence += 1;
+    session.updatedAt = now;
+
+    if (session.fighterPhase === 'fighting' && now >= session.roundEndsAt) {
+      // Time over
+      this.endFighterRound(session, 'timeout');
+    }
+
+    this.moveFighterPlayers(session, deltaSeconds);
+    this.resolveFighterCollisions(session, now);
+
+    if (session.players.size === 0) {
+      this.endGame(session.channelId, 'all_players_left');
+      return;
+    }
+
+    const state = this.serialize(session);
+    this.io.to(session.channelId).emit('voice:game:update', state);
+  }
+
+  moveFighterPlayers(session, deltaSeconds) {
+    session.players.forEach((player) => {
+      if (!player.alive) return;
+
+      // Gravity
+      player.vy += FIGHTER_GRAVITY * deltaSeconds;
+
+      // Stun Check
+      if (player.stunnedUntil && player.stunnedUntil > Date.now()) {
+        // Apply friction but no input
+        player.vx *= 0.9;
+      } else {
+        // Input
+        if (player.input && !player.isAttacking) {
+          if (player.input.x < -0.1) {
+            player.vx = -FIGHTER_MOVE_SPEED;
+            player.facing = 'left';
+          } else if (player.input.x > 0.1) {
+            player.vx = FIGHTER_MOVE_SPEED;
+            player.facing = 'right';
+          } else {
+            // Friction
+            player.vx *= 0.8;
+          }
+        } else {
+           player.vx *= 0.8;
+        }
+
+        // Actions
+        if (player.pendingAction) {
+          if (player.pendingAction === 'jump' && player.isGrounded) {
+            player.vy = FIGHTER_JUMP_FORCE;
+            player.isGrounded = false;
+          } else if (player.pendingAction === 'punch' || player.pendingAction === 'kick') {
+             if (!player.isAttacking && Date.now() > player.lastAttackAt + 500) {
+               player.isAttacking = true;
+               player.attackType = player.pendingAction;
+               player.attackStartedAt = Date.now();
+               player.lastAttackAt = Date.now();
+               player.hasHitTarget = false;
+             }
+          } else if (player.pendingAction === 'block') {
+             player.isBlocking = true;
+             player.lastBlockAt = Date.now();
+          }
+          player.pendingAction = null;
+        }
+      }
+
+      // Block decay
+      if (player.isBlocking && Date.now() > player.lastBlockAt + 200) {
+        player.isBlocking = false;
+      }
+
+      // Position Update
+      player.x += player.vx * deltaSeconds;
+      player.y += player.vy * deltaSeconds;
+
+      // Ground Collision
+      if (player.y >= FIGHTER_GROUND_Y) {
+        player.y = FIGHTER_GROUND_Y;
+        player.vy = 0;
+        player.isGrounded = true;
+      }
+
+      // Wall Collision
+      player.x = clamp(player.x, 50, FIGHTER_STAGE_WIDTH - 50);
+
+      // Attack Duration
+      if (player.isAttacking && Date.now() > player.attackStartedAt + FIGHTER_ATTACK_DURATION) {
+        player.isAttacking = false;
+        player.attackType = null;
+      }
+    });
+  }
+
+  resolveFighterCollisions(session, now) {
+    const players = Array.from(session.players.values()).filter(p => p.alive);
+    
+    for (const attacker of players) {
+      if (!attacker.isAttacking) continue;
+      if (attacker.hasHitTarget) continue;
+      // Cannot hit if stunned
+      if (attacker.stunnedUntil && attacker.stunnedUntil > now) continue;
+
+      const hitRange = FIGHTER_HITBOX_RANGE;
+      const hitX = attacker.facing === 'right' ? attacker.x + hitRange/2 : attacker.x - hitRange/2;
+      const hitY = attacker.y - 40;
+
+      for (const victim of players) {
+        if (attacker.id === victim.id) continue;
+
+        const dx = Math.abs(victim.x - hitX);
+        const dy = Math.abs(victim.y - hitY);
+
+        if (dx < 60 && dy < 80) {
+           attacker.hasHitTarget = true;
+           
+           if (victim.isBlocking && ((attacker.facing === 'right' && victim.facing === 'left') || (attacker.facing === 'left' && victim.facing === 'right'))) {
+             // Blocked
+             victim.vx += attacker.facing === 'right' ? 200 : -200;
+             // Small stun on block
+             victim.stunnedUntil = now + 100;
+           } else {
+             // Hit
+             const damage = attacker.attackType === 'kick' ? FIGHTER_DAMAGE_KICK : FIGHTER_DAMAGE_PUNCH;
+             victim.health = Math.max(0, victim.health - damage);
+             victim.lastHitAt = now;
+             victim.stunnedUntil = now + FIGHTER_HIT_STUN;
+             
+             victim.vx += attacker.facing === 'right' ? 300 : -300;
+             victim.vy = -200;
+             
+             if (victim.health <= 0) {
+               this.killFighter(session, victim, attacker);
+             }
+           }
+        }
+      }
+    }
+  }
+
+  killFighter(session, victim, killer) {
+    victim.alive = false;
+    victim.score = Math.max(0, victim.score - 1);
+    if (killer) {
+      killer.score += 1;
+    }
+    // Respawn after delay
+    setTimeout(() => {
+      if (session.status === 'running' && session.players.has(victim.id)) {
+        this.respawnFighter(session, victim);
+      }
+    }, 3000);
+  }
+
+  respawnFighter(session, player) {
+    player.alive = true;
+    player.health = FIGHTER_MAX_HEALTH;
+    player.x = randomBetween(100, FIGHTER_STAGE_WIDTH - 100);
+    player.y = 0; // Drop from sky
+    player.vx = 0;
+    player.vy = 0;
+  }
+
+  endFighterRound(session, reason) {
+    // Reset positions or end game
+    // For now, just reset health and positions
+    session.players.forEach(p => this.respawnFighter(session, p));
+    session.roundEndsAt = Date.now() + FIGHTER_ROUND_DURATION_MS;
   }
 
   tickPacman(session) {
@@ -1133,6 +1355,26 @@ export default class MinigameManager {
         lastInputAt: Date.now(),
         joinedAt: Date.now(),
       };
+    } else if (session.type === 'fighter') {
+      player = {
+        id: playerId,
+        name: playerName,
+        color,
+        score: 0,
+        alive: true,
+        x: 200 + (session.players.size * 200),
+        y: FIGHTER_GROUND_Y,
+        vx: 0,
+        vy: 0,
+        health: FIGHTER_MAX_HEALTH,
+        facing: 'right',
+        isGrounded: true,
+        isAttacking: false,
+        isBlocking: false,
+        stunnedUntil: 0,
+        lastAttackAt: 0,
+        joinedAt: Date.now(),
+      };
     } else {
       const spawn = this.findSpawnPoint(session);
       const heading = randomBetween(-Math.PI, Math.PI);
@@ -1351,6 +1593,29 @@ export default class MinigameManager {
           lastInputAt: player.lastInputAt,
           joinedAt: player.joinedAt,
         });
+      } else if (session.type === 'fighter') {
+        players.push({
+          id: player.id,
+          name: player.name,
+          color: player.color,
+          score: Math.round(player.score),
+          alive: player.alive,
+          x: Math.round(player.x * 100) / 100,
+          y: Math.round(player.y * 100) / 100,
+          vx: Math.round(player.vx * 100) / 100,
+          vy: Math.round(player.vy * 100) / 100,
+          health: player.health,
+          facing: player.facing,
+          isGrounded: player.isGrounded,
+          isAttacking: player.isAttacking,
+          attackType: player.attackType,
+          isBlocking: player.isBlocking,
+          isStunned: player.stunnedUntil && player.stunnedUntil > now,
+          respawning: !player.alive,
+          respawnInMs: !player.alive && player.respawnAt ? Math.max(0, player.respawnAt - now) : 0,
+          lastInputAt: player.lastInputAt,
+          joinedAt: player.joinedAt,
+        });
       } else {
         const segments = sampleAndScaleSegments(player.segments);
         players.push({
@@ -1447,6 +1712,14 @@ export default class MinigameManager {
         }
       : null;
 
+    const fighterState = session.type === 'fighter'
+      ? {
+          round: session.fighterRound,
+          roundEndsAt: session.roundEndsAt,
+          phase: session.fighterPhase,
+        }
+      : null;
+
     return {
       gameId: session.id,
       channelId: session.channelId,
@@ -1464,6 +1737,7 @@ export default class MinigameManager {
       spectators: Array.from(session.spectators),
       tickIntervalMs: session.tickIntervalMs,
       pacmanState,
+      fighterState,
     };
   }
 

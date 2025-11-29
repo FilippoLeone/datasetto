@@ -180,6 +180,7 @@ export class MinigameController {
   private ctx: CanvasRenderingContext2D | null = null;
   private openSlitherButton: HTMLButtonElement | null = null;
   private openPacmanButton: HTMLButtonElement | null = null;
+  private openFighterButton: HTMLButtonElement | null = null;
   private launcherStatusEl: HTMLElement | null = null;
   private closeButton: HTMLButtonElement | null = null;
   private startButton: HTMLButtonElement | null = null;
@@ -188,7 +189,7 @@ export class MinigameController {
   private leaveButton: HTMLButtonElement | null = null;
   private statusEl: HTMLElement | null = null;
   private scoresEl: HTMLElement | null = null;
-  private selectedGameType: 'slither' | 'pacman' = 'slither';
+  private selectedGameType: 'slither' | 'pacman' | 'fighter' = 'slither';
   private currentState: VoiceMinigameState | null = null;
   private lastEndReason: string | null = null;
   private renderHandle: number | null = null;
@@ -229,6 +230,7 @@ export class MinigameController {
     this.canvas = (this.deps.elements['minigame-canvas'] as HTMLCanvasElement) ?? null;
     this.openSlitherButton = document.getElementById('minigame-open-slither') as HTMLButtonElement | null;
     this.openPacmanButton = document.getElementById('minigame-open-pacman') as HTMLButtonElement | null;
+    this.openFighterButton = document.getElementById('minigame-open-fighter') as HTMLButtonElement | null;
     this.launcherStatusEl = this.deps.elements['minigame-launcher-status'] ?? null;
     this.closeButton = (this.deps.elements['minigame-close'] as HTMLButtonElement) ?? null;
     this.startButton = (this.deps.elements['minigame-start'] as HTMLButtonElement) ?? null;
@@ -305,6 +307,25 @@ export class MinigameController {
   private applyKeyboardState(code: string, pressed: boolean): boolean {
     if (!this.currentState || this.currentState.status !== 'running') {
       return false;
+    }
+
+    if (this.currentState.type === 'fighter' && pressed) {
+       if (code === 'Space') {
+         this.deps.socket.emit('voice:game:input', { action: 'jump' });
+         return true;
+       }
+       if (code === 'KeyZ' || code === 'KeyJ') {
+         this.deps.socket.emit('voice:game:input', { action: 'punch' });
+         return true;
+       }
+       if (code === 'KeyX' || code === 'KeyK') {
+         this.deps.socket.emit('voice:game:input', { action: 'kick' });
+         return true;
+       }
+       if (code === 'KeyC' || code === 'KeyL') {
+         this.deps.socket.emit('voice:game:input', { action: 'block' });
+         return true;
+       }
     }
 
     let matched = true;
@@ -443,7 +464,7 @@ export class MinigameController {
   }
 
   private bindUi(): void {
-    const openHandler = (gameType: 'slither' | 'pacman') => {
+    const openHandler = (gameType: 'slither' | 'pacman' | 'fighter') => {
       if (!this.canUseMinigame) {
         this.deps.notifications.info('Join a voice channel to launch the arena.', 3000);
         return;
@@ -456,6 +477,7 @@ export class MinigameController {
 
     this.deps.addListener(this.openSlitherButton, 'click', () => openHandler('slither'));
     this.deps.addListener(this.openPacmanButton, 'click', () => openHandler('pacman'));
+    this.deps.addListener(this.openFighterButton, 'click', () => openHandler('fighter'));
 
     this.deps.addListener(this.closeButton, 'click', () => {
       this.isViewPinned = false;
@@ -1419,6 +1441,11 @@ export class MinigameController {
       return;
     }
 
+    if (state.type === 'fighter') {
+      this.drawFighter(ctx, state, width, height);
+      return;
+    }
+
     const transform = this.calculateViewTransform(state, width, height);
     const { scale, offsetX, offsetY } = transform;
 
@@ -1429,6 +1456,174 @@ export class MinigameController {
     this.particles.update();
     this.particles.draw(ctx, offsetX, offsetY, scale);
     this.drawMinimap(ctx, state, width, height);
+  }
+
+  private drawFighter(
+    ctx: CanvasRenderingContext2D,
+    state: VoiceMinigameState,
+    width: number,
+    height: number
+  ): void {
+    const { world } = state;
+    
+    const scale = Math.min(width / world.width, height / world.height) * 0.9;
+    const offsetX = (width - world.width * scale) / 2;
+    const offsetY = (height - world.height * scale) / 2;
+
+    this.viewTransform = { scale, offsetX, offsetY };
+
+    // Draw Background
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+
+    // Sky
+    const gradient = ctx.createLinearGradient(0, 0, 0, world.height);
+    gradient.addColorStop(0, '#1e293b');
+    gradient.addColorStop(1, '#0f172a');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, world.width, world.height);
+
+    // Ground (2.5D effect)
+    const groundY = 500;
+    ctx.fillStyle = '#334155';
+    ctx.beginPath();
+    ctx.moveTo(0, groundY);
+    ctx.lineTo(world.width, groundY);
+    ctx.lineTo(world.width + 100, world.height); // Perspective flare
+    ctx.lineTo(-100, world.height);
+    ctx.fill();
+
+    // Grid on ground
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath();
+    for(let i=0; i<world.width; i+=100) {
+       ctx.moveTo(i, groundY);
+       ctx.lineTo(i + (i - world.width/2) * 0.2, world.height);
+    }
+    ctx.stroke();
+
+    // Draw Players
+    state.players.forEach(player => {
+      if (!player.alive) return;
+      
+      const px = player.x;
+      const py = player.y;
+
+      if (px === undefined || py === undefined) return;
+      
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(px, groundY, 30, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Character
+      ctx.save();
+      
+      // Stun Shake
+      let shakeX = 0;
+      if (player.isStunned) {
+         shakeX = (Math.random() - 0.5) * 10;
+      }
+
+      ctx.translate(px + shakeX, py);
+      if (player.facing === 'left') ctx.scale(-1, 1);
+
+      // Body
+      ctx.fillStyle = player.isStunned ? '#94a3b8' : player.color;
+      ctx.fillRect(-20, -60, 40, 60);
+
+      // Head
+      ctx.fillStyle = '#f1f5f9';
+      ctx.beginPath();
+      ctx.arc(0, -70, 15, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Stun Stars
+      if (player.isStunned) {
+         ctx.save();
+         ctx.fillStyle = '#facc15'; // Yellow
+         const time = Date.now() / 200;
+         for(let i=0; i<3; i++) {
+            const angle = time + (i * Math.PI * 2 / 3);
+            const sx = Math.cos(angle) * 25;
+            const sy = -80 + Math.sin(angle) * 5;
+            ctx.beginPath();
+            ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+            ctx.fill();
+         }
+         ctx.restore();
+      }
+
+      // Limbs (Simple animation based on state)
+      ctx.strokeStyle = player.color;
+      ctx.lineWidth = 8;
+      ctx.lineCap = 'round';
+
+      // Arms
+      if (player.isAttacking) {
+        if (player.attackType === 'punch') {
+           ctx.beginPath();
+           ctx.moveTo(0, -50);
+           ctx.lineTo(30, -50); // Punch out
+           ctx.stroke();
+        } else {
+           // Kick
+           ctx.beginPath();
+           ctx.moveTo(0, -30);
+           ctx.lineTo(30, -10);
+           ctx.stroke();
+        }
+      } else if (player.isBlocking) {
+         ctx.beginPath();
+         ctx.moveTo(0, -50);
+         ctx.lineTo(15, -60); // Guard up
+         ctx.stroke();
+      } else {
+         // Idle
+         ctx.beginPath();
+         ctx.moveTo(0, -50);
+         ctx.lineTo(10, -30);
+         ctx.stroke();
+      }
+
+      // Legs
+      ctx.beginPath();
+      ctx.moveTo(-10, 0);
+      ctx.lineTo(-10, 20); // Left leg
+      ctx.moveTo(10, 0);
+      ctx.lineTo(10, 20); // Right leg
+      ctx.stroke();
+
+      ctx.restore();
+
+      // Health Bar
+      ctx.fillStyle = 'red';
+      ctx.fillRect(px - 25, py - 100, 50, 6);
+      ctx.fillStyle = 'green';
+      ctx.fillRect(px - 25, py - 100, 50 * ((player.health || 0) / 100), 6);
+      
+      // Name
+      ctx.fillStyle = 'white';
+      ctx.font = '12px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(player.name, px, py - 110);
+    });
+
+    ctx.restore();
+    
+    // UI Overlay
+    if (state.fighterState) {
+       ctx.fillStyle = 'white';
+       ctx.font = 'bold 32px system-ui';
+       ctx.textAlign = 'center';
+       const timeLeft = Math.max(0, Math.ceil((state.fighterState.roundEndsAt - Date.now()) / 1000));
+       ctx.fillText(`${timeLeft}`, width / 2, 50);
+       
+       ctx.font = '16px system-ui';
+       ctx.fillText(`Round ${state.fighterState.round}`, width / 2, 80);
+    }
   }
 
   private drawPacman(
@@ -1636,8 +1831,8 @@ export class MinigameController {
     ctx.fillStyle = '#f8fafc';
     ctx.font = `800 ${titleSize}px system-ui`;
     
-    const title = this.selectedGameType === 'pacman' ? 'Pacman Chase' : 'Slither Arena';
-    const icon = this.selectedGameType === 'pacman' ? '👻' : '🐍';
+    const title = this.selectedGameType === 'pacman' ? 'Pacman Chase' : this.selectedGameType === 'fighter' ? 'Fighter Arena' : 'Slither Arena';
+    const icon = this.selectedGameType === 'pacman' ? '👻' : this.selectedGameType === 'fighter' ? '🥊' : '🐍';
     
     ctx.fillText(`${icon} ${title}`, width / 2, height / 2 - 20);
 

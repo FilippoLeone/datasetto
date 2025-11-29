@@ -213,6 +213,16 @@ export interface VoiceMinigamePlayerState {
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   powerupExpiresAt?: number;
+  // Fighter specific
+  vx?: number;
+  vy?: number;
+  facing?: 'left' | 'right';
+  health?: number;
+  isGrounded?: boolean;
+  isAttacking?: boolean;
+  attackType?: 'punch' | 'kick';
+  isBlocking?: boolean;
+  isStunned?: boolean;
   // Common
   respawning: boolean;
   respawnInMs: number;
@@ -240,10 +250,16 @@ export interface PacmanState {
   pelletsRemaining: number;
 }
 
+export interface FighterState {
+  phase: 'waiting' | 'fighting' | 'round_over' | 'game_over';
+  round: number;
+  roundEndsAt: number;
+}
+
 export interface VoiceMinigameState {
   gameId: string;
   channelId: string;
-  type: 'slither' | 'pacman';
+  type: 'slither' | 'pacman' | 'fighter';
   status: VoiceMinigameStatus;
   hostId: string;
   hostName: string;
@@ -274,6 +290,7 @@ export interface VoiceMinigameState {
   spectators: string[];
   tickIntervalMs: number;
   pacmanState?: PacmanState | null;
+  fighterState?: FighterState | null;
 }
 
 export interface DeviceInfo {

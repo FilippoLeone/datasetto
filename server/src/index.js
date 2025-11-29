@@ -2244,13 +2244,8 @@ io.on('connection', (socket) => {
   socket.on('voice:game:input', (payload = {}) => {
     try {
       const channelId = ensureVoiceGameAccess();
-      const vector = payload?.vector;
-      const x = typeof vector?.x === 'number' ? vector.x : null;
-      const y = typeof vector?.y === 'number' ? vector.y : null;
-      if (x === null || y === null || Number.isNaN(x) || Number.isNaN(y)) {
-        throw new Error('Movement vector is required');
-      }
-      minigameManager.handleInput(channelId, socket.id, { x, y });
+      // Pass full payload to manager to handle different game types (vector for slither/pacman, actions for fighter)
+      minigameManager.handleInput(channelId, socket.id, payload);
     } catch (error) {
       socket.emit('voice:game:error', {
         message: error.message || 'Unable to register input',
