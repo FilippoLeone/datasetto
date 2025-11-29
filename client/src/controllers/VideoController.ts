@@ -1885,6 +1885,22 @@ export class VideoController {
 
   private async createOfferForViewer(viewerId: string, peer: RTCPeerConnection, viewerName?: string): Promise<void> {
     try {
+      // Prefer VP9 for better quality/bitrate ratio if available
+      const transceivers = peer.getTransceivers();
+      transceivers.forEach(t => {
+        if (t.sender.track?.kind === 'video') {
+          try {
+            const codecs = RTCRtpSender.getCapabilities('video')?.codecs || [];
+            const vp9 = codecs.find(c => c.mimeType.toLowerCase() === 'video/vp9');
+            if (vp9) {
+              t.setCodecPreferences([vp9, ...codecs.filter(c => c !== vp9)]);
+            }
+          } catch (e) {
+            console.warn('[VideoController] Failed to set codec preferences:', e);
+          }
+        }
+      });
+
       const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
       
       if (SCREENSHARE_MAX_BITRATE_BPS) {
@@ -1925,7 +1941,8 @@ export class VideoController {
       }
 
       if (videoSection && line.startsWith('a=fmtp:')) {
-        newLines[newLines.length - 1] = `${line};x-google-min-bitrate=${Math.floor(bitrateKbps * 0.5)};x-google-max-bitrate=${bitrateKbps};x-google-start-bitrate=${Math.floor(bitrateKbps * 0.7)}`;
+        // Force VP9/AV1 high profile if available, or boost VP8
+        newLines[newLines.length - 1] = `${line};x-google-min-bitrate=${Math.floor(bitrateKbps * 0.8)};x-google-max-bitrate=${bitrateKbps};x-google-start-bitrate=${Math.floor(bitrateKbps * 0.85)}`;
       }
     }
     return newLines.join('\r\n');
@@ -2044,8 +2061,11 @@ export class VideoController {
           dirty = true;
         }
 
-        if (!encoding.scalabilityMode) {
-          encoding.scalabilityMode = 'L1T3';
+        // Disable scalability mode to force a single high-quality stream
+        // L1T3 splits bitrate across temporal layers which can confuse congestion control
+        // and lower the base layer quality.
+        if (encoding.scalabilityMode !== 'L1T1') {
+          encoding.scalabilityMode = 'L1T1';
           dirty = true;
         }
 
@@ -2054,8 +2074,10 @@ export class VideoController {
           dirty = true;
         }
 
-        if (parameters.degradationPreference !== 'maintain-resolution') {
-          parameters.degradationPreference = 'maintain-resolution';
+        if (parameters.degradationPreference !== 'maintain-framerate') {
+          // For gaming, we prefer maintaining framerate over resolution if bandwidth drops,
+          // but with our high bitrate floor, this acts as a hint to the encoder to prioritize motion.
+          parameters.degradationPreference = 'maintain-framerate';
           dirty = true;
         }
 
