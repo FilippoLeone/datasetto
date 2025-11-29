@@ -947,7 +947,12 @@ export class MinigameController {
     if (this.startButton) {
       const shouldShowStart = voiceConnected && !isRunning;
       this.startButton.classList.toggle('hidden', !shouldShowStart);
-      this.startButton.textContent = `Start ${this.selectedGameType === 'pacman' ? 'Pacman' : 'Slither'}`;
+      
+      let label = 'Slither';
+      if (this.selectedGameType === 'pacman') label = 'Pacman';
+      if (this.selectedGameType === 'fighter') label = 'Fighter';
+      
+      this.startButton.textContent = `Start ${label}`;
     }
 
     if (this.endButton) {
