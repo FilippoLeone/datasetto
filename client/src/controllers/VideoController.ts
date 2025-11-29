@@ -1679,6 +1679,7 @@ export class VideoController {
       
       // Fallback to system audio if sharing a window (since window-specific audio is often unsupported)
       let audioSourceId = sourceId;
+      const isScreen = Boolean(selection.source.isScreen || selection.source.type === 'screen');
       if (enableAudio && !isScreen && (selection.source as any).display_id) {
          const displayId = (selection.source as any).display_id;
          audioSourceId = `screen:${displayId}:0`;
