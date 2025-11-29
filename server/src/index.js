@@ -2259,6 +2259,22 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('voice:game:leaderboard', async ({ type }, callback) => {
+    try {
+      const leaderboard = await minigameManager.getLeaderboard(type);
+      if (typeof callback === 'function') {
+        callback({ success: true, leaderboard });
+      } else {
+        socket.emit('voice:game:leaderboard', { type, leaderboard });
+      }
+    } catch (error) {
+      logger.error('Failed to fetch leaderboard', { error, type });
+      if (typeof callback === 'function') {
+        callback({ success: false, error: error.message });
+      }
+    }
+  });
+
   socket.on('voice:game:end', () => {
     try {
       const channelId = ensureVoiceGameAccess();

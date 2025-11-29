@@ -302,6 +302,61 @@ export class RedisStore {
     }
   }
 
+  // ========== Sorted Set Operations (for leaderboards) ==========
+
+  async zadd(namespace, key, score, member) {
+    if (!this.isConnected) return false;
+    try {
+      await this.client.zAdd(this._key(namespace, key), { score, value: member });
+      return true;
+    } catch (error) {
+      logger.error(`[RedisStore] zadd error: ${error.message}`);
+      return false;
+    }
+  }
+
+  async zrevrange(namespace, key, start, stop, withScores = false) {
+    if (!this.isConnected) return [];
+    try {
+      // Redis v4 syntax for zRange with REV
+      // zRange(key, min, max, { REV: true, BY: 'RANK' }) is equivalent to ZREVRANGE
+      // But simpler: client.zRange(key, start, stop, { REV: true })
+      // Note: Redis node client v4 changed zRevRange to zRange with options
+      
+      // Check if we are using node-redis v4
+      if (this.client.zRange) {
+         // For node-redis v4
+         const options = { REV: true };
+         if (withScores) {
+             // In v4, withScores returns objects { value, score }
+             const results = await this.client.zRangeWithScores(this._key(namespace, key), start, stop, options);
+             return results; 
+         }
+         return await this.client.zRange(this._key(namespace, key), start, stop, options);
+      } else {
+         // Fallback for older clients if any (unlikely given package.json)
+         // But package.json says redis ^4.7.0
+         if (withScores) {
+             return await this.client.zRevRangeWithScores(this._key(namespace, key), start, stop);
+         }
+         return await this.client.zRevRange(this._key(namespace, key), start, stop);
+      }
+    } catch (error) {
+      logger.error(`[RedisStore] zrevrange error: ${error.message}`);
+      return [];
+    }
+  }
+
+  async zscore(namespace, key, member) {
+    if (!this.isConnected) return null;
+    try {
+      return await this.client.zScore(this._key(namespace, key), member);
+    } catch (error) {
+      logger.error(`[RedisStore] zscore error: ${error.message}`);
+      return null;
+    }
+  }
+
   // ========== Utility ==========
 
   async ping() {

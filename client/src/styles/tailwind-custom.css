@@ -2152,34 +2152,7 @@ body:not(.stream-inline-active) .stream-chat-status {
   width: 100%;
 }
 
-/* Game selector dropdown */
-#game-selector-dropdown {
-  animation: dropdownFadeIn 0.15s ease-out;
-}
 
-@keyframes dropdownFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.game-option {
-  border-radius: 0.5rem;
-}
-
-.game-option:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.game-option[data-active="true"] {
-  background: rgba(var(--color-brand-primary-rgb), 0.15);
-  border-left: 2px solid var(--color-brand-primary);
-}
 
 /* Scores bar horizontal layout */
 #minigame-scores {

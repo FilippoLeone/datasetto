@@ -1,6 +1,7 @@
 import { generateId } from '../utils/helpers.js';
 import logger from '../utils/logger.js';
 import { getRandomPacmanMap, FALLBACK_PACMAN_MAP } from '../data/pacmanMaps/index.js';
+import { getRedisStore } from '../storage/RedisStore.js';
 
 const WORLD_WIDTH = 2600;
 const WORLD_HEIGHT = 2000;
@@ -74,6 +75,15 @@ const distanceBetween = (a, b) => {
   return Math.hypot(a.x - b.x, a.y - b.y);
 };
 
+const distanceBetweenSquared = (a, b) => {
+  if (!a || !b) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return dx * dx + dy * dy;
+};
+
 const normalizeAngle = (angle) => {
   let value = angle;
   while (value <= -Math.PI) {
@@ -116,30 +126,40 @@ const computeThickness = (length) => {
   return Math.max(12, 12 + growth * 0.018);
 };
 
-const sampleSegments = (segments, limit = MAX_SERIALIZED_SEGMENTS) => {
-  if (!Array.isArray(segments) || segments.length === 0) {
+const scaledPoint = (point) => ({
+  x: Math.round(point.x * 100) / 100,
+  y: Math.round(point.y * 100) / 100,
+});
+
+const sampleAndScaleSegments = (segments, limit = MAX_SERIALIZED_SEGMENTS) => {
+  if (!segments || segments.length === 0) {
     return [];
   }
+  
   if (segments.length <= limit) {
-    return segments.slice();
+    const result = new Array(segments.length);
+    for (let i = 0; i < segments.length; i++) {
+      result[i] = scaledPoint(segments[i]);
+    }
+    return result;
   }
-  const stride = Math.ceil(segments.length / limit);
-  const sampled = [];
-  for (let index = 0; index < segments.length; index += stride) {
-    sampled.push(segments[index]);
-  }
-  const last = segments[segments.length - 1];
-  const tail = sampled[sampled.length - 1];
-  if (!tail || tail.x !== last.x || tail.y !== last.y) {
-    sampled.push(last);
-  }
-  return sampled;
-};
 
-const scaledPoint = (point) => ({
-  x: Number(point.x.toFixed(2)),
-  y: Number(point.y.toFixed(2)),
-});
+  const stride = Math.ceil(segments.length / limit);
+  const result = [];
+  
+  for (let index = 0; index < segments.length; index += stride) {
+    result.push(scaledPoint(segments[index]));
+  }
+  
+  const last = segments[segments.length - 1];
+  const lastScaled = scaledPoint(last);
+  const tail = result[result.length - 1];
+  
+  if (!tail || tail.x !== lastScaled.x || tail.y !== lastScaled.y) {
+    result.push(lastScaled);
+  }
+  return result;
+};
 
 export default class MinigameManager {
   constructor({ io, channelManager, onChannelUpdate }) {
@@ -147,6 +167,35 @@ export default class MinigameManager {
     this.channelManager = channelManager;
     this.onChannelUpdate = typeof onChannelUpdate === 'function' ? onChannelUpdate : null;
     this.sessions = new Map(); // channelId -> session
+    this.redis = getRedisStore();
+  }
+
+  async saveScore(type, name, score) {
+    if (!name || score <= 0) return;
+    try {
+      // Keep only the highest score for this user name
+      // ZADD with GT (Greater Than) option would be ideal, but standard ZADD updates score.
+      // To keep "highest ever", we might need to check first or use ZADD GT if available.
+      // For simplicity, let's assume we want the latest high score or just update it.
+      // Actually, usually leaderboards want the HIGHEST score.
+      // Redis ZADD updates the score. If we want max, we should check.
+      
+      const currentScore = await this.redis.zscore('minigame', `leaderboard:${type}`, name);
+      if (currentScore === null || score > currentScore) {
+        await this.redis.zadd('minigame', `leaderboard:${type}`, score, name);
+      }
+    } catch (error) {
+      logger.error('Failed to save minigame score', { error, type, name, score });
+    }
+  }
+
+  async getLeaderboard(type, limit = 10) {
+    try {
+      return await this.redis.zrevrange('minigame', `leaderboard:${type}`, 0, limit - 1, true);
+    } catch (error) {
+      logger.error('Failed to get minigame leaderboard', { error, type });
+      return [];
+    }
   }
 
   startGame({ channelId, hostId, hostName, type = 'slither' }) {
@@ -388,6 +437,11 @@ export default class MinigameManager {
       throw new Error('Minigame not found');
     }
 
+    const player = session.players.get(playerId);
+    if (player) {
+      this.saveScore(session.type, player.name, player.maxScore || player.score);
+    }
+
     const removed = session.players.delete(playerId);
     session.spectators.add(playerId);
 
@@ -444,6 +498,11 @@ export default class MinigameManager {
     session.endedAt = Date.now();
     session.updatedAt = session.endedAt;
     session.reason = reason;
+
+    // Save scores for all players
+    for (const player of session.players.values()) {
+      this.saveScore(session.type, player.name, player.maxScore || player.score);
+    }
 
     const state = this.serialize(session);
     this.channelManager.clearChannelMinigame(channelId);
@@ -625,8 +684,9 @@ export default class MinigameManager {
     const centerX = tileX * tileSize + tileSize / 2;
     const centerY = tileY * tileSize + tileSize / 2;
     
-    const dist = Math.hypot(player.x - centerX, player.y - centerY);
-    if (dist > 10) return false; // Must be close to center to turn
+    const dx = player.x - centerX;
+    const dy = player.y - centerY;
+    if (dx * dx + dy * dy > 100) return false; // Must be close to center to turn
 
     let checkX = tileX;
     let checkY = tileY;
@@ -694,8 +754,8 @@ export default class MinigameManager {
   resolvePacmanCollisions(session, now) {
     const tileSize = this.getPacmanTileSize(session);
     // Pellets
-    session.players.forEach(player => {
-      if (!player.alive) return;
+    for (const player of session.players.values()) {
+      if (!player.alive) continue;
       const tx = Math.floor(player.x / tileSize);
       const ty = Math.floor(player.y / tileSize);
       const key = `${tx},${ty}`;
@@ -704,19 +764,26 @@ export default class MinigameManager {
       if (pellet) {
         this.removePellet(session, key);
         player.score += pellet.value;
+        if (player.score > (player.maxScore || 0)) {
+          player.maxScore = player.score;
+        }
         if (pellet.isPowerup) {
           player.powerupExpiresAt = now + PACMAN_POWER_DURATION;
         }
       }
-    });
+    }
 
     // PvP
-    const players = Array.from(session.players.values()).filter(p => p.alive);
+    const players = [];
+    for (const p of session.players.values()) {
+      if (p.alive) players.push(p);
+    }
+
     for (let i = 0; i < players.length; i++) {
       for (let j = i + 1; j < players.length; j++) {
         const p1 = players[i];
         const p2 = players[j];
-        if (Math.hypot(p1.x - p2.x, p1.y - p2.y) < 30) {
+        if (distanceBetweenSquared(p1, p2) < 900) {
           const p1Powered = p1.powerupExpiresAt && p1.powerupExpiresAt > now;
           const p2Powered = p2.powerupExpiresAt && p2.powerupExpiresAt > now;
 
@@ -737,6 +804,9 @@ export default class MinigameManager {
     victim.score = Math.max(0, victim.score - 50);
     if (killer) {
       killer.score += 200;
+      if (killer.score > (killer.maxScore || 0)) {
+        killer.maxScore = killer.score;
+      }
     }
   }
 
@@ -863,28 +933,30 @@ export default class MinigameManager {
   resolvePelletCollisions(session) {
     const consumedIds = new Set();
 
-    session.players.forEach((player) => {
-      if (!player.alive) {
-        return;
-      }
+    for (const player of session.players.values()) {
+      if (!player.alive) continue;
 
       const head = player.head;
       const collisionRadius = (player.thickness ?? computeThickness(player.length)) * 0.6;
 
-      session.pellets.forEach((pellet, pelletId) => {
-        if (consumedIds.has(pelletId)) {
-          return;
-        }
-        const distance = distanceBetween(head, pellet);
-        if (distance <= collisionRadius + pellet.radius) {
-          consumedIds.add(pelletId);
+      for (const pellet of session.pellets.values()) {
+        if (consumedIds.has(pellet.id)) continue;
+
+        const distSq = distanceBetweenSquared(head, pellet);
+        const threshold = collisionRadius + pellet.radius;
+
+        if (distSq <= threshold * threshold) {
+          consumedIds.add(pellet.id);
           player.length = clamp(player.length + pellet.value, PLAYER_MIN_LENGTH, PLAYER_MAX_LENGTH);
           player.score += pellet.value;
+          if (player.score > (player.maxScore || 0)) {
+            player.maxScore = player.score;
+          }
           player.thickness = computeThickness(player.length);
           player.speed = computeSpeed(player.length);
         }
-      });
-    });
+      }
+    }
 
     consumedIds.forEach((pelletId) => {
       this.removePellet(session, pelletId);
@@ -895,11 +967,14 @@ export default class MinigameManager {
 
   resolvePlayerCollisions(session, now) {
     const pendingDeaths = new Set();
-    const alivePlayers = Array.from(session.players.values()).filter((player) => player.alive);
+    const alivePlayers = [];
+    for (const player of session.players.values()) {
+      if (player.alive) alivePlayers.push(player);
+    }
 
     const world = session.world;
 
-    alivePlayers.forEach((player) => {
+    for (const player of alivePlayers) {
       const head = player.head;
       const margin = (player.thickness ?? computeThickness(player.length)) * 0.55;
       if (
@@ -912,17 +987,18 @@ export default class MinigameManager {
       }
 
       if (pendingDeaths.has(player.id)) {
-        return;
+        continue;
       }
 
+      const marginSq = margin * margin;
       for (let i = SELF_COLLISION_SKIP; i < player.segments.length; i += 1) {
         const point = player.segments[i];
-        if (distanceBetween(head, point) <= margin) {
+        if (distanceBetweenSquared(head, point) <= marginSq) {
           pendingDeaths.add(player.id);
           break;
         }
       }
-    });
+    }
 
     for (let i = 0; i < alivePlayers.length; i += 1) {
       const a = alivePlayers[i];
@@ -935,9 +1011,10 @@ export default class MinigameManager {
           continue;
         }
 
-        const headDistance = distanceBetween(a.head, b.head);
+        const headDistSq = distanceBetweenSquared(a.head, b.head);
         const headThreshold = (a.thickness + b.thickness) * 0.45;
-        if (headDistance <= headThreshold) {
+        
+        if (headDistSq <= headThreshold * headThreshold) {
           if (a.length === b.length) {
             pendingDeaths.add(a.id);
             pendingDeaths.add(b.id);
@@ -949,10 +1026,10 @@ export default class MinigameManager {
           continue;
         }
 
-        if (!pendingDeaths.has(a.id) && this.intersectsSegments(a.head, b.segments, 1, (a.thickness + b.thickness) * 0.45)) {
+        if (!pendingDeaths.has(a.id) && this.intersectsSegments(a.head, b.segments, 1, headThreshold)) {
           pendingDeaths.add(a.id);
         }
-        if (!pendingDeaths.has(b.id) && this.intersectsSegments(b.head, a.segments, 1, (a.thickness + b.thickness) * 0.45)) {
+        if (!pendingDeaths.has(b.id) && this.intersectsSegments(b.head, a.segments, 1, headThreshold)) {
           pendingDeaths.add(b.id);
         }
       }
@@ -974,10 +1051,11 @@ export default class MinigameManager {
       return false;
     }
 
+    const thresholdSq = threshold * threshold;
     const limit = segments.length;
     for (let index = skip; index < limit; index += 1) {
       const point = segments[index];
-      if (distanceBetween(head, point) <= threshold) {
+      if (distanceBetweenSquared(head, point) <= thresholdSq) {
         return true;
       }
     }
@@ -1045,6 +1123,7 @@ export default class MinigameManager {
         name: playerName,
         color,
         score: 0,
+        maxScore: 0,
         alive: true,
         x: spawn.x,
         y: spawn.y,
@@ -1063,6 +1142,7 @@ export default class MinigameManager {
         name: playerName,
         color,
         score: 0,
+        maxScore: 0,
         alive: true,
         length: PLAYER_START_LENGTH,
         thickness: computeThickness(PLAYER_START_LENGTH),
@@ -1144,13 +1224,15 @@ export default class MinigameManager {
         y: randomBetween(WORLD_PADDING, world.height - WORLD_PADDING),
       };
 
-      const safe = Array.from(session.players.values()).every((player) => {
-        if (!player.alive) {
-          return true;
-        }
+      let safe = true;
+      for (const player of session.players.values()) {
+        if (!player.alive) continue;
         const minDistance = (player.thickness ?? computeThickness(player.length)) + 120;
-        return distanceBetween(player.head, candidate) > minDistance;
-      });
+        if (distanceBetweenSquared(player.head, candidate) <= minDistance * minDistance) {
+          safe = false;
+          break;
+        }
+      }
 
       if (safe) {
         return candidate;
@@ -1184,12 +1266,15 @@ export default class MinigameManager {
       const y = randomBetween(WORLD_PADDING, world.height - WORLD_PADDING);
       const point = { x, y };
 
-      const nearPlayer = Array.from(session.players.values()).some((player) => {
-        if (!player.alive) {
-          return false;
+      let nearPlayer = false;
+      for (const player of session.players.values()) {
+        if (!player.alive) continue;
+        const threshold = (player.thickness ?? computeThickness(player.length)) + 45;
+        if (distanceBetweenSquared(player.head, point) < threshold * threshold) {
+          nearPlayer = true;
+          break;
         }
-        return distanceBetween(player.head, point) < (player.thickness ?? computeThickness(player.length)) + 45;
-      });
+      }
 
       if (nearPlayer) {
         continue;
@@ -1247,44 +1332,45 @@ export default class MinigameManager {
     }
 
     const now = Date.now();
+    const players = [];
 
-    const players = Array.from(session.players.values()).map((player) => {
+    for (const player of session.players.values()) {
       if (session.type === 'pacman') {
-        return {
+        players.push({
           id: player.id,
           name: player.name,
           color: player.color,
           score: Math.round(player.score),
           alive: player.alive,
-          x: Number(player.x.toFixed(2)),
-          y: Number(player.y.toFixed(2)),
+          x: Math.round(player.x * 100) / 100,
+          y: Math.round(player.y * 100) / 100,
           direction: player.direction,
           powerupExpiresAt: player.powerupExpiresAt,
           respawning: !player.alive,
           respawnInMs: !player.alive && player.respawnAt ? Math.max(0, player.respawnAt - now) : 0,
           lastInputAt: player.lastInputAt,
           joinedAt: player.joinedAt,
-        };
+        });
+      } else {
+        const segments = sampleAndScaleSegments(player.segments);
+        players.push({
+          id: player.id,
+          name: player.name,
+          color: player.color,
+          score: Math.round(player.score),
+          alive: player.alive,
+          length: Math.round(player.length * 10) / 10,
+          thickness: Math.round((player.thickness ?? computeThickness(player.length)) * 100) / 100,
+          speed: Math.round((player.speed ?? computeSpeed(player.length)) * 100) / 100,
+          head: scaledPoint(player.head),
+          segments,
+          respawning: !player.alive,
+          respawnInMs: !player.alive && player.respawnAt ? Math.max(0, player.respawnAt - now) : 0,
+          lastInputAt: player.lastInputAt,
+          joinedAt: player.joinedAt,
+        });
       }
-
-      const segments = sampleSegments(player.segments);
-      return {
-        id: player.id,
-        name: player.name,
-        color: player.color,
-        score: Math.round(player.score),
-        alive: player.alive,
-        length: Number(player.length.toFixed(1)),
-        thickness: Number((player.thickness ?? computeThickness(player.length)).toFixed(2)),
-        speed: Number((player.speed ?? computeSpeed(player.length)).toFixed(2)),
-        head: scaledPoint(player.head),
-        segments: segments.map(scaledPoint),
-        respawning: !player.alive,
-        respawnInMs: !player.alive && player.respawnAt ? Math.max(0, player.respawnAt - now) : 0,
-        lastInputAt: player.lastInputAt,
-        joinedAt: player.joinedAt,
-      };
-    });
+    }
 
     players.sort((a, b) => {
       if (session.type === 'pacman') return b.score - a.score;
@@ -1303,17 +1389,21 @@ export default class MinigameManager {
     let pelletData;
     if (shouldSendFullPellets) {
       // Full sync - send all pellets
-      pelletData = {
-        full: true,
-        pellets: Array.from(session.pellets.values()).map((pellet) => ({
+      const pellets = [];
+      for (const pellet of session.pellets.values()) {
+        pellets.push({
           id: pellet.id,
-          x: Number(pellet.x.toFixed(2)),
-          y: Number(pellet.y.toFixed(2)),
-          value: Number(pellet.value.toFixed(1)),
-          radius: Number(pellet.radius.toFixed(2)),
+          x: Math.round(pellet.x * 100) / 100,
+          y: Math.round(pellet.y * 100) / 100,
+          value: Math.round(pellet.value * 10) / 10,
+          radius: Math.round(pellet.radius * 100) / 100,
           color: pellet.color,
           isPowerup: pellet.isPowerup
-        })),
+        });
+      }
+      pelletData = {
+        full: true,
+        pellets,
       };
       session.lastFullPelletSync = session.sequence;
       // Clear delta tracking after full sync
@@ -1321,17 +1411,22 @@ export default class MinigameManager {
       session.pelletChanges.removed.clear();
     } else {
       // Delta sync - only send changes
-      pelletData = {
-        full: false,
-        added: Array.from(session.pelletChanges.added.values()).map((pellet) => ({
+      const added = [];
+      for (const pellet of session.pelletChanges.added.values()) {
+        added.push({
           id: pellet.id,
-          x: Number(pellet.x.toFixed(2)),
-          y: Number(pellet.y.toFixed(2)),
-          value: Number(pellet.value.toFixed(1)),
-          radius: Number(pellet.radius.toFixed(2)),
+          x: Math.round(pellet.x * 100) / 100,
+          y: Math.round(pellet.y * 100) / 100,
+          value: Math.round(pellet.value * 10) / 10,
+          radius: Math.round(pellet.radius * 100) / 100,
           color: pellet.color,
           isPowerup: pellet.isPowerup
-        })),
+        });
+      }
+      
+      pelletData = {
+        full: false,
+        added,
         removed: Array.from(session.pelletChanges.removed),
         count: session.pellets.size,
       };
@@ -1347,8 +1442,8 @@ export default class MinigameManager {
           phaseEndsAt: session.phaseEndsAt,
           speedMultiplier: session.pacmanSpeedMultiplier ?? 1,
           round: session.pacmanRound ?? 1,
-          initialPellets: session.initialPelletCount ?? pellets.length,
-          pelletsRemaining: session.pellets?.size ?? pellets.length,
+          initialPellets: session.initialPelletCount ?? session.pellets.size,
+          pelletsRemaining: session.pellets?.size ?? 0,
         }
       : null;
 
@@ -1366,7 +1461,7 @@ export default class MinigameManager {
       pelletData,
       players,
       leaderboard: players.slice(0, 5).map(({ id, name, score, length }) => ({ id, name, score, length })),
-      spectators: Array.from(session.spectators.values()),
+      spectators: Array.from(session.spectators),
       tickIntervalMs: session.tickIntervalMs,
       pacmanState,
     };

@@ -13,9 +13,6 @@ const INPUT_DEDUP_THRESHOLD = 0.05;
 const DEFAULT_STATUS = 'No slither arena open. Start a round to glide together!';
 const GRID_SPACING = 80;
 const BACKGROUND_COLOR = '#0b101a';
-const SELECTION_BUTTON_WIDTH = 220;
-const SELECTION_BUTTON_HEIGHT = 90;
-const SELECTION_BUTTON_GAP = 26;
 
 const END_REASON_LABELS: Record<string, string> = {
   ended_by_host: 'ended by host',
@@ -56,7 +53,7 @@ type ViewTransform = {
 class SpriteCache {
   private cache = new Map<string, HTMLCanvasElement>();
 
-  get(color: string, type: 'body' | 'head' | 'pellet'): HTMLCanvasElement {
+  get(color: string, type: 'body' | 'head' | 'pellet' | 'shadow'): HTMLCanvasElement {
     const key = `${type}-${color}`;
     let canvas = this.cache.get(key);
     if (!canvas) {
@@ -66,7 +63,7 @@ class SpriteCache {
     return canvas;
   }
 
-  private create(color: string, type: 'body' | 'head' | 'pellet'): HTMLCanvasElement {
+  private create(color: string, type: 'body' | 'head' | 'pellet' | 'shadow'): HTMLCanvasElement {
     const size = 64;
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -76,7 +73,12 @@ class SpriteCache {
     const cy = size / 2;
     const r = size / 2 - 2;
 
-    if (type === 'pellet') {
+    if (type === 'shadow') {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.fill();
+    } else if (type === 'pellet') {
       const glow = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r);
       glow.addColorStop(0, color);
       glow.addColorStop(0.4, color);
@@ -176,7 +178,8 @@ export class MinigameController {
   private container: HTMLElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
-  private openButton: HTMLButtonElement | null = null;
+  private openSlitherButton: HTMLButtonElement | null = null;
+  private openPacmanButton: HTMLButtonElement | null = null;
   private launcherStatusEl: HTMLElement | null = null;
   private closeButton: HTMLButtonElement | null = null;
   private startButton: HTMLButtonElement | null = null;
@@ -185,10 +188,6 @@ export class MinigameController {
   private leaveButton: HTMLButtonElement | null = null;
   private statusEl: HTMLElement | null = null;
   private scoresEl: HTMLElement | null = null;
-  private gameSelectorBtn: HTMLButtonElement | null = null;
-  private gameSelectorDropdown: HTMLElement | null = null;
-  private gameSelectorLabel: HTMLElement | null = null;
-  private gameSelectorIcon: HTMLElement | null = null;
   private selectedGameType: 'slither' | 'pacman' = 'slither';
   private currentState: VoiceMinigameState | null = null;
   private lastEndReason: string | null = null;
@@ -212,6 +211,8 @@ export class MinigameController {
   private particles = new ParticleSystem();
   private stateBuffer: Array<{ state: VoiceMinigameState; timestamp: number }> = [];
   private pelletCache: Map<string, VoiceMinigamePellet> | null = null; // Delta compression cache
+  private pacmanMapCache: HTMLCanvasElement | null = null;
+  private lastPacmanMapId: string | null = null;
   private readonly INTERPOLATION_DELAY = 100; // ms delay to allow for smooth interpolation
   private readonly PACMAN_INTERPOLATION_DELAY = 40;
 
@@ -226,7 +227,8 @@ export class MinigameController {
     this.mainContent = document.querySelector('.main-content');
     this.container = this.deps.elements['minigame-container'] ?? null;
     this.canvas = (this.deps.elements['minigame-canvas'] as HTMLCanvasElement) ?? null;
-    this.openButton = (this.deps.elements['minigame-open'] as HTMLButtonElement) ?? null;
+    this.openSlitherButton = document.getElementById('minigame-open-slither') as HTMLButtonElement | null;
+    this.openPacmanButton = document.getElementById('minigame-open-pacman') as HTMLButtonElement | null;
     this.launcherStatusEl = this.deps.elements['minigame-launcher-status'] ?? null;
     this.closeButton = (this.deps.elements['minigame-close'] as HTMLButtonElement) ?? null;
     this.startButton = (this.deps.elements['minigame-start'] as HTMLButtonElement) ?? null;
@@ -235,10 +237,6 @@ export class MinigameController {
     this.leaveButton = (this.deps.elements['minigame-leave'] as HTMLButtonElement) ?? null;
     this.statusEl = this.deps.elements['minigame-status'] ?? null;
     this.scoresEl = this.deps.elements['minigame-scores'] ?? null;
-    this.gameSelectorBtn = document.getElementById('game-selector-btn') as HTMLButtonElement | null;
-    this.gameSelectorDropdown = document.getElementById('game-selector-dropdown');
-    this.gameSelectorLabel = document.getElementById('game-selector-label');
-    this.gameSelectorIcon = document.getElementById('game-selector-icon');
 
     if (this.canvas) {
       this.ctx = this.canvas.getContext('2d', { alpha: false });
@@ -445,15 +443,19 @@ export class MinigameController {
   }
 
   private bindUi(): void {
-    this.deps.addListener(this.openButton, 'click', () => {
+    const openHandler = (gameType: 'slither' | 'pacman') => {
       if (!this.canUseMinigame) {
         this.deps.notifications.info('Join a voice channel to launch the arena.', 3000);
         return;
       }
+      this.selectedGameType = gameType;
       this.isViewPinned = true;
       this.syncStageMode();
       this.updateControls();
-    });
+    };
+
+    this.deps.addListener(this.openSlitherButton, 'click', () => openHandler('slither'));
+    this.deps.addListener(this.openPacmanButton, 'click', () => openHandler('pacman'));
 
     this.deps.addListener(this.closeButton, 'click', () => {
       this.isViewPinned = false;
@@ -477,31 +479,6 @@ export class MinigameController {
       this.deps.socket.leaveVoiceMinigame();
     });
 
-    // Game selector dropdown
-    this.deps.addListener(this.gameSelectorBtn, 'click', () => {
-      this.toggleGameSelector();
-    });
-
-    // Game option clicks
-    const gameOptions = document.querySelectorAll('.game-option');
-    gameOptions.forEach((option) => {
-      this.deps.addListener(option, 'click', () => {
-        const gameType = option.getAttribute('data-game') as 'slither' | 'pacman';
-        if (gameType) {
-          this.selectGame(gameType);
-        }
-      });
-    });
-
-    // Close dropdown when clicking outside
-    this.deps.addListener(document, 'click', (event) => {
-      const target = event.target as HTMLElement;
-      const wrapper = document.getElementById('game-selector-wrapper');
-      if (wrapper && !wrapper.contains(target)) {
-        this.closeGameSelector();
-      }
-    });
-
     this.deps.addListener(window, 'resize', () => {
       this.resizeCanvas();
       this.requestRender();
@@ -523,65 +500,54 @@ export class MinigameController {
       this.handlePointerLeave();
     });
 
-    this.deps.addListener(this.canvas, 'click', (event) => {
-      this.handleCanvasClick(event as MouseEvent);
-    });
-
-    // Initialize game selector display
-    this.updateGameSelectorDisplay();
+    this.bindMobileControls();
   }
 
-  private toggleGameSelector(): void {
-    if (!this.gameSelectorDropdown) return;
-    const isHidden = this.gameSelectorDropdown.classList.contains('hidden');
-    if (isHidden) {
-      this.gameSelectorDropdown.classList.remove('hidden');
-    } else {
-      this.gameSelectorDropdown.classList.add('hidden');
-    }
-  }
+  private bindMobileControls(): void {
+    const directions: Array<{ id: string; dir: PacmanDirection }> = [
+      { id: 'ctrl-up', dir: 'up' },
+      { id: 'ctrl-down', dir: 'down' },
+      { id: 'ctrl-left', dir: 'left' },
+      { id: 'ctrl-right', dir: 'right' },
+    ];
 
-  private closeGameSelector(): void {
-    if (!this.gameSelectorDropdown) return;
-    this.gameSelectorDropdown.classList.add('hidden');
-  }
+    directions.forEach(({ id, dir }) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
 
-  private selectGame(gameType: 'slither' | 'pacman'): void {
-    this.selectedGameType = gameType;
-    this.updateGameSelectorDisplay();
-    this.closeGameSelector();
+      const handlePress = (e: Event) => {
+        if (e.cancelable) e.preventDefault();
+        if (this.keyboardInput[dir]) return;
+        
+        this.keyboardInput[dir] = true;
+        this.updatePacmanKeyHistory(dir, true);
+        this.queueInputVector(this.getKeyboardVector());
+        btn.classList.add('bg-brand-primary/50');
+      };
 
-    // If a game is already running, switch to the new game type
-    if (this.currentState?.status === 'running') {
-      // End current game and start new one
-      this.deps.socket.endVoiceMinigame();
-      setTimeout(() => {
-        this.deps.socket.startVoiceMinigame({ type: gameType });
-      }, 300);
-    }
-  }
+      const handleRelease = (e: Event) => {
+        if (e.cancelable) e.preventDefault();
+        if (!this.keyboardInput[dir]) return;
 
-  private updateGameSelectorDisplay(): void {
-    if (!this.gameSelectorLabel || !this.gameSelectorIcon) return;
+        this.keyboardInput[dir] = false;
+        this.updatePacmanKeyHistory(dir, false);
+        this.queueInputVector(this.getKeyboardVector());
+        btn.classList.remove('bg-brand-primary/50');
+      };
 
-    const currentGameType = this.currentState?.type ?? this.selectedGameType;
-
-    if (currentGameType === 'pacman') {
-      this.gameSelectorLabel.textContent = 'Pacman Chase';
-      this.gameSelectorIcon.textContent = '👻';
-    } else {
-      this.gameSelectorLabel.textContent = 'Slither Arena';
-      this.gameSelectorIcon.textContent = '🐍';
-    }
-
-    // Update dropdown active states
-    const gameOptions = document.querySelectorAll('.game-option');
-    gameOptions.forEach((option) => {
-      const gameType = option.getAttribute('data-game');
-      const isActive = gameType === currentGameType;
-      option.setAttribute('data-active', isActive ? 'true' : 'false');
+      this.deps.addListener(btn, 'pointerdown', handlePress);
+      this.deps.addListener(btn, 'pointerup', handleRelease);
+      this.deps.addListener(btn, 'pointerleave', handleRelease);
+      this.deps.addListener(btn, 'pointercancel', handleRelease);
+      
+      // Prevent default touch actions
+      this.deps.addListener(btn, 'touchstart', (e) => { if(e.cancelable) e.preventDefault(); });
     });
   }
+
+
+
+
 
   private getHeadDirection(points: Array<{ x: number; y: number }> | undefined): { x: number; y: number } {
     if (!points || points.length === 0) {
@@ -678,7 +644,8 @@ export class MinigameController {
     if (this.isMobile) {
       this.container.classList.add('hidden');
       this.stage?.classList.add('hidden');
-      this.openButton?.classList.add('hidden');
+      this.openSlitherButton?.classList.add('hidden');
+      this.openPacmanButton?.classList.add('hidden');
       this.closeButton?.classList.add('hidden');
       return;
     }
@@ -977,9 +944,6 @@ export class MinigameController {
       const shouldShowLeave = Boolean(state && isRegistered);
       this.leaveButton.classList.toggle('hidden', !shouldShowLeave);
     }
-
-    // Update game selector display based on current game
-    this.updateGameSelectorDisplay();
   }
 
   private updateStatus(): void {
@@ -1258,9 +1222,13 @@ export class MinigameController {
       this.launcherStatusEl.textContent = label;
     }
 
-    if (this.openButton) {
-      this.openButton.classList.toggle('is-disabled', !this.canUseMinigame);
-      this.openButton.setAttribute('aria-disabled', this.canUseMinigame ? 'false' : 'true');
+    if (this.openSlitherButton) {
+      this.openSlitherButton.classList.toggle('is-disabled', !this.canUseMinigame);
+      this.openSlitherButton.setAttribute('aria-disabled', this.canUseMinigame ? 'false' : 'true');
+    }
+    if (this.openPacmanButton) {
+      this.openPacmanButton.classList.toggle('is-disabled', !this.canUseMinigame);
+      this.openPacmanButton.setAttribute('aria-disabled', this.canUseMinigame ? 'false' : 'true');
     }
   }
 
@@ -1296,9 +1264,13 @@ export class MinigameController {
       this.closeButton.toggleAttribute('disabled', !showClose);
     }
 
-    if (this.openButton) {
-      this.openButton.classList.toggle('active', shouldShow);
-      this.openButton.setAttribute('aria-pressed', shouldShow ? 'true' : 'false');
+    if (this.openSlitherButton) {
+      this.openSlitherButton.classList.toggle('active', shouldShow && this.selectedGameType === 'slither');
+      this.openSlitherButton.setAttribute('aria-pressed', shouldShow && this.selectedGameType === 'slither' ? 'true' : 'false');
+    }
+    if (this.openPacmanButton) {
+      this.openPacmanButton.classList.toggle('active', shouldShow && this.selectedGameType === 'pacman');
+      this.openPacmanButton.setAttribute('aria-pressed', shouldShow && this.selectedGameType === 'pacman' ? 'true' : 'false');
     }
   }
 
@@ -1472,36 +1444,48 @@ export class MinigameController {
 
     this.viewTransform = { scale, offsetX, offsetY };
 
-    // Draw Map
+    // Draw Map (Cached)
     if (world.map) {
-      const tileSize = world.width / world.map[0].length * scale;
-      ctx.fillStyle = '#1a237e';
-      for (let y = 0; y < world.map.length; y++) {
-        for (let x = 0; x < world.map[y].length; x++) {
-          if (world.map[y][x] === 1) {
-            ctx.fillRect(offsetX + x * tileSize, offsetY + y * tileSize, tileSize, tileSize);
+      const mapId = world.mapId || 'default';
+      if (this.lastPacmanMapId !== mapId || !this.pacmanMapCache) {
+        this.lastPacmanMapId = mapId;
+        this.pacmanMapCache = document.createElement('canvas');
+        this.pacmanMapCache.width = world.width;
+        this.pacmanMapCache.height = world.height;
+        const mCtx = this.pacmanMapCache.getContext('2d')!;
+        
+        const tileSize = world.width / world.map[0].length;
+        mCtx.fillStyle = '#1a237e';
+        for (let y = 0; y < world.map.length; y++) {
+          for (let x = 0; x < world.map[y].length; x++) {
+            if (world.map[y][x] === 1) {
+              mCtx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+            }
           }
         }
+      }
+      
+      if (this.pacmanMapCache) {
+        ctx.drawImage(
+          this.pacmanMapCache, 
+          0, 0, this.pacmanMapCache.width, this.pacmanMapCache.height,
+          offsetX, offsetY, world.width * scale, world.height * scale
+        );
       }
     }
 
     // Draw Pellets
+    const pelletSprite = this.spriteCache.get('#ffb74d', 'pellet'); // Default color
+    const powerSprite = this.spriteCache.get('#ffeb3b', 'pellet'); // Powerup color
+
     state.pellets.forEach(pellet => {
       const px = offsetX + pellet.x * scale;
       const py = offsetY + pellet.y * scale;
       const radius = (pellet.radius ?? 3) * scale;
+      const size = radius * 2.5;
       
-      ctx.beginPath();
-      ctx.fillStyle = pellet.color;
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (pellet.isPowerup) {
-        ctx.shadowColor = pellet.color;
-        ctx.shadowBlur = 10;
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-      }
+      const sprite = pellet.isPowerup ? powerSprite : pelletSprite;
+      ctx.drawImage(sprite, px - size / 2, py - size / 2, size, size);
     });
 
     // Draw Players
@@ -1622,52 +1606,8 @@ export class MinigameController {
     ctx.restore();
   }
 
-  private handleCanvasClick(event: MouseEvent): void {
-    // Allow clicks on the game selection canvas when no game is running
-    if (this.currentState?.status === 'running' || !this.canvas) {
-      return;
-    }
-
-    const rect = this.canvas.getBoundingClientRect();
-    const scaleX = this.canvas.width / rect.width;
-    const scaleY = this.canvas.height / rect.height;
-    const x = (event.clientX - rect.left) * scaleX;
-    const y = (event.clientY - rect.top) * scaleY;
-    const width = this.canvas.width;
-    const height = this.canvas.height;
-
-    const layout = this.getSelectionButtonLayout(width, height);
-
-    if (y >= layout.startY && y <= layout.startY + layout.buttonHeight) {
-      if (x >= layout.slitherX && x <= layout.slitherX + layout.buttonWidth) {
-        this.selectGame('slither');
-        // Auto-start the game if voice connected
-        if (this.canUseMinigame) {
-          this.deps.socket.startVoiceMinigame({ type: 'slither' });
-        }
-      } else if (x >= layout.pacmanX && x <= layout.pacmanX + layout.buttonWidth) {
-        this.selectGame('pacman');
-        // Auto-start the game if voice connected
-        if (this.canUseMinigame) {
-          this.deps.socket.startVoiceMinigame({ type: 'pacman' });
-        }
-      }
-    }
-  }
-
   private drawPlaceholder(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     ctx.fillStyle = '#0f1727';
-    ctx.fillRect(0, 0, width, height);
-
-    this.renderSelectionUI(ctx, width, height);
-  }
-
-  private renderSelectionUI(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-    const gradient = ctx.createLinearGradient(0, 0, width, height);
-    gradient.addColorStop(0, '#030712');
-    gradient.addColorStop(0.45, '#060b1c');
-    gradient.addColorStop(1, '#010407');
-    ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
 
     // Neon grid overlay
@@ -1695,91 +1635,17 @@ export class MinigameController {
     const titleSize = Math.max(Math.floor(Math.min(width, height) / 16), 28);
     ctx.fillStyle = '#f8fafc';
     ctx.font = `800 ${titleSize}px system-ui`;
-    const titleY = height / 2 - SELECTION_BUTTON_HEIGHT - 60;
-    ctx.fillText('Game Arena', width / 2, titleY);
+    
+    const title = this.selectedGameType === 'pacman' ? 'Pacman Chase' : 'Slither Arena';
+    const icon = this.selectedGameType === 'pacman' ? '👻' : '🐍';
+    
+    ctx.fillText(`${icon} ${title}`, width / 2, height / 2 - 20);
 
     ctx.font = `500 ${Math.max(16, titleSize * 0.35)}px system-ui`;
     ctx.fillStyle = 'rgba(248, 250, 252, 0.75)';
-    ctx.fillText('Pick a mode to rally your squad', width / 2, titleY + 36);
-
-    const layout = this.getSelectionButtonLayout(width, height);
-    const cards = [
-      {
-        label: 'Slither Arena',
-        description: 'Neon swarm royale',
-        accent: '#60a5fa',
-        icon: '🌀',
-      },
-      {
-        label: 'Pacman Chase',
-        description: 'Retro maze chaos',
-        accent: '#fde047',
-        icon: '💥',
-      },
-    ];
-
-    this.drawSelectionCard(ctx, layout.slitherX, layout.startY, layout.buttonWidth, layout.buttonHeight, cards[0]);
-    this.drawSelectionCard(ctx, layout.pacmanX, layout.startY, layout.buttonWidth, layout.buttonHeight, cards[1]);
-
-    ctx.font = `600 ${Math.max(13, titleSize * 0.32)}px system-ui`;
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.85)';
-    const hint = this.canUseMinigame 
-      ? 'Click a game to start playing' 
-      : 'Join a voice channel to unlock the arena';
-    ctx.fillText(hint, width / 2, layout.startY + layout.buttonHeight + 50);
+    ctx.fillText('Waiting for game to start...', width / 2, height / 2 + 30);
   }
 
-  private getSelectionButtonLayout(width: number, height: number) {
-    const buttonWidth = SELECTION_BUTTON_WIDTH;
-    const buttonHeight = SELECTION_BUTTON_HEIGHT;
-    const startY = height / 2 - buttonHeight / 2 + 48;
-    const slitherX = width / 2 - buttonWidth - SELECTION_BUTTON_GAP / 2;
-    const pacmanX = width / 2 + SELECTION_BUTTON_GAP / 2;
-
-    return { buttonWidth, buttonHeight, startY, slitherX, pacmanX };
-  }
-
-  private drawSelectionCard(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    card: { label: string; description: string; accent: string; icon: string }
-  ): void {
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(x, y, width, height, 24);
-    ctx.fillStyle = '#0b1221';
-    ctx.fill();
-
-    const accentGradient = ctx.createLinearGradient(x, y, x + width, y + height);
-    accentGradient.addColorStop(0, `${card.accent}1a`);
-    accentGradient.addColorStop(1, `${card.accent}40`);
-    ctx.fillStyle = accentGradient;
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-
-    ctx.fillStyle = `${card.accent}4d`;
-    ctx.fillRect(x + 24, y + 18, width - 48, 2);
-
-    ctx.font = `700 ${Math.max(20, height * 0.28)}px system-ui`;
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(card.label, x + 32, y + height / 2);
-
-    ctx.font = `500 ${Math.max(12, height * 0.18)}px system-ui`;
-    ctx.fillStyle = 'rgba(226, 232, 240, 0.9)';
-    ctx.fillText(card.description, x + 32, y + height / 2 + 26);
-
-    ctx.font = `${Math.floor(height * 0.45)}px system-ui`;
-    ctx.textAlign = 'right';
-    ctx.fillText(card.icon, x + width - 28, y + height / 2 + 12);
-    ctx.restore();
-  }
 
   private drawGrid(
     ctx: CanvasRenderingContext2D,
@@ -1798,23 +1664,23 @@ export class MinigameController {
     const startY = Math.floor(-offsetY / scale / GRID_SPACING) * GRID_SPACING;
     const endY = Math.ceil((ctx.canvas.height - offsetY) / scale / GRID_SPACING) * GRID_SPACING;
 
+    ctx.beginPath();
     for (let x = startX; x <= endX; x += GRID_SPACING) {
       if (x < 0 || x > world.width) continue;
       const pos = offsetX + x * scale;
-      ctx.beginPath();
       ctx.moveTo(Math.round(pos) + 0.5, 0);
       ctx.lineTo(Math.round(pos) + 0.5, ctx.canvas.height);
-      ctx.stroke();
     }
+    ctx.stroke();
 
+    ctx.beginPath();
     for (let y = startY; y <= endY; y += GRID_SPACING) {
       if (y < 0 || y > world.height) continue;
       const pos = offsetY + y * scale;
-      ctx.beginPath();
       ctx.moveTo(0, Math.round(pos) + 0.5);
       ctx.lineTo(ctx.canvas.width, Math.round(pos) + 0.5);
-      ctx.stroke();
     }
+    ctx.stroke();
 
     // World border
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
@@ -1830,26 +1696,22 @@ export class MinigameController {
     offsetX: number,
     offsetY: number
   ): void {
-    ctx.save();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
     const shadowOffset = 8 * scale;
+    const shadowSprite = this.spriteCache.get('black', 'shadow');
 
     state.players.forEach((player) => {
       if (!player.alive || !player.segments?.length) return;
       
       const radius = (player.thickness ?? 12) * scale * 0.5;
+      const size = radius * 2;
       
-      ctx.beginPath();
       player.segments.forEach((point, i) => {
         if (i % 3 !== 0) return; // Optimization
         const px = offsetX + point.x * scale + shadowOffset;
         const py = offsetY + point.y * scale + shadowOffset;
-        ctx.moveTo(px + radius, py);
-        ctx.arc(px, py, radius, 0, Math.PI * 2);
+        ctx.drawImage(shadowSprite, px - radius, py - radius, size, size);
       });
-      ctx.fill();
     });
-    ctx.restore();
   }
 
   private drawPellets(

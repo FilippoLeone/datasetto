@@ -211,13 +211,22 @@
             <span class="folder-badge">Beta</span>
           </button>
           <div class="channel-folder-content" id="minigame-launchers">
-            <button id="minigame-open" type="button" class="channel-item">
+            <button id="minigame-open-slither" type="button" class="channel-item">
               <svg class="channel-icon text-brand-primary" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/>
                 <polygon points="10 8 16 12 10 16 10 8"/>
               </svg>
               <span class="channel-name">Slither Arena</span>
+            </button>
+            <button id="minigame-open-pacman" type="button" class="channel-item">
+              <svg class="channel-icon text-brand-secondary" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2a10 10 0 0 1 10 10v8a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-2a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v2a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-8a10 10 0 0 1 10-10Z"/>
+                <circle cx="9" cy="9" r="1.5" fill="currentColor"/>
+                <circle cx="15" cy="9" r="1.5" fill="currentColor"/>
+              </svg>
+              <span class="channel-name">Pacman Chase</span>
             </button>
           </div>
         </div>
@@ -412,9 +421,9 @@
       </section>
 
       <section id="minigame-stage"
-        class="minigame-stage hidden w-full max-w-5xl self-center flex flex-col gap-4 px-4 py-6 lg:px-8"
+        class="minigame-stage hidden w-full max-w-5xl self-center flex flex-col gap-2 sm:gap-4 p-2 sm:px-4 sm:py-6 lg:px-8"
         aria-label="Game Arena">
-        <div class="minigame-stage-toolbar flex w-full items-center justify-between rounded-xl border border-white/5 bg-gradient-to-r from-bg-secondary/60 to-black/40 px-4 py-3 shadow-xl">
+        <div class="minigame-stage-toolbar flex w-full items-center justify-between rounded-xl border border-white/5 bg-gradient-to-r from-bg-secondary/60 to-black/40 px-3 py-2 sm:px-4 sm:py-3 shadow-xl">
           <div class="flex items-center gap-3">
             <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand-primary">
               <span class="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-primary"></span>
@@ -427,36 +436,11 @@
         </div>
 
         <div id="minigame-container"
-          class="minigame-screen hidden rounded-2xl border border-white/10 bg-black/30 p-4 lg:p-6">
-          <div class="flex flex-col gap-4">
+          class="minigame-screen hidden rounded-2xl border border-white/10 bg-black/30 p-2 sm:p-4 lg:p-6">
+          <div class="flex flex-col gap-3 sm:gap-4">
             <!-- Game Header Bar -->
             <header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div class="flex items-center gap-4">
-                <!-- Game Selector Dropdown -->
-                <div class="relative" id="game-selector-wrapper">
-                  <button id="game-selector-btn" type="button"
-                    class="flex items-center gap-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm font-semibold text-white transition-fast hover:border-white/20 hover:bg-black/60">
-                    <span id="game-selector-icon" class="text-lg">🎮</span>
-                    <span id="game-selector-label">Select Game</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-1 opacity-60"><path d="m6 9 6 6 6-6"/></svg>
-                  </button>
-                  <div id="game-selector-dropdown" class="absolute left-0 top-full z-dropdown mt-2 hidden min-w-[200px] rounded-xl border border-white/10 bg-bg-tertiary/95 p-2 shadow-2xl backdrop-blur-xl">
-                    <button type="button" data-game="slither" class="game-option flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-fast hover:bg-white/10">
-                      <span class="text-xl">🐍</span>
-                      <div class="flex flex-col">
-                        <span class="text-sm font-semibold text-white">Slither Arena</span>
-                        <span class="text-xs text-text-muted">Neon swarm royale</span>
-                      </div>
-                    </button>
-                    <button type="button" data-game="pacman" class="game-option flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-fast hover:bg-white/10">
-                      <span class="text-xl">👻</span>
-                      <div class="flex flex-col">
-                        <span class="text-sm font-semibold text-white">Pacman Chase</span>
-                        <span class="text-xs text-text-muted">Retro maze chaos</span>
-                      </div>
-                    </button>
-                  </div>
-                </div>
                 <!-- Status -->
                 <div class="flex flex-col gap-0.5">
                   <p id="minigame-status" class="text-xs leading-tight text-text-muted">Loading...</p>
@@ -486,11 +470,29 @@
             </div>
 
             <!-- Game Canvas -->
-            <div class="flex items-center justify-center">
+            <div id="minigame-canvas-wrapper" class="flex flex-col items-center justify-center gap-4">
               <div class="w-full" style="max-width: min(100%, 800px);">
                 <canvas id="minigame-canvas"
-                  class="w-full aspect-[4/3] rounded-xl border border-white/10 bg-black/60" width="800"
+                  class="w-full aspect-[4/3] rounded-xl border border-white/10 bg-black/60 touch-none" width="800"
                   height="600"></canvas>
+              </div>
+
+              <!-- Mobile Controls (D-Pad) -->
+              <div id="minigame-controls" class="minigame-controls flex lg:hidden flex-col items-center gap-1 select-none touch-none w-full max-w-[200px]">
+                <button id="ctrl-up" class="w-14 h-14 rounded-full bg-white/10 border border-white/20 active:bg-brand-primary/50 flex items-center justify-center text-xl transition-colors" aria-label="Up">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+                </button>
+                <div class="flex w-full justify-between px-2">
+                  <button id="ctrl-left" class="w-14 h-14 rounded-full bg-white/10 border border-white/20 active:bg-brand-primary/50 flex items-center justify-center text-xl transition-colors" aria-label="Left">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                  </button>
+                  <button id="ctrl-right" class="w-14 h-14 rounded-full bg-white/10 border border-white/20 active:bg-brand-primary/50 flex items-center justify-center text-xl transition-colors" aria-label="Right">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </button>
+                </div>
+                <button id="ctrl-down" class="w-14 h-14 rounded-full bg-white/10 border border-white/20 active:bg-brand-primary/50 flex items-center justify-center text-xl transition-colors" aria-label="Down">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
               </div>
             </div>
           </div>
