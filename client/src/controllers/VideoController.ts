@@ -318,6 +318,18 @@ export class VideoController {
   }
 
   toggleVideoPopout(): void {
+    if (this.isMobileLayout()) {
+      const video = this.deps.elements.video as HTMLVideoElement;
+      if (video) {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        } else {
+          video.requestFullscreen().catch(() => {});
+        }
+      }
+      return;
+    }
+
     const streamingMode = this.deps.state.toggleStreamingMode();
 
     if (streamingMode) {
@@ -716,7 +728,8 @@ export class VideoController {
     if (typeof window === 'undefined') {
       return false;
     }
-    return Boolean((window as typeof window & { desktopAPI?: unknown }).desktopAPI);
+    // Always use external popout (new window) for both web and desktop
+    return true;
   }
 
   private getActivePopoutVideo(): HTMLVideoElement | null {
