@@ -205,6 +205,10 @@ export class SocketService extends EventEmitter<EventMap> {
     this.socket?.emit('voice:signal', { to, data });
   }
 
+  sendStreamMetadata(to: string, metadata: unknown): void {
+    this.socket?.emit('voice:stream-metadata', { to, metadata });
+  }
+
   /**
    * Send a custom event to the server
    */
@@ -566,6 +570,10 @@ export class SocketService extends EventEmitter<EventMap> {
 
     this.socket.on('voice:signal', (data: { from: string; data: unknown }) => {
       this.emit('voice:signal' as keyof EventMap, data as never);
+    });
+
+    this.socket.on('voice:stream-metadata', (data: { from: string; metadata: unknown }) => {
+      this.emit('voice:stream-metadata' as keyof EventMap, data as never);
     });
 
     this.socket.on('voice:state', (data: { id: string; muted: boolean; deafened: boolean }) => {

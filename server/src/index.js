@@ -2150,6 +2150,17 @@ io.on('connection', (socket) => {
     logger.trace(`Voice signal forwarded`, { from: socket.id, to: targetId, channelId: currentVoiceChannel });
   });
 
+  socket.on('voice:stream-metadata', ({ to, metadata }) => {
+    if (!currentUser || !currentVoiceChannel) return;
+    const targetId = typeof to === 'string' ? to.trim() : '';
+    if (!targetId) return;
+
+    const targetUser = userManager.getUser(targetId);
+    if (!targetUser || targetUser.voiceChannel !== currentVoiceChannel) return;
+
+    socket.to(targetId).emit('voice:stream-metadata', { from: socket.id, metadata });
+  });
+
   socket.on('voice:state', (payload = {}) => {
     if (!currentVoiceChannel) {
       return;

@@ -1676,11 +1676,20 @@ export class VideoController {
       };
 
       const enableAudio = Boolean(wantsAudio && selection.shareAudio);
+      
+      // Fallback to system audio if sharing a window (since window-specific audio is often unsupported)
+      let audioSourceId = sourceId;
+      if (enableAudio && !isScreen && (selection.source as any).display_id) {
+         const displayId = (selection.source as any).display_id;
+         audioSourceId = `screen:${displayId}:0`;
+         console.log('[VideoController] Using system audio fallback for window share:', audioSourceId);
+      }
+
       const audioConstraints: MediaTrackConstraints | boolean = enableAudio
         ? ({
             mandatory: {
               chromeMediaSource: 'desktop',
-              chromeMediaSourceId: sourceId,
+              chromeMediaSourceId: audioSourceId,
             },
           } as unknown as MediaTrackConstraints)
         : false;

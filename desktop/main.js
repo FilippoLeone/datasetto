@@ -195,6 +195,7 @@ function buildPickerPayload(sources) {
     id: source.id,
     name: source.name,
     type: source.id?.startsWith('screen:') ? 'screen' : 'window',
+    display_id: source.display_id, // Pass display_id to renderer
     thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : null,
     appIcon:
       source.appIcon && typeof source.appIcon.toDataURL === 'function' && !source.appIcon.isEmpty()

@@ -355,6 +355,8 @@ export type EventMap = {
   'voice:peer-join': VoicePeerEvent;
   'voice:peer-leave': { id: string };
   'voice:signal': { from: string; data: unknown };
+  'voice:stream-metadata': { from: string; metadata: { streamId: string; type: 'camera' | 'screen' } };
+  'voice:send-stream-metadata': { to: string; metadata: { streamId: string; type: 'camera' | 'screen' } };
   'voice:state': { id: string; muted: boolean; deafened: boolean };
   'voice:game:state': VoiceMinigameState;
   'voice:game:update': VoiceMinigameState;

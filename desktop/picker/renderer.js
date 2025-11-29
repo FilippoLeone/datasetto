@@ -120,6 +120,7 @@ function confirmSelection() {
       id: source.id,
       name: source.name,
       type: source.type,
+      display_id: source.display_id,
       isScreen: source.type === 'screen',
     },
     shareAudio: Boolean(audioToggle.checked && allowAudio),

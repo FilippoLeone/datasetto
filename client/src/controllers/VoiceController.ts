@@ -1113,6 +1113,11 @@ export class VoiceController {
       })
     );
     this.disposers.push(
+      this.deps.socket.on('voice:stream-metadata', (data) => {
+        this.deps.voice.handleStreamMetadata(data as never);
+      })
+    );
+    this.disposers.push(
       this.deps.socket.on('voice:state', (data) => {
         this.handleVoicePeerState(data as never);
       })
@@ -1157,6 +1162,12 @@ export class VoiceController {
       this.deps.voice.on('voice:ice-candidate', (payload: unknown) => {
         const { peerId, candidate } = payload as { peerId: string; candidate: RTCIceCandidateInit };
         this.deps.socket.sendSignal(peerId, { candidate });
+      })
+    );
+    this.disposers.push(
+      this.deps.voice.on('voice:send-stream-metadata', (payload: unknown) => {
+        const { to, metadata } = payload as { to: string; metadata: unknown };
+        this.deps.socket.sendStreamMetadata(to, metadata);
       })
     );
     this.disposers.push(

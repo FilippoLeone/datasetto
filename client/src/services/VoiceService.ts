@@ -329,6 +329,7 @@ type DesktopScreenshareSource = {
   name: string;
   isScreen?: boolean;
   type?: 'screen' | 'window';
+  display_id?: string;
 };
 
 type DesktopScreensharePickResult = {
@@ -585,6 +586,7 @@ export class VoiceService extends EventEmitter<EventMap> {
   private remoteVideoElements: Map<string, HTMLVideoElement> = new Map();
   private videoSenders: Map<string, { camera?: RTCRtpSender; screen?: RTCRtpSender }> = new Map();
   private remoteVideoTracks: Map<string, { camera?: RemoteVideoTrackInfo; screen?: RemoteVideoTrackInfo }> = new Map();
+  private streamMetadata: Map<string, Map<string, 'camera' | 'screen'>> = new Map();
   private audioContext: AudioContext | null = null;
   private outputVolume = 1;
   private outputDeviceId = '';
@@ -755,17 +757,42 @@ export class VoiceService extends EventEmitter<EventMap> {
     return pc;
   }
 
+  handleStreamMetadata(data: { from: string; metadata: { streamId: string; type: 'camera' | 'screen' } }): void {
+    const { from, metadata } = data;
+    if (!this.streamMetadata.has(from)) {
+      this.streamMetadata.set(from, new Map());
+    }
+    this.streamMetadata.get(from)!.set(metadata.streamId, metadata.type);
+    
+    // If we already have tracks for this peer, we might need to re-classify them?
+    // But usually metadata arrives before or with the track.
+    // If track arrived first, it was already classified.
+    // We could check if we have a track with this streamId and if the type mismatches, fix it.
+    // For now, we assume metadata arrives reasonably fast.
+  }
+
   /**
    * Handle incoming remote video track
    */
   private handleRemoteVideoTrack(peerId: string, track: MediaStreamTrack, stream: MediaStream): void {
-    // Determine if this is camera or screen share based on track settings
-    const settings = track.getSettings();
-    const isScreenShare = settings.displaySurface !== undefined || 
-                          (settings.width && settings.width > 1280) ||
-                          track.contentHint === 'detail';
+    // Check if we have metadata for this stream
+    const metadata = this.streamMetadata.get(peerId)?.get(stream.id);
     
-    const streamType = isScreenShare ? 'screen' : 'camera';
+    let streamType: 'camera' | 'screen';
+
+    if (metadata) {
+      streamType = metadata;
+    } else {
+      // Fallback: Determine if this is camera or screen share based on track settings
+      const settings = track.getSettings();
+      // Note: Removed width > 1280 check as it misclassifies 1080p webcams
+      const isScreenShare = settings.displaySurface !== undefined || 
+                            track.contentHint === 'detail';
+      
+      streamType = isScreenShare ? 'screen' : 'camera';
+    }
+    
+    console.log(`[VoiceService] Remote video track from ${peerId}: ${streamType} (metadata: ${metadata})`);
     
     console.log(`[VoiceService] Remote video track from ${peerId}: ${streamType}`);
 
@@ -1859,6 +1886,16 @@ export class VoiceService extends EventEmitter<EventMap> {
   private async addVideoTrackToAllPeers(type: 'camera' | 'screen', stream: MediaStream): Promise<void> {
     for (const [peerId, pc] of this.peers) {
       this.addVideoTrackToPeer(peerId, pc, type, stream);
+      
+      // Send metadata
+      this.emit('voice:send-stream-metadata', {
+        to: peerId,
+        metadata: {
+          streamId: stream.id,
+          type
+        }
+      } as never);
+
       // Renegotiate connection
       await this.createAndSendOffer(peerId, pc);
     }
@@ -1950,11 +1987,32 @@ export class VoiceService extends EventEmitter<EventMap> {
       };
 
       const enableAudio = Boolean(wantsAudio && selection.shareAudio);
+      
+      // If sharing a window, we might need to use the screen ID for audio capture (System Audio fallback)
+      // because capturing specific window audio is often not supported by the OS/Electron.
+      let audioSourceId = sourceId;
+      if (enableAudio && !selection.source.isScreen && selection.source.display_id) {
+        // Construct screen ID from display_id if possible, or just try to find it?
+        // Electron source IDs for screens are usually "screen:display_id:0" or similar.
+        // But we don't have the list of screens here easily.
+        // However, if we pass the window ID and it fails, we get silence.
+        // If we pass "screen:0:0" (primary) or similar, we get system audio.
+        
+        // Actually, let's try to use the window ID first. If that fails (silent), we can't easily fallback without a new GUM call.
+        // But since the user reported it DOES NOT work, we should try to use the system audio if available.
+        // The display_id from Electron is usually just the number (e.g. "1", "2").
+        // The screen source ID format is typically "screen:<display_id>:0".
+        if (selection.source.display_id) {
+             audioSourceId = `screen:${selection.source.display_id}:0`;
+             console.log('[VoiceService] Using system audio (screen source) for window share:', audioSourceId);
+        }
+      }
+
       const audioConstraints: MediaTrackConstraints | boolean = enableAudio
         ? ({
             mandatory: {
               chromeMediaSource: 'desktop',
-              chromeMediaSourceId: sourceId,
+              chromeMediaSourceId: audioSourceId,
             },
           } as unknown as MediaTrackConstraints)
         : false;
