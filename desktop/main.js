@@ -2,6 +2,12 @@ const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nati
 const path = require('node:path');
 const fs = require('node:fs');
 
+// Force GPU Acceleration for NVENC/Hardware Encoding
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('enable-features', 'VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
+
 // ============================================
 // Logging Setup
 // ============================================

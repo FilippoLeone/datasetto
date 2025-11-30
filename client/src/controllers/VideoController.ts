@@ -104,7 +104,7 @@ const SCREENSHARE_CAPTURE_CONFIG = {
   preferNativeResolution: readBoolean(import.meta.env.VITE_SCREENSHARE_PREFER_NATIVE_RESOLUTION, true),
   idealFps: withFallback(import.meta.env.VITE_SCREENSHARE_IDEAL_FPS, 90),
   maxFps: withFallback(import.meta.env.VITE_SCREENSHARE_MAX_FPS, 120),
-  minFps: withFallback(import.meta.env.VITE_SCREENSHARE_MIN_FPS, 60),
+  minFps: withFallback(import.meta.env.VITE_SCREENSHARE_MIN_FPS, 30),
   maxBitrateKbps: withFallback(config.SCREENSHARE_MAX_BITRATE_KBPS, 25000),
 };
 
@@ -1885,15 +1885,33 @@ export class VideoController {
 
   private async createOfferForViewer(viewerId: string, peer: RTCPeerConnection, viewerName?: string): Promise<void> {
     try {
-      // Prefer VP9 for better quality/bitrate ratio if available
+      // Prefer H.264 for hardware acceleration (NVENC/AMF/QuickSync).
+      // We specifically target High Profile (6400xx) for best quality per bit.
       const transceivers = peer.getTransceivers();
       transceivers.forEach(t => {
         if (t.sender.track?.kind === 'video') {
           try {
             const codecs = RTCRtpSender.getCapabilities('video')?.codecs || [];
-            const vp9 = codecs.find(c => c.mimeType.toLowerCase() === 'video/vp9');
-            if (vp9) {
-              t.setCodecPreferences([vp9, ...codecs.filter(c => c !== vp9)]);
+            
+            // Find all H.264 codecs
+            const h264Codecs = codecs.filter(c => 
+              c.mimeType.toLowerCase() === 'video/h264' && 
+              c.sdpFmtpLine?.includes('packetization-mode=1')
+            );
+
+            // Sort to prefer High Profile (starts with 64) > Main (4d) > Baseline (42)
+            h264Codecs.sort((a, b) => {
+              const profileA = a.sdpFmtpLine?.match(/profile-level-id=([0-9a-f]+)/i)?.[1] || '000000';
+              const profileB = b.sdpFmtpLine?.match(/profile-level-id=([0-9a-f]+)/i)?.[1] || '000000';
+              return parseInt(profileB, 16) - parseInt(profileA, 16);
+            });
+
+            const vp8 = codecs.find(c => c.mimeType.toLowerCase() === 'video/vp8');
+            
+            const preferred = [...h264Codecs, vp8].filter(Boolean);
+            if (preferred.length > 0) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              t.setCodecPreferences([...preferred, ...codecs.filter(c => !preferred.includes(c))] as any);
             }
           } catch (e) {
             console.warn('[VideoController] Failed to set codec preferences:', e);
@@ -1941,7 +1959,7 @@ export class VideoController {
       }
 
       if (videoSection && line.startsWith('a=fmtp:')) {
-        // Force VP9/AV1 high profile if available, or boost VP8
+        // Force high profile if available, or boost bitrate
         newLines[newLines.length - 1] = `${line};x-google-min-bitrate=${Math.floor(bitrateKbps * 0.8)};x-google-max-bitrate=${bitrateKbps};x-google-start-bitrate=${Math.floor(bitrateKbps * 0.85)}`;
       }
     }

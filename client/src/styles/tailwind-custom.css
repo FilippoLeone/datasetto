@@ -4157,7 +4157,7 @@ body.native-fullscreen-active #inlineVideoContainer .inline-video-stage>canvas {
   }
 
   #chat-input-container {
-    margin-bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(0.5rem, 3.5vw, 0.85rem));
+    margin-bottom: calc(var(--mobile-toolbar-offset) + clamp(0.5rem, 3.5vw, 0.85rem)) !important;
   }
 
   .app-shell.sidebar-open #chat-input-container,
@@ -4365,7 +4365,7 @@ body.native-fullscreen-active #inlineVideoContainer .inline-video-stage>canvas {
   }
 
   .mobile-stream-mode #chat-input-container {
-    margin-bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(0.45rem, 3vw, 0.75rem));
+    margin-bottom: calc(var(--mobile-toolbar-offset) + clamp(0.45rem, 3vw, 0.75rem)) !important;
   }
 
   .mobile-stream-mode .mobile-stream-chat-toggle {
