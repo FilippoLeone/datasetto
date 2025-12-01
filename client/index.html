@@ -148,7 +148,7 @@
         
         <!-- Text Channels -->
         <div class="channel-folder" data-folder="text">
-          <button class="channel-folder-header" type="button" aria-expanded="true">
+          <div class="channel-folder-header" role="button" tabindex="0" aria-expanded="true">
             <svg class="folder-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
@@ -165,13 +165,13 @@
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
             </button>
-          </button>
+          </div>
           <div class="channel-folder-content" id="text-channels"></div>
         </div>
 
         <!-- Voice Channels -->
         <div class="channel-folder" data-folder="voice">
-          <button class="channel-folder-header" type="button" aria-expanded="true">
+          <div class="channel-folder-header" role="button" tabindex="0" aria-expanded="true">
             <svg class="folder-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
@@ -189,8 +189,50 @@
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
             </button>
-          </button>
+          </div>
           <div class="channel-folder-content" id="channelsList"></div>
+        </div>
+
+        <!-- Stream Channels -->
+        <div class="channel-folder" data-folder="stream">
+          <div class="channel-folder-header" role="button" tabindex="0" aria-expanded="true">
+            <svg class="folder-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+            <svg class="folder-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 7l-7 5 7 5V7z"></path>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+            </svg>
+            <span class="folder-label">Stream Channels</span>
+            <button id="create-stream-channel" class="folder-add-btn" title="Create Stream Channel" type="button">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="channel-folder-content" id="stream-channels"></div>
+        </div>
+
+        <!-- Screenshare Channels -->
+        <div class="channel-folder" data-folder="screenshare">
+          <div class="channel-folder-header" role="button" tabindex="0" aria-expanded="true">
+            <svg class="folder-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+            <svg class="folder-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            <span class="folder-label">Screenshare Channels</span>
+          </div>
+          <div class="channel-folder-content" id="screenshare-channels"></div>
         </div>
 
         <!-- Minigames -->
@@ -389,41 +431,35 @@
       <h1 id="current-channel-name" class="hidden">general</h1>
 
       <section id="voice-call-stage"
-        class="voice-call-stage hidden w-full max-w-6xl self-center flex flex-col gap-6 px-6 py-8 lg:px-10">
-        <div id="voiceVideoToolbar" class="voice-video-toolbar hidden">
-          <span class="voice-video-toolbar__label">Live video</span>
-          <div class="voice-video-toolbar__actions">
-            <button id="voice-popout-video" type="button"
-              class="voice-video-toolbar__btn" aria-label="Pop out active video" title="Pop out active video">
-              <span class="icon" aria-hidden="true">⇱</span>
-              <span class="label">Pop out</span>
+        class="voice-call-stage hidden w-full h-full flex flex-col overflow-hidden relative bg-black/20">
+        
+        <div class="flex items-center justify-between w-full min-h-[32px] flex-shrink-0 px-6 py-4 z-10">
+          <div id="voiceVideoToolbar" class="voice-video-toolbar hidden">
+            <span class="voice-video-toolbar__label">Live video</span>
+            <div class="voice-video-toolbar__actions">
+              <button id="voice-popout-video" type="button"
+                class="voice-video-toolbar__btn" aria-label="Pop out active video" title="Pop out active video">
+                <span class="icon" aria-hidden="true">⇱</span>
+                <span class="label">Pop out</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Voice Debug Toggle (Subtle) -->
+          <div id="voiceDebugToolbar" class="hidden ml-auto">
+            <button id="voiceDebugToggle" type="button" 
+              class="flex items-center gap-2 text-xs font-medium text-text-muted hover:text-text-normal transition-colors px-3 py-1.5 rounded-md hover:bg-white/5" 
+              aria-pressed="false"
+              title="Show Connection Diagnostics">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              <span>Signal</span>
             </button>
           </div>
         </div>
+
         <!-- Video Grid for camera/screen share -->
-        <div id="video-call-grid" class="video-call-grid hidden" role="region" aria-label="Video call participants">
-          <!-- Local video preview -->
-          <div id="local-video-container" class="video-tile local-video hidden" data-user-id="local">
-            <video id="local-video" class="video-element" autoplay muted playsinline></video>
-            <div class="video-tile-overlay">
-              <span class="video-tile-name">You</span>
-              <span class="video-tile-badge camera-badge hidden">📹</span>
-              <span class="video-tile-badge screen-badge hidden">🖥️</span>
-            </div>
-          </div>
-          <!-- Remote videos will be added dynamically -->
-        </div>
-        <div id="voiceGallery" class="voice-gallery hidden" role="list" aria-live="polite"
-          aria-label="Voice channel participants"></div>
-        <!-- Voice Debug Toggle -->
-        <div id="voiceDebugToolbar" class="voice-debug-toolbar hidden max-lg:hidden">
-          <button id="voiceDebugToggle" type="button" class="voice-debug-toggle" aria-pressed="false"
-            title="Show Connection Diagnostics">
-            <span class="icon" aria-hidden="true">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-            </span>
-            <span class="label">Diagnostics</span>
-          </button>
+        <div id="video-call-grid" class="video-call-grid hidden flex-1 min-h-0 w-full p-4 overflow-y-auto custom-scrollbar" role="region" aria-label="Video call participants">
+          <!-- Participants will be added dynamically -->
         </div>
       </section>
 

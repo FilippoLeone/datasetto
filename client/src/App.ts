@@ -188,7 +188,7 @@ export class App {
       resolveUserLabel: (label, fallback) => this.userListController?.resolveUserLabel(label, fallback) || 'Unknown User',
       closeMobileVoicePanel: () => this.closeMobileVoicePanel(),
       openVideoPopout: ({ stream, label, pipStream, pipLabel }) => {
-        this.videoController?.showVoicePopout(stream, { label, pipStream, pipLabel });
+        return this.videoController?.showVoicePopout(stream, { label, pipStream, pipLabel });
       },
       getRolePermissions: () => this.rolePermissions,
     });
@@ -359,7 +359,6 @@ export class App {
     const ids = [
     'channel', 'join', 'video', 'micSelect', 'spkSelect',
   'mute', 'mute-output-combo', 'deafen', 'msgs', 'chatForm', 'chat-input-container', 'chatInput', 'accName',
-  'voiceGallery',
   'streamLayout', 'streamChatDock', 'streamChatStatus',
   'streamPlayerColumn',
     'regModal', 'authLoginSection', 'authRegisterSection', 'authProfileSection',
@@ -381,7 +380,7 @@ export class App {
     'user-avatar', 'user-status-text', 'voice-status-panel',
     'connected-voice-channel', 'voice-quality-indicator',
   'voice-users-panel', 'voice-users-list', 'voice-user-count', 'voice-session-timer',
-  'minigame-open', 'minigame-close', 'minigame-launcher-status',
+  'minigame-close', 'minigame-launcher-status',
   'minigame-container', 'minigame-canvas', 'minigame-start', 'minigame-end',
   'minigame-join', 'minigame-leave', 'minigame-status', 'minigame-scores', 'minigame-stage',
   'voice-call-stage', 'toggle-camera', 'toggle-screenshare', 'voiceVideoToolbar',

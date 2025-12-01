@@ -5,7 +5,7 @@ import type { ConnectionQuality, PeerConnectionStats } from '@/services/VoiceSer
 import { MICROPHONE_PERMISSION_HELP_TEXT } from '@/services/AudioService';
 import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '@/services';
 import { generateIdenticonDataUri } from '@/utils/avatarGenerator';
-import { createSpinnerWithText } from '@/components/feedback/Spinner';
+
 
 const LOCAL_SPEAKING_THRESHOLD = 0.08;
 const LOCAL_SPEAKING_RELEASE_MS = 300;
@@ -46,6 +46,7 @@ export class VoiceController {
   private voiceSessionTimerHandle: number | null = null;
   private voiceChannelTimerHandle: number | null = null;
   private pttActive = false;
+  private poppedOutStream: { peerId: string; type: 'camera' | 'screen' } | null = null;
   private disposers: Array<() => void> = [];
   private activeOutputDeviceId: string | null = null;
   private micRecoveryTimeout: number | null = null;
@@ -317,81 +318,7 @@ export class VoiceController {
   }
 
   private updateLocalVideoPreview(): void {
-    const localVideoContainer = this.deps.elements['local-video-container'];
-    const localVideo = this.deps.elements['local-video'] as HTMLVideoElement | null;
-    const videoGrid = this.deps.elements['video-call-grid'];
-
-    const hasVideo = this.cameraActive || this.screenShareActive;
-
-    // Show/hide video grid
-    if (videoGrid) {
-      let hasVisibleRemoteVideo = false;
-      for (const tracks of this.remoteVideoTracks.values()) {
-        if (tracks.camera) {
-          hasVisibleRemoteVideo = true;
-          break;
-        }
-      }
-      videoGrid.classList.toggle('hidden', !hasVideo && !hasVisibleRemoteVideo);
-    }
-
-    // Show/hide local video container
-    if (localVideoContainer) {
-      localVideoContainer.classList.toggle('hidden', !hasVideo);
-      
-      const cameraBadge = localVideoContainer.querySelector('.camera-badge');
-      const screenBadge = localVideoContainer.querySelector('.screen-badge');
-      
-      if (cameraBadge) cameraBadge.classList.toggle('hidden', !this.cameraActive);
-      if (screenBadge) screenBadge.classList.toggle('hidden', !this.screenShareActive);
-
-      // Add flip button if camera is active and multiple devices available
-      let flipBtn = localVideoContainer.querySelector('.flip-camera-btn') as HTMLButtonElement;
-      if (this.cameraActive && this.availableVideoDevices.length > 1 && !this.screenShareActive) {
-        if (!flipBtn) {
-          flipBtn = document.createElement('button');
-          flipBtn.className = 'flip-camera-btn absolute top-2 right-2 p-2 bg-black/50 rounded-full hover:bg-black/70 text-white transition-colors z-10';
-          flipBtn.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 1.5.4 2.9 1.1 4.1l-1.1 1.1"></path>
-              <path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8c0-1.5-.4-2.9-1.1-4.1l1.1-1.1"></path>
-              <path d="M12 2v4"></path>
-              <path d="M12 18v4"></path>
-              <path d="M22 10l-4-4"></path>
-              <path d="M2 14l4 4"></path>
-            </svg>
-          `;
-          flipBtn.title = 'Flip Camera';
-          flipBtn.onclick = (e) => {
-            e.stopPropagation();
-            this.flipCamera();
-          };
-          localVideoContainer.appendChild(flipBtn);
-        }
-        flipBtn.classList.remove('hidden');
-      } else if (flipBtn) {
-        flipBtn.classList.add('hidden');
-      }
-    }
-
-    // Attach stream to local video element
-    if (localVideo) {
-      // Prefer screen share over camera for local preview
-      const stream = this.screenShareActive
-        ? this.deps.voice.getScreenStream()
-        : this.cameraActive
-          ? this.deps.voice.getCameraStream()
-          : null;
-
-      if (stream) {
-        localVideo.srcObject = stream;
-        localVideo.play().catch((e) => console.warn('Local video play failed:', e));
-      } else {
-        localVideo.srcObject = null;
-      }
-    }
-
-    this.updateVideoGridLayout();
+    this.renderVoiceUsers();
   }
 
   private handleRemoteVideoTrack(payload: {
@@ -407,9 +334,11 @@ export class VoiceController {
     }
     this.remoteVideoTracks.get(peerId)![streamType] = track;
 
-    // Create or update video tile for this peer
-    this.createOrUpdateRemoteVideoTile(peerId, streamType, stream);
-    this.updateVideoGridLayout();
+    if (!this.remoteVideoStreams.has(peerId)) {
+      this.remoteVideoStreams.set(peerId, {});
+    }
+    this.remoteVideoStreams.get(peerId)![streamType] = stream;
+
     if (this.setRemoteVideoState(peerId, streamType, true)) {
       this.renderVoiceUsers();
     }
@@ -431,72 +360,18 @@ export class VoiceController {
   }
 
   private createOrUpdateRemoteVideoTile(
-    peerId: string,
-    streamType: 'camera' | 'screen',
-    stream: MediaStream
+    _peerId: string,
+    _streamType: 'camera' | 'screen',
+    _stream: MediaStream
   ): void {
-    const videoGrid = this.deps.elements['video-call-grid'];
-    if (!videoGrid) return;
+    // Deprecated
+  }
 
-    // Show video grid
-    videoGrid.classList.remove('hidden');
-
-    if (!this.remoteVideoStreams.has(peerId)) {
-      this.remoteVideoStreams.set(peerId, {});
-    }
-    this.remoteVideoStreams.get(peerId)![streamType] = stream;
-
-    // Skip creating grid tile for screenshares (user must watch via gallery button)
-    if (streamType === 'screen') {
-      return;
-    }
-
-    const tileId = `video-tile-${peerId}-${streamType}`;
-    let tile = videoGrid.querySelector(`#${tileId}`) as HTMLElement | null;
-
-    if (!tile) {
-      tile = document.createElement('div');
-      tile.id = tileId;
-      tile.className = 'video-tile';
-      tile.dataset.peerId = peerId;
-      tile.dataset.streamType = streamType;
-
-      const video = document.createElement('video');
-      video.className = 'video-element';
-      video.autoplay = true;
-      video.playsInline = true;
-      video.muted = false;
-
-      const overlay = document.createElement('div');
-      overlay.className = 'video-tile-overlay';
-
-      const userName = this.voiceUsers.get(peerId)?.name || 'Participant';
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'video-tile-name';
-      nameSpan.textContent = userName;
-
-      const badge = document.createElement('span');
-      badge.className = 'video-tile-badge';
-      badge.textContent = '📹';
-
-      overlay.appendChild(nameSpan);
-      overlay.appendChild(badge);
-      tile.appendChild(video);
-      tile.appendChild(overlay);
-      videoGrid.appendChild(tile);
-    }
-
-    const videoEl = tile.querySelector('video') as HTMLVideoElement;
-    if (videoEl) {
-      videoEl.srcObject = stream;
-      videoEl.play().catch((e) => console.warn(`Remote video play failed for ${peerId}:`, e));
-    }
+  private hideRemoteVideoTile(_peerId: string, _streamType: 'camera' | 'screen'): void {
+    // Deprecated
   }
 
   private removeRemoteVideoTile(peerId: string, streamType?: 'camera' | 'screen'): void {
-    const videoGrid = this.deps.elements['video-call-grid'];
-    if (!videoGrid) return;
-
     let stateChanged = false;
 
     if (streamType) {
@@ -507,14 +382,6 @@ export class VoiceController {
           this.remoteVideoStreams.delete(peerId);
         }
       }
-    } else {
-      this.remoteVideoStreams.delete(peerId);
-    }
-
-    if (streamType) {
-      const tileId = `video-tile-${peerId}-${streamType}`;
-      const tile = videoGrid.querySelector(`#${tileId}`);
-      tile?.remove();
 
       const peerTracks = this.remoteVideoTracks.get(peerId);
       if (peerTracks) {
@@ -526,39 +393,18 @@ export class VoiceController {
 
       stateChanged = this.setRemoteVideoState(peerId, streamType, false) || stateChanged;
     } else {
-      // Remove all tiles for this peer
-      videoGrid.querySelectorAll(`[data-peer-id="${peerId}"]`).forEach((el) => el.remove());
+      this.remoteVideoStreams.delete(peerId);
       this.remoteVideoTracks.delete(peerId);
       stateChanged = this.setRemoteVideoState(peerId, 'camera', false) || stateChanged;
       stateChanged = this.setRemoteVideoState(peerId, 'screen', false) || stateChanged;
     }
 
-    this.updateVideoGridLayout();
     if (stateChanged) {
       this.renderVoiceUsers();
     }
   }
 
-  private updateVideoGridLayout(): void {
-    const videoGrid = this.deps.elements['video-call-grid'];
-    if (!videoGrid) return;
 
-    const tiles = videoGrid.querySelectorAll('.video-tile:not(.hidden)');
-    const count = tiles.length;
-
-    videoGrid.dataset.count = String(count);
-
-    // Check if there's a screen share
-    const hasScreenShare = videoGrid.querySelector('.video-tile.screen-share') !== null;
-    videoGrid.classList.toggle('has-screen-share', hasScreenShare);
-
-    // Hide grid if empty
-    if (count === 0) {
-      videoGrid.classList.add('hidden');
-    }
-
-    this.updateVoiceVideoToolbar();
-  }
 
   private updateVoiceVideoToolbar(): void {
     const toolbar = this.deps.elements.voiceVideoToolbar;
@@ -640,12 +486,72 @@ export class VoiceController {
       return;
     }
 
-    this.deps.openVideoPopout({
+    const popoutWindow = this.deps.openVideoPopout({
       stream: selection.primary.stream,
       label: selection.primary.label,
       pipStream: selection.pip?.stream ?? null,
       pipLabel: selection.pip?.label,
     });
+
+    if (popoutWindow) {
+      this.handlePopoutOpened(selection.primary.ownerId, selection.primary.type);
+      
+      let checkTimer: number | null = null;
+
+      const cleanup = () => {
+        this.handlePopoutClosed(selection.primary.ownerId, selection.primary.type);
+        
+        if (checkTimer !== null) {
+          clearInterval(checkTimer);
+          checkTimer = null;
+        }
+
+        try {
+          if (typeof popoutWindow.removeEventListener === 'function') {
+            popoutWindow.removeEventListener('beforeunload', cleanup);
+            popoutWindow.removeEventListener('unload', cleanup);
+          }
+        } catch (e) { /* ignore */ }
+      };
+      
+      // 1. Try Event Listeners (beforeunload AND unload for max compatibility)
+      if (typeof popoutWindow.addEventListener === 'function') {
+        popoutWindow.addEventListener('beforeunload', cleanup);
+        popoutWindow.addEventListener('unload', cleanup);
+      }
+
+      // 2. Always use polling as a safety net (Electron proxies can be tricky)
+      checkTimer = window.setInterval(() => {
+        if (popoutWindow.closed) {
+          cleanup();
+        }
+      }, 1000);
+    }
+  }
+
+  private handlePopoutOpened(peerId: string, type: 'camera' | 'screen'): void {
+    this.poppedOutStream = { peerId, type };
+    if (peerId === 'local') {
+      this.updateLocalVideoPreview();
+    } else {
+      this.hideRemoteVideoTile(peerId, type);
+    }
+    this.renderVoiceUsers();
+  }
+
+  private handlePopoutClosed(peerId: string, type: 'camera' | 'screen'): void {
+    if (this.poppedOutStream?.peerId === peerId && this.poppedOutStream?.type === type) {
+      this.poppedOutStream = null;
+      if (peerId === 'local') {
+        this.updateLocalVideoPreview();
+      } else {
+        const streams = this.remoteVideoStreams.get(peerId);
+        if (streams && streams[type]) {
+          this.createOrUpdateRemoteVideoTile(peerId, type, streams[type]!);
+        }
+      }
+      this.renderVoiceUsers();
+    }
   }
 
   private resolveVoicePopoutSelection(): { primary: VoicePopoutCandidate; pip?: VoicePopoutCandidate } | null {
@@ -1594,11 +1500,11 @@ export class VoiceController {
       this.deps.voicePanel.hide();
     }
 
-    this.renderVoiceGallery(entries, state.voiceConnected);
+    this.renderGrid(entries, state.voiceConnected);
   }
 
-  private renderVoiceGallery(entries: VoicePanelEntry[], voiceConnected: boolean): void {
-    const gallery = this.deps.elements.voiceGallery;
+  private renderGrid(entries: VoicePanelEntry[], voiceConnected: boolean): void {
+    const gallery = this.deps.elements['video-call-grid'];
     const stage = this.deps.elements['voice-call-stage'] ?? null;
     const debugToolbar = this.deps.elements['voiceDebugToolbar'] ?? null;
     if (!gallery) {
@@ -1611,13 +1517,10 @@ export class VoiceController {
     const isVoiceChannelActive = activeChannelType === 'voice';
 
     if (!isVoiceChannelActive) {
+      document.body.classList.remove('mobile-stream-mode');
       stage?.classList.add('hidden');
       debugToolbar?.classList.add('hidden');
-      this.updateVoiceGalleryLayoutState(gallery, 0);
       gallery.classList.add('hidden');
-      gallery.classList.remove('empty', 'loading');
-      gallery.setAttribute('aria-hidden', 'true');
-      gallery.removeAttribute('aria-busy');
       gallery.replaceChildren();
       this.stopDebugUpdates();
       return;
@@ -1625,105 +1528,220 @@ export class VoiceController {
 
     const mainContent = document.querySelector('.main-content');
     const isVoiceMode = mainContent?.classList.contains('voice-mode');
+    const body = document.body;
 
     if (!isVoiceMode) {
+      body.classList.remove('mobile-stream-mode');
       stage?.classList.add('hidden');
       debugToolbar?.classList.add('hidden');
-      this.updateVoiceGalleryLayoutState(gallery, 0);
       gallery.classList.add('hidden');
-      gallery.classList.remove('empty', 'loading');
-      gallery.setAttribute('aria-hidden', 'true');
-      gallery.removeAttribute('aria-busy');
       this.stopDebugUpdates();
       return;
     }
 
+    body.classList.add('mobile-stream-mode');
     stage?.classList.remove('hidden');
     gallery.classList.remove('hidden');
-    gallery.setAttribute('aria-hidden', 'false');
-    // Show debug toolbar when voice gallery is visible
-    debugToolbar?.classList.remove('hidden');
+    
+    // Show debug toolbar only when connected to voice
+    if (voiceConnected) {
+      debugToolbar?.classList.remove('hidden');
+    } else {
+      debugToolbar?.classList.add('hidden');
+    }
 
     if (this.pendingVoiceJoin && entries.length === 0) {
-      const channelName = this.pendingVoiceJoin.name?.trim() || 'voice';
-      this.setVoiceGalleryLoadingState(`Connecting to ${channelName}...`);
+      // Loading state...
       return;
     }
 
-    if (!voiceConnected && entries.length === 0) {
-      stage?.classList.remove('hidden');
-      this.updateVoiceGalleryLayoutState(gallery, 0);
-      gallery.classList.remove('empty', 'loading');
-      gallery.removeAttribute('aria-busy');
-      gallery.replaceChildren();
-      return;
-    }
+    // Update grid layout count
+    gallery.dataset.count = String(entries.length);
 
-    if (entries.length === 0) {
-      this.updateVoiceGalleryLayoutState(gallery, 0);
-      this.setVoiceGalleryEmptyState('No one else is here yet. Share the invite!');
-      return;
-    }
-
-    gallery.classList.remove('empty', 'loading');
-    gallery.setAttribute('aria-busy', 'false');
-    this.updateVoiceGalleryLayoutState(gallery, entries.length);
+    const existingTiles = new Map<string, HTMLElement>();
+    gallery.querySelectorAll('.voice-user-card').forEach((el) => {
+      if (el instanceof HTMLElement && el.dataset.userId) {
+        existingTiles.set(el.dataset.userId, el);
+      }
+    });
 
     const fragment = document.createDocumentFragment();
     entries.forEach((entry) => {
-      fragment.appendChild(this.createVoiceGalleryTile(entry));
+      let tile = existingTiles.get(entry.id);
+      if (tile) {
+        this.updateVoiceGalleryTile(tile, entry);
+        existingTiles.delete(entry.id);
+      } else {
+        tile = this.createVoiceGalleryTile(entry);
+      }
+      fragment.appendChild(tile);
     });
 
-    gallery.replaceChildren(fragment);
+    // Remove stale tiles
+    existingTiles.forEach((tile) => tile.remove());
+
+    gallery.appendChild(fragment);
+  }
+
+  private updateVoiceGalleryTile(tile: HTMLElement, entry: VoicePanelEntry): void {
+    tile.dataset.userId = entry.id;
+    tile.dataset.muted = String(Boolean(entry.muted));
+    tile.dataset.deafened = String(Boolean(entry.deafened));
+    tile.dataset.currentUser = entry.isCurrentUser ? 'true' : 'false';
+    const displayName = (entry.name ?? '').trim() || 'Participant';
+    tile.dataset.displayName = entry.isCurrentUser ? `${displayName} (You)` : displayName;
+    tile.dataset.camera = entry.cameraEnabled ? 'true' : 'false';
+    tile.dataset.screen = entry.screenEnabled ? 'true' : 'false';
+
+    const nameEl = tile.querySelector('.user-name');
+    if (nameEl) {
+      nameEl.textContent = entry.isCurrentUser ? `${displayName} (You)` : displayName;
+    }
+
+    const avatar = tile.querySelector('.avatar-container');
+    if (avatar) {
+      const existingMainVideo = avatar.querySelector('video.main-video') as HTMLVideoElement | null;
+      const existingPipVideo = avatar.querySelector('video.pip-video') as HTMLVideoElement | null;
+      const existingImg = avatar.querySelector('img');
+      
+      // Determine streams
+      let mainStream: MediaStream | null = null;
+      let pipStream: MediaStream | null = null;
+
+      if (entry.isCurrentUser) {
+        const camera = this.deps.voice.getCameraStream();
+        const screen = this.deps.voice.getScreenStream();
+        
+        if (entry.screenEnabled && screen) {
+          mainStream = screen;
+          if (entry.cameraEnabled && camera) {
+            pipStream = camera;
+          }
+        } else if (entry.cameraEnabled && camera) {
+          mainStream = camera;
+        }
+      } else {
+        // Remote user
+        const streams = this.remoteVideoStreams.get(entry.id);
+        if (streams) {
+          if (streams.screen) {
+            mainStream = streams.screen;
+            if (streams.camera) {
+              pipStream = streams.camera;
+            }
+          } else if (streams.camera) {
+            mainStream = streams.camera;
+          }
+        }
+      }
+
+      const isPoppedOut = this.poppedOutStream?.peerId === (entry.isCurrentUser ? 'local' : entry.id);
+      
+      // Handle Main Video
+      if (mainStream && !isPoppedOut) {
+        if (existingImg) existingImg.remove();
+        
+        let video = existingMainVideo;
+        if (!video) {
+          video = document.createElement('video');
+          video.className = 'voice-gallery-video main-video';
+          video.autoplay = true;
+          video.muted = true;
+          video.playsInline = true;
+          video.style.width = '100%';
+          video.style.height = '100%';
+          video.style.objectFit = 'cover';
+          video.style.borderRadius = 'inherit';
+          avatar.prepend(video);
+        }
+        
+        if (video.srcObject !== mainStream) {
+          video.srcObject = mainStream;
+          video.play().catch((e) => console.warn('Gallery main video play failed', e));
+        }
+      } else {
+        if (existingMainVideo) existingMainVideo.remove();
+        
+        // Show avatar if no main video
+        if (!existingImg) {
+          const avatarImg = document.createElement('img');
+          const avatarSeed = entry.name || entry.id || 'participant';
+          avatarImg.src = generateIdenticonDataUri(avatarSeed, { size: 160, label: entry.name ?? avatarSeed });
+          avatarImg.alt = `${entry.name ?? 'Participant'} avatar`;
+          avatarImg.decoding = 'async';
+          avatarImg.loading = 'lazy';
+          avatarImg.draggable = false;
+          avatar.prepend(avatarImg);
+        }
+      }
+
+      // Handle PiP Video
+      if (pipStream && !isPoppedOut) {
+        let video = existingPipVideo;
+        if (!video) {
+          video = document.createElement('video');
+          video.className = 'voice-gallery-video pip-video';
+          video.autoplay = true;
+          video.muted = true;
+          video.playsInline = true;
+          
+          // PiP Styles
+          video.style.position = 'absolute';
+          video.style.bottom = '12px';
+          video.style.right = '12px';
+          video.style.width = '25%';
+          video.style.minWidth = '80px';
+          video.style.aspectRatio = '16/9';
+          video.style.objectFit = 'cover';
+          video.style.borderRadius = '8px';
+          video.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
+          video.style.border = '2px solid rgba(255,255,255,0.1)';
+          video.style.zIndex = '5';
+          
+          avatar.appendChild(video);
+        }
+        
+        if (video.srcObject !== pipStream) {
+          video.srcObject = pipStream;
+          video.play().catch((e) => console.warn('Gallery pip video play failed', e));
+        }
+      } else {
+        if (existingPipVideo) existingPipVideo.remove();
+      }
+    }
+
+    this.refreshVoiceGalleryTile(tile, Boolean(entry.speaking));
   }
 
   private createVoiceGalleryTile(entry: VoicePanelEntry): HTMLElement {
-  const tile = document.createElement('article');
-  tile.className = 'voice-gallery-item';
-  tile.setAttribute('role', 'listitem');
-  tile.dataset.userId = entry.id;
-  tile.dataset.muted = String(Boolean(entry.muted));
-  tile.dataset.deafened = String(Boolean(entry.deafened));
-  tile.dataset.currentUser = entry.isCurrentUser ? 'true' : 'false';
-  const displayName = (entry.name ?? '').trim() || 'Participant';
-  tile.dataset.displayName = entry.isCurrentUser ? `${displayName} (You)` : displayName;
-  tile.dataset.camera = entry.cameraEnabled ? 'true' : 'false';
-  tile.dataset.screen = entry.screenEnabled ? 'true' : 'false';
-
+    const tile = document.createElement('article');
+    tile.className = 'voice-user-card voice-gallery-item';
+    tile.setAttribute('role', 'listitem');
+    
     const avatar = document.createElement('div');
-    avatar.className = 'voice-gallery-avatar';
-
-    const avatarImg = document.createElement('img');
-    const avatarSeed = entry.name || entry.id || 'participant';
-    avatarImg.src = generateIdenticonDataUri(avatarSeed, { size: 160, label: entry.name ?? avatarSeed });
-    avatarImg.alt = `${entry.name ?? 'Participant'} avatar`;
-    avatarImg.decoding = 'async';
-    avatarImg.loading = 'lazy';
-    avatarImg.draggable = false;
-    avatar.appendChild(avatarImg);
-
-  const status = document.createElement('span');
-    status.className = 'voice-gallery-status';
-    avatar.appendChild(status);
-
+    avatar.className = 'avatar-container';
+    
+    // Status indicator can be added here if needed
+    // const status = document.createElement('span');
+    // status.className = 'voice-gallery-status';
+    // avatar.appendChild(status);
+    
     tile.appendChild(avatar);
 
     const name = document.createElement('p');
-    name.className = 'voice-gallery-name';
-    name.textContent = entry.isCurrentUser ? `${displayName} (You)` : displayName;
+    name.className = 'user-name';
     tile.appendChild(name);
 
     const meta = document.createElement('div');
     meta.className = 'voice-gallery-meta';
     tile.appendChild(meta);
 
-    // Debug overlay (hidden by default)
     const debugOverlay = document.createElement('div');
     debugOverlay.className = 'voice-debug-overlay';
     debugOverlay.style.display = this.debugMode ? 'block' : 'none';
     tile.appendChild(debugOverlay);
 
-  this.refreshVoiceGalleryTile(tile, Boolean(entry.speaking));
+    this.updateVoiceGalleryTile(tile, entry);
 
     return tile;
   }
@@ -1731,11 +1749,6 @@ export class VoiceController {
   private refreshVoiceGalleryTile(tile: HTMLElement, speaking: boolean): void {
     tile.classList.toggle('speaking', speaking);
     tile.dataset.speaking = String(speaking);
-
-    const avatarEl = tile.querySelector('.voice-gallery-avatar') as HTMLElement | null;
-    if (avatarEl) {
-      avatarEl.classList.toggle('voice-speaking', speaking);
-    }
 
     const muted = tile.dataset.muted === 'true';
     const deafened = tile.dataset.deafened === 'true';
@@ -1792,12 +1805,47 @@ export class VoiceController {
   private watchUserStream(userId: string): void {
     const streams = this.remoteVideoStreams.get(userId);
     if (streams?.screen) {
-      this.deps.openVideoPopout?.({
+      const popoutWindow = this.deps.openVideoPopout?.({
         stream: streams.screen,
         label: `${this.voiceUsers.get(userId)?.name ?? 'User'}'s Screen`,
         pipStream: streams.camera,
         pipLabel: this.voiceUsers.get(userId)?.name
       });
+
+      if (popoutWindow) {
+        this.handlePopoutOpened(userId, 'screen');
+        
+        let checkTimer: number | null = null;
+
+        const cleanup = () => {
+          this.handlePopoutClosed(userId, 'screen');
+          
+          if (checkTimer !== null) {
+            clearInterval(checkTimer);
+            checkTimer = null;
+          }
+
+          try {
+            if (typeof popoutWindow.removeEventListener === 'function') {
+              popoutWindow.removeEventListener('beforeunload', cleanup);
+              popoutWindow.removeEventListener('unload', cleanup);
+            }
+          } catch (e) { /* ignore */ }
+        };
+        
+        // 1. Try Event Listeners
+        if (typeof popoutWindow.addEventListener === 'function') {
+          popoutWindow.addEventListener('beforeunload', cleanup);
+          popoutWindow.addEventListener('unload', cleanup);
+        }
+
+        // 2. Always use polling as a safety net
+        checkTimer = window.setInterval(() => {
+          if (popoutWindow.closed) {
+            cleanup();
+          }
+        }, 1000);
+      }
     } else {
       this.deps.notifications.warning('Stream not available yet');
     }
@@ -1884,7 +1932,7 @@ export class VoiceController {
   }
 
   private findVoiceGalleryTile(userId: string): HTMLElement | null {
-    const gallery = this.deps.elements.voiceGallery;
+    const gallery = this.deps.elements['video-call-grid'];
     if (!gallery) {
       return null;
     }
@@ -1893,95 +1941,9 @@ export class VoiceController {
     return gallery.querySelector<HTMLElement>(`.voice-gallery-item[data-user-id="${safeId}"]`);
   }
 
-  private setVoiceGalleryEmptyState(message: string): void {
-    const gallery = this.deps.elements.voiceGallery;
-    if (!gallery) {
-      return;
-    }
 
-    gallery.classList.add('empty');
-    gallery.classList.remove('loading');
-    gallery.setAttribute('aria-busy', 'false');
-    this.updateVoiceGalleryLayoutState(gallery, 0);
-    gallery.replaceChildren();
 
-    const messageEl = document.createElement('div');
-    messageEl.className = 'voice-gallery-empty-message';
-    messageEl.textContent = message;
-    gallery.appendChild(messageEl);
-  }
 
-  private setVoiceGalleryLoadingState(message: string): void {
-    const gallery = this.deps.elements.voiceGallery;
-    if (!gallery) {
-      return;
-    }
-
-    gallery.classList.add('loading');
-    gallery.classList.remove('empty');
-    gallery.setAttribute('aria-busy', 'true');
-    this.updateVoiceGalleryLayoutState(gallery, 0);
-    gallery.replaceChildren();
-
-    const spinner = createSpinnerWithText(message, { size: 'medium', variant: 'white' });
-    spinner.classList.add('voice-gallery-loading');
-    gallery.appendChild(spinner);
-  }
-
-  private updateVoiceGalleryLayoutState(gallery: HTMLElement, participantCount: number): void {
-    const layoutClasses = [
-      'voice-gallery--single',
-      'voice-gallery--double',
-      'voice-gallery--trio',
-      'voice-gallery--quad',
-      'voice-gallery--stage',
-      'voice-gallery--grid',
-      'voice-gallery--grid-xl',
-      'voice-gallery--multi',
-    ];
-    gallery.classList.remove(...layoutClasses);
-
-    if (participantCount <= 0) {
-      delete gallery.dataset.participantCount;
-      return;
-    }
-
-    gallery.dataset.participantCount = String(participantCount);
-
-    if (participantCount === 1) {
-      gallery.classList.add('voice-gallery--single');
-      return;
-    }
-
-    if (participantCount === 2) {
-      gallery.classList.add('voice-gallery--double');
-      return;
-    }
-
-    gallery.classList.add('voice-gallery--multi');
-
-    if (participantCount === 3) {
-      gallery.classList.add('voice-gallery--trio');
-      return;
-    }
-
-    if (participantCount === 4) {
-      gallery.classList.add('voice-gallery--quad');
-      return;
-    }
-
-    if (participantCount <= 6) {
-      gallery.classList.add('voice-gallery--stage');
-      return;
-    }
-
-    if (participantCount <= 9) {
-      gallery.classList.add('voice-gallery--grid');
-      return;
-    }
-
-    gallery.classList.add('voice-gallery--grid-xl');
-  }
 
   private setLocalSpeaking(speaking: boolean): void {
     if (this.localSpeaking === speaking) {
@@ -2475,7 +2437,7 @@ export class VoiceController {
   }
 
   private updateDebugModeUI(): void {
-    const gallery = this.deps.elements.voiceGallery;
+    const gallery = this.deps.elements['video-call-grid'];
     if (!gallery) return;
 
     // Update debug toggle button state
@@ -2514,7 +2476,7 @@ export class VoiceController {
   }
 
   private updateAllDebugOverlays(): void {
-    const gallery = this.deps.elements.voiceGallery;
+    const gallery = this.deps.elements['video-call-grid'];
     if (!gallery) return;
 
     const tiles = gallery.querySelectorAll('.voice-gallery-item');

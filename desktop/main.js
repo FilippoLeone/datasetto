@@ -427,7 +427,7 @@ function createWindow() {
         overrideBrowserWindowOptions: {
           autoHideMenuBar: true,
           menuBarVisible: false,
-          backgroundColor: '#05060b',
+          backgroundColor: '#000000',
           title: 'Datasetto - Video',
           icon: resolveResourcePath('icon.png'),
         }

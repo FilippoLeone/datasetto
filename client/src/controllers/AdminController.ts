@@ -78,7 +78,7 @@ export class AdminController {
     addListener(elements['superuser-menu-btn'], 'click', (event: Event) => {
       event.preventDefault();
       event.stopPropagation();
-      this.toggleMenu();
+      this.openModal('users');
     });
 
     addListener(elements['superuser-manage-users'], 'click', (event: Event) => {

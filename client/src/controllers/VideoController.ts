@@ -379,16 +379,16 @@ export class VideoController {
     return true;
   }
 
-  showVoicePopout(stream: MediaStream, options?: { label?: string; pipStream?: MediaStream | null; pipLabel?: string }): void {
+  showVoicePopout(stream: MediaStream, options?: { label?: string; pipStream?: MediaStream | null; pipLabel?: string }): Window | null {
     const video = this.preparePopoutDisplay(options?.label ?? 'Voice Video');
     if (!video) {
       this.deps.notifications.error('Unable to open voice video popout');
-      return;
+      return null;
     }
 
     if (!stream) {
       this.deps.notifications.warning('Video stream is not available yet');
-      return;
+      return null;
     }
 
     this.detachPopoutMediaStream();
@@ -426,6 +426,8 @@ export class VideoController {
     } else {
       this.detachPictureInPicture();
     }
+
+    return this.externalPopoutWindow;
   }
 
   private preparePopoutDisplay(title: string): HTMLVideoElement | null {
@@ -472,20 +474,12 @@ export class VideoController {
         }
         body {
           margin: 0;
-          background: radial-gradient(120% 120% at 0% 0%, #111425, #05060b 65%);
+          background: #000;
           color: white;
           min-height: 100vh;
           display: flex;
           flex-direction: column;
-          padding: 1rem;
           overflow: hidden;
-        }
-        body.popout-fullscreen {
-          padding: 0;
-          background: #000;
-        }
-        body.popout-collapsed .popout-stage {
-          max-height: 320px;
         }
         .popout-shell {
           flex: 1;
@@ -493,19 +487,14 @@ export class VideoController {
           flex-direction: column;
           min-height: 0;
           width: 100%;
+          position: relative;
         }
         .popout-stage {
           position: relative;
           flex: 1;
           background: #000;
           min-height: 0;
-          border-radius: 20px;
           overflow: hidden;
-          box-shadow: 0 32px 64px rgba(0, 0, 0, 0.55);
-        }
-        body.popout-fullscreen .popout-stage {
-          border-radius: 0;
-          box-shadow: none;
         }
         .popout-video-element {
           width: 100%;
@@ -515,36 +504,47 @@ export class VideoController {
         }
         .popout-controls {
           position: absolute;
-          top: 0.75rem;
-          right: 0.75rem;
+          top: 1rem;
+          right: 1rem;
           display: flex;
-          gap: 0.4rem;
-          z-index: 3;
+          gap: 0.5rem;
+          z-index: 10;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+          padding: 0.5rem;
+          border-radius: 999px;
+          background: rgba(0, 0, 0, 0.4);
+          backdrop-filter: blur(8px);
+        }
+        .popout-stage:hover .popout-controls,
+        .popout-controls:hover {
+          opacity: 1;
         }
         .popout-control-btn {
-          width: 34px;
-          height: 34px;
-          border-radius: 999px;
-          border: 1px solid rgba(255, 255, 255, 0.25);
-          background: rgba(8, 9, 15, 0.7);
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.1);
           color: white;
-          font-size: 0.7rem;
-          font-weight: 600;
-          letter-spacing: 0.05em;
-          text-transform: uppercase;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: background 0.2s ease, border-color 0.2s ease;
+          transition: all 0.2s ease;
+          padding: 0;
+        }
+        .popout-control-btn svg {
+          width: 18px;
+          height: 18px;
+          stroke-width: 2;
         }
         .popout-control-btn:hover {
-          background: rgba(255, 255, 255, 0.18);
-          border-color: rgba(255, 255, 255, 0.35);
+          background: rgba(255, 255, 255, 0.25);
+          transform: scale(1.05);
         }
-        .popout-control-btn.active {
-          background: rgba(255, 255, 255, 0.35);
-          color: #05060b;
+        .popout-control-btn:active {
+          transform: scale(0.95);
         }
         .popout-pip-host {
           position: absolute;
@@ -552,19 +552,25 @@ export class VideoController {
           bottom: 1rem;
           display: flex;
           flex-direction: column;
-          gap: 0.6rem;
+          gap: 0.75rem;
           pointer-events: none;
+          z-index: 5;
         }
         .popout-pip-tile {
-          width: clamp(160px, 22vw, 320px);
+          width: clamp(180px, 25vw, 360px);
           aspect-ratio: 16 / 9;
-          border-radius: 14px;
+          border-radius: 12px;
           overflow: hidden;
-          background: #000;
-          border: 1px solid rgba(255, 255, 255, 0.18);
-          box-shadow: 0 18px 36px rgba(0, 0, 0, 0.55);
+          background: #111;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
           position: relative;
           pointer-events: auto;
+          transition: transform 0.2s ease;
+        }
+        .popout-pip-tile:hover {
+          transform: scale(1.02);
+          border-color: rgba(255, 255, 255, 0.3);
         }
         .popout-pip-tile video {
           width: 100%;
@@ -574,13 +580,16 @@ export class VideoController {
         }
         .popout-pip-label {
           position: absolute;
-          top: 0.5rem;
+          bottom: 0.5rem;
           left: 0.5rem;
-          padding: 0.2rem 0.55rem;
-          border-radius: 999px;
-          background: rgba(0, 0, 0, 0.65);
+          padding: 0.25rem 0.6rem;
+          border-radius: 6px;
+          background: rgba(0, 0, 0, 0.75);
+          backdrop-filter: blur(4px);
           font-size: 0.75rem;
           font-weight: 600;
+          color: rgba(255, 255, 255, 0.9);
+          pointer-events: none;
         }
         .popout-overlay {
           position: absolute;
@@ -588,10 +597,11 @@ export class VideoController {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: linear-gradient(180deg, rgba(8, 9, 15, 0.65), rgba(8, 9, 15, 0.8));
+          background: #000;
           opacity: 0;
           pointer-events: none;
-          transition: opacity 0.2s ease;
+          transition: opacity 0.3s ease;
+          z-index: 2;
         }
         .popout-overlay.visible {
           opacity: 1;
@@ -600,19 +610,20 @@ export class VideoController {
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 0.8rem;
+          gap: 1rem;
         }
         .popout-overlay .spinner {
-          width: 44px;
-          height: 44px;
-          border-radius: 999px;
-          border: 4px solid rgba(255, 255, 255, 0.12);
-          border-top-color: rgba(255, 255, 255, 0.8);
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          border: 3px solid rgba(255, 255, 255, 0.1);
+          border-top-color: #fff;
           animation: popout-spin 1s linear infinite;
         }
         .popout-overlay .message {
-          font-size: 0.9rem;
-          font-weight: 600;
+          font-size: 0.95rem;
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.7);
           letter-spacing: 0.02em;
         }
         @keyframes popout-spin {
@@ -626,11 +637,13 @@ export class VideoController {
       shell.className = 'popout-shell';
       const stage = doc.createElement('div');
       stage.className = 'popout-stage';
+      
       const video = doc.createElement('video');
       video.autoplay = true;
       video.muted = true;
       video.playsInline = true;
       video.className = 'popout-video-element';
+      
       const overlay = doc.createElement('div');
       overlay.className = 'popout-overlay visible';
       const overlayContent = doc.createElement('div');
@@ -643,20 +656,25 @@ export class VideoController {
       overlayContent.appendChild(spinner);
       overlayContent.appendChild(message);
       overlay.appendChild(overlayContent);
+      
       const controls = doc.createElement('div');
       controls.className = 'popout-controls';
+      
       const fullscreenBtn = doc.createElement('button');
       fullscreenBtn.type = 'button';
       fullscreenBtn.className = 'popout-control-btn popout-control-fullscreen';
-      fullscreenBtn.title = 'Enter fullscreen';
-      fullscreenBtn.textContent = 'FS';
+      fullscreenBtn.title = 'Toggle Fullscreen';
+      fullscreenBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      
       const closeBtn = doc.createElement('button');
       closeBtn.type = 'button';
       closeBtn.className = 'popout-control-btn popout-control-close';
-      closeBtn.title = 'Close popout';
-      closeBtn.textContent = 'X';
+      closeBtn.title = 'Close Popout';
+      closeBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      
       controls.appendChild(fullscreenBtn);
       controls.appendChild(closeBtn);
+      
       const inlineOverlay = this.deps.elements.playerOverlay as HTMLElement | undefined;
       if (inlineOverlay) {
         const inlineMessage = inlineOverlay.querySelector('.message');
@@ -665,6 +683,7 @@ export class VideoController {
         }
         overlay.classList.toggle('visible', inlineOverlay.classList.contains('visible'));
       }
+      
       stage.appendChild(video);
       stage.appendChild(overlay);
       stage.appendChild(controls);
@@ -682,8 +701,14 @@ export class VideoController {
         const isFullscreen = !!doc.fullscreenElement;
         fullscreenBtn.classList.toggle('active', isFullscreen);
         doc.body.classList.toggle('popout-fullscreen', isFullscreen);
-        fullscreenBtn.textContent = isFullscreen ? 'EX' : 'FS';
-        fullscreenBtn.title = isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen';
+        
+        if (isFullscreen) {
+          fullscreenBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+          fullscreenBtn.title = 'Exit Fullscreen';
+        } else {
+          fullscreenBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+          fullscreenBtn.title = 'Enter Fullscreen';
+        }
       };
 
       const toggleFullscreen = (): void => {

@@ -75,7 +75,7 @@ export interface VoiceControllerDeps {
   updateStreamIndicator: () => void;
   resolveUserLabel: (label?: string | null, fallback?: string) => string;
   closeMobileVoicePanel?: () => void;
-  openVideoPopout?: (options: { stream: MediaStream; label?: string; pipStream?: MediaStream | null; pipLabel?: string }) => void;
+  openVideoPopout?: (options: { stream: MediaStream; label?: string; pipStream?: MediaStream | null; pipLabel?: string }) => Window | null | void;
   getRolePermissions?: () => import('@/types').RolePermissions | null;
 }
 

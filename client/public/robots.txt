@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://datasetto.com/sitemap.xml
