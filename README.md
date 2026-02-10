@@ -1,3 +1,7 @@
+INCIPIT
+
+This software is being built with the sole purpose of me using it with my friends, I don't care if it does not fit your intended use case and I do not plan on ever making any money or similar with it so keep that in mind if you want to use it.
+
 <img width="1910" height="914" alt="image" src="https://github.com/user-attachments/assets/59a9b5db-fe71-48d9-b027-556cfe0f2f71" />
 
 # 🎮 Datasetto
