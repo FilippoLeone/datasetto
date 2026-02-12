@@ -6,7 +6,7 @@ This software is being built with the sole purpose of me using it with my friend
 
 # 🎮 Datasetto
 
-A modern, self-hosted streaming platform with RTMP streaming, screensharing, voice chat, and text chat.
+A modern, self-hosted streaming platform with RTMP streaming, screensharing, voice chat, and text chat. A teamspeak/discord open source alternative.
 
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue)](https://www.docker.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-green)](https://nodejs.org/)
