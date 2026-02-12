@@ -25,6 +25,7 @@ import type {
 } from '@/types';
 import { validateEnv, resolveRuntimeConfig } from '@/utils';
 import { applyDeviceClasses } from '@/utils/device';
+import { generateIdenticonSvg } from '@/utils/avatarGenerator';
 
 const RUNTIME_CONFIG = validateEnv(resolveRuntimeConfig());
 
@@ -290,6 +291,7 @@ export class App {
   videoHandleStreamChannelSelected: (channelId, channelName) => this.videoController?.handleStreamChannelSelected(channelId, channelName),
       videoHandleScreenshareChannelSelected: (channelId, channelName) => this.videoController?.handleScreenshareChannelSelected(channelId, channelName),
       voiceRefreshInterface: () => this.voiceController?.refreshVoiceInterface(),
+      voicePanelHide: () => this.voicePanel?.hide(),
       mobileClosePanels: () => this.closeMobilePanels(),
     });
 
@@ -383,7 +385,7 @@ export class App {
   'minigame-close', 'minigame-launcher-status',
   'minigame-container', 'minigame-canvas', 'minigame-start', 'minigame-end',
   'minigame-join', 'minigame-leave', 'minigame-status', 'minigame-scores', 'minigame-stage',
-  'voice-call-stage', 'toggle-camera', 'toggle-screenshare', 'voiceVideoToolbar',
+  'voice-call-stage', 'toggle-camera', 'flip-camera', 'toggle-screenshare', 'voiceVideoToolbar',
   'voice-popout-video',
   'local-video-container', 'local-video', 'video-call-grid',
       'text-channels', 'stream-channels', 'screenshare-channels', 'member-count',
@@ -593,6 +595,7 @@ export class App {
   this.addTrackedListener(this.elements['mute-output-combo'], 'click', () => { void this.voiceController?.toggleMuteAndDeafen(); });
   this.addTrackedListener(this.elements.deafen, 'click', () => { void this.voiceController?.toggleDeafen(); });
   this.addTrackedListener(this.elements['toggle-camera'], 'click', () => { void this.voiceController?.toggleCamera(); });
+  this.addTrackedListener(this.elements['flip-camera'], 'click', () => { void this.voiceController?.flipCamera(); });
   this.addTrackedListener(this.elements['toggle-screenshare'], 'click', () => { void this.voiceController?.toggleScreenShare(); });
     this.addTrackedListener(this.elements['voice-popout-video'], 'click', () => {
       this.voiceController?.openActiveVideoPopout();
@@ -1146,12 +1149,29 @@ export class App {
     if (this.isAuthenticated) {
       const account = this.state.get('account') as Account | undefined;
       const displayName = (account?.displayName || account?.username || 'Profile').trim();
-      const initial = displayName.charAt(0).toUpperCase() || 'U';
+      const avatarUrl = typeof account?.avatarUrl === 'string' ? account.avatarUrl.trim() : '';
 
-      iconEl.textContent = initial;
+      if (avatarUrl) {
+        iconEl.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = avatarUrl;
+        img.alt = `${displayName} avatar`;
+        img.width = 22;
+        img.height = 22;
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        iconEl.appendChild(img);
+      } else {
+        iconEl.innerHTML = generateIdenticonSvg(displayName, {
+          size: 22,
+          label: `${displayName} avatar`,
+        });
+      }
+
       iconEl.classList.add('avatar-icon');
       labelEl.textContent = 'Profile';
     } else {
+      iconEl.innerHTML = '';
       iconEl.textContent = '👤';
       iconEl.classList.remove('avatar-icon');
       labelEl.textContent = 'Sign In';

@@ -70,19 +70,15 @@
   }
 
   .mobile-stream-mode .mobile-toolbar {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 1.5rem;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.65rem;
   }
 
   .mobile-stream-mode .mobile-toolbar {
-    left: 50%;
-    right: auto;
-    width: min(100%, var(--mobile-content-max-width, 680px));
-    transform: translateX(-50%);
-    border-radius: clamp(1rem, 5vw, 1.5rem) clamp(1rem, 5vw, 1.5rem) 0 0;
-    padding-inline: clamp(0.75rem, 6vw, 1.5rem);
+    width: 100%;
+    border-radius: 0;
+    padding-inline: clamp(0.75rem, 4vw, 1.25rem);
   }
 
   .mobile-sidebar-close-btn {
@@ -113,14 +109,12 @@
 
   .app-shell.sidebar-open .mobile-toolbar,
   .app-shell.members-open .mobile-toolbar {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(100%);
+    display: none;
   }
 
   .main-content {
-    padding-bottom: var(--mobile-toolbar-offset);
-    scroll-padding-bottom: calc(var(--mobile-toolbar-offset) + 24px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    scroll-padding-bottom: 24px;
   }
 
   #streamChatDock {
@@ -128,12 +122,12 @@
   }
 
   #chat-input-container {
-    margin-bottom: calc(var(--mobile-toolbar-offset) + clamp(0.5rem, 3.5vw, 0.85rem)) !important;
+    margin-bottom: 0 !important;
   }
 
   .app-shell.sidebar-open #chat-input-container,
   .app-shell.members-open #chat-input-container {
-    margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.25rem);
+    margin-bottom: 0 !important;
   }
 
   .inline-video-container.fullscreen~#msgs {
@@ -189,9 +183,50 @@
     padding-bottom: 0;
   }
 
-  .mobile-stream-mode .sidebar,
-  .mobile-stream-mode .members-panel {
+  body.mobile-stream-mode .app-shell:not(.sidebar-open) .sidebar,
+  .app-shell.mobile-stream-mode:not(.sidebar-open) .sidebar,
+  body.mobile-stream-mode .app-shell:not(.members-open) .members-panel,
+  .app-shell.mobile-stream-mode:not(.members-open) .members-panel {
     display: none;
+  }
+
+  body.mobile-stream-mode .app-shell.sidebar-open .sidebar,
+  .app-shell.mobile-stream-mode.sidebar-open .sidebar,
+  body.mobile-stream-mode .app-shell.members-open .members-panel,
+  .app-shell.mobile-stream-mode.members-open .members-panel {
+    display: flex;
+  }
+
+  body:not(.mobile-stream-mode) #streamLayout[data-mode="text"] .stream-chat-dock {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding-bottom: clamp(0.35rem, 2vw, 0.6rem);
+  }
+
+  body:not(.mobile-stream-mode) #streamLayout[data-mode="text"] .stream-chat-dock .chat-log {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.9rem;
+  }
+
+  body:not(.mobile-stream-mode) #streamLayout[data-mode="text"] .stream-chat-dock #msgs.hidden-in-fullscreen {
+    display: flex !important;
+  }
+
+  body:not(.mobile-stream-mode) #streamLayout[data-mode="text"] .stream-chat-dock .chat-input-container {
+    margin-bottom: 0 !important;
+    padding-bottom: clamp(0.85rem, 3vw, 1.2rem);
+    position: sticky;
+    bottom: 0;
+    z-index: 6;
+    background: var(--color-bg-primary);
+  }
+
+  body:not(.mobile-stream-mode) #streamLayout[data-mode="text"] .stream-chat-dock #chat-input-container.hidden-in-fullscreen {
+    display: block !important;
   }
 
   .mobile-stream-mode #streamPlayerColumn {
@@ -286,7 +321,7 @@
 
   .mobile-stream-mode .stream-layout {
     gap: clamp(1rem, 4.5vw, 1.6rem);
-    padding-bottom: calc(var(--mobile-toolbar-offset, 0px) + clamp(2rem, 8vw, 3.2rem));
+    padding-bottom: clamp(1rem, 4vw, 1.4rem);
     align-items: center;
     width: min(100%, var(--mobile-content-max-width, 680px));
     margin: 0 auto;
@@ -304,12 +339,24 @@
     width: min(100%, var(--mobile-content-max-width, 680px));
     margin: clamp(1rem, 5vw, 1.6rem) auto clamp(0.5rem, 3vw, 1rem);
     max-height: none;
+    min-height: 0;
+    padding-bottom: clamp(0.35rem, 2vw, 0.6rem);
     border-radius: clamp(1rem, 5vw, 1.6rem);
     box-shadow: 0 24px 52px rgba(5, 7, 14, 0.55);
   }
 
   .mobile-stream-mode #streamChatDock .chat-log {
-    max-height: clamp(320px, 60vh, 560px);
+    max-height: clamp(240px, 52vh, 560px);
+    min-height: 0;
+    padding-bottom: clamp(0.5rem, 2.5vw, 0.9rem);
+  }
+
+  .mobile-stream-mode #streamChatDock .chat-input-container {
+    margin-bottom: 0 !important;
+    padding-bottom: clamp(0.85rem, 3vw, 1.2rem);
+    position: sticky;
+    bottom: 0;
+    z-index: 6;
   }
 
   .mobile-stream-mode #streamChatDock.mobile-overlay-active {
@@ -322,6 +369,7 @@
     z-index: 1460;
     box-shadow: 0 28px 64px rgba(5, 5, 10, 0.55);
     overflow: hidden;
+    padding-bottom: 0;
     margin: 0 auto;
   }
 
@@ -331,11 +379,13 @@
   }
 
   .mobile-stream-mode #streamChatDock.mobile-overlay-active .chat-input-container {
-    margin-bottom: 0;
+    margin-bottom: 0 !important;
+    padding-bottom: clamp(0.6rem, 3vw, 1rem);
+    position: static;
   }
 
   .mobile-stream-mode #chat-input-container {
-    margin-bottom: calc(var(--mobile-toolbar-offset) + clamp(0.45rem, 3vw, 0.75rem)) !important;
+    margin-bottom: 0 !important;
   }
 
   .mobile-stream-mode .mobile-stream-chat-toggle {
@@ -361,5 +411,10 @@
 
   .mobile-stream-mode.mobile-chat-open .mobile-stream-chat-toggle__icon {
     transform: rotate(135deg);
+  }
+
+  .main-content.minigame-active .minigame-stage {
+    padding-bottom: clamp(0.75rem, 3vw, 1rem);
+    overflow-y: auto;
   }
 }

@@ -37,16 +37,45 @@
 
 /* === Mobile Layout (The "Big Picture" Fix) === */
 @media (max-width: 1024px) {
+  #voice-call-stage {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
   .video-call-grid {
-    position: absolute;
-    inset: 0;
-    height: 100%;
+    position: relative;
+    inset: auto;
+    flex: 1;
+    height: auto;
     width: 100%;
-    padding: 0;
-    padding-bottom: 160px;
-    gap: 2px;
+    max-width: 100%;
+    margin: 0;
+    padding: 0.75rem;
+    padding-bottom: calc(var(--mobile-toolbar-offset, 0px) + 0.75rem);
+    gap: 0.75rem;
     align-content: start;
+    justify-items: stretch;
     overflow-y: auto;
+  }
+
+  .video-call-grid[data-count="1"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .video-call-grid .voice-user-card,
+  .video-call-grid .voice-gallery-item {
+    width: 100%;
+    max-width: 100%;
+    min-height: clamp(220px, 50vh, 360px);
+    aspect-ratio: auto;
+    border-radius: 18px;
+  }
+
+  .video-call-grid .voice-user-card .avatar-container img,
+  .video-call-grid .voice-gallery-item .avatar-container img {
+    width: clamp(84px, 20vw, 124px);
+    height: clamp(84px, 20vw, 124px);
   }
 
   .voice-gallery {

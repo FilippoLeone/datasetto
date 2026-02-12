@@ -142,6 +142,7 @@ export interface NavigationControllerDeps {
   videoHandleStreamChannelSelected: (channelId: string, channelName: string) => void;
   videoHandleScreenshareChannelSelected: (channelId: string, channelName: string) => void;
   voiceRefreshInterface?: () => void;
+  voicePanelHide?: () => void;
   mobileClosePanels?: () => void;
 }
 

@@ -6,6 +6,14 @@
   backdrop-filter: blur(12px);
 }
 
+.voice-users-panel.hidden {
+  display: none !important;
+}
+
+.main-content:not(.voice-mode) .voice-users-panel {
+  display: none !important;
+}
+
 .voice-users-panel.is-open {
   max-height: 320px;
 }

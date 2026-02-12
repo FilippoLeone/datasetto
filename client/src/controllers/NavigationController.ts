@@ -189,6 +189,7 @@ export class NavigationController {
       return;
     }
 
+    this.deps.voicePanelHide?.();
     this.deps.chatShowChatUI();
     const chatInput = this.deps.elements.chatInput as HTMLInputElement;
     if (!chatInput) {

@@ -177,7 +177,17 @@ export class VoiceController {
   }
 
   async flipCamera(): Promise<void> {
-    if (!this.cameraActive || this.availableVideoDevices.length < 2) {
+    if (!this.cameraActive) {
+      return;
+    }
+
+    if (this.availableVideoDevices.length < 2) {
+      await this.loadVideoDevices();
+    }
+
+    if (this.availableVideoDevices.length < 2) {
+      this.updateVideoButtons();
+      this.deps.notifications.info('No secondary camera available');
       return;
     }
 
@@ -191,9 +201,11 @@ export class VoiceController {
     try {
       await this.deps.voice.switchCamera(nextDevice.deviceId);
       this.currentCameraDeviceId = nextDevice.deviceId;
+      await this.loadVideoDevices();
       
       // Update local preview with new stream
       this.updateLocalVideoPreview();
+      this.updateVideoButtons();
       
       // Also update the stream in the controller's state if needed, 
       // but VoiceService emits 'video:camera:started' which we might be listening to?
@@ -240,6 +252,7 @@ export class VoiceController {
         }
 
         this.cameraActive = true;
+        await this.loadVideoDevices();
         this.updateVideoButtons();
         this.updateLocalVideoPreview();
         this.deps.notifications.success('Camera started');
@@ -294,6 +307,7 @@ export class VoiceController {
 
   private updateVideoButtons(): void {
     const cameraBtn = this.deps.elements['toggle-camera'];
+    const flipBtn = this.deps.elements['flip-camera'];
     const screenBtn = this.deps.elements['toggle-screenshare'];
 
     if (cameraBtn) {
@@ -304,6 +318,16 @@ export class VoiceController {
       if (label) {
         label.textContent = this.cameraActive ? 'Stop Cam' : 'Camera';
       }
+    }
+
+    if (flipBtn) {
+      const isMobile = window.matchMedia('(max-width: 1024px)').matches;
+      const canFlip = isMobile && this.cameraActive && this.availableVideoDevices.length > 1;
+
+      flipBtn.classList.toggle('hidden', !isMobile);
+      flipBtn.toggleAttribute('disabled', !canFlip);
+      flipBtn.setAttribute('aria-disabled', canFlip ? 'false' : 'true');
+      flipBtn.title = canFlip ? 'Flip camera' : 'Flip camera unavailable';
     }
 
     if (screenBtn) {

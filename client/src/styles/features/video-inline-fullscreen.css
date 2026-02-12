@@ -136,6 +136,16 @@
   border-top-right-radius: 0;
 }
 
+@media (max-width: 1024px) {
+  .inline-video-container.fullscreen~#msgs {
+    bottom: calc(var(--stream-chat-input-height) + var(--mobile-toolbar-offset));
+  }
+
+  .inline-video-container.fullscreen~#chat-input-container {
+    bottom: var(--mobile-toolbar-offset);
+  }
+}
+
 body.stream-chat-hidden .inline-video-container.fullscreen {
   right: 0;
 }

@@ -661,20 +661,26 @@ export class MinigameController {
       return;
     }
 
-    if (this.isMobile) {
-      this.container.classList.add('hidden');
-      this.stage?.classList.add('hidden');
-      this.openSlitherButton?.classList.add('hidden');
-      this.openPacmanButton?.classList.add('hidden');
-      this.closeButton?.classList.add('hidden');
-      return;
-    }
-
     const voiceConnected = typeof forceConnected === 'boolean'
       ? forceConnected
       : this.deps.state.get('voiceConnected');
 
     this.canUseMinigame = Boolean(voiceConnected);
+
+    if (this.isMobile) {
+      this.container.classList.add('hidden');
+      if (this.stage) {
+        this.stage.classList.add('hidden');
+        this.stage.setAttribute('aria-hidden', 'true');
+      }
+      this.mainContent?.classList.remove('minigame-active');
+      this.closeButton?.classList.add('hidden');
+      this.openSlitherButton?.classList.remove('hidden');
+      this.openPacmanButton?.classList.remove('hidden');
+      this.openFighterButton?.classList.remove('hidden');
+      this.updateLauncherState();
+      return;
+    }
 
     if (!this.canUseMinigame) {
       this.isViewPinned = false;
@@ -1255,6 +1261,10 @@ export class MinigameController {
       this.openPacmanButton.classList.toggle('is-disabled', !this.canUseMinigame);
       this.openPacmanButton.setAttribute('aria-disabled', this.canUseMinigame ? 'false' : 'true');
     }
+    if (this.openFighterButton) {
+      this.openFighterButton.classList.toggle('is-disabled', !this.canUseMinigame);
+      this.openFighterButton.setAttribute('aria-disabled', this.canUseMinigame ? 'false' : 'true');
+    }
   }
 
   private syncStageMode(): void {
@@ -1291,6 +1301,10 @@ export class MinigameController {
     if (this.openPacmanButton) {
       this.openPacmanButton.classList.toggle('active', shouldShow && this.selectedGameType === 'pacman');
       this.openPacmanButton.setAttribute('aria-pressed', shouldShow && this.selectedGameType === 'pacman' ? 'true' : 'false');
+    }
+    if (this.openFighterButton) {
+      this.openFighterButton.classList.toggle('active', shouldShow && this.selectedGameType === 'fighter');
+      this.openFighterButton.setAttribute('aria-pressed', shouldShow && this.selectedGameType === 'fighter' ? 'true' : 'false');
     }
   }
 

@@ -1552,7 +1552,7 @@ export class VideoController {
 
     playerColumn?.classList.add('hidden');
 
-    this.syncChatDockState(false);
+    this.syncChatDockState(this.isMobileStreamChatDisabled());
     document.body.classList.remove('stream-inline-active');
     this.updateLiveIndicator('hidden');
 
@@ -2592,6 +2592,12 @@ export class VideoController {
       return;
     }
 
+    if (this.isMobileStreamChatDisabled()) {
+      this.mobileChatOpen = false;
+      this.updateMobileChatToggleUI();
+      return;
+    }
+
     const nextState = force ?? !this.mobileChatOpen;
     if (nextState === this.mobileChatOpen) {
       return;
@@ -2612,7 +2618,13 @@ export class VideoController {
     const chatDock = this.deps.elements.streamChatDock as HTMLElement | undefined;
 
     const isMobile = this.isMobileLayout();
-    const isActive = isMobile && this.mobileStreamMode;
+    const chatDisabled = isMobile && this.isMobileStreamChatDisabled();
+    const isActive = isMobile && this.mobileStreamMode && !chatDisabled;
+
+    if (chatDisabled) {
+      this.mobileChatOpen = false;
+    }
+
     const isOpen = isActive && this.mobileChatOpen;
 
     app?.classList.toggle('mobile-chat-open', isOpen);
@@ -2636,6 +2648,14 @@ export class VideoController {
     }
 
     if (chatDock) {
+      this.syncChatDockState(chatDisabled);
+
+      if (chatDisabled) {
+        chatDock.classList.remove('mobile-overlay-active');
+        chatDock.setAttribute('aria-hidden', 'true');
+        return;
+      }
+
       const overlayActive = isActive && isOpen;
       chatDock.classList.toggle('mobile-overlay-active', overlayActive);
 
@@ -2861,6 +2881,10 @@ export class VideoController {
 
   private isMobileLayout(): boolean {
     return window.matchMedia('(max-width: 1024px)').matches;
+  }
+
+  private isMobileStreamChatDisabled(): boolean {
+    return this.isMobileLayout() && this.deps.state.get('currentChannelType') === 'stream';
   }
 
   private syncChatDockState(isHidden: boolean): void {

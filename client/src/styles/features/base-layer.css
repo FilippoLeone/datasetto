@@ -1,5 +1,9 @@
 /* === Base Layer - Global styles === */
 @layer base {
+  :root {
+    --mobile-toolbar-offset: calc(env(safe-area-inset-bottom, 0px) + 7.5rem);
+  }
+
   body {
     @apply m-0 text-sm leading-normal overflow-hidden;
     font-family: var(--font-body);
