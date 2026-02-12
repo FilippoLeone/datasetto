@@ -63,6 +63,8 @@ export class VoiceController {
   private remoteVideoStreams: Map<string, { camera?: MediaStream; screen?: MediaStream }> = new Map();
   private availableVideoDevices: MediaDeviceInfo[] = [];
   private currentCameraDeviceId: string | null = null;
+  private mobileFacingMode: 'user' | 'environment' = 'user';
+  private cameraFlipInProgress = false;
   // Debug mode
   private debugMode = false;
   private debugUpdateHandle: number | null = null;
@@ -176,8 +178,64 @@ export class VoiceController {
     this.availableVideoDevices = await this.deps.voice.getVideoDevices();
   }
 
+  private syncFacingModeFromStream(stream: MediaStream | null): void {
+    const track = stream?.getVideoTracks()[0];
+    if (!track) {
+      return;
+    }
+
+    const settings = track.getSettings();
+    const facingMode = settings.facingMode;
+    if (facingMode === 'environment' || facingMode === 'user') {
+      this.mobileFacingMode = facingMode;
+    }
+  }
+
+  private canFlipCameraViaFacingMode(): boolean {
+    const stream = this.deps.voice.getCameraStream();
+    const track = stream?.getVideoTracks()[0];
+    if (!track || typeof track.getCapabilities !== 'function') {
+      return false;
+    }
+
+    const capabilities = track.getCapabilities() as { facingMode?: unknown };
+    const rawFacingModes = capabilities.facingMode;
+    const facingModes = Array.isArray(rawFacingModes)
+      ? rawFacingModes.filter((value): value is string => typeof value === 'string')
+      : [];
+
+    return facingModes.includes('user') && facingModes.includes('environment');
+  }
+
+  private async applyFacingModeFlip(): Promise<void> {
+    const stream = this.deps.voice.getCameraStream();
+    const track = stream?.getVideoTracks()[0];
+    if (!track) {
+      throw new Error('Camera track not available');
+    }
+
+    const nextFacingMode: 'user' | 'environment' = this.mobileFacingMode === 'user' ? 'environment' : 'user';
+
+    try {
+      await track.applyConstraints({ facingMode: { exact: nextFacingMode } });
+    } catch {
+      await track.applyConstraints({ facingMode: nextFacingMode });
+    }
+
+    const settings = track.getSettings();
+    if (settings.facingMode === 'environment' || settings.facingMode === 'user') {
+      this.mobileFacingMode = settings.facingMode;
+    } else {
+      this.mobileFacingMode = nextFacingMode;
+    }
+
+    if (settings.deviceId) {
+      this.currentCameraDeviceId = settings.deviceId;
+    }
+  }
+
   async flipCamera(): Promise<void> {
-    if (!this.cameraActive) {
+    if (!this.cameraActive || this.cameraFlipInProgress) {
       return;
     }
 
@@ -185,34 +243,43 @@ export class VoiceController {
       await this.loadVideoDevices();
     }
 
-    if (this.availableVideoDevices.length < 2) {
+    const canFlipByDevice = this.availableVideoDevices.length > 1;
+    const canFlipByFacingMode = this.canFlipCameraViaFacingMode();
+
+    if (!canFlipByDevice && !canFlipByFacingMode) {
       this.updateVideoButtons();
       this.deps.notifications.info('No secondary camera available');
       return;
     }
 
-    // Find current index
-    let currentIndex = this.availableVideoDevices.findIndex(d => d.deviceId === this.currentCameraDeviceId);
-    if (currentIndex === -1) currentIndex = 0;
-
-    const nextIndex = (currentIndex + 1) % this.availableVideoDevices.length;
-    const nextDevice = this.availableVideoDevices[nextIndex];
+    this.cameraFlipInProgress = true;
+    this.updateVideoButtons();
 
     try {
-      await this.deps.voice.switchCamera(nextDevice.deviceId);
-      this.currentCameraDeviceId = nextDevice.deviceId;
+      if (canFlipByDevice) {
+        let currentIndex = this.availableVideoDevices.findIndex((device) => device.deviceId === this.currentCameraDeviceId);
+        if (currentIndex === -1) {
+          currentIndex = 0;
+        }
+
+        const nextIndex = (currentIndex + 1) % this.availableVideoDevices.length;
+        const nextDevice = this.availableVideoDevices[nextIndex];
+
+        await this.deps.voice.switchCamera(nextDevice.deviceId);
+        this.currentCameraDeviceId = nextDevice.deviceId;
+        this.syncFacingModeFromStream(this.deps.voice.getCameraStream());
+      } else {
+        await this.applyFacingModeFlip();
+      }
+
       await this.loadVideoDevices();
-      
-      // Update local preview with new stream
       this.updateLocalVideoPreview();
-      this.updateVideoButtons();
-      
-      // Also update the stream in the controller's state if needed, 
-      // but VoiceService emits 'video:camera:started' which we might be listening to?
-      // Let's check if we need to manually update anything else.
     } catch (error) {
       console.error('[VoiceController] Failed to flip camera:', error);
       this.deps.notifications.error('Failed to switch camera');
+    } finally {
+      this.cameraFlipInProgress = false;
+      this.updateVideoButtons();
     }
   }
 
@@ -250,6 +317,8 @@ export class VoiceController {
             this.currentCameraDeviceId = this.availableVideoDevices[0].deviceId;
           }
         }
+
+        this.syncFacingModeFromStream(stream);
 
         this.cameraActive = true;
         await this.loadVideoDevices();
@@ -322,12 +391,21 @@ export class VoiceController {
 
     if (flipBtn) {
       const isMobile = window.matchMedia('(max-width: 1024px)').matches;
-      const canFlip = isMobile && this.cameraActive && this.availableVideoDevices.length > 1;
+      const canFlip = isMobile
+        && this.cameraActive
+        && !this.cameraFlipInProgress
+        && (this.availableVideoDevices.length > 1 || this.canFlipCameraViaFacingMode());
 
       flipBtn.classList.toggle('hidden', !isMobile);
+      flipBtn.classList.remove('active');
+      flipBtn.setAttribute('aria-pressed', 'false');
       flipBtn.toggleAttribute('disabled', !canFlip);
       flipBtn.setAttribute('aria-disabled', canFlip ? 'false' : 'true');
-      flipBtn.title = canFlip ? 'Flip camera' : 'Flip camera unavailable';
+      flipBtn.title = this.cameraFlipInProgress
+        ? 'Switching camera...'
+        : canFlip
+          ? 'Flip camera'
+          : 'Flip camera unavailable';
     }
 
     if (screenBtn) {
@@ -1134,6 +1212,8 @@ export class VoiceController {
     this.disposers.push(
       this.deps.voice.on('video:camera:started', () => {
         this.cameraActive = true;
+        this.cameraFlipInProgress = false;
+        this.syncFacingModeFromStream(this.deps.voice.getCameraStream());
         this.updateVideoButtons();
         this.updateLocalVideoPreview();
         this.announceVideoState('camera', true);
@@ -1144,6 +1224,7 @@ export class VoiceController {
     this.disposers.push(
       this.deps.voice.on('video:camera:stopped', () => {
         this.cameraActive = false;
+        this.cameraFlipInProgress = false;
         this.updateVideoButtons();
         this.updateLocalVideoPreview();
         this.announceVideoState('camera', false);

@@ -398,6 +398,7 @@ export class AuthController {
 
   private handleAuthError(payload: { message: string; code?: string }): void {
     const { message, code } = payload;
+    const resolvedMessage = (message || 'Authentication failed.').trim();
 
     this.sessionResumePending = false;
     this.setAuthSubmitting(false);
@@ -409,20 +410,22 @@ export class AuthController {
       this.deps.onSessionInvalidated();
     }
 
-    const errorEl = this.elements.regError;
-    if (errorEl) {
-      errorEl.textContent = message;
-    }
-
-    this.deps.notifications.error(message || 'Authentication failed.');
+    this.deps.notifications.error(resolvedMessage);
 
     if (!this.isAuthenticated) {
-      this.setAuthMode(code === 'REGISTRATION_FAILED' ? 'register' : 'login');
+      const nextMode: AuthMode = code === 'REGISTRATION_FAILED' ? 'register' : 'login';
+      this.setAuthMode(nextMode);
       const modal = this.elements.regModal;
-        if (!modal || modal.classList.contains('hidden')) {
+      if (!modal || modal.classList.contains('hidden')) {
         this.showAuthModal(this.authMode);
       }
     }
+
+    const errorEl = this.elements.regError;
+    if (errorEl) {
+      errorEl.textContent = resolvedMessage;
+    }
+
     this.emitStateChange();
   }
 

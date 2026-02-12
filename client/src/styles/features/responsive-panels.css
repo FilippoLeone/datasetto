@@ -109,7 +109,7 @@
 
   .app-shell.sidebar-open .mobile-toolbar,
   .app-shell.members-open .mobile-toolbar {
-    display: none;
+    display: grid;
   }
 
   .main-content {
@@ -142,6 +142,14 @@
 @media (max-width: 1024px) {
   .app-shell {
     flex-direction: column;
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  .main-content {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   body:not(.stream-inline-active) #streamLayout[data-mode="text"] {

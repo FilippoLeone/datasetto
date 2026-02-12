@@ -152,19 +152,19 @@
   }
 
   .voice-toggle-group {
-    padding: 0.3rem;
-    gap: 0.2rem;
+    padding: 0.35rem;
+    gap: 0.3rem;
   }
 
   .voice-toggle-btn {
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
   }
 
   .voice-toggle-icon,
   .voice-toggle-icon svg {
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
   }
 
   .voice-toggle-label {
@@ -178,32 +178,32 @@
   }
 
   .voice-toggle-group {
-    padding: 0.25rem;
-    gap: 0.15rem;
+    padding: 0.3rem;
+    gap: 0.25rem;
   }
 
   .voice-toggle-btn {
-    width: 30px;
-    height: 30px;
+    width: 42px;
+    height: 42px;
   }
 
   .voice-toggle-icon,
   .voice-toggle-icon svg {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
   }
 }
 
 @media (max-width: 380px) {
   .voice-toggle-btn {
-    width: 28px;
-    height: 28px;
+    width: 40px;
+    height: 40px;
   }
 
   .voice-toggle-icon,
   .voice-toggle-icon svg {
-    width: 15px;
-    height: 15px;
+    width: 18px;
+    height: 18px;
   }
 }
 
@@ -238,6 +238,7 @@
 .mobile-toolbar {
   position: relative;
   display: none;
+  z-index: calc(var(--z-modal) + 2);
   width: 100%;
   flex: 0 0 auto;
   padding: 0.75rem clamp(0.75rem, 4vw, 1.25rem) calc(0.75rem + env(safe-area-inset-bottom, 0px));
