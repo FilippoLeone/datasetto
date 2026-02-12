@@ -1,0 +1,279 @@
+/* Voice Debug Toolbar */
+.voice-debug-toolbar {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem 0 0;
+}
+
+.voice-debug-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all var(--transition-fast) ease;
+}
+
+.voice-debug-toggle:hover {
+  color: var(--color-text-normal);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.voice-debug-toggle.active,
+.voice-debug-toggle[aria-pressed="true"] {
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.1);
+  border-color: rgba(34, 211, 238, 0.25);
+}
+
+.voice-debug-toggle .icon {
+  font-size: 1rem;
+}
+
+.voice-debug-toggle .label {
+  font-size: 0.7rem;
+}
+
+/* Voice Debug Overlay - Scientific Dashboard Style */
+.voice-debug-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  padding: 0;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.97) 0%, rgba(30, 41, 59, 0.95) 100%);
+  border-radius: inherit;
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.58rem;
+  line-height: 1.35;
+  color: rgba(226, 232, 240, 0.9);
+  overflow: hidden;
+  z-index: 10;
+  pointer-events: none;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.3);
+}
+
+.voice-debug-overlay .debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.5rem;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.15) 0%, transparent 100%);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.voice-debug-overlay .debug-title {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: rgba(165, 180, 252, 0.9);
+  text-transform: uppercase;
+}
+
+.voice-debug-overlay .debug-badge {
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.voice-debug-overlay .debug-section {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.voice-debug-overlay .debug-section:last-of-type {
+  border-bottom: none;
+}
+
+.voice-debug-overlay .debug-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.15rem 0;
+}
+
+.voice-debug-overlay .debug-key {
+  color: rgba(148, 163, 184, 0.8);
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.voice-debug-overlay .debug-value {
+  font-weight: 600;
+  font-size: 0.58rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-debug-overlay .debug-empty {
+  color: rgba(148, 163, 184, 0.5);
+  font-style: italic;
+  text-align: center;
+  padding: 0.5rem;
+}
+
+/* Metrics Grid */
+.voice-debug-overlay .debug-metrics {
+  display: flex;
+  justify-content: space-around;
+  gap: 0.25rem;
+  padding: 0.4rem 0.3rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.voice-debug-overlay .debug-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.voice-debug-overlay .debug-metric-large {
+  flex: 2;
+}
+
+.voice-debug-overlay .debug-metric-value {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.voice-debug-overlay .debug-metric-label {
+  font-size: 0.45rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+/* Quality Bar */
+.voice-debug-overlay .debug-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  background: rgba(0, 0, 0, 0.25);
+  margin-top: auto;
+}
+
+.voice-debug-overlay .debug-quality-bar {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.voice-debug-overlay .debug-quality-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #22d3ee, #a78bfa);
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
+.voice-debug-overlay .debug-quality-label {
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: rgba(165, 180, 252, 0.9);
+}
+
+.voice-debug-overlay .debug-ts {
+  font-size: 0.48rem;
+  color: rgba(148, 163, 184, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status Colors - Scientific Palette */
+.voice-debug-overlay .debug-excellent {
+  color: #34d399;
+}
+
+.voice-debug-overlay .debug-good {
+  color: #4ade80;
+}
+
+.voice-debug-overlay .debug-fair {
+  color: #fbbf24;
+}
+
+.voice-debug-overlay .debug-poor {
+  color: #fb923c;
+}
+
+.voice-debug-overlay .debug-critical {
+  color: #f87171;
+}
+
+.voice-debug-overlay .debug-muted {
+  color: rgba(148, 163, 184, 0.5);
+  background: rgba(148, 163, 184, 0.1);
+}
+
+/* Badge colors */
+.voice-debug-overlay .debug-badge.debug-excellent {
+  background: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+}
+
+.voice-debug-overlay .debug-badge.debug-good {
+  background: rgba(74, 222, 128, 0.2);
+  color: #4ade80;
+}
+
+.voice-debug-overlay .debug-badge.debug-fair {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+.voice-debug-overlay .debug-badge.debug-poor {
+  background: rgba(251, 146, 60, 0.2);
+  color: #fb923c;
+}
+
+.voice-debug-overlay .debug-badge.debug-critical {
+  background: rgba(248, 113, 113, 0.2);
+  color: #f87171;
+}
+
+@media (max-width: 1024px) {
+  .voice-debug-overlay {
+    font-size: 0.52rem;
+  }
+
+  .voice-debug-overlay .debug-header {
+    padding: 0.3rem 0.4rem;
+  }
+
+  .voice-debug-overlay .debug-title {
+    font-size: 0.55rem;
+  }
+
+  .voice-debug-overlay .debug-section {
+    padding: 0.25rem 0.4rem;
+  }
+
+  .voice-debug-overlay .debug-metric-value {
+    font-size: 0.65rem;
+  }
+
+  .voice-debug-overlay .debug-metric-label {
+    font-size: 0.4rem;
+  }
+}

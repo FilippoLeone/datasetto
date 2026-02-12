@@ -173,7 +173,6 @@ export class MinigameController {
   private deps: MinigameControllerDeps;
   private disposers: Array<() => void> = [];
   private stage: HTMLElement | null = null;
-  private voiceStage: HTMLElement | null = null;
   private mainContent: HTMLElement | null = null;
   private container: HTMLElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
@@ -224,7 +223,6 @@ export class MinigameController {
 
   initialize(): void {
     this.stage = this.deps.elements['minigame-stage'] ?? null;
-    this.voiceStage = this.deps.elements['voice-call-stage'] ?? null;
     this.mainContent = document.querySelector('.main-content');
     this.container = this.deps.elements['minigame-container'] ?? null;
     this.canvas = (this.deps.elements['minigame-canvas'] as HTMLCanvasElement) ?? null;
@@ -1273,11 +1271,6 @@ export class MinigameController {
 
     if (this.mainContent) {
       this.mainContent.classList.toggle('minigame-active', shouldShow);
-    }
-
-    if (this.voiceStage) {
-      this.voiceStage.classList.toggle('hidden', shouldShow);
-      this.voiceStage.setAttribute('aria-hidden', shouldShow ? 'true' : 'false');
     }
 
     if (shouldShow) {

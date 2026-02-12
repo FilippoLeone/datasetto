@@ -1,0 +1,42 @@
+@media (prefers-reduced-motion: reduce) {
+  .voice-gallery-avatar.voice-speaking {
+    animation-duration: 3.6s;
+  }
+}
+
+@media (max-width: 1024px) {
+  .main-content.voice-mode .voice-gallery {
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: clamp(0.85rem, 4vw, 1.35rem);
+    padding: clamp(1.25rem, 8vw, 2.5rem);
+    --voice-gallery-avatar-size: clamp(64px, 16vw, 84px);
+    --voice-gallery-name-size: clamp(0.85rem, 1.8vw, 1rem);
+  }
+
+  .voice-gallery-item {
+    min-width: 0;
+    gap: 0.55rem;
+  }
+
+  .voice-gallery-status {
+    bottom: -12px;
+    font-size: 0.65rem;
+    padding: 0.25rem 0.6rem;
+  }
+
+  .voice-gallery-meta {
+    font-size: 0.65rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-content.voice-mode .voice-gallery {
+    grid-template-columns: minmax(0, 1fr);
+    padding: clamp(0.75rem, 7vw, 1.6rem);
+    gap: clamp(0.75rem, 5vw, 1.25rem);
+  }
+
+  .voice-gallery-status {
+    bottom: -10px;
+  }
+}

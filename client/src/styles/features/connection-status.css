@@ -1,0 +1,99 @@
+/* Connection status indicator */
+.connection-status-indicator {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(-100%);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+}
+
+.connection-status-indicator.visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.connection-status-indicator .connection-status-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.connection-status-indicator .connection-status-retry {
+  margin-left: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.connection-status-indicator.status-connected {
+  background: rgba(0, 245, 147, 0.9);
+  color: #000;
+}
+
+.connection-status-indicator.status-connecting {
+  background: rgba(120, 120, 150, 0.9);
+  color: #fff;
+}
+
+.connection-status-indicator.status-connecting .connection-status-icon {
+  animation: spin 1s linear infinite;
+}
+
+.connection-status-indicator.status-reconnecting {
+  background: rgba(255, 200, 0, 0.9);
+  color: #000;
+}
+
+.connection-status-indicator.status-reconnecting .connection-status-icon {
+  animation: spin 1s linear infinite;
+}
+
+.connection-status-indicator.status-disconnected {
+  background: rgba(255, 160, 0, 0.9);
+  color: #000;
+}
+
+.connection-status-indicator.status-disconnected .connection-status-retry {
+  background: rgba(0, 0, 0, 0.2);
+  color: #000;
+}
+
+.connection-status-indicator.status-disconnected .connection-status-retry:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.connection-status-indicator.status-failed {
+  background: rgba(240, 80, 110, 0.95);
+  color: #fff;
+}
+
+.connection-status-indicator.status-failed .connection-status-retry {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.connection-status-indicator.status-failed .connection-status-retry:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

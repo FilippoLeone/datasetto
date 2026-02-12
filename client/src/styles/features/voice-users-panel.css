@@ -1,0 +1,257 @@
+/* Voice Users Panel */
+.voice-users-panel {
+  @apply bg-black/20 border-t border-white/5 flex-shrink-0;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(12px);
+}
+
+.voice-users-panel.is-open {
+  max-height: 320px;
+}
+
+/* Voice Panel Header */
+.voice-panel-header {
+  @apply flex items-center justify-between gap-3 sticky top-0;
+  z-index: 10;
+  padding: 10px 16px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0.25) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.voice-panel-info {
+  @apply flex items-center gap-2;
+}
+
+.voice-panel-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+  opacity: 0.8;
+}
+
+.voice-panel-count {
+  @apply text-xs font-semibold text-text-muted;
+  letter-spacing: 0.02em;
+}
+
+.voice-panel-status {
+  @apply flex items-center gap-2;
+}
+
+.voice-panel-timer-group {
+  @apply flex items-center gap-1.5;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.voice-panel-timer-group.hidden {
+  display: none;
+}
+
+.voice-panel-timer-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+  opacity: 0.8;
+}
+
+.voice-panel-timer {
+  @apply text-xs font-medium tabular-nums;
+  color: var(--color-text-normal);
+  letter-spacing: 0.03em;
+}
+
+.voice-panel-timer.active {
+  color: var(--color-success);
+}
+
+.voice-panel-close-btn {
+  @apply flex items-center justify-center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--color-text-muted);
+  transition: all 150ms ease;
+}
+
+.voice-panel-close-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--color-text-normal);
+}
+
+.voice-panel-close-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+#voice-users-list {
+  @apply flex flex-col gap-1 overflow-y-auto;
+  max-height: 280px;
+}
+
+.voice-user-item {
+  @apply flex flex-col gap-2 px-4 py-3 rounded-xl;
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  transition: all 120ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.voice-user-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.voice-user-item.speaking,
+.voice-user-item.speaking-indicator {
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
+}
+
+.voice-user-header {
+  @apply flex items-center gap-3;
+}
+
+.voice-user-avatar-container {
+  @apply relative w-9 h-9 rounded-full flex-shrink-0;
+}
+
+.voice-user-avatar {
+  @apply w-full h-full rounded-full object-cover bg-bg-tertiary;
+}
+
+.voice-user-name {
+  @apply text-sm font-semibold text-text-normal truncate;
+}
+
+.voice-user-icons {
+  @apply flex items-center gap-1 text-text-muted text-xs opacity-80;
+}
+
+.voice-user-control-btn {
+  @apply text-base leading-none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-muted);
+  transition: all 150ms ease;
+}
+
+.voice-user-control-btn:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--color-text-normal);
+}
+
+.voice-user-control-btn.active {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-danger);
+}
+
+.voice-user-volume-row {
+  @apply flex items-center gap-3 text-xs text-text-muted;
+}
+
+.voice-user-volume-icon {
+  @apply text-base;
+}
+
+.voice-user-volume-wrapper {
+  @apply flex-1;
+  position: relative;
+}
+
+.voice-user-volume-slider {
+  width: 100%;
+  accent-color: var(--color-brand);
+  background: linear-gradient(90deg, rgba(62, 213, 214, 0.75), rgba(99, 102, 241, 0.4));
+  border-radius: 999px;
+  height: 6px;
+}
+
+.voice-user-volume-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--color-brand);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+  border: 2px solid rgba(7, 7, 9, 0.6);
+}
+
+.voice-user-volume-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--color-brand);
+  border: 2px solid rgba(7, 7, 9, 0.6);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+}
+
+.voice-users-panel .speaking .voice-user-avatar-container {
+  box-shadow: 0 0 0 2px var(--color-success);
+}
+
+.voice-user-item + .voice-user-item {
+  margin-top: 0.25rem;
+}
+
+/* Moderation button */
+.voice-user-mod-btn {
+  @apply ml-auto flex items-center justify-center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: all 150ms ease;
+}
+
+.voice-user-item:hover .voice-user-mod-btn {
+  opacity: 0.6;
+}
+
+.voice-user-mod-btn:hover {
+  opacity: 1 !important;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-normal);
+}
+
+/* Moderation dropdown menu */
+.voice-mod-menu {
+  @apply z-[9999] py-1.5 min-w-[180px];
+  background: var(--color-bg-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.2);
+  animation: fadeIn 100ms ease-out;
+}
+
+.voice-mod-menu-item {
+  @apply w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-normal text-left;
+  background: transparent;
+  transition: all 100ms ease;
+}
+
+.voice-mod-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.voice-mod-menu-item.danger {
+  color: var(--color-danger);
+}
+
+.voice-mod-menu-item.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.voice-mod-menu-item svg {
+  opacity: 0.7;
+}

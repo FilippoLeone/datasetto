@@ -1,0 +1,339 @@
+  /* Channel list */
+  .channel-list {
+    @apply flex flex-col gap-1;
+  }
+
+  .channel-item {
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-text-muted select-none relative overflow-hidden;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .channel-item:hover {
+    @apply bg-white/5 text-text-normal;
+    padding-left: 16px; /* Slight shift */
+  }
+
+  .channel-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 0;
+    background: var(--color-brand);
+    border-radius: 0 4px 4px 0;
+    transition: height 150ms ease;
+  }
+
+  .channel-item:hover::before {
+    height: 12px;
+    opacity: 0.5;
+  }
+
+  .channel-item.active {
+    @apply bg-brand-primary/10 text-white font-medium;
+  }
+
+  .channel-item.active::before {
+    height: 20px;
+    opacity: 1;
+  }
+
+  .channel-item.is-disabled {
+    @apply opacity-60 cursor-not-allowed;
+  }
+
+  .channel-item.is-disabled:hover {
+    @apply bg-transparent text-text-muted;
+    padding-left: 12px;
+  }
+
+  .channel-icon {
+    @apply flex-shrink-0 flex items-center justify-center text-current opacity-70;
+    transition: opacity 150ms ease;
+  }
+
+  .channel-item:hover .channel-icon,
+  .channel-item.active .channel-icon {
+    @apply opacity-100;
+  }
+
+  .channel-content {
+    @apply flex-1 min-w-0 flex items-center justify-between;
+  }
+
+  .channel-name {
+    @apply truncate;
+  }
+
+  .create-channel-btn {
+    @apply w-5 h-5 flex items-center justify-center rounded text-text-muted opacity-0 transition-all duration-200;
+  }
+
+  .group:hover .create-channel-btn {
+    @apply opacity-100;
+  }
+
+  .create-channel-btn:hover {
+    @apply bg-white/10 text-text-normal scale-110;
+  }
+
+  .channel-list-empty {
+    @apply px-3 py-2 text-xs text-text-muted italic opacity-60;
+  }
+
+  /* === Channel Folder Structure === */
+  /* Inspired by Discord/Slack - clean, minimal, with subtle depth cues */
+  /* Explicit properties to ensure consistent Electron/Browser rendering */
+  
+  .channel-folder {
+    margin-bottom: 16px;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  .channel-folder-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding: 6px 8px;
+    margin: 0;
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+    color: var(--color-text-muted);
+    font-family: inherit;
+    transition: color 120ms ease;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .channel-folder-header:hover {
+    color: var(--color-text-normal);
+  }
+
+  .channel-folder-header:hover .folder-chevron,
+  .channel-folder-header:hover .folder-icon {
+    opacity: 1;
+  }
+
+  .folder-chevron {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    opacity: 0.6;
+    transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1), opacity 120ms ease;
+  }
+
+  .folder-chevron svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .channel-folder.collapsed .folder-chevron {
+    transform: rotate(-90deg);
+  }
+
+  .folder-icon {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    opacity: 0.6;
+    margin-left: 2px;
+    transition: opacity 120ms ease;
+  }
+
+  .folder-icon svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .folder-label {
+    flex: 1;
+    margin-left: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .folder-add-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--color-text-muted);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity 150ms ease, color 120ms ease, background 120ms ease;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .folder-add-btn svg {
+    display: block;
+    width: 12px;
+    height: 12px;
+  }
+
+  .channel-folder-header:hover .folder-add-btn {
+    opacity: 0.7;
+  }
+
+  .folder-add-btn:hover {
+    opacity: 1;
+    color: var(--color-text-normal);
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .folder-badge {
+    flex-shrink: 0;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    line-height: 1;
+    background: var(--color-brand);
+    color: white;
+  }
+
+  .channel-folder-content {
+    margin-top: 4px;
+    padding: 0;
+  }
+
+  .channel-folder.collapsed .channel-folder-content {
+    display: none;
+  }
+
+  /* Channel items - Discord-style with pill indicator on active */
+  .channel-folder-content .channel-item {
+    display: flex;
+    align-items: center;
+    position: relative;
+    width: calc(100% - 16px);
+    gap: 8px;
+    margin: 1px 8px;
+    padding: 6px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.25;
+    color: var(--color-text-muted);
+    text-align: left;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .channel-folder-content .channel-item:hover {
+    background: rgba(79, 84, 92, 0.32);
+    color: var(--color-text-normal);
+  }
+
+  .channel-folder-content .channel-item.active {
+    background: rgba(79, 84, 92, 0.6);
+    color: #fff;
+  }
+
+  /* Active indicator pill - left edge */
+  .channel-folder-content .channel-item::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 0;
+    background: #fff;
+    border-radius: 0 4px 4px 0;
+    transition: height 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .channel-folder-content .channel-item:hover::before {
+    height: 8px;
+  }
+
+  .channel-folder-content .channel-item.active::before {
+    height: 20px;
+  }
+
+  .channel-folder-content .channel-item .channel-icon,
+  .channel-folder-content .channel-item > svg:first-child {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    opacity: 0.7;
+  }
+
+  .channel-folder-content .channel-item > svg:first-child {
+    display: block;
+  }
+
+  .channel-folder-content .channel-item:hover .channel-icon,
+  .channel-folder-content .channel-item:hover > svg:first-child,
+  .channel-folder-content .channel-item.active .channel-icon,
+  .channel-folder-content .channel-item.active > svg:first-child {
+    opacity: 1;
+  }
+
+  .channel-folder-content .channel-item .channel-icon svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .channel-folder-content .channel-item .channel-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.25;
+  }
+
+  /* Voice-connected state */
+  .channel-folder-content .channel-item.voice-connected {
+    color: var(--color-success);
+  }
+
+  .channel-folder-content .channel-item.voice-connected .channel-icon,
+  .channel-folder-content .channel-item.voice-connected > svg:first-child {
+    color: var(--color-success);
+    opacity: 1;
+  }
+
+  /* Mobile sidebar close button styling */
+  .mobile-sidebar-close-btn {
+    @apply w-8 h-8 flex items-center justify-center rounded-full;
+    @apply bg-white/10 text-text-muted;
+    @apply transition-all duration-150;
+  }
+
+  .mobile-sidebar-close-btn:hover {
+    @apply bg-white/20 text-white;
+  }

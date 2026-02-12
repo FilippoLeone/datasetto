@@ -1517,10 +1517,13 @@ export class VoiceController {
     const isVoiceChannelActive = activeChannelType === 'voice';
 
     if (!isVoiceChannelActive) {
-      document.body.classList.remove('mobile-stream-mode');
-      stage?.classList.add('hidden');
-      debugToolbar?.classList.add('hidden');
-      gallery.classList.add('hidden');
+      this.applyVoiceStageVisibility({
+        show: false,
+        stage,
+        gallery,
+        debugToolbar,
+        enableMobileStreamMode: false,
+      });
       gallery.replaceChildren();
       this.stopDebugUpdates();
       return;
@@ -1528,27 +1531,27 @@ export class VoiceController {
 
     const mainContent = document.querySelector('.main-content');
     const isVoiceMode = mainContent?.classList.contains('voice-mode');
-    const body = document.body;
 
     if (!isVoiceMode) {
-      body.classList.remove('mobile-stream-mode');
-      stage?.classList.add('hidden');
-      debugToolbar?.classList.add('hidden');
-      gallery.classList.add('hidden');
+      this.applyVoiceStageVisibility({
+        show: false,
+        stage,
+        gallery,
+        debugToolbar,
+        enableMobileStreamMode: false,
+      });
       this.stopDebugUpdates();
       return;
     }
 
-    body.classList.add('mobile-stream-mode');
-    stage?.classList.remove('hidden');
-    gallery.classList.remove('hidden');
-    
-    // Show debug toolbar only when connected to voice
-    if (voiceConnected) {
-      debugToolbar?.classList.remove('hidden');
-    } else {
-      debugToolbar?.classList.add('hidden');
-    }
+    this.applyVoiceStageVisibility({
+      show: true,
+      stage,
+      gallery,
+      debugToolbar,
+      enableMobileStreamMode: true,
+      showDebugToolbar: voiceConnected,
+    });
 
     if (this.pendingVoiceJoin && entries.length === 0) {
       // Loading state...
@@ -1581,6 +1584,23 @@ export class VoiceController {
     existingTiles.forEach((tile) => tile.remove());
 
     gallery.appendChild(fragment);
+  }
+
+  private applyVoiceStageVisibility(params: {
+    show: boolean;
+    stage: HTMLElement | null;
+    gallery: HTMLElement;
+    debugToolbar: HTMLElement | null;
+    enableMobileStreamMode: boolean;
+    showDebugToolbar?: boolean;
+  }): void {
+    const { show, stage, gallery, debugToolbar, enableMobileStreamMode, showDebugToolbar = false } = params;
+
+    document.body.classList.toggle('mobile-stream-mode', enableMobileStreamMode);
+    stage?.classList.toggle('hidden', !show);
+    stage?.setAttribute('aria-hidden', show ? 'false' : 'true');
+    gallery.classList.toggle('hidden', !show);
+    debugToolbar?.classList.toggle('hidden', !show || !showDebugToolbar);
   }
 
   private updateVoiceGalleryTile(tile: HTMLElement, entry: VoicePanelEntry): void {

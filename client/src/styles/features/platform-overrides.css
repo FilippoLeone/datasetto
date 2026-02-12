@@ -1,0 +1,13 @@
+/* Hide elements in native apps (Electron/Capacitor) */
+/* Applied via JS when running in desktop or mobile app context */
+body.native-app .native-app-hidden {
+  display: none !important;
+}
+
+/* Mobile Voice Mode Adjustments */
+@media (max-width: 1024px) {
+  /* Remove main content padding in voice mode to allow full-height backgrounds */
+  .main-content.voice-mode {
+    padding-bottom: 0 !important;
+  }
+}

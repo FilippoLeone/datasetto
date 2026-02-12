@@ -67,10 +67,8 @@ export class NavigationController {
     
     // Update current channel in state (for UI purposes)
     this.deps.stateSetChannelWithType(channelId, 'voice');
-    this.updateStreamLayoutMode('voice', channelName);
-    
-    // Hide chat for voice channels
-    this.deps.chatHideChatUI();
+    this.applyChannelPresentation('voice', channelName);
+
     this.deps.videoHandleVoiceChannelSelected();
     this.deps.voiceRefreshInterface?.();
 
@@ -144,31 +142,7 @@ export class NavigationController {
       this.deps.seo.setChannelSchema(channelName, `${type} channel: ${channelName}`, false);
     }
 
-    this.updateStreamLayoutMode(type, channelName);
-    
-    // Update chat visibility and input placeholder based on channel type
-    const chatInput = this.deps.elements.chatInput as HTMLInputElement;
-    
-    if (type === 'voice') {
-      // Hide chat for voice channels
-      this.deps.chatHideChatUI();
-    } else {
-      // Show chat for text and stream channels
-      this.deps.chatShowChatUI();
-      
-      if (chatInput) {
-        if (type === 'text') {
-          chatInput.placeholder = `Message #${channelName}`;
-          chatInput.disabled = false;
-        } else if (type === 'stream') {
-          chatInput.placeholder = `Chat in 📺${channelName}`;
-          chatInput.disabled = false;
-        } else if (type === 'screenshare') {
-          chatInput.placeholder = `Chat in 🖥️${channelName}`;
-          chatInput.disabled = false;
-        }
-      }
-    }
+    this.applyChannelPresentation(type, channelName);
     
     // Update state
     this.deps.stateSetChannelWithType(channelId, type);
@@ -205,6 +179,36 @@ export class NavigationController {
     this.deps.voiceRefreshInterface?.();
 
     this.deps.mobileClosePanels?.();
+  }
+
+  private applyChannelPresentation(type: 'text' | 'voice' | 'stream' | 'screenshare', channelName: string): void {
+    this.updateStreamLayoutMode(type, channelName);
+
+    if (type === 'voice') {
+      this.deps.chatHideChatUI();
+      return;
+    }
+
+    this.deps.chatShowChatUI();
+    const chatInput = this.deps.elements.chatInput as HTMLInputElement;
+    if (!chatInput) {
+      return;
+    }
+
+    if (type === 'text') {
+      chatInput.placeholder = `Message #${channelName}`;
+      chatInput.disabled = false;
+      return;
+    }
+
+    if (type === 'stream') {
+      chatInput.placeholder = `Chat in 📺${channelName}`;
+      chatInput.disabled = false;
+      return;
+    }
+
+    chatInput.placeholder = `Chat in 🖥️${channelName}`;
+    chatInput.disabled = false;
   }
 
   private updateStreamLayoutMode(type: 'text' | 'voice' | 'stream' | 'screenshare', channelName: string): void {

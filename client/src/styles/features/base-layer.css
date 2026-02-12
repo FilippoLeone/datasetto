@@ -1,0 +1,62 @@
+/* === Base Layer - Global styles === */
+@layer base {
+  body {
+    @apply m-0 text-sm leading-normal overflow-hidden;
+    font-family: var(--font-body);
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-normal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  a {
+    @apply text-text-link no-underline;
+    transition: all 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  a:hover {
+    @apply underline;
+  }
+
+  button {
+    font-family: inherit;
+    color: inherit;
+    @apply bg-transparent border-none cursor-pointer;
+    transition: all 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  button:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  /* Basic input styling - specific form styles in components layer */
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.35);
+  }
+}
