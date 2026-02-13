@@ -42,7 +42,7 @@ docker compose -f docker-compose.prod.yml up -d
 - `server` - Node.js with resource limits (4000)
 - `client` - nginx serving static build (8081)
 
-**Performance defaults:** On a 1 GB / 2‑core host, the RTMP container owns ~768 MB RAM and 1.4 vCPUs, while the supporting services stay tiny. If you upgrade the box you can safely raise the RTMP limits; just avoid starving it on smaller hardware—OBS will report dropped frames if the container runs out of CPU.
+**Performance defaults:** For a Radxa Zero 2 Pro (4 GB), the compose files now use a conservative profile: RTMP at ~896 MB / 1.6 vCPU, backend at ~256–320 MB / 0.5–0.6 vCPU, and lightweight limits for TURN/client/proxy/redis. This keeps enough headroom for the kernel page cache and avoids jitter under sustained live streaming.
 
 **Note:** Port 80 is used by host nginx reverse proxy for path-based routing. When the deployment script runs without a domain, it now sets `CADDY_SITE_ADDRESS=http://<ip>`, so Caddy stays on plain HTTP for LAN/IP testing instead of forcing an invalid HTTPS cert.
 
@@ -81,7 +81,7 @@ docker stats
 
 - **OBS encoder settings**: Target a 2-second keyframe interval, constant bitrate (CBR), and a bitrate your uplink can sustain (e.g. 3500–5000 Kbps for 720p60, 6000 Kbps for 1080p60). Keep B-frames ≤ 2 and enable “Network Optimizations” (OBS 31+).
 - **Monitor the stat endpoint**: Visit `http://your-server/stat` to confirm `bw_in` stays below your encoder bitrate and that GOP cache remains populated.
-- **Container resources**: On a 1 GB / 2‑core VPS, leave the RTMP service at ~768 MB RAM and ~1.4 CPU, keeping the other services near 0.3 CPU and below. For bigger machines you can bump `deploy.resources.limits` in `docker-compose.prod.yml` (CPU/RAM) or isolate RTMP on a dedicated core when chasing jitter.
+- **Container resources**: On Radxa 4 GB class hardware, keep RTMP near ~896 MB and ~1.6 CPU, backend around ~256–320 MB and ~0.5–0.6 CPU, and keep supporting services tight. If you move to bigger hardware you can raise `deploy.resources.limits` in `docker-compose.prod.yml`.
 - **Disk vs RAM**: HLS chunks now live in RAM for low latency. If you need persistence for debugging, replace the `tmpfs` entry with a bind mount to fast SSD storage.
 
 ## Environment Variables

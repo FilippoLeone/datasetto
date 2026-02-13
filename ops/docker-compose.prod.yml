@@ -29,6 +29,14 @@ services:
     volumes:
       - ./turn-entrypoint.sh:/usr/local/bin/turn-entrypoint.sh:ro
     entrypoint: ["/bin/sh", "/usr/local/bin/turn-entrypoint.sh"]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.35'
+          memory: 192M
+        reservations:
+          cpus: '0.08'
+          memory: 64M
 
   # NGINX RTMP Server (Custom build with CORS)
   rtmp:
@@ -43,17 +51,17 @@ services:
       - "1935:1935"  # RTMP ingestion (must be public for OBS)
     # Keep HLS segments on a ramdisk for faster writes
     tmpfs:
-      - /tmp/hls:rw,size=512m
+      - /tmp/hls:rw,size=512m,mode=1777
     networks:
       - app-network
     deploy:
       resources:
         limits:
-          cpus: '1.4'
-          memory: 768M
+          cpus: '1.6'
+          memory: 896M
         reservations:
           cpus: '0.6'
-          memory: 512M
+          memory: 384M
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
       interval: 30s
@@ -99,11 +107,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.3'
-          memory: 160M
+          cpus: '0.5'
+          memory: 256M
         reservations:
-          cpus: '0.1'
-          memory: 96M
+          cpus: '0.15'
+          memory: 128M
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
       interval: 30s
@@ -153,10 +161,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.15'
-          memory: 96M
+          cpus: '0.2'
+          memory: 128M
         reservations:
-          cpus: '0.04'
+          cpus: '0.05'
           memory: 64M
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
@@ -191,11 +199,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '0.35'
+          memory: 160M
         reservations:
           cpus: '0.1'
-          memory: 128M
+          memory: 96M
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:2019/metrics"]
       interval: 30s
@@ -222,11 +230,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.2'
-          memory: 160M
+          cpus: '0.25'
+          memory: 192M
         reservations:
-          cpus: '0.05'
-          memory: 64M
+          cpus: '0.08'
+          memory: 96M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s

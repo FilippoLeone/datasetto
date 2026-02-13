@@ -29,7 +29,7 @@ export function buildHlsUrlCandidates(baseUrl: string, channelName: string, stre
         }
       }
     }
-    return current || value;
+    return current;
   };
 
   const baseVariants: string[] = [];

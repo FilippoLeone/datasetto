@@ -47,10 +47,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 256M
+          cpus: '0.35'
+          memory: 192M
         reservations:
-          cpus: '0.1'
+          cpus: '0.08'
           memory: 64M
     healthcheck:
       test: ["CMD", "turnutils_uclient", "-T", "-u", "${TURN_USERNAME:-turnuser}", "-w", "${TURN_PASSWORD:-turnpass}", "127.0.0.1"]
@@ -72,14 +72,14 @@ services:
     ports:
       - "1935:1935"
     tmpfs:
-      - /tmp/hls:rw,size=256m
+      - /tmp/hls:rw,size=256m,mode=1777
     networks:
       - app-network
     deploy:
       resources:
         limits:
-          cpus: '2.0'
-          memory: 1024M
+          cpus: '1.6'
+          memory: 896M
         reservations:
           cpus: '0.5'
           memory: 256M
@@ -115,10 +115,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.5'
-          memory: 512M
+          cpus: '0.6'
+          memory: 320M
         reservations:
-          cpus: '0.2'
+          cpus: '0.15'
           memory: 128M
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
@@ -163,10 +163,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '0.2'
+          memory: 128M
         reservations:
-          cpus: '0.1'
+          cpus: '0.05'
           memory: 64M
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
@@ -198,10 +198,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 128M
+          cpus: '0.25'
+          memory: 96M
         reservations:
-          cpus: '0.1'
+          cpus: '0.05'
           memory: 32M
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
