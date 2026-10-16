@@ -3,6 +3,9 @@
 # running Debian 13 (the tested primary target), Debian 12, Ubuntu 24.04 or 26.04.
 # Run as root. Idempotent: re-run it any time to update the checkout, the
 # configuration, the firewall and the containers.
+# When the checkout in step 4 changes this very file, the run restarts from the
+# checked-out copy (internal flag --no-self-update, which skips that check and
+# keeps the open log), so steps 5 to 9 always run the code just checked out.
 #
 #   install.sh --env /root/datasetto.env --ref productionize-rewrite
 #
@@ -49,6 +52,14 @@ FIREWALL=1
 BACKUP=1
 EGRESS_GUARD=""   # "" leave as is, 1 install, 0 remove
 LOG=/var/log/datasetto-install.log
+SELF_UPDATE=1     # 0 after the restart described above (--no-self-update)
+ORIG_ARGS=("$@")
+ORIG_PWD="$PWD"
+# bash reads this file while it runs, so a checkout that replaces it would leave
+# the rest of the run on the old code. Remember what is running now; when the
+# checked-out copy hashes differently after sync_repo, restart from that copy.
+installer_sum() { sha256sum < "$1" 2>/dev/null || true; }
+SELF_SUM="$(installer_sum "$0")"
 
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
@@ -68,6 +79,7 @@ while (( $# )); do
     --no-egress-guard) EGRESS_GUARD=0; shift ;;
     --no-firewall) FIREWALL=0; shift ;;
     --no-backup) BACKUP=0; shift ;;
+    --no-self-update) SELF_UPDATE=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; echo >&2; usage >&2; exit 2 ;;
   esac
@@ -87,7 +99,8 @@ elif [[ ! -f "$APP_DIR/ops/.env" ]]; then
 fi
 
 mkdir -p "$(dirname "$LOG")"
-exec > >(tee -a "$LOG") 2>&1
+# After a restart stdout and stderr already go through the first run's tee.
+if (( SELF_UPDATE )); then exec > >(tee -a "$LOG") 2>&1; fi
 trap 'echo; echo "install failed at line $LINENO (log: $LOG)" >&2' ERR
 echo "=== datasetto install $(date -Is): ref=$REF dir=$APP_DIR ==="
 
@@ -203,6 +216,21 @@ sync_repo() {
     git checkout --quiet --detach "$REF"
   fi
   echo "    at $(git rev-parse --short HEAD): $(git log -1 --format=%s)"
+}
+
+# Hand over to the checked-out copy when the checkout changed this file (see
+# SELF_SUM above): same arguments, same working directory, once.
+restart_from_checkout() {
+  local current="$APP_DIR/ops/vps/install.sh"
+  (( SELF_UPDATE )) || return 0
+  [[ "$(installer_sum "$current")" == "$SELF_SUM" ]] && return 0
+  if ! grep -q -- '--no-self-update' "$current" 2>/dev/null; then
+    warn "the installer at ref $REF predates the restart logic; continuing with the running copy"
+    return 0
+  fi
+  echo "    installer changed by the checkout: restarting with the updated $current"
+  cd "$ORIG_PWD"
+  exec "$BASH" "$current" --no-self-update "${ORIG_ARGS[@]}"
 }
 
 # ---- 5. configuration --------------------------------------------------------
@@ -452,6 +480,7 @@ ensure_swap
 ensure_packages
 ensure_docker
 sync_repo
+restart_from_checkout
 write_env
 if (( FIREWALL )); then configure_firewall; else step "Firewall"; echo "    skipped (--no-firewall)"; fi
 compose_up

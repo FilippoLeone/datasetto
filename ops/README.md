@@ -137,7 +137,10 @@ differs, and `--help` lists every option):
 
 Updating after a push (new images on GHCR or new code to build): re-run the
 installer with the same `--ref`; it pulls the branch, pulls or rebuilds the
-images and recreates what changed, keeping the env file already in place:
+images and recreates what changed, keeping the env file already in place.
+When the update changes `install.sh` itself, the run restarts from the freshly
+checked-out copy (one line in the output says so), so everything after the
+checkout runs the new installer:
 
 ```bash
 sudo bash /opt/datasetto/ops/vps/install.sh --ref <ref>
