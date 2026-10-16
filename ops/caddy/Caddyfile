@@ -20,6 +20,10 @@
 		Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
 		-Server
 	}
+	# Browsers that have seen the site over TLS keep using HTTPS for a year. Only on
+	# HTTPS responses: on the plain-HTTP local stack the header would be ignored.
+	@https protocol https
+	header @https Strict-Transport-Security "max-age=31536000"
 
 	# API, realtime socket and health live in the Node.js container.
 	@backend path /api/* /socket.io/* /health

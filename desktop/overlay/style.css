@@ -125,6 +125,11 @@ body {
   color: var(--color-text);
 }
 
+.card__status[data-tone='on'] {
+  background: var(--color-active);
+  color: var(--color-text-muted);
+}
+
 /* -------------------------------------------------------------------- rows */
 .rows {
   display: flex;

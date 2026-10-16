@@ -257,7 +257,7 @@ The backoff schedule, the outbox and the rejoin state machines are unit tested
   OS key repeats stop (about 150 ms after a long hold, up to 1.2 s after a short tap).
 - The desktop overlay (Voice & audio settings > Voice overlay: toggle and corner) is fed from the voice signals by
   `voiceOverlayState.ts`: you first, then friends by name, speaking ring, mute/deafen, your Muted / Deafened /
-  Hold to talk / Live state, at most eight rows plus a "+N more" line. It is hidden outside voice and in the browser.
+  Hold to talk / Voice on / Live state, at most eight rows plus a "+N more" line. It is hidden outside voice and in the browser.
   Both the shortcut helpers and the overlay state are unit tested; everything feature-detects the bridge so a
   browser, a phone or an older desktop shell keeps working.
 
