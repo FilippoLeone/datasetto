@@ -19,9 +19,11 @@ export const VISIBILITY_STALE_MS = 90_000;
 
 export interface VoicePeer {
   id: string;
+  accountId: string;
   name: string;
   muted: boolean;
   deafened: boolean;
+  rtcSessionId: string | null;
 }
 
 export interface PublicUser {
@@ -246,7 +248,7 @@ export class PresenceService {
 
   // ---------------------------------------------------------------- voice
 
-  joinVoice(socketId: string, channelId: string): VoiceParticipant | null {
+  joinVoice(socketId: string, channelId: string, rtcSessionId: string | null = null): VoiceParticipant | null {
     const user = this.users.get(socketId);
     if (!user) return null;
 
@@ -259,10 +261,12 @@ export class PresenceService {
     const existing = room.participants.get(socketId);
     const participant: VoiceParticipant = {
       id: socketId,
+      accountId: user.accountId,
       name: user.displayName,
       muted: existing?.muted ?? false,
       deafened: existing?.deafened ?? false,
       joinedAt: existing?.joinedAt ?? Date.now(),
+      rtcSessionId: rtcSessionId ?? existing?.rtcSessionId ?? null,
     };
     room.participants.set(socketId, participant);
     user.voiceChannel = channelId;
@@ -300,10 +304,21 @@ export class PresenceService {
       .filter((participant) => participant.id !== excludeSocketId)
       .map((participant) => ({
         id: participant.id,
+        accountId: participant.accountId,
         name: participant.name,
         muted: participant.muted,
         deafened: participant.deafened,
+        rtcSessionId: participant.rtcSessionId,
       }));
+  }
+
+  /** Other sockets of the same account sitting in this voice room (a reconnect's dead predecessor, a second tab). */
+  voiceSeatsOfAccount(channelId: string, accountId: string, exceptSocketId: string): string[] {
+    const room = this.voiceRooms.get(channelId);
+    if (!room) return [];
+    return Array.from(room.participants.values())
+      .filter((participant) => participant.accountId === accountId && participant.id !== exceptSocketId)
+      .map((participant) => participant.id);
   }
 
   updateVoiceState(socketId: string, state: { muted: boolean; deafened: boolean }): boolean {

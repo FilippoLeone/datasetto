@@ -106,7 +106,7 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
     socket.emit('auth:success', authSuccessPayload(sctx, account, isNewAccount, expiresAt));
     app.broadcast.users();
     app.broadcast.channels();
-    app.log.info({ socketId: socket.id, accountId: account.id, roles: account.roles, isNewAccount }, 'authenticated');
+    app.runtime.bursts.record('authenticated', { socketId: socket.id, accountId: account.id, roles: account.roles, isNewAccount }, account.id);
   };
 
   handle(

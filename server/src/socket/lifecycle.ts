@@ -11,7 +11,11 @@ export const leaveVoiceRoom = (sctx: SocketContext, minigames: Minigames): strin
   sctx.voiceChannel = null;
   if (!channelId) return null;
 
-  socket.to(channelId).emit('voice:peer-leave', { id: socket.id });
+  // While the process shuts down every socket goes within milliseconds; a "left" here would make
+  // the peers still connected drop their media connection to someone who is only reconnecting.
+  if (!app.runtime.shuttingDown) {
+    socket.to(channelId).emit('voice:peer-leave', { id: socket.id, accountId: sctx.user?.accountId ?? null, reason: 'left' });
+  }
   if (sctx.currentChannel !== channelId) {
     void socket.leave(channelId);
   }
@@ -58,6 +62,7 @@ export const teardownSocket = (sctx: SocketContext, minigames: Minigames): void 
   sctx.sessionToken = null;
   sctx.sessionTokenHash = null;
 
+  if (app.runtime.shuttingDown) return;
   app.broadcast.users();
   app.broadcast.channels();
 };

@@ -173,10 +173,17 @@ export interface PushSubscriptionView {
 
 export interface VoiceParticipant {
   id: string;
+  accountId: string;
   name: string;
   muted: boolean;
   deafened: boolean;
   joinedAt: number;
+  /**
+   * The client's id for its current set of peer connections. It survives a
+   * reconnect, so peers can tell "same person, same media session, new socket"
+   * (keep the connection) from "they rebuilt" (negotiate afresh).
+   */
+  rtcSessionId: string | null;
 }
 
 export interface VoiceRoom {

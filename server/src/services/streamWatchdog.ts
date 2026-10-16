@@ -28,6 +28,22 @@ export const parseRtmpStat = (xml: string): RtmpStatStream[] => {
   return streams;
 };
 
+/** What `/api/health` reports about the watchdog. */
+export interface StreamWatchdogStatus {
+  /** False without RTMP_STAT_URL: nothing to poll. */
+  enabled: boolean;
+  running: boolean;
+  intervalMs: number;
+  /** When nginx-rtmp was last asked; null before the first poll. */
+  lastPollAt: number | null;
+  /** Whether the last poll reached nginx-rtmp and parsed its answer. */
+  lastPollOk: boolean | null;
+  lastError: string | null;
+  /** Publishing streams seen on the last successful poll. */
+  publishing: number;
+  overBudget: boolean;
+}
+
 export interface StreamWatchdogOptions {
   /** Base URL of the nginx-rtmp http server, e.g. http://rtmp:8080. Null disables the watchdog. */
   statUrl: string | null;
@@ -50,6 +66,10 @@ export class StreamWatchdog {
   private readonly fetchImpl: typeof fetch;
   private readonly intervalMs: number;
   private budgetNotified = false;
+  private lastPollAt: number | null = null;
+  private lastPollOk: boolean | null = null;
+  private lastError: string | null = null;
+  private publishing = 0;
 
   constructor(
     private readonly ctx: AppContext,
@@ -71,6 +91,19 @@ export class StreamWatchdog {
     this.timer = null;
   }
 
+  status(now = Date.now()): StreamWatchdogStatus {
+    return {
+      enabled: this.options.statUrl !== null,
+      running: this.timer !== null,
+      intervalMs: this.intervalMs,
+      lastPollAt: this.lastPollAt,
+      lastPollOk: this.lastPollOk,
+      lastError: this.lastError,
+      publishing: this.publishing,
+      overBudget: this.overBudget(now),
+    };
+  }
+
   /** A budget of 0 means there is none (unmetered host). */
   overBudget(now = Date.now()): boolean {
     return this.options.monthlyEgressBytes > 0 && this.ctx.usage.monthEgressBytes(now) >= this.options.monthlyEgressBytes;
@@ -80,11 +113,17 @@ export class StreamWatchdog {
   async tick(now = Date.now()): Promise<void> {
     if (!this.options.statUrl) return;
     let streams: RtmpStatStream[];
+    this.lastPollAt = now;
     try {
       const response = await this.fetchImpl(this.options.statUrl + '/stat', { signal: AbortSignal.timeout(5_000) });
       if (!response.ok) throw new Error('HTTP ' + response.status);
       streams = parseRtmpStat(await response.text());
+      this.lastPollOk = true;
+      this.lastError = null;
+      this.publishing = streams.filter((stream) => stream.publishing).length;
     } catch (error) {
+      this.lastPollOk = false;
+      this.lastError = error instanceof Error ? error.message : String(error);
       this.ctx.log.debug({ err: error }, 'stream watchdog: stat unavailable');
       return;
     }
@@ -96,6 +135,14 @@ export class StreamWatchdog {
       seen.add(stream.name);
       const channel = this.ctx.channels.getByName(stream.name);
       if (!channel) continue;
+      if (channel.type === 'stream' && !this.ctx.presence.getStream(channel.id)) {
+        // The process restarted while OBS kept publishing: nginx-rtmp still carries the stream
+        // but the new process never saw the publish callback. Register it again so the channel
+        // shows live and viewers get tickets. Who is streaming is unknown until the next publish.
+        this.ctx.presence.startStream(channel.id, { accountId: null, displayName: null, clientId: null, sourceIp: null });
+        this.ctx.broadcast.channels();
+        this.ctx.log.info({ channelId: channel.id, stream: stream.name }, 'live stream re-registered from nginx-rtmp after a restart');
+      }
       const viewers = this.ctx.presence.channelMemberCount(channel.id);
       // Every viewer downloads roughly what the publisher uploads.
       this.ctx.usage.addEgress((stream.bwIn / 8) * seconds * viewers, seconds, now);

@@ -16,6 +16,22 @@ import { TurnService } from './services/turn.js';
 import { HlsTicketService } from './services/hlsTickets.js';
 import { InviteService } from './services/invites.js';
 import { UsageService } from './services/usage.js';
+import type { StreamWatchdog } from './services/streamWatchdog.js';
+import { createBurstLogger, type BurstLogger } from './socket/burstLog.js';
+
+/**
+ * Process-level state that the health endpoint and the socket layer read:
+ * whether a graceful shutdown is under way (new connections are refused, health
+ * answers 503), the stream watchdog once index.ts has started it, the live socket
+ * count, and the burst logger that writes one line per reconnect wave.
+ */
+export interface RuntimeState {
+  shuttingDown: boolean;
+  watchdog: StreamWatchdog | null;
+  /** Set by the socket server; 0 before it exists. */
+  connectedSockets: () => number;
+  bursts: BurstLogger;
+}
 
 /** Fan-out helpers implemented by the socket layer once it exists. */
 export interface Broadcaster {
@@ -50,6 +66,7 @@ export interface AppContext {
   hlsTickets: HlsTicketService;
   usage: UsageService;
   broadcast: Broadcaster;
+  runtime: RuntimeState;
   startedAt: number;
 }
 
@@ -92,6 +109,7 @@ export const createContext = (config: AppConfig, db: DB, options: ContextOptions
     hlsTickets: new HlsTicketService(config.streaming.ticketSecret),
     usage: new UsageService(db),
     broadcast: noopBroadcaster,
+    runtime: { shuttingDown: false, watchdog: null, connectedSockets: () => 0, bursts: createBurstLogger({ log: logger }) },
     startedAt: Date.now(),
   };
 };

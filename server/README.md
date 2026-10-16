@@ -18,7 +18,8 @@ npm start            # node dist/index.js
 
 ```
 src/
-  index.ts            bootstrap, timers, graceful shutdown
+  index.ts            bootstrap, timers, signal handlers
+  shutdown.ts         graceful shutdown on SIGTERM: refuse newcomers, tell clients, close, checkpoint SQLite, exit
   config.ts           zod-validated environment -> AppConfig
   context.ts          wires services together (AppContext)
   db/                 SQLite open + migrations (PRAGMA user_version)
@@ -35,13 +36,13 @@ src/
     messageNotifications.ts  who a message is for (DM peer, @mentions) and whether they are away
     turn.ts           ephemeral TURN credentials (coturn use-auth-secret)
     hlsTickets.ts     signed, short-lived viewer tickets for HLS (Caddy asks /internal/hls/auth)
-    streamWatchdog.ts polls nginx-rtmp /stat: bitrate cap, monthly egress budget
+    streamWatchdog.ts polls nginx-rtmp /stat: bitrate cap, monthly egress budget, re-registers streams after a restart
     usage.ts          per-month HLS egress accounting in SQLite
     leaderboard.ts    minigame high scores
   http/               Express app, origin checker, routes (health, config, stream callbacks, HLS tickets, releases)
-  socket/             Socket.IO server, per-connection context, handlers per domain
+  socket/             Socket.IO server, per-connection context, handlers per domain, burstLog.ts (one log line per reconnect wave)
   minigames/          game engine (plain JS, unchanged protocol)
-  scripts/            backup.ts, import-legacy.ts
+  scripts/            backup.ts, restore.ts, import-legacy.ts
 test/                 vitest suites
 assets/pacman-maps/   level presets
 ```
@@ -61,13 +62,14 @@ See [.env.example](.env.example). Notable settings:
 | `DATABASE_PATH` | SQLite file; parent directory is created |
 | `DATA_DIR` | uploads (avatars under `DATA_DIR/avatars`); defaults to the database's directory, `/data` in Docker |
 | `TRUST_PROXY` | read client IPs from `X-Forwarded-For` (true behind Caddy) |
+| `RESTART_EXPECTED_WAIT_SECONDS` | default 10: sent to clients in `server:restarting` on SIGTERM as the time to wait before reconnecting (see "Graceful shutdown") |
 | `PUSH_VAPID_PUBLIC_KEY`, `PUSH_VAPID_PRIVATE_KEY`, `PUSH_VAPID_SUBJECT` | Web Push (see below). Both keys empty = push off; set together (`npx web-push generate-vapid-keys`). The subject is a `mailto:` or `https:` contact for push services, defaulting to the first `ADMIN_EMAILS` address |
 
 ## HTTP API
 
 | Method, path | Purpose |
 | --- | --- |
-| `GET /health`, `GET /api/health` | liveness, version, uptime |
+| `GET /health`, `GET /api/health` | `{status, version, uptime, shuttingDown, database: {ok, schemaVersion, schemaExpected, journalMode, error}, watchdog: {enabled, running, lastPollAt, lastPollOk, lastError, publishing, overBudget} or null, sockets: {connected, signedIn}}`. 200 with `status: "ok"`; 503 with `"restarting"` during a graceful shutdown and `"degraded"` when the database does not answer or is not at the expected schema version |
 | `GET /api/stats` | channel, user and message counts |
 | `GET /api/config` | public runtime config: registration mode, URLs, ICE servers (STUN only), limits, `push: {enabled, publicKey}` |
 | `GET /api/stream/:channelName/status` | is a stream channel live |
@@ -97,10 +99,10 @@ rate limits apply.
 | Client emits | Server emits |
 | --- | --- |
 | `channel:join id`, `channels:list`, `channels:create {name,type,groupId?,topic?,visibility?,password?}`, `channels:update {channelId,topic?,visibility?,password?}`, `channels:joinPrivate {name,password}`, `channels:delete idOrName`, `dm:open {accountId}` | `channel:joined`, `chat:history`, `channels:update {channels, groups}`, `channels:created`, `channels:updated`, `channels:privateJoined {channelId}`, `channel:deleted {channelId, reason?}`, `dm:opened {channelId, peerId, peerName}` |
-| `chat text`, `chat:delete {messageId, channelId}`, `chat:react/unreact {channelId, messageId, emoji}` | `chat message` (with `reactions[]`), `chat:messageDeleted`, `chat:reaction {channelId, messageId, emoji, accountId, displayName, added, reactions[]}` |
+| `chat text` or `chat {text, channelId?, clientId?}` (optional acknowledgement), `chat:delete {messageId, channelId}`, `chat:react/unreact {channelId, messageId, emoji}` | `chat message` (with `reactions[]`; the sender's copy carries its `clientId`), ack `{success, messageId, channelId, clientId, ts}` or `{success: false, error, code}`, `chat:messageDeleted`, `chat:reaction {channelId, messageId, emoji, accountId, displayName, added, reactions[]}`. `channelId` lets a message queued while offline land in the channel it was typed in; without it the socket's current channel is used |
 | `chat:history:before {channelId, beforeMessageId, limit?}` (acknowledgement) | ack `{success, channelId, messages[], hasMore}`: the page of history older than a message the client has (oldest first, 1 to 200, default `CHAT_HISTORY_LIMIT`); `chat:history:older` when sent without an ack |
 | `search {query, channelId?, authorId?, limit?, offset?}` (acknowledgement) | ack `{success, query, results[], total, hasMore, limit, offset}`, each result `{id, channelId, channelName, channelType, authorId, authorName, authorAvatarUrl, roles, isSuperuser, ts, snippet: [{text, match}]}`; `search:results` when sent without an ack |
-| `voice:join id`, `voice:leave`, `voice:signal {to,data}`, `voice:stream-metadata`, `voice:state {muted,deafened}`, `voice:video:state` | `voice:joined {peers,startedAt,sessionId}`, `voice:peer-join`, `voice:peer-leave`, `voice:signal`, `voice:state`, `voice:video:state` |
+| `voice:join id` or `voice:join {channelId, rtcSessionId?, holding?: [{accountId, rtcSessionId}]}`, `voice:leave`, `voice:signal {to,data}`, `voice:stream-metadata`, `voice:state {muted,deafened}`, `voice:video:state` | `voice:joined {peers: [{id, accountId, name, muted, deafened, rtcSessionId}], startedAt, sessionId}`, `voice:peer-join {id, accountId, name, muted, deafened, rtcSessionId, holding?}`, `voice:peer-leave {id, accountId, reason: "left" or "replaced"}`, `voice:replaced {channelId, bySocketId}` (to a socket whose seat another socket of the same account took over), `voice:signal`, `voice:state`, `voice:video:state`. `rtcSessionId` is the client's id for its set of peer connections: unchanged across its reconnects, new when it rebuilt them, so peers know whether to keep or renegotiate; `holding` lists the connections the joining client still has (relayed as is in `peer-join`), so an existing member whose connection the newcomer lost negotiates afresh instead of waiting. A `voice:join` by a socket whose account already holds a seat in that room (its own dead predecessor, a second tab) takes the seat over: peers get `peer-leave` with `reason: "replaced"` and keep their media connection. No `peer-leave` is sent while the process shuts down |
 | `voice:kick`, `voice:timeout`, `user:ban {targetSocketId,...}` | `voice:kicked`, `voice:timeout`, `user:banned`, `moderation:success` |
 | `screenshare:start/stop/viewer:join/viewer:leave {channelId}`, `screenshare:signal` | `screenshare:session`, `screenshare:viewer:pending`, `screenshare:signal` |
 | `stream:key:request {channelId}`, `stream:key:regenerate {channelId}` | `stream:key:response {streamKey: "channel?key=token", ...}` |
@@ -116,6 +118,26 @@ rate limits apply.
 Presence is broadcast as `user:update users[]` to everyone whenever it changes.
 Stream keys are never included in channel lists; they are only returned by
 `stream:key:request` to users allowed to stream on that channel.
+
+### Graceful shutdown and reconnects
+
+`SIGTERM` (a deploy recreating the container, `docker compose stop`) and
+`SIGINT` run `src/shutdown.ts`: the process marks itself as shutting down (new
+sockets are refused with `connect_error "Server is restarting"`, `/health`
+answers 503), stops its timers and the watchdog, emits `server:restarting
+{expectedWaitMs, reason, at}` to every socket, closes the sockets and the HTTP
+server, checkpoints the WAL (`wal_checkpoint(TRUNCATE)`), closes the database
+and exits 0. A 10 s deadline forces exit 1 if anything hangs. The reconnect
+wave that follows is logged as one line per burst (`socket connected (12 in a
+burst)`, likewise `authenticated` and `socket disconnected`) by
+`socket/burstLog.ts`; the per-socket lines stay at debug level.
+
+A client that reconnects re-sends `auth:session {token}` with the token it
+already had. That is the same login: the token is not revoked, no other
+connection of the account gets `SIGNED_IN_ELSEWHERE`, and tabs sharing the
+token stay. Only a sign-in that creates a new token (`auth:login`,
+`auth:register`) ends the others. `test/reconnect.test.ts` restarts a server on
+the same database file to pin this down.
 
 ### Admin panel
 
@@ -283,5 +305,10 @@ caller's own devices right away. Without keys everything is a no-op and
 
 ```bash
 npm run backup -- ./backups/today.db           # consistent copy via the SQLite backup API
+npm run restore -- ./backups/today.db --dry-run   # verify a backup (integrity, schema version, row counts) against DATABASE_PATH
+npm run restore -- ./backups/today.db          # with the server stopped: move the live file aside, copy the backup in, verify
 npm run import-legacy -- /path/to/old/storage  # import accounts.json / messages.json from the previous server
 ```
+
+In Docker `ops/vps/restore.sh` runs the restore script in a one-off app
+container with the stack stopped (ops/README.md, "Restoring a backup").
