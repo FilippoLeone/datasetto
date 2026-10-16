@@ -8,6 +8,8 @@ export const channels = signal<Channel[]>([]);
 export const groups = signal<ChannelGroup[]>([]);
 /** Channel open in the main area (text, stream, screenshare or a voice channel's page). */
 export const selectedChannelId = signal<string | null>(Storage.get<string | null>(LAST_CHANNEL_KEY, null));
+/** The channel that was open before the current one (where closing a conversation takes you back). */
+export const previousChannelId = signal<string | null>(null);
 /** Unread message counts per text channel. */
 export const unread = signal<Record<string, number>>({});
 /** A channel to open as soon as it is listed: from `/app?channel=<id>` (notification click) or the service worker. */
@@ -84,6 +86,8 @@ export const defaultChannelId = (exclude: string | null = null): string | null =
 };
 
 export const rememberSelection = (channelId: string | null): void => {
+  const current = selectedChannelId.value;
+  if (current && current !== channelId) previousChannelId.value = current;
   selectedChannelId.value = channelId;
   if (channelId) Storage.set(LAST_CHANNEL_KEY, channelId);
 };

@@ -18,11 +18,11 @@ export const channelViewFor = (ctx: AppContext, channelId: string, subject: Acce
   };
 };
 
-/** `channels:update` body for one user: the channels they may view, plus the groups. */
+/** `channels:update` body for one user: the channels they may view (minus the conversations they closed), plus the groups. */
 export const channelsPayload = (ctx: AppContext, subject: AccessSubject) => ({
   channels: ctx.channels
     .list()
-    .filter((channel) => ctx.channels.canAccess(channel, subject, 'view'))
+    .filter((channel) => ctx.channels.canAccess(channel, subject, 'view') && !ctx.channels.isDmClosed(channel.id, subject.accountId))
     .map((channel) => channelViewFor(ctx, channel.id, subject))
     .filter((view): view is ChannelView => view !== null),
   groups: ctx.channels.listGroups(),

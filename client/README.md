@@ -125,6 +125,18 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
   `setParameters` and asked of the other side through `maxaveragebitrate` in
   the SDP.
 
+## Direct messages
+
+Click a member ("Message …" in their menu) to open a conversation; it sits under
+"Direct messages" in the sidebar, latest first, with the other person's avatar
+and name. The × on a row (on hover; always shown on touch) or "Close
+conversation" in the row's options menu (a bottom sheet on phones) takes the
+conversation out of the sidebar without deleting anything: the server keeps the
+history, and the conversation comes back when a message arrives in it, when you
+open it again from the member list, or when you open one of its messages from a
+search result. Closing the conversation that is on screen takes you back to the
+channel you were in before it.
+
 ## Searching messages
 
 The search box in the header (Ctrl+K, Cmd+K on a Mac; a magnifier button that

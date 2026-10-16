@@ -140,6 +140,17 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
     app.broadcast.channels();
   });
 
+  // Hide a conversation from the caller's sidebar. History and membership stay; the other side notices nothing.
+  handle(sctx, 'dm:close', { schema: z.object({ channelId: idSchema }), code: 'DM_CLOSE_FAILED' }, ({ channelId }) => {
+    const user = requireUser(sctx);
+    const channel = app.channels.get(channelId);
+    if (!channel) throw notFound('Channel');
+    app.channels.closeDm(channel.id, user.accountId);
+    socket.emit('dm:closed', { channelId: channel.id });
+    // Every tab of this account drops it.
+    app.broadcast.channelsTo(user.accountId);
+  });
+
   handle(sctx, 'channel:join', { schema: idSchema, code: 'CHANNEL_JOIN_FAILED' }, async (channelId) => {
     const user = requireUser(sctx);
     const channel = app.channels.get(channelId);
@@ -148,6 +159,8 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
     if (!app.channels.canAccess(channel, user, 'view') || (channel.type === 'voice' && !app.channels.canAccess(channel, user, 'voice'))) {
       throw forbidden('No permission to access this channel');
     }
+    // Going to a conversation one had closed (a search result, a deep link) brings it back; the channel broadcast below carries it.
+    if (channel.type === 'dm') app.channels.reopenDm(channel.id, user.accountId);
 
     const previous = sctx.currentChannel;
     if (previous && previous !== channel.id) {

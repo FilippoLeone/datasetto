@@ -288,6 +288,16 @@ export const migrations: Migration[] = [
       ALTER TABLE channels ADD COLUMN link_previews INTEGER NOT NULL DEFAULT 1;
     `,
   },
+  {
+    // Closing a direct message hides it from one participant's channel list without
+    // deleting anything: channel_members.closed_at is set for that member and cleared
+    // again when a message arrives in the conversation or they open it themselves.
+    version: 12,
+    name: 'dm_closed',
+    up: `
+      ALTER TABLE channel_members ADD COLUMN closed_at INTEGER;
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {
