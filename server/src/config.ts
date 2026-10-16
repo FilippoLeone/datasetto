@@ -69,9 +69,13 @@ const envSchema = z.object({
   STREAM_MAX_BITRATE_KBPS: intFromEnv(6000, 500, 50000),
   STREAM_MONTHLY_EGRESS_GB: intFromEnv(150, 1, 100000),
   RTMP_STAT_URL: optionalString,
-
-  RELEASES_DESKTOP_DIR: optionalString,
-  RELEASES_MOBILE_DIR: optionalString,
+  // GitHub repository whose latest release feeds the downloads page.
+  RELEASES_GITHUB_REPO: z
+    .string()
+    .trim()
+    .regex(/^[\w.-]+\/[\w.-]+$/, 'expected owner/name')
+    .default('FilippoLeone/datasetto'),
+  RELEASES_CACHE_SECONDS: intFromEnv(600, 30, 86400),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -96,7 +100,7 @@ export interface AppConfig {
   };
   turn: { urls: string[]; secret: string | null; credentialTtlSeconds: number; stunUrls: string[] };
   streaming: { maxViewers: number; maxBitrateKbps: number; monthlyEgressBytes: number; statUrl: string | null; ticketSecret: string | null };
-  releases: { desktopDir: string | null; mobileDir: string | null };
+  releases: { githubRepo: string; cacheSeconds: number };
 }
 
 const readVersion = (): string => {
@@ -158,7 +162,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       credentialTtlSeconds: env.TURN_CREDENTIAL_TTL_SECONDS,
       stunUrls: env.STUN_URLS,
     },
-    releases: { desktopDir: env.RELEASES_DESKTOP_DIR, mobileDir: env.RELEASES_MOBILE_DIR },
+    releases: { githubRepo: env.RELEASES_GITHUB_REPO, cacheSeconds: env.RELEASES_CACHE_SECONDS },
   };
 };
 

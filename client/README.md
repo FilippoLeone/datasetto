@@ -39,7 +39,7 @@ src/
   components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost
   lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime URLs
   types/protocol.ts        wire types shared with the server
-  styles/app.css           Tailwind v4 theme tokens (Discord-like dark palette) and the few custom classes
+  styles/app.css           Tailwind v4 theme tokens (dark palette) and the few custom classes
 ```
 
 ## Conventions

@@ -61,7 +61,7 @@ See [.env.example](.env.example). Notable settings:
 | `GET /api/stats` | channel, user and message counts |
 | `GET /api/config` | public runtime config: registration mode, URLs, ICE servers (ephemeral TURN credentials), limits |
 | `GET /api/stream/:channelName/status` | is a stream channel live |
-| `GET /api/releases`, `/latest`, `/download/:source/:file` | installers for the downloads page (optional dirs) |
+| `GET /api/releases`, `/latest` | installers from the latest GitHub release of `RELEASES_GITHUB_REPO` (cached) for the landing and downloads pages |
 | `POST /internal/stream/publish` | nginx-rtmp `on_publish`: validates `key` for stream name `<channel>` (OBS key is `channel?key=token`) |
 | `POST /internal/stream/done` | nginx-rtmp `on_publish_done` |
 

@@ -173,6 +173,172 @@
   </footer>
 
   <script>
+    // Fill in direct links from the latest release, served and cached by the app (/api/releases);
+    // the static links above stay as the fallback.
+    (async () => {
+      try {
+        const res = await fetch('/api/releases', { headers: { Accept: 'application/json' } });
+        if (!res.ok) return;
+        const release = await res.json();
+        const builds = Array.isArray(release.builds) ? release.builds : [];
+        const label = { windows: 'Windows', macos: 'macOS', linux: 'Linux', android: 'Android' };
+        const esc = (text) => String(text).replace(/[<>&"]/g, '');
+        const lists = { desktop: [], android: [] };
+        for (const build of builds) {
+          const key = build.platform === 'android' ? 'android' : build.platform in label ? 'desktop' : null;
+          if (!key) continue;
+          lists[key].push('<li><a href="' + esc(build.downloadUrl) + '" rel="noopener">' + label[build.platform] + ' · ' + esc(build.filename) + '</a><span>' + esc(build.sizeFormatted || '') + '</span></li>');
+        }
+        for (const key of Object.keys(lists)) {
+          if (lists[key].length) document.getElementById(key + '-assets').innerHTML = lists[key].join('');
+        }
+        if (release.tag) {
+          const line = document.getElementById('release-line');
+          line.textContent = 'Latest release ' + release.tag + (release.buildDate ? ' · ' + new Date(release.buildDate).toLocaleDateString() : '');
+        }
+      } catch {
+        /* offline: keep the static links */
+      }
+    })();
+  </script>
+
+  <style>
+    :root {
+      --base: #1e1f22; --sidebar: #2b2d31; --elevated: #383a40;
+      --border: rgba(255,255,255,.06); --border-strong: rgba(255,255,255,.12);
+      --text: #dbdee1; --muted: #949ba4; --faint: #6d6f78; --bright: #f2f3f5;
+      --brand: #5865f2; --brand-hover: #4752c4; --teal: #0fa4a5; --orange: #ff8a3d; --success: #23a559;
+      --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font); background: var(--base); color: var(--text); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; text-decoration: none; }
+    a:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 6px; }
+    .container { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+    h1, h2, h3 { margin: 0; color: var(--bright); letter-spacing: -0.02em; line-height: 1.15; }
+    h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; }
+    h3 { font-size: 1.1rem; font-weight: 700; }
+    p { margin: 0; }
+    .lead { color: var(--muted); font-size: 1.1rem; max-width: 60ch; }
+    .site-header { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); background: rgba(30,31,34,.78); border-bottom: 1px solid var(--border); }
+    .nav { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 16px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--bright); }
+    .brand img { width: 28px; height: 28px; border-radius: 7px; }
+    .nav-links { display: flex; gap: 24px; font-size: 14px; font-weight: 500; color: var(--muted); }
+    .nav-links a:hover { color: var(--bright); }
+    @media (max-width: 760px) { .nav-links { display: none; } }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; border-radius: 10px; font-weight: 600; font-size: 15px; border: 1px solid transparent; transition: transform .15s, background .15s; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary { background: var(--brand); color: #fff; }
+    .btn-primary:hover { background: var(--brand-hover); }
+    .btn-ghost { background: rgba(255,255,255,.04); color: var(--bright); border-color: var(--border-strong); }
+    .btn-ghost:hover { background: rgba(255,255,255,.08); }
+    .btn svg { width: 18px; height: 18px; }
+    .nav .btn { padding: 9px 16px; font-size: 14px; }
+    main { padding: clamp(48px, 7vw, 88px) 0 64px; }
+    .head { margin-bottom: 40px; }
+    .head p { margin-top: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+    .card { background: var(--sidebar); border: 1px solid var(--border); border-radius: 16px; padding: 26px; display: flex; flex-direction: column; gap: 10px; }
+    .card .icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: rgba(88,101,242,.16); color: #a5adff; margin-bottom: 6px; }
+    .card .icon svg { width: 22px; height: 22px; }
+    .card .icon.teal { background: rgba(15,164,165,.16); color: #4fd1d2; }
+    .card .icon.orange { background: rgba(255,138,61,.16); color: #ffb07a; }
+    .card .icon.green { background: rgba(35,165,89,.16); color: #5ad38a; }
+    .card p { color: var(--muted); font-size: 15px; }
+    .card ul { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .card li { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--base); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 14px; }
+    .card li span { color: var(--muted); font-size: 13px; }
+    .card li a { color: var(--bright); font-weight: 600; }
+    .card li a:hover { color: #a5adff; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+    .note { margin-top: 32px; background: var(--sidebar); border: 1px solid var(--border); border-radius: 16px; padding: 22px 26px; color: var(--muted); font-size: 15px; }
+    .note strong { color: var(--bright); }
+    .note code { font: 13px ui-monospace, 'Cascadia Code', Consolas, monospace; background: var(--base); padding: 2px 6px; border-radius: 5px; color: #cdd1d6; }
+    footer { border-top: 1px solid var(--border); padding: 32px 0 40px; color: var(--muted); font-size: 14px; }
+    .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px 24px; }
+    .foot nav { display: flex; flex-wrap: wrap; gap: 18px; }
+    .foot nav a:hover { color: var(--bright); }
+    .version { color: var(--faint); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/" aria-label="Datasetto home"><img src="/favicon.svg" alt="" width="28" height="28">Datasetto</a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="/#features">Features</a>
+        <a href="/#how">Self-host</a>
+        <a href="/downloads.html" aria-current="page">Downloads</a>
+        <a href="https://github.com/FilippoLeone/datasetto" rel="noopener">GitHub</a>
+      </nav>
+      <a class="btn btn-primary" href="/app">Open the app</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="head">
+      <h1>Get Datasetto on your devices</h1>
+      <p class="lead">The web app is the full experience and needs nothing installed. The native shells add a tray icon, global push to talk, system notifications and a proper screen picker with system audio.</p>
+      <p class="version" id="release-line">Builds are published on GitHub Releases.</p>
+    </div>
+
+    <div class="grid">
+      <article class="card" id="web">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+        <h3>Web app</h3>
+        <p>Chrome, Edge, Firefox and Safari on desktop, plus a phone layout. Add it to your home screen for an app-like window.</p>
+        <div class="actions"><a class="btn btn-primary" href="/app">Open the app</a></div>
+      </article>
+
+      <article class="card" id="desktop">
+        <div class="icon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <h3>Desktop</h3>
+        <p>Windows, macOS and Linux. Share any window or screen with system audio and mute from the tray.</p>
+        <ul id="desktop-assets">
+          <li><a href="https://github.com/FilippoLeone/datasetto/releases/latest" rel="noopener">Latest release on GitHub</a><span>all platforms</span></li>
+        </ul>
+      </article>
+
+      <article class="card" id="android">
+        <div class="icon orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+        <h3>Android</h3>
+        <p>Voice keeps running in the background and the camera flips between front and back. Install the APK directly; Android asks once to allow installs from your browser.</p>
+        <ul id="android-assets">
+          <li><a href="https://github.com/FilippoLeone/datasetto/releases/latest" rel="noopener">Latest APK on GitHub</a><span>Android 8+</span></li>
+        </ul>
+      </article>
+
+      <article class="card" id="source">
+        <div class="icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M14 4l-4 16"/></svg></div>
+        <h3>Build it yourself</h3>
+        <p>Everything is open source under the GNU AGPLv3. The iOS app is built from the same code with Xcode.</p>
+        <div class="actions">
+          <a class="btn btn-ghost" href="https://github.com/FilippoLeone/datasetto" rel="noopener">Source code</a>
+          <a class="btn btn-ghost" href="https://github.com/FilippoLeone/datasetto/blob/main/desktop/README.md" rel="noopener">Desktop build guide</a>
+          <a class="btn btn-ghost" href="https://github.com/FilippoLeone/datasetto/blob/main/mobile/README.md" rel="noopener">Mobile build guide</a>
+        </div>
+      </article>
+    </div>
+
+    <div class="note">
+      <strong>Which server does the app connect to?</strong> The web app talks to the server that serves it. The desktop and Android apps ask for a server address on first start, or read it from <code>runtime-config.json</code> next to the desktop executable. Your friends simply enter the address of the server you run.
+    </div>
+  </main>
+
+  <footer>
+    <div class="container foot">
+      <span>© Datasetto · GNU AGPLv3</span>
+      <nav aria-label="Footer">
+        <a href="/">Home</a>
+        <a href="https://github.com/FilippoLeone/datasetto/releases" rel="noopener">All releases</a>
+        <a href="https://github.com/FilippoLeone/datasetto/issues" rel="noopener">Report a bug</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
     // Fill in direct links from the latest GitHub release; the static links above stay as the fallback.
     (async () => {
       try {

@@ -352,7 +352,7 @@ function loadTrayImages() {
     return;
   }
 
-  // Load microphone-based tray icons (Discord-style)
+  // Load the microphone-based tray icons (one per voice state)
   const states = ['idle', 'connected', 'speaking', 'muted'];
   
   for (const state of states) {
@@ -388,7 +388,7 @@ function updateTrayVoiceIndicator(partialState = {}) {
   trayVoiceState.speaking = typeof partialState.speaking === 'boolean' ? partialState.speaking : trayVoiceState.speaking;
   trayVoiceState.muted = typeof partialState.muted === 'boolean' ? partialState.muted : trayVoiceState.muted;
 
-  // Determine which icon state to show (Discord-style priority)
+  // Determine which icon state to show (muted wins over speaking wins over connected)
   let iconState = 'idle';
   let tooltipDetail = 'Click to reopen';
 

@@ -1,7 +1,7 @@
 # Datasetto AI Coding Instructions
 
 ## Project Context
-Datasetto is a self-hosted Discord/TeamSpeak alternative for a small friend group: text chat, WebRTC voice/camera/screenshare, OBS streaming via RTMP to HLS, voice-channel minigames.
+Datasetto is a self-hosted voice, video, streaming and chat server for a small friend group: text chat, WebRTC voice/camera/screenshare, OBS streaming via RTMP to HLS, voice-channel minigames.
 - **Monorepo**: `client` (web app, also packaged by `desktop/` and `mobile/`), `server` (Node.js API), `ops` (Docker Compose + Google Cloud scripts).
 - **Deployment target**: one small VM (GCP e2-micro) running `ops/docker-compose.yml`. Keep resource use and egress low; this is a hobby project with a 10 to 15 EUR monthly budget.
 

@@ -1,18 +1,51 @@
-import { createReadStream, promises as fs } from 'node:fs';
-import path from 'node:path';
 import { Router } from 'express';
 import type { AppContext } from '../../context.js';
 
-interface ReleaseFile {
+/** The part of GitHub's "get the latest release" response that we use. */
+export interface GitHubRelease {
+  tag_name: string;
+  name?: string | null;
+  html_url: string;
+  body?: string | null;
+  published_at?: string | null;
+  assets?: Array<{
+    name: string;
+    size: number;
+    download_count?: number;
+    browser_download_url: string;
+  }>;
+}
+
+export interface ReleaseFile {
   filename: string;
-  platform: 'android' | 'windows' | 'macos' | 'linux' | 'unknown';
+  platform: 'windows' | 'macos' | 'linux' | 'android' | 'unknown';
   arch: string;
   size: number;
   sizeFormatted: string;
   downloads: number;
+  /** Direct link to the asset on GitHub. */
   downloadUrl: string;
   source: 'desktop' | 'mobile';
 }
+
+export interface ReleasePayload {
+  /** Tag without the leading `v`, or null when nothing is published. */
+  version: string | null;
+  tag: string | null;
+  buildDate: string | null;
+  changelog: string | null;
+  /** The release page (or the releases list when nothing is published). */
+  releaseUrl: string;
+  repo: string;
+  builds: ReleaseFile[];
+  /** Why `builds` is empty, when it is. */
+  message?: string;
+}
+
+const FETCH_TIMEOUT_MS = 6000;
+const PLATFORM_ORDER: Record<ReleaseFile['platform'], number> = { windows: 0, macos: 1, linux: 2, android: 3, unknown: 4 };
+/** Build metadata that electron-builder publishes next to the installers. */
+const SKIP_ASSET = /\.(blockmap|ya?ml|json|txt|sha256|sig|asc)$/i;
 
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024) return bytes + ' B';
@@ -26,19 +59,6 @@ const formatBytes = (bytes: number): string => {
   return value.toFixed(1) + ' ' + units[unit];
 };
 
-const contentTypeFor = (filename: string): string => {
-  const ext = path.extname(filename).toLowerCase();
-  const map: Record<string, string> = {
-    '.exe': 'application/vnd.microsoft.portable-executable',
-    '.dmg': 'application/x-apple-diskimage',
-    '.deb': 'application/vnd.debian.binary-package',
-    '.appimage': 'application/x-executable',
-    '.apk': 'application/vnd.android.package-archive',
-    '.zip': 'application/zip',
-  };
-  return map[ext] ?? 'application/octet-stream';
-};
-
 const classify = (file: string): Pick<ReleaseFile, 'platform' | 'arch'> => {
   const lower = file.toLowerCase();
   let platform: ReleaseFile['platform'] = 'unknown';
@@ -46,69 +66,110 @@ const classify = (file: string): Pick<ReleaseFile, 'platform' | 'arch'> => {
   if (lower.endsWith('.apk')) {
     platform = 'android';
     arch = 'universal';
-  } else if (lower.includes('-win-') || lower.endsWith('.exe')) platform = 'windows';
-  else if (lower.includes('-mac-') || lower.endsWith('.dmg')) platform = 'macos';
-  else if (lower.includes('-linux-') || lower.endsWith('.appimage') || lower.endsWith('.deb')) platform = 'linux';
+  } else if (lower.includes('-win-') || lower.endsWith('.exe') || lower.endsWith('.msi')) platform = 'windows';
+  else if (lower.includes('-mac-') || lower.endsWith('.dmg') || lower.endsWith('.pkg')) platform = 'macos';
+  else if (lower.includes('-linux-') || lower.endsWith('.appimage') || lower.endsWith('.deb') || lower.endsWith('.rpm')) platform = 'linux';
   if (lower.includes('arm64') || lower.includes('aarch64')) arch = 'arm64';
+  else if (lower.includes('x86_64') || lower.includes('amd64') || lower.includes('x64')) arch = 'x64';
+  else if (lower.includes('ia32') || /[-_.]x86[-_.]/.test(lower)) arch = 'x86';
   return { platform, arch };
 };
 
-/** Read-only listing of desktop/mobile installers for the downloads page. */
-export const releasesRouter = (ctx: AppContext): Router => {
+/** Turn a GitHub release into what the landing and downloads pages render. */
+export const buildReleasePayload = (repo: string, release: GitHubRelease): ReleasePayload => {
+  const builds: ReleaseFile[] = (release.assets ?? [])
+    .filter((asset) => !SKIP_ASSET.test(asset.name))
+    .map((asset) => ({
+      filename: asset.name,
+      ...classify(asset.name),
+      size: asset.size,
+      sizeFormatted: formatBytes(asset.size),
+      downloads: asset.download_count ?? 0,
+      downloadUrl: asset.browser_download_url,
+      source: (asset.name.toLowerCase().endsWith('.apk') ? 'mobile' : 'desktop') as ReleaseFile['source'],
+    }))
+    .sort((a, b) => PLATFORM_ORDER[a.platform] - PLATFORM_ORDER[b.platform] || a.filename.localeCompare(b.filename));
+  return {
+    version: release.tag_name.replace(/^v/i, ''),
+    tag: release.tag_name,
+    buildDate: release.published_at ?? null,
+    changelog: release.body?.trim() || null,
+    releaseUrl: release.html_url,
+    repo,
+    builds,
+  };
+};
+
+const emptyPayload = (repo: string, message: string): ReleasePayload => ({
+  version: null,
+  tag: null,
+  buildDate: null,
+  changelog: null,
+  releaseUrl: 'https://github.com/' + repo + '/releases',
+  repo,
+  builds: [],
+  message,
+});
+
+/**
+ * Installers for the landing and downloads pages, read from the latest release
+ * of the GitHub repository (`RELEASES_GITHUB_REPO`). Responses are cached for
+ * `RELEASES_CACHE_SECONDS`, so the unauthenticated GitHub rate limit is never
+ * reached and visitors' browsers never talk to GitHub's API themselves. When
+ * GitHub is unreachable the last good answer is served; before the first good
+ * answer the payload is empty with a `message`.
+ */
+export const releasesRouter = (ctx: AppContext, fetchImpl: typeof fetch = fetch): Router => {
   const router = Router();
-  const dirs: Record<'desktop' | 'mobile', string | null> = {
-    desktop: ctx.config.releases.desktopDir,
-    mobile: ctx.config.releases.mobileDir,
-  };
-  const downloadCounts = new Map<string, number>();
+  const { githubRepo: repo, cacheSeconds } = ctx.config.releases;
+  const ttlMs = cacheSeconds * 1000;
+  let cached: { payload: ReleasePayload; fetchedAt: number } | null = null;
+  let inflight: Promise<ReleasePayload> | null = null;
 
-  const scan = async (source: 'desktop' | 'mobile'): Promise<ReleaseFile[]> => {
-    const dir = dirs[source];
-    if (!dir) return [];
-    let entries: string[];
+  const fetchLatest = async (): Promise<ReleasePayload> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      entries = await fs.readdir(dir);
-    } catch {
-      return [];
-    }
-    const files: ReleaseFile[] = [];
-    for (const file of entries) {
-      if (/\.(blockmap|ya?ml|json)$/i.test(file)) continue;
-      const stat = await fs.stat(path.join(dir, file)).catch(() => null);
-      if (!stat || !stat.isFile()) continue;
-      files.push({
-        filename: file,
-        ...classify(file),
-        size: stat.size,
-        sizeFormatted: formatBytes(stat.size),
-        downloads: downloadCounts.get(file) ?? 0,
-        downloadUrl: '/api/releases/download/' + source + '/' + encodeURIComponent(file),
-        source,
+      const response = await fetchImpl('https://api.github.com/repos/' + repo + '/releases/latest', {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'datasetto-server/' + ctx.config.version,
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        signal: controller.signal,
       });
+      if (response.status === 404) return emptyPayload(repo, 'No releases published yet');
+      if (!response.ok) throw new Error('GitHub responded with HTTP ' + response.status);
+      return buildReleasePayload(repo, (await response.json()) as GitHubRelease);
+    } finally {
+      clearTimeout(timer);
     }
-    return files;
   };
 
-  const readManifest = async (): Promise<{ version: string | null; buildDate: string | null; changelog?: string | null }> => {
-    if (!dirs.desktop) return { version: null, buildDate: null };
-    try {
-      const raw = await fs.readFile(path.join(dirs.desktop, 'builds.json'), 'utf-8');
-      const parsed = JSON.parse(raw) as { version?: string; buildDate?: string; changelog?: string };
-      return { version: parsed.version ?? null, buildDate: parsed.buildDate ?? null, changelog: parsed.changelog ?? null };
-    } catch {
-      return { version: null, buildDate: null };
+  const load = (): Promise<ReleasePayload> => {
+    if (cached && Date.now() - cached.fetchedAt < ttlMs) return Promise.resolve(cached.payload);
+    if (!inflight) {
+      inflight = fetchLatest()
+        .then((payload) => {
+          cached = { payload, fetchedAt: Date.now() };
+          return payload;
+        })
+        .catch((error: unknown) => {
+          ctx.log.warn({ err: error, repo }, 'could not fetch the latest GitHub release');
+          return cached?.payload ?? emptyPayload(repo, 'Release information is temporarily unavailable');
+        })
+        .finally(() => {
+          inflight = null;
+        });
     }
+    return inflight;
   };
 
   router.get('/', async (_req, res, next) => {
     try {
-      const builds = [...(await scan('desktop')), ...(await scan('mobile'))];
-      const manifest = await readManifest();
-      if (builds.length === 0) {
-        res.json({ version: null, builds: [], message: 'No releases available yet' });
-        return;
-      }
-      res.json({ version: manifest.version ?? 'unknown', buildDate: manifest.buildDate, builds });
+      const payload = await load();
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.json(payload);
     } catch (error) {
       next(error);
     }
@@ -116,38 +177,12 @@ export const releasesRouter = (ctx: AppContext): Router => {
 
   router.get('/latest', async (_req, res, next) => {
     try {
-      const manifest = await readManifest();
-      if (!manifest.version) {
-        res.status(404).json({ error: 'No release information available', code: 'NOT_FOUND' });
+      const payload = await load();
+      if (!payload.version) {
+        res.status(404).json({ error: payload.message ?? 'No release information available', code: 'NOT_FOUND' });
         return;
       }
-      res.json(manifest);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.get('/download/:source/:filename', async (req, res, next) => {
-    try {
-      const source = req.params.source === 'mobile' ? 'mobile' : 'desktop';
-      const dir = dirs[source];
-      const filename = path.basename(String(req.params.filename ?? ''));
-      if (!dir || !filename) {
-        res.status(404).json({ error: 'File not found', code: 'NOT_FOUND' });
-        return;
-      }
-      const filePath = path.join(dir, filename);
-      const [realPath, realDir] = await Promise.all([fs.realpath(filePath), fs.realpath(dir)]).catch(() => [null, null]);
-      if (!realPath || !realDir || !realPath.startsWith(realDir)) {
-        res.status(404).json({ error: 'File not found', code: 'NOT_FOUND' });
-        return;
-      }
-      const stat = await fs.stat(realPath);
-      downloadCounts.set(filename, (downloadCounts.get(filename) ?? 0) + 1);
-      res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
-      res.setHeader('Content-Length', String(stat.size));
-      res.setHeader('Content-Type', contentTypeFor(filename));
-      createReadStream(realPath).pipe(res);
+      res.json({ version: payload.version, tag: payload.tag, buildDate: payload.buildDate, changelog: payload.changelog, url: payload.releaseUrl });
     } catch (error) {
       next(error);
     }

@@ -6,7 +6,7 @@ This software is being built with the sole purpose of me using it with my friend
 
 # Datasetto
 
-A self-hosted Discord/TeamSpeak alternative for a small group of friends: text
+A self-hosted voice, video, streaming and chat server for a small group of friends: text
 channels, peer-to-peer voice with camera and screenshare, OBS streaming with HLS
 playback, a few voice-channel minigames, and admin tooling. Runs on one small
 VM for about the price of a coffee a week.

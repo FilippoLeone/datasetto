@@ -1,6 +1,6 @@
 /**
  * Audio Notification Service
- * Provides Discord-like sound effects for user interactions
+ * Provides short sound effects for user interactions
  */
 
 export type SoundEffect = 

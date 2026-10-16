@@ -14,7 +14,7 @@ const resourcesDir = path.resolve(desktopRoot, 'resources');
 const iconPngPath = path.resolve(resourcesDir, 'icon.png');
 const iconIcoPath = path.resolve(resourcesDir, 'icon.ico');
 
-// Tray icon paths - microphone based (Discord-style)
+// Tray icon paths - microphone based, one per voice state
 const trayIdlePngPath = path.resolve(resourcesDir, 'tray-idle.png');
 const trayIdleIcoPath = path.resolve(resourcesDir, 'tray-idle.ico');
 const trayConnectedPngPath = path.resolve(resourcesDir, 'tray-connected.png');
