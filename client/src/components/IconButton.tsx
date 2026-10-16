@@ -1,7 +1,7 @@
-import type { ComponentChildren, JSX } from 'preact';
+import type { ButtonHTMLAttributes, ComponentChildren } from 'preact';
 import { cn } from '@/lib/cn';
 
-interface IconButtonProps extends Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, 'size' | 'label'> {
+interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'size' | 'label'> {
   /** Accessible name, also used as the tooltip. */
   label: string;
   size?: 'sm' | 'md' | 'lg';

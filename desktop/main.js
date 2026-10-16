@@ -335,6 +335,18 @@ function openExternalUrl(url) {
   });
 }
 
+/**
+ * Logs why a notification was not shown. Since Electron 42 macOS uses UNNotification,
+ * which only displays notifications from a code-signed app; the unsigned DMG gets a
+ * 'failed' event instead of a visible toast.
+ */
+function showNotification(notification) {
+  notification.on('failed', (_event, error) => {
+    console.warn('[Desktop] Notification could not be shown:', error);
+  });
+  notification.show();
+}
+
 function resolveRendererFile() {
   const indexHtml = path.join(__dirname, 'renderer', 'index.html');
   return indexHtml;
@@ -532,7 +544,7 @@ function createWindow() {
             body: 'Find the Datasetto icon in the system tray to reopen the app.',
             icon: resolveResourcePath('icon.png'),
           });
-          hint.show();
+          showNotification(hint);
         }
       }
     });
@@ -621,7 +633,7 @@ function showAlreadyRunningWarning() {
       body: 'Use the existing window or the tray icon instead of opening another copy.',
       icon: resolveResourcePath('icon.png'),
     });
-    warning.show();
+    showNotification(warning);
   }
 
   if (mainWindow && typeof mainWindow.flashFrame === 'function') {
@@ -750,7 +762,7 @@ async function processNotificationQueue() {
       }
     });
 
-    notification.show();
+    showNotification(notification);
     console.log('[Desktop] Notification shown successfully');
 
     // Wait a bit between notifications to avoid spam

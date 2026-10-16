@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 # nginx + nginx-rtmp-module: RTMP ingest (OBS) remuxed to HLS, no transcoding.
 # The stream module adds an RTMPS (TLS) front on 1936 that reuses Caddy's certificate.
-FROM alpine:3.21 AS builder
-ARG NGINX_VERSION=1.26.3
+FROM alpine:3.24 AS builder
+ARG NGINX_VERSION=1.30.6
 ARG RTMP_MODULE_REF=v1.2.2
 RUN apk add --no-cache build-base ca-certificates git linux-headers openssl-dev pcre2-dev zlib-dev curl tar
 WORKDIR /src
@@ -20,7 +20,7 @@ RUN ./configure \
  && make install \
  && rm -rf /opt/nginx/html /opt/nginx/logs/*
 
-FROM alpine:3.21
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates libcrypto3 libssl3 pcre2 zlib su-exec \
  && addgroup -S nginx && adduser -S -G nginx nginx
 COPY --from=builder /opt/nginx /opt/nginx

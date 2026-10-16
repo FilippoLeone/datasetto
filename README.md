@@ -26,7 +26,7 @@ VM for about the price of a coffee a week.
 ```
 client/    Preact + TypeScript single page app (signals, Tailwind v4, Socket.IO, WebRTC, hls.js);
            public/ holds the landing and downloads pages
-server/    Node.js 22+ TypeScript API: Express 5 + Socket.IO, SQLite (better-sqlite3), zod validation, pino logs
+server/    Node.js 24 TypeScript API: Express 5 + Socket.IO 4, SQLite (better-sqlite3), zod 4 validation, pino logs
 ops/       Docker Compose stack (Caddy, app, nginx-rtmp, coturn), the VPS installer (vps/), Google Cloud scripts (gcp/)
 desktop/   Electron shell around the web client
 mobile/    Capacitor shell around the web client (the Android and iOS projects are committed)
@@ -81,6 +81,10 @@ Details, cost breakdown, abuse protection and day-two operations:
 [ops/README.md](ops/README.md).
 
 ## Development
+
+Requirements: Node.js 24 LTS, the version the Docker images and the GitHub workflows use
+(22.12 or newer works too, except that jsdom 30 for the client tests needs 22.22+). The client
+builds with Vite 8 and tests with Vitest 5; the server runs on Express 5, Socket.IO 4 and zod 4.
 
 ```bash
 cd server && npm install && cp .env.example .env && npm run dev    # API on :4000, hot reload

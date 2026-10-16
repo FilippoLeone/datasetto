@@ -1,11 +1,11 @@
-import type { ComponentChildren, JSX } from 'preact';
+import type { ButtonHTMLAttributes, ComponentChildren } from 'preact';
 import { cn } from '@/lib/cn';
 import { Spinner } from './Spinner';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success';
 type Size = 'sm' | 'md' | 'lg';
 
-interface ButtonProps extends Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, 'size'> {
+interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'size'> {
   variant?: Variant;
   size?: Size;
   loading?: boolean;

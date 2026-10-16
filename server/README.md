@@ -1,7 +1,7 @@
 # Datasetto server
 
-Node.js 22+ / TypeScript. Express 5 for HTTP, Socket.IO 4 for realtime, SQLite
-(better-sqlite3, WAL mode) for persistence, zod for input validation, pino for
+Node.js 24 (22.12+ works) / TypeScript 6. Express 5 for HTTP, Socket.IO 4 for realtime, SQLite
+(better-sqlite3, WAL mode) for persistence, zod 4 for input validation, pino for
 logs. One process, one database file, no other services required.
 
 ```bash

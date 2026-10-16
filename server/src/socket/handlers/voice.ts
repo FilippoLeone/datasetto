@@ -7,14 +7,14 @@ import { handle, requirePermission, requireUser, type SocketContext } from '../c
 import { leaveVoiceRoom } from '../lifecycle.js';
 import type { Minigames } from './minigame.js';
 
-const signalSchema = z.object({ to: idSchema, data: z.unknown() });
-const metadataSchema = z.object({ to: idSchema, metadata: z.unknown() });
+const signalSchema = z.object({ to: idSchema, data: z.unknown().optional() });
+const metadataSchema = z.object({ to: idSchema, metadata: z.unknown().optional() });
 const stateSchema = z.object({ muted: z.boolean().optional(), deafened: z.boolean().optional() }).partial();
 const videoStateSchema = z.object({ type: z.enum(['camera', 'screen']).optional(), enabled: z.boolean().optional() });
 const targetSchema = z.object({
   targetSocketId: idSchema,
   targetName: z.string().max(100).optional(),
-  duration: z.number().finite().optional(),
+  duration: z.number().optional(),
   reason: z.string().max(500).optional(),
 });
 

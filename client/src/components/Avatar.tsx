@@ -17,14 +17,14 @@ export const Avatar = ({ seed, name, src, size = 32, status = null, speaking, cl
   const fallback = useMemo(() => generateIdenticonDataUri(seed || name), [seed, name]);
   const dot = Math.max(8, Math.round(size * 0.3));
   return (
-    <span className={cn('relative inline-block shrink-0', className)} style={{ width: size, height: size }}>
+    <span className={cn('relative inline-block shrink-0', className)} style={{ width: `${size}px`, height: `${size}px` }}>
       <img
         src={src || fallback}
         alt=""
         width={size}
         height={size}
         className={cn('block rounded-full object-cover transition-shadow', speaking && 'speaking-ring')}
-        style={{ width: size, height: size }}
+        style={{ width: `${size}px`, height: `${size}px` }}
         draggable={false}
       />
       {status && (
@@ -35,7 +35,7 @@ export const Avatar = ({ seed, name, src, size = 32, status = null, speaking, cl
             status === 'idle' && 'bg-idle',
             status === 'offline' && 'bg-text-faint',
           )}
-          style={{ width: dot, height: dot }}
+          style={{ width: `${dot}px`, height: `${dot}px` }}
         />
       )}
     </span>

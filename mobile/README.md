@@ -4,6 +4,8 @@ Capacitor workspace that wraps the Datasetto web client (`client/`, Preact + Vit
 
 ## Quick start
 
+Requirements for Capacitor 8: Node.js 22+, JDK 21, Android Studio with the Android 16 SDK (compileSdk and targetSdk 36, minSdk 24; the Gradle wrapper fetches Gradle 8.14.3 and AGP 8.13 itself), and for iOS Xcode 26 with an iOS 15 deployment target. `npx cap migrate` keeps `android/` and `ios/` in step with the Capacitor version.
+
 1. Install dependencies (from inside `mobile/`):
 
    ```bash
@@ -72,7 +74,7 @@ mobile/
 - **Layout.** Phones (under 768px) get a channel drawer, a member drawer and a bottom toolbar; tablets keep the channel sidebar and use a member drawer; from 1024px (tablet landscape) the desktop layout applies. The header, drawers, modals and toolbar pad themselves with `env(safe-area-inset-*)`, so notches and the home indicator never cover controls.
 - **Touch.** Controls that only appear on hover with a mouse (channel options, create-channel, delete-message, the stream player bar) are always shown on touch screens, hit areas grow to at least 36px, and form controls render at 16px so iOS does not zoom when one is focused. A tap on a chat message toggles its actions.
 - **Back button (Android).** Closes the open dialog or drawer first; otherwise the app goes to the background instead of exiting, so a voice call keeps running (`@capacitor/app`, `client/src/services/native/capacitorApp.ts`).
-- **Keyboard.** `@capacitor/keyboard` with `resize: native` shrinks the web view when the keyboard opens on iOS so the composer stays visible. Android uses `windowSoftInputMode="adjustResize"`; on Android 15+, which draws edge to edge, `MainActivity` applies the system-bar, cutout and keyboard insets as web-view margins (Capacitor's own `adjustMarginsForEdgeToEdge` is left off because it ignores the keyboard).
+- **Keyboard.** `@capacitor/keyboard` with `resize: native` shrinks the web view when the keyboard opens on iOS so the composer stays visible. Android uses `windowSoftInputMode="adjustResize"`; on Android 15+, which draws edge to edge, `MainActivity` applies the system-bar, cutout and keyboard insets as web-view margins. Capacitor 8's own insets handling (the `SystemBars` plugin) is switched off in `capacitor.config.ts` (`insetsHandling: 'disable'`) so the two do not add up; the same plugin keeps the bar icons light (`style: 'DARK'`) to match the dark client.
 - **System bars.** iOS uses a light-content status bar (`Info.plist`); Android paints the status and navigation bars in the client's dark base colour (`res/values/styles.xml`, `colors.xml`).
 - Voice chat keeps an Android foreground service alive while the app is in the background (`@capawesome-team/capacitor-android-foreground-service`, `client/src/services/native/ForegroundServiceManager.ts`). It is skipped on iOS and on the web. iOS declares `UIBackgroundModes: audio` plus the microphone and camera usage descriptions in `Info.plist`; without those iOS terminates the app on the first `getUserMedia` call.
 - Audio output routing (speaker, earpiece, Bluetooth, wired) uses the `AudioRoute` plugin implemented in `android/app/src/main/java/com/datasetto/mobile/AudioRoutePlugin.java` (`client/src/services/native/NativeAudioRouteService.ts`). `MainActivity` registers it before `super.onCreate()`, which Capacitor requires. Where the plugin is missing (iOS), the client shows a speakerphone-only fallback.

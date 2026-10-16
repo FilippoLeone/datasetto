@@ -4,7 +4,8 @@ Electron shell around the Datasetto web client (`client/`, Preact + Vite). It lo
 
 ## Prerequisites
 
-- Node.js 20+ and npm 10+
+- Node.js 22.12+ (24 LTS recommended, it is what CI uses) and npm 10+
+- Electron 44 (Chromium 152, Node 24 inside the app) packaged with electron-builder 26; the installers run on Windows 10+, macOS 13+ and glibc Linux x64
 - The web client dependencies installed (`npm install` inside `client/`); the renderer is built from there
 - For local testing, the Docker stack on <http://localhost:8080>, started from the repo root with
   `docker compose -f ops/docker-compose.yml -f ops/docker-compose.local.yml up -d`
