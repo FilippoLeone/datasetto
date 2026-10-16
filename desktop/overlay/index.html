@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: http: https:; style-src 'self'; script-src 'self'" />
+    <title>Datasetto voice overlay</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="card" class="card is-hidden" role="status" aria-live="polite" aria-label="Voice channel">
+      <header class="card__header">
+        <svg class="card__channel-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M11 5 6 9H2v6h4l5 4V5z" />
+          <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+          <path d="M19 5a9 9 0 0 1 0 14" />
+        </svg>
+        <span id="channel" class="card__channel"></span>
+        <span id="status" class="card__status" hidden></span>
+      </header>
+      <ul id="rows" class="rows"></ul>
+      <p id="more" class="more" hidden></p>
+    </div>
+
+    <template id="rowTemplate">
+      <li class="row">
+        <span class="row__avatar">
+          <img class="row__image" alt="" draggable="false" />
+        </span>
+        <span class="row__name"></span>
+        <span class="row__icons">
+          <svg class="row__icon row__icon--deaf" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Deafened">
+            <path d="M21 14h-1.343" />
+            <path d="M9.128 3.47A9 9 0 0 1 21 12v3.343" />
+            <path d="m2 2 20 20" />
+            <path d="M20.414 20.414A2 2 0 0 1 19 21h-1a2 2 0 0 1-2-2v-3" />
+            <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 2.636-6.364" />
+          </svg>
+          <svg class="row__icon row__icon--muted" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Muted">
+            <line x1="2" x2="22" y1="2" y2="22" />
+            <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />
+            <path d="M5 10v2a7 7 0 0 0 12 5" />
+            <path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" />
+            <path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
+            <line x1="12" x2="12" y1="19" y2="22" />
+          </svg>
+        </span>
+      </li>
+    </template>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

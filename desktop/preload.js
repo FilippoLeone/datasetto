@@ -24,7 +24,18 @@ function defineGlobals() {
     openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
     getLogPath: () => ipcRenderer.invoke('app:get-log-path'),
     openLogFile: () => ipcRenderer.invoke('app:open-log-file'),
-    log: (level, ...args) => ipcRenderer.send('renderer:log', { level, args })
+    log: (level, ...args) => ipcRenderer.send('renderer:log', { level, args }),
+
+    // System-wide push to talk and the voice overlay (client feature-detects these).
+    setPushToTalkShortcut: (accelerator) => ipcRenderer.invoke('ptt:set', { accelerator }),
+    checkPushToTalkShortcut: (accelerator) => ipcRenderer.invoke('ptt:check', { accelerator }),
+    onPushToTalkPressed: (handler) => {
+      const listener = (_event, payload) => handler(payload);
+      ipcRenderer.on('ptt:pressed', listener);
+      return () => ipcRenderer.removeListener('ptt:pressed', listener);
+    },
+    configureVoiceOverlay: (options) => ipcRenderer.invoke('overlay:configure', options),
+    updateVoiceOverlay: (state) => ipcRenderer.send('overlay:state', state)
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);
