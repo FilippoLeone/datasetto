@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { Button, Field, Modal, TextInput } from '@/components';
 import { cn } from '@/lib/cn';
 import { api } from '@/services/socket/api';
@@ -30,7 +30,14 @@ export const AuthModal = ({ initialMode, dismissable }: AuthModalProps) => {
   const offline = connectionStatus.value !== 'connected';
   const error = localError ?? authError.value;
 
+  // Switching between sign-in and register clears stale errors, but the first render must keep
+  // a server-provided reason (account disabled, banned, session expired) visible.
+  const firstRender = useRef(true);
   useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
     authError.value = null;
     setLocalError(null);
   }, [mode]);

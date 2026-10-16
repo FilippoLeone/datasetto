@@ -47,6 +47,9 @@ class ScreenshareService {
       void this.onViewerPending(payload);
     });
     socketClient.on('disconnect', () => this.teardown('Connection lost'));
+    socketClient.on('connect', () => {
+      if (screenshareStatus.value === 'Connection lost') screenshareStatus.value = '';
+    });
   }
 
   // ------------------------------------------------------------------ host

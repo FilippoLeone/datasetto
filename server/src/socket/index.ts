@@ -65,12 +65,29 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
   });
 
   const broadcaster: Broadcaster = {
-    channels: coalesce(() => io.emit('channels:update', channelsPayload(ctx))),
+    // Each user gets the channels they are allowed to view.
+    channels: coalesce(() => {
+      for (const socket of io.sockets.sockets.values()) {
+        const sctx = socket.data.ctx as SocketContext | undefined;
+        if (!sctx?.user) continue;
+        socket.emit('channels:update', channelsPayload(ctx, sctx.user));
+      }
+    }),
     users: coalesce(() => io.emit('user:update', ctx.presence.exportUsers())),
     screenshare: (channelId, targetSocketId = null) => {
       const payload = ctx.presence.screenshareView(channelId);
       if (targetSocketId) io.to(targetSocketId).emit('screenshare:session', payload);
       else io.to(channelId).emit('screenshare:session', payload);
+    },
+    toChannelViewers: (channelId, event, payload) => {
+      const channel = ctx.channels.get(channelId);
+      if (!channel) return;
+      for (const socket of io.sockets.sockets.values()) {
+        const sctx = socket.data.ctx as SocketContext | undefined;
+        if (!sctx?.user) continue;
+        if (!ctx.channels.canAccess(channel, sctx.user, 'view')) continue;
+        socket.emit(event, payload);
+      }
     },
   };
   ctx.broadcast = broadcaster;

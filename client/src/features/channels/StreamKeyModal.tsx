@@ -59,9 +59,7 @@ export const StreamKeyModal = ({ channelId }: { channelId: string }) => {
           {can('canRegenerateKeys') && (
             <Button
               variant="ghost"
-              onClick={() =>
-                openConfirm(() => api.regenerateStreamKey(channelId))
-              }
+              onClick={() => openConfirm(channelId)}
             >
               <RefreshCw size={16} /> New key
             </Button>
@@ -85,7 +83,7 @@ export const StreamKeyModal = ({ channelId }: { channelId: string }) => {
   );
 };
 
-const openConfirm = (onConfirm: () => void): void => {
+const openConfirm = (channelId: string): void => {
   // Lazy import to avoid a circular import between ui state and this feature.
   void import('@/state/ui').then(({ openModal }) =>
     openModal({
@@ -94,7 +92,12 @@ const openConfirm = (onConfirm: () => void): void => {
       message: 'The current key stops working immediately. Anyone streaming with it is disconnected.',
       confirmLabel: 'Generate',
       danger: true,
-      onConfirm,
+      onConfirm: () => {
+        api.regenerateStreamKey(channelId);
+        // The confirm dialog replaced this modal; bring it back so the new key is visible.
+        openModal({ type: 'streamKey', channelId });
+        toast.success('New stream key generated');
+      },
     }),
   );
 };

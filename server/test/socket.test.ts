@@ -68,6 +68,42 @@ describe('Socket protocol', () => {
     expect(await history2).toHaveLength(1);
   });
 
+  it('delivers chat to everyone who can view the channel, not only to sockets inside it', async () => {
+    const alice = await open();
+    const aliceAuth = once(alice, 'auth:success');
+    alice.emit('auth:register', { username: 'alice@example.com', password: 'password123', profile: { displayName: 'Alice' } });
+    await aliceAuth;
+    const bob = await open();
+    const bobAuth = once(bob, 'auth:success');
+    bob.emit('auth:register', { username: 'bob@example.com', password: 'password123', profile: { displayName: 'Bob' } });
+    await bobAuth;
+
+    const general = server.ctx.channels.getByName('general')!;
+    const announcements = server.ctx.channels.getByName('announcements')!;
+    const aliceJoined = once(alice, 'channel:joined');
+    alice.emit('channel:join', general.id);
+    await aliceJoined;
+    const bobJoined = once(bob, 'channel:joined');
+    bob.emit('channel:join', announcements.id);
+    await bobJoined;
+
+    // Bob is viewing #announcements but still receives #general traffic (unread badges, mentions).
+    const bobSees = once<{ channelId: string; text: string; id: string }>(bob, 'chat');
+    alice.emit('chat', 'ping from general');
+    const delivered = await bobSees;
+    expect(delivered).toMatchObject({ channelId: general.id, text: 'ping from general' });
+
+    const bobSeesDelete = once<{ channelId: string; messageId: string }>(bob, 'chat:messageDeleted');
+    alice.emit('chat:delete', { messageId: delivered.id, channelId: general.id });
+    expect(await bobSeesDelete).toMatchObject({ channelId: general.id, messageId: delivered.id });
+
+    // Unauthenticated sockets never get chat.
+    const stranger = await open();
+    const strangerSees = once(stranger, 'chat', 300);
+    alice.emit('chat', 'second');
+    await expect(strangerSees).rejects.toThrow('timeout');
+  });
+
   it('rejects unauthenticated actions, bad tokens and wrong passwords', async () => {
     const socket = await open();
     const error = once<{ code: string }>(socket, 'error');

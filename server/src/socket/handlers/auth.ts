@@ -46,7 +46,7 @@ const authSuccessPayload = (sctx: SocketContext, account: PublicAccount, isNewAc
   user: sctx.app.presence.exportUser(sctx.socket.id),
   account,
   session: { token: sctx.sessionToken, expiresAt },
-  ...channelsPayload(sctx.app),
+  ...channelsPayload(sctx.app, requireUser(sctx)),
   isNewAccount,
 });
 

@@ -3,17 +3,7 @@ import { socketClient } from './client';
 import { api } from './api';
 import { sounds } from '@/services/sounds';
 import { notifyDesktop } from '@/services/native/desktop';
-import {
-  account,
-  authError,
-  authStatus,
-  clearSession,
-  connectionStatus,
-  sessionToken,
-  setAuthenticated,
-  socketId,
-  updateAccount,
-} from '@/state/session';
+import { account, authError, authStatus, clearSession, connectionStatus, isAuthenticated, sessionToken, setAuthenticated, socketId, updateAccount } from '@/state/session';
 import {
   channelsById,
   defaultChannelId,
@@ -119,8 +109,11 @@ export const installSocketBindings = (): void => {
   socketClient.on<ServerError>('auth:error', (payload) => {
     const code = payload.code ?? '';
     if (SESSION_ENDING_CODES.has(code)) {
+      const message = payload.message || 'Your session ended. Please sign in again.';
       clearSession();
-      toast.error(payload.message || 'Your session ended. Please sign in again.');
+      // Keep the reason visible on the sign-in form after the toast is gone.
+      authError.value = message;
+      toast.error(message);
       return;
     }
     authStatus.value = 'anonymous';
@@ -147,7 +140,14 @@ export const installSocketBindings = (): void => {
   // ------------------------------------------------------------ channels
 
   socketClient.on<{ channels: Channel[]; groups?: ChannelGroup[] }>('channels:update', (payload) => {
+    const previous = selectedChannelId.value;
     setChannels(payload.channels, payload.groups);
+    // The current channel was removed or hidden from us: fall back to a channel we can still see.
+    if (previous && selectedChannelId.value === null && isAuthenticated.value) {
+      const next = defaultChannelId();
+      rememberSelection(next);
+      if (next) api.joinChannel(next);
+    }
   });
 
   socketClient.on<{ channelId: string }>('channel:joined', ({ channelId }) => markRead(channelId));

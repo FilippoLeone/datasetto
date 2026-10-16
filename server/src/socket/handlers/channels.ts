@@ -28,7 +28,7 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
   const { app, socket } = sctx;
 
   handle(sctx, 'channels:list', { code: 'CHANNELS_LIST_FAILED' }, () => {
-    socket.emit('channels:update', channelsPayload(app));
+    socket.emit('channels:update', channelsPayload(app, requireUser(sctx)));
   });
 
   handle(sctx, 'channels:create', { schema: createChannelSchema, code: 'CHANNEL_CREATE_FAILED' }, (payload) => {
@@ -68,8 +68,7 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
     const channel = app.channels.get(channelId);
     if (!channel) throw notFound('Channel');
 
-    const action = channel.type === 'voice' ? 'voice' : 'view';
-    if (!app.channels.canAccess(channel, user, action)) {
+    if (!app.channels.canAccess(channel, user, 'view') || (channel.type === 'voice' && !app.channels.canAccess(channel, user, 'voice'))) {
       throw forbidden('No permission to access this channel');
     }
 

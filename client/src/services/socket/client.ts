@@ -26,6 +26,14 @@ class SocketClient {
     });
     for (const { event, handler } of this.pending) this.socket.on(event, handler as never);
     this.pending = [];
+    // socket.io does not reconnect by itself after a server-side disconnect (kick, ban,
+    // account disabled, restart). Reconnect anyway so the user lands on the sign-in form.
+    this.socket.on('disconnect', (reason) => {
+      if (reason !== 'io server disconnect') return;
+      window.setTimeout(() => {
+        if (this.socket && !this.socket.connected) this.socket.connect();
+      }, 1500);
+    });
   }
 
   get id(): string | null {

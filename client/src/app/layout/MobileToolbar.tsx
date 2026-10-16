@@ -17,7 +17,7 @@ const Item = ({ label, icon, active, onClick, badge }: { label: string; icon: pr
 
 /** Bottom navigation on phones. */
 export const MobileToolbar = () => (
-  <nav className="fixed inset-x-0 bottom-0 z-30 flex h-14 items-stretch border-t border-border bg-base safe-bottom" aria-label="Navigation">
+  <nav className="fixed inset-x-0 bottom-0 z-40 flex h-14 items-stretch border-t border-border bg-base safe-bottom" aria-label="Navigation">
     <Item label="Channels" icon={<Hash size={20} />} active={sidebarOpen.value} badge={totalUnread.value} onClick={() => (sidebarOpen.value = !sidebarOpen.value)} />
     <Item label="Members" icon={<Users size={20} />} active={membersOpen.value} onClick={() => (membersOpen.value = !membersOpen.value)} />
     <Item label="Settings" icon={<Settings size={20} />} onClick={() => openModal({ type: 'audioSettings' })} />

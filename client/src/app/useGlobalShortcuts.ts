@@ -1,5 +1,5 @@
 import { useEffect } from 'preact/hooks';
-import { closeModal, modal, openModal } from '@/state/ui';
+import { closeDrawers, closeModal, membersOpen, modal, openModal, sidebarOpen } from '@/state/ui';
 import { isAuthenticated } from '@/state/session';
 import { voiceManager } from '@/features/voice/voiceManager';
 
@@ -16,6 +16,10 @@ export const useGlobalShortcuts = (): void => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && modal.value && modal.value.type !== 'auth') {
         closeModal();
+        return;
+      }
+      if (event.key === 'Escape' && (sidebarOpen.value || membersOpen.value)) {
+        closeDrawers();
         return;
       }
       if (!isAuthenticated.value) return;

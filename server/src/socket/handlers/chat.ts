@@ -7,7 +7,7 @@ import { handle, requireUser, type SocketContext } from '../context.js';
 const deleteSchema = z.object({ messageId: idSchema, channelId: idSchema });
 
 export const registerChatHandlers = (sctx: SocketContext): void => {
-  const { app, io } = sctx;
+  const { app } = sctx;
 
   handle(sctx, 'chat', { schema: z.string().max(20_000), code: 'CHAT_FAILED', limiter: 'chat' }, (text) => {
     const user = requireUser(sctx);
@@ -23,7 +23,8 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
     }
 
     const message = app.messages.create(channel.id, user, text);
-    io.to(channel.id).emit('chat', message);
+    // Everyone who can see the channel gets the message so unread badges and mentions work across channels.
+    app.broadcast.toChannelViewers(channel.id, 'chat', message);
   });
 
   handle(sctx, 'chat:delete', { schema: deleteSchema, code: 'DELETE_FAILED' }, ({ messageId, channelId }) => {
@@ -39,7 +40,7 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
     if (!isOwn && !canModerate) throw forbidden('No permission to delete this message');
 
     app.messages.delete(channel.id, messageId, user.displayName);
-    io.to(channel.id).emit('chat:messageDeleted', { messageId, channelId: channel.id, deletedBy: user.displayName });
+    app.broadcast.toChannelViewers(channel.id, 'chat:messageDeleted', { messageId, channelId: channel.id, deletedBy: user.displayName });
     app.log.info({ messageId, channelId: channel.id, by: user.accountId, own: isOwn }, 'message deleted');
   });
 

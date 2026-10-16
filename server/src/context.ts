@@ -15,6 +15,8 @@ export interface Broadcaster {
   channels(): void;
   users(): void;
   screenshare(channelId: string, targetSocketId?: string | null): void;
+  /** Emit to every authenticated socket allowed to view the channel (not only the ones currently in it). */
+  toChannelViewers(channelId: string, event: string, payload: unknown): void;
 }
 
 export interface AppContext {
@@ -37,6 +39,7 @@ const noopBroadcaster: Broadcaster = {
   channels: () => undefined,
   users: () => undefined,
   screenshare: () => undefined,
+  toChannelViewers: () => undefined,
 };
 
 export const createContext = (config: AppConfig, db: DB): AppContext => {
