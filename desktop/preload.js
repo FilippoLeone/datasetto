@@ -35,7 +35,17 @@ function defineGlobals() {
       return () => ipcRenderer.removeListener('ptt:pressed', listener);
     },
     configureVoiceOverlay: (options) => ipcRenderer.invoke('overlay:configure', options),
-    updateVoiceOverlay: (state) => ipcRenderer.send('overlay:state', state)
+    updateVoiceOverlay: (state) => ipcRenderer.send('overlay:state', state),
+
+    // Game activity: the shell scans the process list while enabled and reports only
+    // the matched title (client feature-detects these too).
+    configureGameActivity: (options) => ipcRenderer.invoke('activity:configure', options),
+    listProcesses: () => ipcRenderer.invoke('activity:processes'),
+    onGameActivity: (handler) => {
+      const listener = (_event, payload) => handler(payload);
+      ipcRenderer.on('activity:detected', listener);
+      return () => ipcRenderer.removeListener('activity:detected', listener);
+    }
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);

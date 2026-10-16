@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell, screen, globalShortcut } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const { execFile } = require('node:child_process');
 
 // Force GPU Acceleration for NVENC/Hardware Encoding
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -655,6 +656,133 @@ function sanitizeOverlayState(state) {
   };
 }
 
+// ============================================
+// Game activity ("Playing <game>")
+// ============================================
+// Off by default. While the client has it switched on, every ACTIVITY_INTERVAL_MS the
+// list of running process names is read with the operating system's own tool, exactly
+// what Task Manager or `ps` shows: `tasklist /FO CSV /NH` (PowerShell `Get-Process` as
+// the fallback) on Windows, `ps -axo comm=` on macOS and Linux. The names are matched
+// against games/catalogue.json and the user's own entries (games/match.js) and only the
+// matched title, or null, goes to the renderer. No other process is opened, no window
+// of another process is inspected, nothing is injected or hooked and no memory is read,
+// so anti-cheat systems see an ordinary application reading a public process list.
+const ACTIVITY_INTERVAL_MS = 20_000;
+const ACTIVITY_COMMAND_TIMEOUT_MS = 10_000;
+const ACTIVITY_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+const gameMatch = require('./games/match.js');
+let gameCatalogue = { games: {}, launchers: [] };
+try {
+  gameCatalogue = JSON.parse(fs.readFileSync(path.join(__dirname, 'games', 'catalogue.json'), 'utf8'));
+} catch (error) {
+  console.error('[Desktop] Could not load the game catalogue:', error?.message ?? error);
+}
+const activityConfig = { enabled: false, custom: [] };
+let activityTimer = null;
+let activityScanning = false;
+let activityScanQueued = false;
+let activityTitle = null;
+
+/** Run a process-list tool and return its stdout; rejects when it fails or times out. */
+function runProcessList(command, args) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { windowsHide: true, timeout: ACTIVITY_COMMAND_TIMEOUT_MS, maxBuffer: ACTIVITY_MAX_OUTPUT_BYTES, encoding: 'utf8' }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(String(stdout));
+    });
+  });
+}
+
+/** Lower-cased executable names of every running process, sorted and de-duplicated. */
+async function listProcessNames() {
+  if (process.platform === 'win32') {
+    const system32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+    try {
+      return gameMatch.parseTasklist(await runProcessList(path.join(system32, 'tasklist.exe'), ['/FO', 'CSV', '/NH']));
+    } catch (error) {
+      console.warn('[Desktop] tasklist failed, trying Get-Process:', error?.message ?? error);
+    }
+    const powershell = path.join(system32, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    return gameMatch.parseProcessNames(await runProcessList(powershell, ['-NoProfile', '-NonInteractive', '-Command', 'Get-Process | ForEach-Object ProcessName']));
+  }
+  return gameMatch.parsePs(await runProcessList('ps', ['-axo', 'comm=']));
+}
+
+/** Executable names of this app, left out of the picker. */
+function ownExecutables() {
+  return [path.basename(process.execPath), 'datasetto.exe', 'datasetto'];
+}
+
+function publishActivity(title) {
+  if (title === activityTitle) {
+    return;
+  }
+  activityTitle = title;
+  console.log('[Desktop] Game activity:', title ? `playing ${title}` : 'nothing detected');
+  sendToRenderer('activity:detected', { title });
+}
+
+/** One pass: read the process list, match, tell the renderer when the answer changed. */
+async function scanActivity() {
+  if (!activityConfig.enabled) {
+    return activityTitle;
+  }
+  if (activityScanning) {
+    activityScanQueued = true;
+    return activityTitle;
+  }
+  activityScanning = true;
+  try {
+    const names = await listProcessNames();
+    if (activityConfig.enabled) {
+      const match = gameMatch.matchGame(names, gameCatalogue, activityConfig.custom);
+      publishActivity(match ? match.title : null);
+    }
+  } catch (error) {
+    console.warn('[Desktop] Could not read the process list:', error?.message ?? error);
+  } finally {
+    activityScanning = false;
+  }
+  if (activityScanQueued) {
+    activityScanQueued = false;
+    return scanActivity();
+  }
+  return activityTitle;
+}
+
+function stopActivityScans() {
+  if (activityTimer) {
+    clearInterval(activityTimer);
+    activityTimer = null;
+  }
+}
+
+/** Apply the client's settings; resolves with the current title once a first scan ran. */
+async function configureActivity(options) {
+  activityConfig.enabled = Boolean(options?.enabled);
+  activityConfig.custom = gameMatch.sanitizeCustomGames(options?.custom);
+  if (!activityConfig.enabled) {
+    stopActivityScans();
+    publishActivity(null);
+    return null;
+  }
+  if (!activityTimer) {
+    activityTimer = setInterval(() => {
+      void scanActivity();
+    }, ACTIVITY_INTERVAL_MS);
+    console.log('[Desktop] Game activity scans on, every', ACTIVITY_INTERVAL_MS / 1000, 's;', activityConfig.custom.length, 'own entries');
+  }
+  return scanActivity();
+}
+
+/** Forget the client's settings (reload, window closed, quit): no scans until it asks again. */
+function resetActivity() {
+  activityConfig.enabled = false;
+  activityConfig.custom = [];
+  stopActivityScans();
+  activityTitle = null;
+}
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -886,6 +1014,7 @@ function createWindow() {
     unregisterPushToTalk();
     overlayState = null;
     syncOverlay();
+    resetActivity();
   });
 
   mainWindow.on('closed', () => {
@@ -893,6 +1022,7 @@ function createWindow() {
     unregisterPushToTalk();
     overlayState = null;
     syncOverlay();
+    resetActivity();
   });
 
   if (supportsTrayMinimize) {
@@ -1066,6 +1196,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   unregisterPushToTalk();
   globalShortcut.unregisterAll();
+  resetActivity();
 });
 
 ipcMain.handle('app:get-info', () => ({
@@ -1243,6 +1374,24 @@ ipcMain.handle('overlay:configure', (_event, options) => {
 ipcMain.on('overlay:state', (_event, state) => {
   overlayState = sanitizeOverlayState(state);
   syncOverlay();
+});
+
+// Game activity (see the section above). The client sends its settings at start-up and
+// on every change; the answer carries the title found by an immediate scan.
+ipcMain.handle('activity:configure', async (_event, options) => {
+  const title = await configureActivity(options);
+  return { enabled: activityConfig.enabled, title, catalogueSize: Object.keys(gameCatalogue.games ?? {}).length };
+});
+
+// Names of the running programs for the "add a game" picker; shown in the settings dialog
+// only and never sent anywhere.
+ipcMain.handle('activity:processes', async () => {
+  try {
+    return { processes: gameMatch.pickerProcesses(await listProcessNames(), gameCatalogue, ownExecutables()) };
+  } catch (error) {
+    console.warn('[Desktop] Could not list processes for the picker:', error?.message ?? error);
+    return { processes: [], error: 'unavailable' };
+  }
 });
 
 // The overlay page reports the height of its card so the window hugs the content.
