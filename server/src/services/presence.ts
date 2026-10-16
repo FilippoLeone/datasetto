@@ -408,6 +408,7 @@ export class PresenceService {
       visibility: channel.visibility,
       hasPassword: channel.joinPasswordHash !== null,
       memberCount,
+      lastMessageAt: channel.lastMessageAt,
       count: channel.type === 'voice' ? (room?.participants.size ?? 0) : this.channelMemberCount(channel.id),
       isLive: Boolean(stream),
       liveStartedAt: stream?.startedAt ?? null,

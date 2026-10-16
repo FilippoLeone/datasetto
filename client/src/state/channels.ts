@@ -10,9 +10,14 @@ export const groups = signal<ChannelGroup[]>([]);
 export const selectedChannelId = signal<string | null>(Storage.get<string | null>(LAST_CHANNEL_KEY, null));
 /** Unread message counts per text channel. */
 export const unread = signal<Record<string, number>>({});
-export const collapsedGroups = signal<Record<ChannelType, boolean>>(
-  Storage.get('datasetto.collapsedGroups', { text: false, voice: false, stream: false, screenshare: false }),
-);
+export const collapsedGroups = signal<Record<ChannelType, boolean>>({
+  text: false,
+  voice: false,
+  stream: false,
+  screenshare: false,
+  dm: false,
+  ...Storage.get<Partial<Record<ChannelType, boolean>>>('datasetto.collapsedGroups', {}),
+});
 
 export const channelsById = computed(() => {
   const map = new Map<string, Channel>();
@@ -25,10 +30,15 @@ export const selectedChannel = computed<Channel | null>(() =>
 );
 
 export const channelsByType = computed<Record<ChannelType, Channel[]>>(() => {
-  const result: Record<ChannelType, Channel[]> = { text: [], voice: [], stream: [], screenshare: [] };
+  const result: Record<ChannelType, Channel[]> = { text: [], voice: [], stream: [], screenshare: [], dm: [] };
   for (const channel of channels.value) result[channel.type]?.push(channel);
+  // Conversations with the latest activity first.
+  result.dm.sort((a, b) => (b.lastMessageAt ?? b.createdAt ?? 0) - (a.lastMessageAt ?? a.createdAt ?? 0));
   return result;
 });
+
+/** Display name of a channel: the other person for a DM, the channel name otherwise. */
+export const channelLabel = (channel: Channel): string => (channel.type === 'dm' ? (channel.dm?.peerName ?? 'Direct message') : channel.name);
 
 export const liveChannels = computed(() => channels.value.filter((channel) => channel.type === 'stream' && channel.isLive));
 

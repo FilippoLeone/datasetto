@@ -11,7 +11,7 @@ import {
 } from '../../core/validation.js';
 import { AppError, forbidden, notFound } from '../../errors.js';
 import { ChannelService } from '../../services/channels.js';
-import type { ChannelType, ChannelVisibility } from '../../types.js';
+import type { ChannelVisibility, CreatableChannelType } from '../../types.js';
 import { handle, requirePermission, requireUser, type SocketContext } from '../context.js';
 import { channelsPayload } from '../payloads.js';
 
@@ -54,7 +54,7 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
 
   handle(sctx, 'channels:create', { schema: createChannelSchema, code: 'CHANNEL_CREATE_FAILED' }, async (payload) => {
     const user = requirePermission(sctx, 'canCreateChannels', 'No permission to create channels');
-    const input = typeof payload === 'string' ? { name: payload, type: 'text' as ChannelType } : payload;
+    const input = typeof payload === 'string' ? { name: payload, type: 'text' as CreatableChannelType } : payload;
 
     if (input.permissions && Object.keys(input.permissions).length > 0) {
       requirePermission(sctx, 'canManageChannelPermissions', 'No permission to configure channel permissions');
@@ -67,7 +67,7 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
 
     const channel = app.channels.create({
       name: input.name,
-      type: (input.type ?? 'text') as ChannelType,
+      type: (input.type ?? 'text') as CreatableChannelType,
       groupId: input.groupId ?? null,
       permissions: input.permissions ?? null,
       topic: input.topic ?? null,
@@ -115,6 +115,7 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
     const user = requirePermission(sctx, 'canDeleteChannels', 'No permission to delete channels');
     const channel = app.channels.resolve(idOrName);
     if (!channel) throw notFound('Channel');
+    if (channel.type === 'dm') throw new AppError('Direct messages cannot be deleted', 'DM_IMMUTABLE', 400);
 
     sctx.io.to(channel.id).emit('channel:deleted', { channelId: channel.id });
     sctx.io.in(channel.id).socketsLeave(channel.id);
@@ -123,6 +124,15 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
     app.broadcast.channels();
     app.broadcast.users();
     app.log.info({ channelId: channel.id, name: channel.name, by: user.accountId }, 'channel deleted');
+  });
+
+  handle(sctx, 'dm:open', { schema: z.object({ accountId: idSchema }), code: 'DM_OPEN_FAILED' }, ({ accountId }) => {
+    const user = requireUser(sctx);
+    const target = app.accounts.getById(accountId);
+    if (!target || target.status !== 'active') throw notFound('Account');
+    const channel = app.channels.openDm(user.accountId, target.id);
+    socket.emit('dm:opened', { channelId: channel.id, peerId: target.id, peerName: target.displayName });
+    app.broadcast.channels();
   });
 
   handle(sctx, 'channel:join', { schema: idSchema, code: 'CHANNEL_JOIN_FAILED' }, async (channelId) => {

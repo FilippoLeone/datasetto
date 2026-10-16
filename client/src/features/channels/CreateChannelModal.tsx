@@ -4,9 +4,9 @@ import { Button, Field, Modal, TextInput } from '@/components';
 import { cn } from '@/lib/cn';
 import { api } from '@/services/socket/api';
 import { closeModal } from '@/state/ui';
-import type { ChannelType, ChannelVisibility } from '@/types/protocol';
+import type { ChannelVisibility, CreatableChannelType } from '@/types/protocol';
 
-const TYPES: Array<{ value: ChannelType; label: string; hint: string; icon: typeof Hash }> = [
+const TYPES: Array<{ value: CreatableChannelType; label: string; hint: string; icon: typeof Hash }> = [
   { value: 'text', label: 'Text channel', hint: 'Messages, links and emoji. Everyone can read back.', icon: Hash },
   { value: 'voice', label: 'Voice channel', hint: 'Talk, show your camera or your screen, play minigames.', icon: Volume2 },
   { value: 'stream', label: 'Live stream', hint: 'Broadcast from OBS with a stream key; friends watch in the app.', icon: Radio },
@@ -30,9 +30,9 @@ export const slugifyChannelName = (raw: string): string =>
 
 type Step = 'type' | 'details';
 
-export const CreateChannelModal = ({ channelType }: { channelType: ChannelType }) => {
+export const CreateChannelModal = ({ channelType }: { channelType: CreatableChannelType }) => {
   const [step, setStep] = useState<Step>('type');
-  const [type, setType] = useState<ChannelType>(channelType);
+  const [type, setType] = useState<CreatableChannelType>(channelType);
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
   const [visibility, setVisibility] = useState<ChannelVisibility>('public');

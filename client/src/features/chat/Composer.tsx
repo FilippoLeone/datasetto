@@ -5,6 +5,7 @@ import { cn } from '@/lib/cn';
 import { api } from '@/services/socket/api';
 import { sounds } from '@/services/sounds';
 import { serverConfig } from '@/services/ServerConfigService';
+import { channelLabel } from '@/state/channels';
 import { connectionStatus } from '@/state/session';
 import { isMobile } from '@/state/ui';
 import type { Channel } from '@/types/protocol';
@@ -16,6 +17,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const maxLength = serverConfig.get()?.limits.maxMessageLength ?? 2000;
   const disabled = connectionStatus.value !== 'connected';
+  const target = (channel.type === 'dm' ? '@' : '#') + channelLabel(channel);
 
   useEffect(() => {
     setText('');
@@ -60,8 +62,8 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
           rows={1}
           maxLength={maxLength}
           disabled={disabled}
-          placeholder={disabled ? 'Reconnecting…' : 'Message #' + channel.name}
-          aria-label={'Message #' + channel.name}
+          placeholder={disabled ? 'Reconnecting…' : 'Message ' + target}
+          aria-label={'Message ' + target}
           className="scrollbar-thin max-h-[200px] min-h-[40px] flex-1 resize-none bg-transparent py-2.5 text-sm text-text-bright placeholder:text-text-faint outline-none"
           onInput={(event) => {
             setText((event.target as HTMLTextAreaElement).value);

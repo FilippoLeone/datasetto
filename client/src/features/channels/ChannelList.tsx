@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Gamepad2, Key, Lock, Plus, Trash2, Volume2 } from 'lucide-preact';
+import { ChevronDown, ChevronRight, Gamepad2, Key, Lock, MessageCircle, Plus, Trash2, Volume2 } from 'lucide-preact';
 import { Avatar, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
 import { CHANNEL_ICONS } from '@/app/layout/MainArea';
@@ -11,16 +11,17 @@ import { account } from '@/state/session';
 import { openModal } from '@/state/ui';
 import { selectChannel } from './channelActions';
 import { voiceManager } from '@/features/voice/voiceManager';
-import type { Channel, ChannelType } from '@/types/protocol';
+import type { Channel, ChannelType, CreatableChannelType } from '@/types/protocol';
 
 const GROUP_LABELS: Record<ChannelType, string> = {
   text: 'Text channels',
   voice: 'Voice channels',
   stream: 'Live streams',
   screenshare: 'Screenshare rooms',
+  dm: 'Direct messages',
 };
 
-const ORDER: ChannelType[] = ['text', 'voice', 'stream', 'screenshare'];
+const ORDER: CreatableChannelType[] = ['text', 'voice', 'stream', 'screenshare'];
 
 const VoiceMembers = ({ channel }: { channel: Channel }) => {
   const members = usersInVoice(channel.id);
@@ -117,7 +118,56 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
   );
 };
 
-const Group = ({ type }: { type: ChannelType }) => {
+/** One-to-one conversations: the other person's avatar and name, unread badge, latest first. */
+const DmRow = ({ channel }: { channel: Channel }) => {
+  const active = selectedChannelId.value === channel.id;
+  const unreadCount = unread.value[channel.id] ?? 0;
+  const peer = channel.dm;
+  const name = peer?.peerName ?? 'Direct message';
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => selectChannel(channel.id)}
+        title={peer?.peerUsername}
+        className={cn(
+          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors pointer-coarse:py-2.5',
+          active ? 'bg-active text-text-bright' : 'text-text-muted hover:bg-hover hover:text-text',
+          unreadCount > 0 && !active && 'text-text-bright',
+        )}
+      >
+        <Avatar seed={peer?.peerId ?? channel.id} name={name} src={peer?.peerAvatarUrl} size={24} />
+        <span className={cn('min-w-0 flex-1 truncate', unreadCount > 0 && 'font-semibold')}>{name}</span>
+        {unreadCount > 0 && !active && <span className="rounded-full bg-live px-1.5 text-[10px] font-bold text-white">{unreadCount}</span>}
+      </button>
+    </li>
+  );
+};
+
+const DmGroup = () => {
+  const list = channelsByType.value.dm;
+  const collapsed = collapsedGroups.value.dm;
+  if (list.length === 0) return null;
+  return (
+    <section className="mb-3">
+      <div className="group flex items-center gap-1 px-1 text-[11px] font-semibold tracking-wide text-text-muted uppercase">
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-1 py-1 hover:text-text-bright pointer-coarse:py-2" onClick={() => toggleGroup('dm')} aria-expanded={!collapsed}>
+          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          <span className="truncate">{GROUP_LABELS.dm}</span>
+        </button>
+      </div>
+      {!collapsed && (
+        <ul className="flex flex-col gap-0.5">
+          {list.map((channel) => (
+            <DmRow key={channel.id} channel={channel} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+};
+
+const Group = ({ type }: { type: CreatableChannelType }) => {
   const list = channelsByType.value[type];
   const collapsed = collapsedGroups.value[type];
   const canCreate = can('canCreateChannels');
@@ -154,6 +204,7 @@ const Group = ({ type }: { type: ChannelType }) => {
 
 export const ChannelList = () => (
   <nav aria-label="Channels">
+    <DmGroup />
     {ORDER.map((type) => (
       <Group key={type} type={type} />
     ))}
@@ -166,6 +217,9 @@ export const ChannelList = () => (
     </button>
     <p className="mt-2 flex items-center gap-1 px-2 text-[11px] text-text-faint">
       <Volume2 size={11} /> Click a voice channel to join it.
+    </p>
+    <p className="mt-1 flex items-center gap-1 px-2 text-[11px] text-text-faint">
+      <MessageCircle size={11} /> Click a member to send a direct message.
     </p>
   </nav>
 );

@@ -16,7 +16,7 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
 
     const channel = app.channels.get(sctx.currentChannel);
     if (!channel) throw notFound('Channel');
-    if (channel.type !== 'text' && channel.type !== 'stream') {
+    if (channel.type !== 'text' && channel.type !== 'stream' && channel.type !== 'dm') {
       throw new AppError('This channel does not support chat', 'CHAT_NOT_SUPPORTED', 400);
     }
     if (!app.channels.canAccess(channel, user, 'chat')) {
@@ -24,6 +24,7 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
     }
 
     const message = app.messages.create(channel.id, user, text);
+    app.channels.touchActivity(channel.id, message.ts);
     // Everyone who can see the channel gets the message so unread badges and mentions work across channels.
     app.broadcast.toChannelViewers(channel.id, 'chat', message);
   });
@@ -32,6 +33,7 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
     const user = requireUser(sctx);
     const channel = app.channels.get(channelId);
     if (!channel) throw notFound('Channel');
+    if (!app.channels.canAccess(channel, user, 'view')) throw forbidden('No permission to access this channel');
 
     const existing = app.messages.get(channel.id, messageId);
     if (!existing) throw notFound('Message');

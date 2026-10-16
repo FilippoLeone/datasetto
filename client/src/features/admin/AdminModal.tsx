@@ -243,7 +243,7 @@ const InvitesTab = () => {
 
 const ChannelsTab = () => (
   <ul className="flex flex-col gap-1">
-    {channels.value.map((channel) => {
+    {channels.value.filter((channel) => channel.type !== 'dm').map((channel) => {
       const Icon = CHANNEL_ICONS[channel.type];
       return (
         <li key={channel.id} className="flex items-center gap-2 rounded-md bg-base/60 px-3 py-2">

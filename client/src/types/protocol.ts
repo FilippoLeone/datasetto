@@ -58,7 +58,9 @@ export interface User {
   currentChannel?: string | null;
 }
 
-export type ChannelType = 'text' | 'voice' | 'stream' | 'screenshare';
+/** Channel kinds users create; `dm` channels are one-to-one conversations made by the server. */
+export type CreatableChannelType = 'text' | 'voice' | 'stream' | 'screenshare';
+export type ChannelType = CreatableChannelType | 'dm';
 export type ChannelPermissionAction = 'view' | 'chat' | 'voice' | 'stream' | 'manage';
 
 export interface ChannelPermissionEntry {
@@ -92,6 +94,9 @@ export interface Channel {
   hasPassword?: boolean;
   /** Members of a private channel (0 for public ones). */
   memberCount?: number;
+  lastMessageAt?: number | null;
+  /** For `dm` channels: the other participant. */
+  dm?: { peerId: string; peerName: string; peerUsername: string; peerAvatarUrl: string | null } | null;
   count: number;
   isLive?: boolean;
   liveStartedAt?: number | null;
@@ -110,14 +115,14 @@ export interface Channel {
 export interface ChannelGroup {
   id: string;
   name: string;
-  type: ChannelType;
+  type: CreatableChannelType;
   collapsed?: boolean;
 }
 
 /** `channels:create` payload. */
 export interface CreateChannelInput {
   name: string;
-  type: ChannelType;
+  type: CreatableChannelType;
   topic?: string | null;
   visibility?: ChannelVisibility;
   /** Join password for a private channel. */

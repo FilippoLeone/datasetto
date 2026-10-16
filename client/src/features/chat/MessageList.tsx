@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { ArrowDown, Hash, SmilePlus, Trash2 } from 'lucide-preact';
+import { ArrowDown, Hash, MessageCircle, SmilePlus, Trash2 } from 'lucide-preact';
 import { Avatar, RoleBadge } from '@/components';
 import { cn } from '@/lib/cn';
 import { isTouchPrimary } from '@/lib/device';
@@ -197,7 +197,16 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
   return (
     <div className="relative min-h-0 flex-1">
       <div ref={scrollRef} onScroll={onScroll} className="scrollbar-thin h-full overflow-y-auto pb-4">
-        {!compact && (
+        {!compact && channel.type === 'dm' && (
+          <div className="px-4 pt-8 pb-2">
+            <div className="mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-active">
+              <MessageCircle size={32} className="text-text-bright" />
+            </div>
+            <h3 className="text-2xl font-bold text-text-bright">{channel.dm?.peerName ?? 'Direct message'}</h3>
+            <p className="text-sm text-text-muted">This is the start of your conversation with {channel.dm?.peerName ?? 'them'}. Only the two of you can read it.</p>
+          </div>
+        )}
+        {!compact && channel.type !== 'dm' && (
           <div className="px-4 pt-8 pb-2">
             <div className="mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-active">
               <Hash size={32} className="text-text-bright" />

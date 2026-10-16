@@ -1,10 +1,10 @@
 import { signal } from '@preact/signals';
-import type { ChannelType, NotificationType } from '@/types/protocol';
+import type { CreatableChannelType, NotificationType } from '@/types/protocol';
 
 export type Modal =
   | { type: 'auth'; mode: 'login' | 'register' }
   | { type: 'profile' }
-  | { type: 'createChannel'; channelType: ChannelType }
+  | { type: 'createChannel'; channelType: CreatableChannelType }
   | { type: 'joinPrivateChannel' }
   | { type: 'streamKey'; channelId: string }
   | { type: 'audioSettings' }

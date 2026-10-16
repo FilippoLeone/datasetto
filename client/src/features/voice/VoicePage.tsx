@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { Gamepad2, Headphones, HeadphoneOff, Mic, MicOff, MonitorUp, Phone, PhoneOff, RefreshCw, Settings, Video, VideoOff, Volume2 } from 'lucide-preact';
+import { Gamepad2, Headphones, HeadphoneOff, MessageCircle, Mic, MicOff, MonitorUp, Phone, PhoneOff, RefreshCw, Settings, Video, VideoOff, Volume2 } from 'lucide-preact';
 import { Avatar, Button, IconButton, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
 import { canCaptureScreen } from '@/lib/device';
@@ -40,6 +40,7 @@ const PeerTile = ({ peer, isMe }: { peer: VoicePeer; isMe: boolean }) => {
 
   const items: MenuItem[] = [];
   if (!isMe) {
+    if (user) items.push({ label: 'Message', icon: <MessageCircle size={14} />, onSelect: () => api.openDm(user.accountId) });
     items.push({
       label: pref?.muted ? 'Unmute for me' : 'Mute for me',
       icon: <Volume2 size={14} />,

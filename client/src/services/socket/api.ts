@@ -42,6 +42,8 @@ export const api = {
   /** Become a member of a private channel by name and password (answered with `channels:privateJoined`). */
   joinPrivateChannel: (name: string, password: string) => emit('channels:joinPrivate', { name, password }),
   deleteChannel: (channelId: string) => emit('channels:delete', channelId),
+  /** Open (or reuse) the one-to-one conversation with an account (answered with `dm:opened`). */
+  openDm: (accountId: string) => emit('dm:open', { accountId }),
   requestStreamKey: (channelId: string) => emit('stream:key:request', { channelId }),
   regenerateStreamKey: (channelId: string) => emit('stream:key:regenerate', { channelId }),
 

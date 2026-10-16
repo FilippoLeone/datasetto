@@ -122,8 +122,16 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
     socket.emit('admin:bans:list', { bans: app.moderation.listBans() });
   });
 
+  /** Admin tools never touch direct messages. */
+  const requireRegularChannel = (channelId: string) => {
+    const channel = app.channels.require(channelId);
+    if (channel.type === 'dm') throw new AppError('Direct messages cannot be managed', 'DM_IMMUTABLE', 400);
+    return channel;
+  };
+
   handle(sctx, 'admin:channels:getPermissions', { schema: channelSchema, errorEvent: ERR, code: 'CHANNEL_PERMISSIONS_FAILED' }, ({ channelId }) => {
     requirePermission(sctx, 'canManageChannelPermissions', 'No permission to view channel permissions');
+    requireRegularChannel(channelId);
     socket.emit('admin:channels:permissions', { channelId, permissions: app.channels.getPermissions(channelId) });
   });
 
@@ -133,6 +141,7 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
     { schema: channelPermissionsSchema, errorEvent: ERR, code: 'CHANNEL_PERMISSIONS_UPDATE_FAILED' },
     ({ channelId, permissions }) => {
       const actor = requirePermission(sctx, 'canManageChannelPermissions', 'No permission to modify channel permissions');
+      requireRegularChannel(channelId);
       const updated = app.channels.updatePermissions(channelId, permissions ?? {});
       io.emit('channels:permissionsUpdated', { channelId, permissions: updated });
       socket.emit('admin:channels:permissionsUpdated', { channelId, permissions: updated });
@@ -160,7 +169,7 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
 
   handle(sctx, 'admin:channels:members:list', { schema: channelSchema, errorEvent: ERR, code: 'CHANNEL_MEMBERS_FAILED' }, ({ channelId }) => {
     requirePermission(sctx, 'canManageChannelPermissions', 'No permission to view channel members');
-    app.channels.require(channelId);
+    requireRegularChannel(channelId);
     socket.emit('admin:channels:members', membersPayload(channelId));
   });
 

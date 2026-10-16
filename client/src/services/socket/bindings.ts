@@ -201,6 +201,7 @@ export const installSocketBindings = (): void => {
     selectWhenListed(channelId);
   });
   socketClient.on<{ channelId: string }>('channels:updated', () => toast.success('Channel settings saved'));
+  socketClient.on<{ channelId: string; peerName: string }>('dm:opened', ({ channelId }) => selectWhenListed(channelId));
 
   socketClient.on<{ channelId: string; permissions: ChannelPermissions }>('channels:permissionsUpdated', (payload) => {
     channelPermissions.value = { ...channelPermissions.value, [payload.channelId]: payload.permissions };
@@ -216,9 +217,14 @@ export const installSocketBindings = (): void => {
     if (!viewing) markUnread(message.channelId);
     sounds.play('message', viewing ? 0.25 : 0.4);
     const me = account.value;
+    const channel = channelsById.value.get(message.channelId);
+    if (channel?.type === 'dm') {
+      // Every direct message counts as a mention of its recipient.
+      if (!viewing) void notifyDesktop('Message from ' + message.from, message.text);
+      return;
+    }
     if (me && containsMention(message.text, [me.displayName, me.username])) {
-      const channelName = channelsById.value.get(message.channelId)?.name ?? 'chat';
-      void notifyDesktop(message.from + ' in #' + channelName, message.text);
+      void notifyDesktop(message.from + ' in #' + (channel?.name ?? 'chat'), message.text);
     }
   });
 

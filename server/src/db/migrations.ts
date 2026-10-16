@@ -156,6 +156,16 @@ export const migrations: Migration[] = [
       CREATE INDEX message_reactions_message_idx ON message_reactions(message_id);
     `,
   },
+  {
+    // Direct messages are channels of type 'dm' (two members in channel_members, no group).
+    // last_message_at orders the DM list by recency.
+    version: 6,
+    name: 'direct_messages',
+    up: `
+      ALTER TABLE channels ADD COLUMN last_message_at INTEGER;
+      CREATE INDEX channels_type_idx ON channels(type);
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

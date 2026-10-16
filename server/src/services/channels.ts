@@ -20,6 +20,7 @@ import {
   type ChannelRecord,
   type ChannelType,
   type ChannelVisibility,
+  type CreatableChannelType,
   type PermissionAction,
   type PermissionEntry,
 } from '../types.js';
@@ -27,14 +28,14 @@ import {
 const ALL_ROLES = '*';
 const PASSWORD_ROUNDS = 10;
 
-export const DEFAULT_GROUPS: Record<ChannelType, string> = {
+export const DEFAULT_GROUPS: Record<CreatableChannelType, string> = {
   text: 'Text Channels',
   voice: 'Voice Channels',
   stream: 'Live Streams',
   screenshare: 'Screenshare Rooms',
 };
 
-export const DEFAULT_CHANNELS: Record<ChannelType, string[]> = {
+export const DEFAULT_CHANNELS: Record<CreatableChannelType, string[]> = {
   text: ['general', 'announcements'],
   voice: ['lobby', 'room-1'],
   stream: ['main-stream'],
@@ -49,7 +50,7 @@ export interface AccessSubject {
 
 export interface CreateChannelInput {
   name: string;
-  type: ChannelType;
+  type: CreatableChannelType;
   groupId?: string | null;
   permissions?: PermissionsInput | null;
   topic?: string | null;
@@ -80,6 +81,7 @@ interface ChannelRow {
   position: number;
   created_at: number;
   updated_at: number;
+  last_message_at: number | null;
 }
 
 interface GroupRow {
@@ -176,12 +178,13 @@ const rowToChannel = (row: ChannelRow): ChannelRecord => ({
   position: row.position,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+  lastMessageAt: row.last_message_at ?? null,
 });
 
 const rowToGroup = (row: GroupRow): ChannelGroupRecord => ({
   id: row.id,
   name: row.name,
-  type: row.type as ChannelType,
+  type: row.type as CreatableChannelType,
   collapsed: Boolean(row.collapsed),
   position: row.position,
   createdAt: row.created_at,
@@ -225,6 +228,7 @@ export class ChannelService {
       updatePermissions: db.prepare('UPDATE channels SET permissions = ?, updated_at = ? WHERE id = ?'),
       updateStreamKey: db.prepare('UPDATE channels SET stream_key = ?, updated_at = ? WHERE id = ?'),
       updateMeta: db.prepare('UPDATE channels SET topic = ?, visibility = ?, join_password_hash = ?, updated_at = ? WHERE id = ?'),
+      touchActivity: db.prepare('UPDATE channels SET last_message_at = ? WHERE id = ?'),
       insertMember: db.prepare(`
         INSERT INTO channel_members (channel_id, account_id, added_by, joined_at) VALUES (?, ?, ?, ?)
         ON CONFLICT(channel_id, account_id) DO NOTHING
@@ -272,7 +276,7 @@ export class ChannelService {
   seedDefaults(): boolean {
     if (this.channels.size > 0) return false;
     this.db.transaction(() => {
-      for (const type of Object.keys(DEFAULT_GROUPS) as ChannelType[]) {
+      for (const type of Object.keys(DEFAULT_GROUPS) as CreatableChannelType[]) {
         const group = this.getOrCreateGroupForType(type);
         for (const name of DEFAULT_CHANNELS[type]) {
           this.create({ name, type, groupId: group.id });
@@ -333,14 +337,14 @@ export class ChannelService {
     return this.groups.get(id) ?? null;
   }
 
-  getOrCreateGroupForType(type: ChannelType): ChannelGroupRecord {
+  getOrCreateGroupForType(type: CreatableChannelType): ChannelGroupRecord {
     for (const group of this.groups.values()) {
       if (group.type === type) return group;
     }
     return this.createGroup(DEFAULT_GROUPS[type], type);
   }
 
-  createGroup(name: string, type: ChannelType, collapsed = false): ChannelGroupRecord {
+  createGroup(name: string, type: CreatableChannelType, collapsed = false): ChannelGroupRecord {
     const group: ChannelGroupRecord = {
       id: newId('group-' + type, 8),
       name: name.trim().slice(0, 64) || DEFAULT_GROUPS[type],
@@ -361,13 +365,20 @@ export class ChannelService {
     return group;
   }
 
+  /** Channels that count against MAX_CHANNELS (direct messages do not). */
+  private regularCount(): number {
+    let count = 0;
+    for (const channel of this.channels.values()) if (channel.type !== 'dm') count += 1;
+    return count;
+  }
+
   create(input: CreateChannelInput): ChannelRecord {
     const name = channelNameSchema.parse(input.name);
-    const type = channelTypeSchema.parse(input.type) as ChannelType;
+    const type = channelTypeSchema.parse(input.type) as CreatableChannelType;
     const visibility = (input.visibility ? channelVisibilitySchema.parse(input.visibility) : 'public') as ChannelVisibility;
     const topic = channelTopicSchema.parse(input.topic ?? null);
 
-    if (this.channels.size >= this.config.limits.maxChannels) {
+    if (this.regularCount() >= this.config.limits.maxChannels) {
       throw new AppError('Maximum number of channels (' + this.config.limits.maxChannels + ') reached', 'CHANNEL_LIMIT', 409);
     }
     if (this.getByName(name)) {
@@ -392,6 +403,7 @@ export class ChannelService {
       position: this.channels.size,
       createdAt: now,
       updatedAt: now,
+      lastMessageAt: null,
     };
 
     this.db.transaction(() => {
@@ -417,9 +429,80 @@ export class ChannelService {
     return channel;
   }
 
+  // ------------------------------------------------------------ direct messages
+
+  /** The DM channel between two accounts, if one exists. */
+  findDm(accountA: string, accountB: string): ChannelRecord | null {
+    for (const [channelId, members] of this.members) {
+      const channel = this.channels.get(channelId);
+      if (!channel || channel.type !== 'dm') continue;
+      if (members.size === 2 && members.has(accountA) && members.has(accountB)) return channel;
+    }
+    return null;
+  }
+
+  /**
+   * Open (or reuse) the one-to-one conversation between two accounts. DM
+   * channels are private, ungrouped, named after a random id, and exempt from
+   * the channel limit; only the two members can ever see them.
+   */
+  openDm(accountA: string, accountB: string): ChannelRecord {
+    if (accountA === accountB) throw new AppError('You cannot message yourself', 'DM_SELF', 400);
+    const existing = this.findDm(accountA, accountB);
+    if (existing) return existing;
+    const now = Date.now();
+    const channel: ChannelRecord = {
+      id: newId('dm', 16),
+      name: newId('dm', 20),
+      type: 'dm',
+      groupId: null,
+      topic: null,
+      visibility: 'private',
+      joinPasswordHash: null,
+      streamKey: null,
+      permissions: createDefaultPermissions(),
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+      lastMessageAt: null,
+    };
+    this.db.transaction(() => {
+      this.stmts.insertChannel.run({
+        id: channel.id,
+        name: channel.name,
+        type: channel.type,
+        group_id: null,
+        topic: null,
+        visibility: channel.visibility,
+        join_password_hash: null,
+        stream_key: null,
+        permissions: JSON.stringify(channel.permissions),
+        position: channel.position,
+        created_at: now,
+        updated_at: now,
+      });
+      this.channels.set(channel.id, channel);
+      for (const accountId of [accountA, accountB]) {
+        const record: ChannelMemberRecord = { channelId: channel.id, accountId, addedBy: null, joinedAt: now };
+        this.stmts.insertMember.run(channel.id, accountId, null, now);
+        this.membersOf(channel.id).set(accountId, record);
+      }
+    })();
+    return channel;
+  }
+
+  /** Record that a message was posted (orders the DM list). */
+  touchActivity(id: string, at = Date.now()): void {
+    const channel = this.channels.get(id);
+    if (!channel) return;
+    this.stmts.touchActivity.run(at, id);
+    this.channels.set(id, { ...channel, lastMessageAt: at });
+  }
+
   /** Change topic, visibility or the join password. Making a channel public clears the password and members. */
   update(id: string, input: UpdateChannelInput): ChannelRecord {
     const channel = this.require(id);
+    if (channel.type === 'dm') throw new AppError('Direct messages cannot be edited', 'DM_IMMUTABLE', 400);
     const visibility = (input.visibility ? channelVisibilitySchema.parse(input.visibility) : channel.visibility) as ChannelVisibility;
     const topic = input.topic === undefined ? channel.topic : channelTopicSchema.parse(input.topic);
     let passwordHash = input.joinPasswordHash === undefined ? channel.joinPasswordHash : input.joinPasswordHash;
@@ -503,6 +586,7 @@ export class ChannelService {
 
   addMember(channelId: string, accountId: string, addedBy: string | null = null): ChannelMemberRecord {
     const channel = this.require(channelId);
+    if (channel.type === 'dm') throw new AppError('Direct messages have fixed members', 'DM_IMMUTABLE', 400);
     if (channel.visibility !== 'private') {
       throw new AppError('Only private channels have a member list', 'CHANNEL_NOT_PRIVATE', 400);
     }
@@ -515,7 +599,7 @@ export class ChannelService {
   }
 
   removeMember(channelId: string, accountId: string): boolean {
-    this.require(channelId);
+    if (this.require(channelId).type === 'dm') throw new AppError('Direct messages have fixed members', 'DM_IMMUTABLE', 400);
     const removed = this.stmts.deleteMember.run(channelId, accountId).changes > 0;
     this.members.get(channelId)?.delete(accountId);
     return removed;
@@ -561,6 +645,8 @@ export class ChannelService {
   canAccess(channel: ChannelRecord | string | null | undefined, subject: AccessSubject | null, action: PermissionAction): boolean {
     const record = typeof channel === 'string' ? this.get(channel) : channel;
     if (!record || !subject) return false;
+    // A conversation belongs to its two participants only; not even superusers read along.
+    if (record.type === 'dm') return this.isMember(record.id, subject.accountId);
     if (subject.isSuperuser) return true;
 
     if (record.visibility === 'private') {

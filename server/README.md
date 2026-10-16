@@ -80,7 +80,7 @@ rate limits apply.
 
 | Client emits | Server emits |
 | --- | --- |
-| `channel:join id`, `channels:list`, `channels:create {name,type,groupId?,topic?,visibility?,password?}`, `channels:update {channelId,topic?,visibility?,password?}`, `channels:joinPrivate {name,password}`, `channels:delete idOrName` | `channel:joined`, `chat:history`, `channels:update {channels, groups}`, `channels:created`, `channels:updated`, `channels:privateJoined {channelId}`, `channel:deleted {channelId, reason?}` |
+| `channel:join id`, `channels:list`, `channels:create {name,type,groupId?,topic?,visibility?,password?}`, `channels:update {channelId,topic?,visibility?,password?}`, `channels:joinPrivate {name,password}`, `channels:delete idOrName`, `dm:open {accountId}` | `channel:joined`, `chat:history`, `channels:update {channels, groups}`, `channels:created`, `channels:updated`, `channels:privateJoined {channelId}`, `channel:deleted {channelId, reason?}`, `dm:opened {channelId, peerId, peerName}` |
 | `chat text`, `chat:delete {messageId, channelId}`, `chat:react/unreact {channelId, messageId, emoji}` | `chat message` (with `reactions[]`), `chat:messageDeleted`, `chat:reaction {channelId, messageId, emoji, accountId, displayName, added, reactions[]}` |
 | `voice:join id`, `voice:leave`, `voice:signal {to,data}`, `voice:stream-metadata`, `voice:state {muted,deafened}`, `voice:video:state` | `voice:joined {peers,startedAt,sessionId}`, `voice:peer-join`, `voice:peer-leave`, `voice:signal`, `voice:state`, `voice:video:state` |
 | `voice:kick`, `voice:timeout`, `user:ban {targetSocketId,...}` | `voice:kicked`, `voice:timeout`, `user:banned`, `moderation:success` |
@@ -94,6 +94,19 @@ rate limits apply.
 Presence is broadcast as `user:update users[]` to everyone whenever it changes.
 Stream keys are never included in channel lists; they are only returned by
 `stream:key:request` to users allowed to stream on that channel.
+
+### Direct messages
+
+A one-to-one conversation is a channel of type `dm`: private, ungrouped, with
+exactly two rows in `channel_members` and a random name. `dm:open {accountId}`
+creates it or returns the existing one and answers `dm:opened`. Only the two
+participants pass any permission check on it (not even superusers), so history,
+reactions and deletion follow the normal chat pipeline but stay between them;
+admin tools (`channels:update/delete`, permissions, members) refuse `dm`
+channels. DMs do not count against `MAX_CHANNELS`. Each side's channel list
+entry carries `dm: {peerId, peerName, peerUsername, peerAvatarUrl}` for the
+other person, and `channels.last_message_at` (every channel) lets clients sort
+conversations by recency.
 
 ### Reactions
 

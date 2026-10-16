@@ -3,8 +3,10 @@
  * docs/PROTOCOL.md and mirrored by client/src/types/index.ts.
  */
 
-export type ChannelType = 'text' | 'voice' | 'stream' | 'screenshare';
-export const CHANNEL_TYPES: readonly ChannelType[] = ['text', 'voice', 'stream', 'screenshare'];
+/** Channel kinds users create. `dm` channels are created by the server for one-to-one conversations. */
+export type CreatableChannelType = 'text' | 'voice' | 'stream' | 'screenshare';
+export type ChannelType = CreatableChannelType | 'dm';
+export const CHANNEL_TYPES: readonly CreatableChannelType[] = ['text', 'voice', 'stream', 'screenshare'];
 
 export type RoleName = 'superuser' | 'admin' | 'moderator' | 'streamer' | 'user';
 
@@ -82,6 +84,8 @@ export interface ChannelRecord {
   position: number;
   createdAt: number;
   updatedAt: number;
+  /** When the newest message was posted; orders direct messages. */
+  lastMessageAt: number | null;
 }
 
 export interface ChannelMemberRecord {
@@ -94,7 +98,7 @@ export interface ChannelMemberRecord {
 export interface ChannelGroupRecord {
   id: string;
   name: string;
-  type: ChannelType;
+  type: CreatableChannelType;
   collapsed: boolean;
   position: number;
   createdAt: number;
@@ -204,6 +208,9 @@ export interface ChannelView {
   hasPassword: boolean;
   /** Members of a private channel; 0 for public channels. */
   memberCount: number;
+  lastMessageAt: number | null;
+  /** For `dm` channels: the other participant, as seen by the receiving user. */
+  dm?: { peerId: string; peerName: string; peerUsername: string; peerAvatarUrl: string | null } | null;
   count: number;
   isLive: boolean;
   liveStartedAt: number | null;
