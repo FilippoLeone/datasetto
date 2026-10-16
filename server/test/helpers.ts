@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig, type AppConfig } from '../src/config.js';
-import { createContext, type AppContext } from '../src/context.js';
+import { createContext, type AppContext, type ContextOptions } from '../src/context.js';
 import { openDatabase } from '../src/db/index.js';
 import { createHttpApp } from '../src/http/app.js';
 import { createSocketServer, type SocketServer } from '../src/socket/index.js';
@@ -23,9 +23,9 @@ export const testEnv = (overrides: Record<string, string> = {}): NodeJS.ProcessE
 
 export const makeConfig = (overrides: Record<string, string> = {}): AppConfig => loadConfig(testEnv(overrides));
 
-export const makeContext = (overrides: Record<string, string> = {}): AppContext => {
+export const makeContext = (overrides: Record<string, string> = {}, options: ContextOptions = {}): AppContext => {
   const config = makeConfig(overrides);
-  return createContext(config, openDatabase(':memory:', { memory: true }));
+  return createContext(config, openDatabase(':memory:', { memory: true }), options);
 };
 
 export interface TestServer {
@@ -35,8 +35,8 @@ export interface TestServer {
   close: () => Promise<void>;
 }
 
-export const startTestServer = async (overrides: Record<string, string> = {}): Promise<TestServer> => {
-  const ctx = makeContext(overrides);
+export const startTestServer = async (overrides: Record<string, string> = {}, options: ContextOptions = {}): Promise<TestServer> => {
+  const ctx = makeContext(overrides, options);
   const app = createHttpApp(ctx);
   const server = http.createServer(app);
   const sockets = createSocketServer(server, ctx);

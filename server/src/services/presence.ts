@@ -11,6 +11,12 @@ import type {
   VoiceRoom,
 } from '../types.js';
 
+/**
+ * A visible page heartbeats every 30 s (client/src/services/visibilityHeartbeat.ts);
+ * after this long without one it is treated as hidden.
+ */
+export const VISIBILITY_STALE_MS = 90_000;
+
 export interface VoicePeer {
   id: string;
   name: string;
@@ -82,6 +88,8 @@ export class PresenceService {
       voiceChannel: null,
       connectedAt: now,
       lastActivity: now,
+      visible: true,
+      visibleAt: now,
     };
     this.users.set(socketId, user);
     if (!this.socketsByAccount.has(account.id)) this.socketsByAccount.set(account.id, new Set());
@@ -140,6 +148,30 @@ export class PresenceService {
   touch(socketId: string): void {
     const user = this.users.get(socketId);
     if (user) user.lastActivity = Date.now();
+  }
+
+  /** The page behind this socket reports itself visible or hidden (`presence:visibility`). */
+  setVisibility(socketId: string, visible: boolean, now = Date.now()): boolean {
+    const user = this.users.get(socketId);
+    if (!user) return false;
+    user.visible = visible;
+    user.visibleAt = now;
+    return true;
+  }
+
+  /**
+   * Is the account looking at the app on any device? A socket counts when its page
+   * says it is visible and either said so or did anything within `staleMs`: a tab
+   * that stopped heartbeating (laptop asleep, frozen background tab) no longer counts.
+   * No sockets at all means away.
+   */
+  isAttending(accountId: string, now = Date.now(), staleMs = VISIBILITY_STALE_MS): boolean {
+    for (const socketId of this.getSocketsByAccount(accountId)) {
+      const user = this.users.get(socketId);
+      if (!user || !user.visible) continue;
+      if (now - Math.max(user.visibleAt, user.lastActivity) <= staleMs) return true;
+    }
+    return false;
   }
 
   exportUser(socketId: string): PublicUser | null {

@@ -189,6 +189,58 @@ export const migrations: Migration[] = [
       ALTER TABLE accounts ADD COLUMN deleted_at INTEGER;
     `,
   },
+  {
+    // Full-text search over chat history: an FTS5 index that reads its text from
+    // `messages` (external content, keyed by the table's rowid) and is kept in sync
+    // by triggers. Soft-deleted rows stay indexed and are filtered out at query
+    // time; hard deletes (retention pruning, channel deletion) drop the index entry.
+    // The final statement indexes every row that already exists.
+    // NOTE: never VACUUM this database by hand; VACUUM may renumber the rowids of
+    // `messages` (TEXT primary key) and the index would then point at the wrong rows.
+    // Rebuild it with INSERT INTO messages_fts(messages_fts) VALUES ('rebuild') if that ever happens.
+    version: 9,
+    name: 'message_search',
+    up: `
+      CREATE VIRTUAL TABLE messages_fts USING fts5(
+        text,
+        content='messages',
+        content_rowid='rowid',
+        tokenize='unicode61 remove_diacritics 2'
+      );
+      CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, text) VALUES (new.rowid, new.text);
+      END;
+      CREATE TRIGGER messages_fts_ad AFTER DELETE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+      END;
+      CREATE TRIGGER messages_fts_au AFTER UPDATE OF text ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+        INSERT INTO messages_fts(rowid, text) VALUES (new.rowid, new.text);
+      END;
+      INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');
+    `,
+  },
+  {
+    // Web Push subscriptions: one row per browser (the endpoint is unique), owned by an account
+    // and by the login that registered it (session_hash); rows whose session is gone are dropped
+    // before sending, so a signed-out device stops receiving notifications.
+    version: 10,
+    name: 'push_subscriptions',
+    up: `
+      CREATE TABLE push_subscriptions (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        session_hash TEXT,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_agent TEXT,
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER
+      );
+      CREATE INDEX push_subscriptions_account_idx ON push_subscriptions(account_id);
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

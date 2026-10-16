@@ -99,6 +99,7 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
     }
     const deleted = app.accounts.softDelete(accountId);
     app.sessions.revokeAll(accountId);
+    app.push.removeAll(accountId);
     app.avatars.remove(accountId);
     app.channels.removeMemberEverywhere(accountId);
     app.moderation.unban(accountId);
@@ -378,6 +379,7 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
         ticketSecretSet: config.streaming.ticketSecret !== null,
       },
       turn: { enabled: app.turn.isEnabled(), urls: config.turn.urls, stunUrls: config.turn.stunUrls, credentialTtlSeconds: config.turn.credentialTtlSeconds },
+      push: { enabled: app.push.isEnabled(), subject: app.push.subject(), subscriptions: app.push.count() },
       urls: config.publicUrls,
       cors: config.cors.origins,
       storage: { dataDir: config.storage.dataDir, databasePath: config.database.path },

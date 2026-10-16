@@ -9,6 +9,7 @@ import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '
 import { isCancelError, missingAudioHint } from '@/services/screenCapture';
 import { CameraError } from '@/services/voice/cameraCapture';
 import { isDesktopApp } from '@/services/native/desktop';
+import { parseShortcut, shortcutMatchesEvent } from '@/lib/shortcut';
 import { channelsById } from '@/state/channels';
 import { displayNameFor } from '@/state/presence';
 import { account, isAuthenticated } from '@/state/session';
@@ -53,6 +54,7 @@ class VoiceManager {
   private micRecoveryTimer: number | null = null;
   private facingMode: 'user' | 'environment' = 'user';
   private initialized = false;
+  private readonly pttSources = { window: false, global: false };
 
   constructor() {
     const settings = audioSettings.value;
@@ -123,6 +125,8 @@ class VoiceManager {
   private resetLocal(): void {
     this.clearJoinTimeout();
     this.pendingJoin = null;
+    this.pttSources.window = false;
+    this.pttSources.global = false;
     this.voice.stopStatsMonitoring();
     this.stopAllVideo();
     this.voice.dispose();
@@ -170,16 +174,34 @@ class VoiceManager {
     this.announceState();
   }
 
-  /** Push-to-talk: hold the configured key to transmit. */
+  /** Push-to-talk: hold the configured key to transmit (key events of the focused window). */
   handlePttKey(event: KeyboardEvent, pressed: boolean): void {
     const settings = audioSettings.value;
-    if (!settings.pttEnable || !settings.pttKey || event.code !== settings.pttKey) return;
+    if (!settings.pttEnable || !settings.pttKey) return;
+    const shortcut = parseShortcut(settings.pttKey);
+    if (!shortcut || !shortcutMatchesEvent(shortcut, event, pressed ? 'down' : 'up')) return;
     if (voiceStatus.value !== 'connected') return;
     event.preventDefault();
+    this.setPushToTalkHeld('window', pressed);
+  }
+
+  /**
+   * The push-to-talk key went down or up. Two sources feed this: the window's key events
+   * and, in the desktop app, the system-wide shortcut (features/voice/desktopVoice.ts);
+   * the mic transmits while either holds the key.
+   */
+  setPushToTalkHeld(source: 'window' | 'global', held: boolean): void {
+    this.pttSources[source] = held;
+    const pressed = this.pttSources.window || this.pttSources.global;
+    if (!audioSettings.value.pttEnable || voiceStatus.value !== 'connected') {
+      if (pttPressed.value) pttPressed.value = false;
+      return;
+    }
     if (pttPressed.value === pressed) return;
     pttPressed.value = pressed;
     sounds.play(pressed ? 'ptt_on' : 'ptt_off', 0.3);
     this.audio.setMuted(!this.shouldTransmit());
+    if (!pressed) this.setLocalSpeaking(false);
   }
 
   private shouldTransmit(): boolean {
@@ -269,7 +291,11 @@ class VoiceManager {
         /* unsupported browsers */
       }
     }
-    if (!settings.pttEnable) pttPressed.value = false;
+    if (!settings.pttEnable) {
+      this.pttSources.window = false;
+      this.pttSources.global = false;
+      pttPressed.value = false;
+    }
     this.audio.setMuted(!this.shouldTransmit());
   }
 

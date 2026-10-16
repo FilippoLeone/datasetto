@@ -120,6 +120,15 @@ differs, and `--help` lists every option):
 - **Containers**: `docker compose pull`, falling back to a local build, then
   `docker compose up -d`, plus a `datasetto.service` systemd unit so the stack
   comes back after a reboot (`systemctl status datasetto`, `systemctl stop datasetto`).
+- **Push notifications**: when `PUSH_VAPID_PUBLIC_KEY` and `PUSH_VAPID_PRIVATE_KEY`
+  are both empty, the script generates a VAPID key pair with the app image
+  (`web-push`) into `/opt/datasetto/ops/.env` before the first `up`, and sets
+  `PUSH_VAPID_SUBJECT` to `https://<SITE_ADDRESS>` (or `mailto:` of the first
+  `ADMIN_EMAILS` address). Keep the pair: browsers subscribe to the public key, and
+  a new pair orphans every subscription. A later `--env` file without the keys
+  keeps the ones already on the server (the script says so); copy the three
+  `PUSH_VAPID_*` lines into your local copy to be safe. Browsers only subscribe
+  over https, so push needs a real `SITE_ADDRESS`.
 - **Backups**: `ops/vps/backup.sh` runs every night at 04:00 from the
   `datasetto-backup.timer` systemd timer. It asks the app container for a
   consistent copy through SQLite's online backup API, gzips it into
@@ -260,6 +269,8 @@ thanks to the swap file.
    - `ADMIN_EMAILS=you@example.com`
    - `PUBLIC_RTMP_URL=rtmps://chat.example.com:1936/live` (see "Streaming: RTMP and RTMPS")
    - optional TURN: `COMPOSE_PROFILES=turn`, `TURN_SECRET`, `TURN_REALM`, `TURN_URLS=turn:chat.example.com:3478`
+   - optional push notifications: `PUSH_VAPID_PUBLIC_KEY` and `PUSH_VAPID_PRIVATE_KEY` from
+     `docker run --rm node:24-slim npx -y web-push generate-vapid-keys` (the VPS installer generates them itself)
 2. Create the VM (idempotent):
    ```bash
    BUDGET_AMOUNT=15EUR BACKUP_BUCKET=datasetto-backups-<something-unique> ops/gcp/create-vm.sh
@@ -398,7 +409,11 @@ in front of ports 80/443; RTMP and TURN would stay direct.
   to anyone with project access); on a VPS only on the server, as
   `/opt/datasetto/ops/.env` with mode 600. Rotate `REGISTRATION_INVITE_CODE` and
   `TURN_SECRET` by editing `.env` and running `deploy.sh` (GCP) or
-  `install.sh --env` (VPS).
+  `install.sh --env` (VPS). The `PUSH_VAPID_*` pair is the one secret you do not
+  rotate casually: every browser subscribed to the old public key stops receiving
+  notifications until its user turns them off and on again. On GCP generate it
+  yourself (`docker run --rm node:24-slim npx -y web-push generate-vapid-keys`)
+  and put it in `.env` before `create-vm.sh`; the VPS installer does it for you.
 - **Logs**: `docker compose logs` on the VM (JSON lines, rotated at 3 x 10 MB per
   container). Set `LOG_LEVEL=debug` in `.env` for socket-level detail.
 - **Memory**: the compose file caps containers (web 128 MB, app 320 MB, rtmp 192 MB,

@@ -81,6 +81,11 @@ export const ServerSection = () => {
         <Row label="STUN servers" value={info.turn.stunUrls.join(', ')} hint="STUN_URLS" />
         <Row label="Credential lifetime" value={formatDuration(info.turn.credentialTtlSeconds * 1000)} hint="TURN_CREDENTIAL_TTL_SECONDS" />
       </Group>
+      <Group title="Push notifications">
+        <Row label="Web Push enabled" value={yesNo(info.push.enabled)} hint="PUSH_VAPID_PUBLIC_KEY / PUSH_VAPID_PRIVATE_KEY" />
+        <Row label="Contact (VAPID subject)" value={info.push.subject ?? 'none'} hint="PUSH_VAPID_SUBJECT" />
+        <Row label="Subscribed browsers" value={String(info.push.subscriptions)} />
+      </Group>
       <Group title="Storage and origins">
         <Row label="Database" value={info.storage.databasePath} hint="DATABASE_PATH" />
         <Row label="Uploads" value={info.storage.dataDir} hint="DATA_DIR" />

@@ -251,8 +251,7 @@ class PeerAudioManager {
   private gainNode: GainNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private speakingMonitor: SpeakingMonitor | null = null;
-  private mediaElementSource: MediaElementAudioSourceNode | null = null;
-  
+
   constructor(
     private peerId: string,
     private context: AudioContext,
@@ -269,24 +268,15 @@ class PeerAudioManager {
     this.audioElement.setAttribute('playsinline', 'true');
     this.audioElement.dataset.peerId = this.peerId;
     
-    if (isElectron()) {
-      console.log(`[PeerAudioManager] Using Electron strategy for ${this.peerId}`);
-      this.audioElement.srcObject = stream;
-      this.audioElement.muted = false;
-      this.audioElement.volume = 1.0;
-      this.audioElement.play().catch(e => console.warn(`[PeerAudioManager] Play failed:`, e));
-
-      this.mediaElementSource = this.context.createMediaElementSource(this.audioElement);
-      this.sourceNode = this.mediaElementSource;
-      this.gainNode = this.context.createGain();
-      this.analyserNode = this.context.createAnalyser();
-      
-      this.sourceNode.connect(this.gainNode);
-      this.gainNode.connect(this.analyserNode);
-      this.analyserNode.connect(this.context.destination);
-    } 
-    else if (isCapacitor()) {
-      console.log(`[PeerAudioManager] Using Capacitor strategy for ${this.peerId}`);
+    if (isElectron() || isCapacitor()) {
+      // Native shells play through the AudioContext: the gain node allows a boost above
+      // 100 % and the output device is picked with AudioContext.setSinkId. The element
+      // stays attached but muted, because Chromium only feeds remote WebRTC audio to Web
+      // Audio while a media element consumes the stream. The graph is fed by a
+      // MediaStreamSource: createMediaElementSource on an element playing a MediaStream
+      // yields silence in Chromium (measured in Electron 44), which made the desktop app
+      // both mute remote voices and blind to who was speaking.
+      console.log(`[PeerAudioManager] Using ${isElectron() ? 'Electron' : 'Capacitor'} strategy for ${this.peerId}`);
       this.audioElement.srcObject = stream;
       this.audioElement.muted = true;
       this.audioElement.play().catch(() => {});
@@ -388,8 +378,6 @@ class PeerAudioManager {
       this.audioElement.remove();
       this.audioElement = null;
     }
-    
-    this.mediaElementSource = null;
   }
 }
 

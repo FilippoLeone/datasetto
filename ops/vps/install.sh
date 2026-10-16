@@ -30,8 +30,9 @@
 #   5. copy --env to ops/.env (mode 600, CRLF stripped) and sanity-check it
 #   6. firewall: rate-limited SSH, 80, 443 tcp+udp, 1935, 1936, and the TURN ports
 #      only when COMPOSE_PROFILES contains "turn"; everything else denied
-#   7. docker compose pull (or build) and up -d; systemd unit datasetto.service
-#      so the stack starts on boot
+#   7. docker compose pull (or build); a VAPID key pair for Web Push notifications
+#      is generated into ops/.env with the app image when PUSH_VAPID_* is empty;
+#      up -d; systemd unit datasetto.service so the stack starts on boot
 #   8. daily SQLite backup (ops/vps/backup.sh) from a systemd timer; 14 copies
 #      kept in /var/backups/datasetto, optional upload to an rclone remote
 #   9. the egress guard, only with --egress-guard
@@ -108,9 +109,20 @@ command -v systemctl >/dev/null 2>&1 || die "systemd is required"
 # ---- helpers to read the configuration --------------------------------------
 # The file the values come from: the one passed in now, else the installed copy.
 ENV_SRC="${ENV_FILE:-$APP_DIR/ops/.env}"
-env_value() {
-  grep -E "^$1=" "$ENV_SRC" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '\r' \
+env_value_from() {
+  grep -E "^$2=" "$1" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '\r' \
     | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/" || true
+}
+env_value() { env_value_from "$ENV_SRC" "$1"; }
+# Set KEY=VALUE in the installed ops/.env, replacing the line when the key exists.
+set_env_value() {
+  local key="$1" value="$2" target="$APP_DIR/ops/.env" escaped
+  escaped="$(printf '%s' "$value" | sed -e 's/[|&\\]/\\&/g')"
+  if grep -qE "^$key=" "$target"; then
+    sed -i "s|^$key=.*|$key=$escaped|" "$target"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$target"
+  fi
 }
 PROFILES="$(env_value COMPOSE_PROFILES)"
 RCLONE_REMOTE="$(env_value BACKUP_RCLONE_REMOTE)"
@@ -208,15 +220,29 @@ sync_repo() {
 # ---- 5. configuration --------------------------------------------------------
 write_env() {
   step "Configuration ops/.env"
-  local target="$APP_DIR/ops/.env"
+  local target="$APP_DIR/ops/.env" key kept
+  local -A keep=()
   if [[ -n "$ENV_FILE" ]]; then
     if [[ "$ENV_FILE" != "$(readlink -f "$target" 2>/dev/null || true)" ]]; then
+      # Push keys generated here by an earlier run survive a new --env file that lacks them:
+      # a new pair would silently orphan every browser subscribed to the old one.
+      for key in PUSH_VAPID_PUBLIC_KEY PUSH_VAPID_PRIVATE_KEY PUSH_VAPID_SUBJECT; do
+        keep[$key]="$(env_value_from "$target" "$key")"
+      done
       install -m 0600 -o root -g root "$ENV_FILE" "$target"
     fi
   fi
   chmod 600 "$target"
   sed -i 's/\r$//' "$target"
   ENV_SRC="$target"
+  kept=""
+  for key in "${!keep[@]}"; do
+    if [[ -n "${keep[$key]}" && -z "$(env_value "$key")" ]]; then
+      set_env_value "$key" "${keep[$key]}"
+      kept="$kept $key"
+    fi
+  done
+  [[ -z "$kept" ]] || echo "    kept from the previous ops/.env:${kept} (copy them into your local env file)"
 
   local site mode code secret ext_ip
   site="$(env_value SITE_ADDRESS)"
@@ -301,10 +327,57 @@ configure_firewall() {
 }
 
 # ---- 7. containers and boot unit --------------------------------------------
+# Web Push needs a VAPID key pair. Without Node on the host, the app image (which ships
+# the web-push package) generates it; the pair goes into ops/.env and stays there.
+ensure_vapid_keys() {
+  step "Push notifications (VAPID keys)"
+  local pub priv subject json site admin
+  pub="$(env_value PUSH_VAPID_PUBLIC_KEY)"
+  priv="$(env_value PUSH_VAPID_PRIVATE_KEY)"
+  if [[ -n "$pub" && -n "$priv" ]]; then
+    echo "    key pair present in ops/.env"
+    return
+  fi
+  if [[ -n "$pub$priv" ]]; then
+    warn "only one of PUSH_VAPID_PUBLIC_KEY / PUSH_VAPID_PRIVATE_KEY is set; the app refuses to start like that. Clear both to get a new pair."
+    return
+  fi
+  subject="$(env_value PUSH_VAPID_SUBJECT)"
+  if [[ -z "$subject" ]]; then
+    site="$(env_value SITE_ADDRESS)"
+    admin="$(env_value ADMIN_EMAILS | cut -d, -f1 | tr -d '[:space:]')"
+    if [[ -n "$site" && "$site" != :* && "$site" != *example.com* ]]; then
+      subject="https://${site#*://}"
+    elif [[ -n "$admin" && "$admin" != *example.com* ]]; then
+      subject="mailto:$admin"
+    else
+      warn "no PUSH_VAPID_SUBJECT and nothing to derive it from (SITE_ADDRESS is not a domain, ADMIN_EMAILS is empty); push notifications stay off. Set PUSH_VAPID_SUBJECT=mailto:you@example.com and re-run."
+      return
+    fi
+  fi
+  json="$(cd "$APP_DIR/ops" && docker compose run --rm --no-deps --entrypoint node app -e 'const w=require("web-push");console.log(JSON.stringify(w.generateVAPIDKeys()))')" || json=""
+  pub="$(printf '%s' "$json" | sed -n 's/.*"publicKey":"\([^"]*\)".*/\1/p')"
+  priv="$(printf '%s' "$json" | sed -n 's/.*"privateKey":"\([^"]*\)".*/\1/p')"
+  if [[ -z "$pub" || -z "$priv" ]]; then
+    warn "could not generate VAPID keys with the app image; push notifications stay off. Set PUSH_VAPID_* in ops/.env by hand (docker run --rm node:24-slim npx -y web-push generate-vapid-keys)."
+    return
+  fi
+  set_env_value PUSH_VAPID_PUBLIC_KEY "$pub"
+  set_env_value PUSH_VAPID_PRIVATE_KEY "$priv"
+  set_env_value PUSH_VAPID_SUBJECT "$subject"
+  echo "    generated a key pair into ops/.env, subject $subject"
+  echo "    keep the pair (browsers subscribe to the public key); copy PUSH_VAPID_* into your local env file"
+}
+
 compose_up() {
   step "Containers"
   cd "$APP_DIR/ops"
-  docker compose pull --quiet || warn "image pull failed; using local images or building from source"
+  if ! docker compose pull --quiet; then
+    warn "image pull failed; building the images from source (a few minutes on a small VPS)"
+    docker compose build
+  fi
+  ensure_vapid_keys
+  cd "$APP_DIR/ops"
   docker compose up -d --remove-orphans || docker compose up -d --build --remove-orphans
   if (( ! WANT_TURN )); then
     # A service whose profile is no longer active is not an orphan to compose, so a
@@ -423,10 +496,12 @@ configure_egress_guard() {
 }
 
 summary() {
-  local site ip host
+  local site ip host push
   site="$(env_value SITE_ADDRESS)"
   host="${site#:}"; [[ "$host" == "80" ]] && host=""
   ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") print $(i + 1)}' | head -n1)"
+  push="off (no PUSH_VAPID_* keys)"
+  [[ -n "$(env_value PUSH_VAPID_PRIVATE_KEY)" ]] && push="on (VAPID keys in ops/.env; needs https for browsers to subscribe)"
   cat <<EOF
 
 === datasetto install done $(date -Is) ===
@@ -434,6 +509,7 @@ summary() {
   Server IPv4 : ${ip:-unknown}
   Site        : ${host:-http://${ip:-<ip>}/ (no domain configured)}
   Checkout    : $APP_DIR ($REF)
+  Push        : $push
   Backups     : /var/backups/datasetto (nightly, 14 copies)${RCLONE_REMOTE:+ + rclone $RCLONE_REMOTE}
   Logs        : cd $APP_DIR/ops && docker compose logs -f --tail 100
   Install log : $LOG

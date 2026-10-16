@@ -23,32 +23,62 @@ the web build served by Caddy needs none of them because everything is same-orig
 src/
   main.tsx                 bootstrap: runtime config -> socket -> render
   app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts
-  state/                   signals: session, channels, chat, presence, voice, settings, ui, screenAudio, misc (streams, screenshare, admin, minigame)
+  state/                   signals: session, channels, chat, search, presence, voice, settings, notifications (push status), ui, screenAudio, misc (streams, screenshare, admin, minigame)
   services/
     socket/                SocketClient (reconnecting socket.io), api (typed emits), bindings (server events -> state)
     voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate)
     native/                Electron bridge, Capacitor foreground service and audio routes
     screenCapture          getDisplayMedia / desktop picker capture with system audio, shared by rooms and voice channels
-    ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs
+    pushNotifications      Web Push opt-in per browser: permission, service worker, subscription, sync after sign-in
+    visibilityHeartbeat    tells the server whether this page is visible (push goes out only when no page is)
+    ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs, push
     sounds, AudioNotificationService   synthesised UI sounds
   audio/worklets/          AudioWorklet processors (noise gate)
   features/
     auth/                  sign-in / register gate, profile dialog
     channels/              channel list, create/delete, stream key dialog, confirm dialog
-    chat/                  message list, composer, message rendering (links, mentions)
+    chat/                  message list, composer, message rendering (links, mentions), history paging and jump-to-message
+    search/                Ctrl+K message search: header box, results panel, debounced queries
     stream/                HLS player + live chat page
-    voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation), voice page, dock, audio settings
+    voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation), voice page, dock, audio settings,
+                           desktopVoice (system-wide push to talk + voice overlay through the Electron bridge), pushToTalkHold, voiceOverlayState
     screenshare/           presenter/viewer rooms over direct WebRTC
     minigames/             canvas engine (slither, pacman, fighter) + panel
     admin/                 members, channel permissions, bans
+    settings/              the Notifications section of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
   components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost
-  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs
+  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs, shortcut (push-to-talk keys)
   types/                   protocol.ts (wire types shared with the server), globals.d.ts (desktop and Capacitor globals)
   styles/app.css           Tailwind v4 theme tokens (dark palette) and the few custom classes
   test/setup.ts            vitest environment (jsdom)
-public/                    copied as-is: landing.html, downloads.html, robots.txt, sitemap.xml, site.webmanifest, icons
+public/                    copied as-is: landing.html, downloads.html, robots.txt, sitemap.xml, site.webmanifest, icons,
+                           sw.js (the push service worker, plain JS, no caching)
 scripts/brand-assets.py    redraws the PNG icons and the Open Graph card (Pillow)
 ```
+
+## Notifications
+
+Browsers (desktop browsers, Android Chrome and the installed PWA) can receive
+Web Push notifications for direct messages and @mentions while no window shows
+the app. It is opt-in per browser: Settings (the gear in the sidebar) >
+Notifications > "Notify me on this device" asks for permission, registers
+`public/sw.js` at the site root, subscribes with the server's VAPID public key
+from `/api/config` and sends the subscription to the server
+(`services/pushNotifications.ts`). The choice is remembered in `localStorage`
+and the subscription is re-sent after every sign-in, so it always belongs to the
+current login; turning it off tells the server and drops the browser
+subscription. "Send a test" asks the server for a notification right away. The
+section explains itself when push is unavailable: no secure context or service
+workers, the server has no keys, or notifications are blocked in the browser.
+
+The service worker only shows notifications and handles clicks: it focuses an
+open app window and posts `{type: 'push:open', channelId}` to it, or opens
+`/app?channel=<id>`; the app reads `?channel=` at boot (`state/channels.ts`,
+`pendingChannelId`) and selects that conversation once the channel list arrives.
+`services/visibilityHeartbeat.ts` reports `document.visibilityState` to the
+server on every change and every 30 s while visible, which is how the server
+knows nobody is looking. Inside the Electron and Capacitor shells nothing is
+registered: the desktop app shows native notifications through its bridge.
 
 ## Sharing a game with sound
 
@@ -85,6 +115,48 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
   offers 32 to 128 kbps); the value is applied to our sender through
   `setParameters` and asked of the other side through `maxaveragebitrate` in
   the SDP.
+
+## Searching messages
+
+The search box in the header (Ctrl+K, Cmd+K on a Mac; a magnifier button that
+opens a full-screen page on phones) searches the chat history of every channel
+you can read: public channels, private channels you belong to and your own
+direct messages. Results are grouped by channel, newest first, with the
+author's avatar, how long ago the message was sent and a snippet in which the
+matching words are highlighted. Searching starts after two letters and is
+debounced while you type; the last word matches as a prefix (`pine` finds
+`pineapple`) and a phrase in double quotes must appear as written.
+
+- **Everywhere / #channel** narrows the search to the channel that is open; the
+  filter icon on a result (or hovering it) limits results to that person, shown
+  as a removable "From …" chip. Arrow keys move through the results, Enter opens
+  the highlighted one, Escape closes the panel; "Load more" fetches the next page.
+- Clicking a result opens its channel and scrolls to the message, which lights
+  up for a moment. When the message is older than the history on screen the
+  client pages backwards (`chat:history:before`) until it has it. The same
+  paging runs when you scroll to the top of a channel; the "start of #channel"
+  banner only appears once there is nothing older to load.
+- Empty, loading and error states have their own panel content, and the panel's
+  enter/leave motion goes through `lib/motion.ts`, so it respects reduced motion
+  like every other dialog.
+
+## Push to talk and the voice overlay while gaming
+
+- Push to talk (Voice & audio settings > Transmission) records a key or a combination such as `Ctrl + Shift + F9`
+  (`lib/shortcut.ts`: stored as `Ctrl+Shift+KeyV`, a bare `KeyboardEvent.code` from the old client still loads).
+  A press must carry exactly the recorded modifiers, a release only has to be the same key. A modifier alone
+  (right Ctrl) works too.
+- In the browser the key works while the tab is focused. In the desktop app the same key is registered with the
+  operating system while you are in voice (`features/voice/desktopVoice.ts` asks `window.desktopAPI` for it) and
+  also works while a game has focus; the dialog says "Works in the background in the desktop app" when it does,
+  warns when the system or another app already owns the combination, and explains that a modifier alone or a bare
+  typing key has limits. Electron reports presses only, so `pushToTalkHold.ts` treats the key as released when the
+  OS key repeats stop (about 150 ms after a long hold, up to 1.2 s after a short tap).
+- The desktop overlay (Voice & audio settings > Voice overlay: toggle and corner) is fed from the voice signals by
+  `voiceOverlayState.ts`: you first, then friends by name, speaking ring, mute/deafen, your Muted / Deafened /
+  Hold to talk / Live state, at most eight rows plus a "+N more" line. It is hidden outside voice and in the browser.
+  Both the shortcut helpers and the overlay state are unit tested; everything feature-detects the bridge so a
+  browser, a phone or an older desktop shell keeps working.
 
 ## Conventions
 

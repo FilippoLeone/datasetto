@@ -51,7 +51,8 @@
       "preload.js",
       "package.json",
       "renderer/**/*",
-      "picker/**/*"
+      "picker/**/*",
+      "overlay/**/*"
     ],
     "directories": {
       "output": "release",

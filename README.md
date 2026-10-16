@@ -19,6 +19,7 @@ VM for about the price of a coffee a week.
 - **Screenshare rooms** for one presenter and many viewers
 - **Minigames** inside voice channels (Slither, Pacman, Fighter) with a persistent leaderboard
 - **Accounts and roles**: superuser, admin, moderator, streamer, user; per-channel permissions; invite-only registration
+- **Notifications**: Web Push for direct messages and @mentions while the app is hidden (browsers and the installed PWA, opt-in per device); native notifications in the desktop app
 - **Clients**: web app, Electron desktop app (`desktop/`), Capacitor Android/iOS app (`mobile/`)
 
 ## Repository layout

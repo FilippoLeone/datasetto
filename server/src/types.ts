@@ -156,6 +156,19 @@ export interface ConnectedUser {
   voiceChannel: string | null;
   connectedAt: number;
   lastActivity: number;
+  /** The page behind this socket says it is visible (default) or hidden. */
+  visible: boolean;
+  /** When `visible` was last reported (the client heartbeats while visible). */
+  visibleAt: number;
+}
+
+/** A Web Push subscription as listed to its owner (keys are never sent back). */
+export interface PushSubscriptionView {
+  id: string;
+  endpoint: string;
+  userAgent: string | null;
+  createdAt: number;
+  lastUsedAt: number | null;
 }
 
 export interface VoiceParticipant {

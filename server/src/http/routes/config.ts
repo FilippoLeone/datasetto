@@ -29,7 +29,11 @@ export const configRouter = (ctx: AppContext): Router => {
       limits: {
         maxMessageLength: ctx.config.limits.maxMessageLength,
         passwordMinLength: ctx.config.security.passwordMinLength,
+        // Messages sent with `chat:history` on join; fewer than this means the channel's start is on screen.
+        chatHistoryLimit: ctx.config.limits.chatHistoryLimit,
       },
+      // Web Push: off without VAPID keys; the public key is what browsers subscribe with.
+      push: { enabled: ctx.push.isEnabled(), publicKey: ctx.push.publicKey() },
     });
   });
 

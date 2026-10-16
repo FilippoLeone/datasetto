@@ -1,3 +1,5 @@
+import { pushStatus } from '@/state/notifications';
+
 /**
  * Electron bridge helpers. Every call is a no-op in the browser and on mobile.
  */
@@ -15,6 +17,9 @@ export const notifyDesktop = async (title: string, body: string): Promise<void> 
     return;
   }
   if (typeof Notification === 'undefined') return;
+  // A hidden page with Web Push on is served by the service worker instead (the server
+  // pushes when every page is hidden); a visible but unfocused window still notifies here.
+  if (document.visibilityState === 'hidden' && pushStatus.value.enabled) return;
   if (Notification.permission === 'granted') {
     new Notification(title, { body, silent: true });
   } else if (Notification.permission === 'default') {

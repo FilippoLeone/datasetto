@@ -82,6 +82,12 @@ const envSchema = z.object({
     .regex(/^[\w.-]+\/[\w.-]+$/, 'expected owner/name')
     .default('FilippoLeone/datasetto'),
   RELEASES_CACHE_SECONDS: intFromEnv(600, 30, 86400),
+
+  // Web Push (VAPID). Both keys empty = push notifications off. ops/vps/install.sh
+  // generates a pair; the subject is a mailto: or https: contact for push services.
+  PUSH_VAPID_PUBLIC_KEY: optionalString,
+  PUSH_VAPID_PRIVATE_KEY: optionalString,
+  PUSH_VAPID_SUBJECT: optionalString,
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -108,6 +114,8 @@ export interface AppConfig {
   turn: { urls: string[]; secret: string | null; credentialTtlSeconds: number; stunUrls: string[] };
   streaming: { maxViewers: number; maxBitrateKbps: number; monthlyEgressBytes: number; statUrl: string | null; ticketSecret: string | null };
   releases: { githubRepo: string; cacheSeconds: number };
+  /** Web Push: all three set = enabled. */
+  push: { publicKey: string | null; privateKey: string | null; subject: string | null };
 }
 
 const readVersion = (): string => {
@@ -132,6 +140,17 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
   }
   if (env.TURN_URLS.length > 0 && !env.TURN_SECRET) {
     throw new Error('TURN_SECRET is required when TURN_URLS is set');
+  }
+  if ((env.PUSH_VAPID_PUBLIC_KEY === null) !== (env.PUSH_VAPID_PRIVATE_KEY === null)) {
+    throw new Error('PUSH_VAPID_PUBLIC_KEY and PUSH_VAPID_PRIVATE_KEY must be set together');
+  }
+  // The subject identifies the operator to push services; the first admin email is a sensible default.
+  const pushSubject = env.PUSH_VAPID_SUBJECT ?? (env.ADMIN_EMAILS[0] ? 'mailto:' + env.ADMIN_EMAILS[0] : null);
+  if (env.PUSH_VAPID_PUBLIC_KEY && !pushSubject) {
+    throw new Error('PUSH_VAPID_SUBJECT (mailto:you@example.com or https://your.site) is required when VAPID keys are set');
+  }
+  if (pushSubject && !/^(mailto:.+|https:\/\/.+)$/i.test(pushSubject)) {
+    throw new Error('PUSH_VAPID_SUBJECT must be a mailto: address or an https: URL');
   }
 
   return {
@@ -171,6 +190,9 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       stunUrls: env.STUN_URLS,
     },
     releases: { githubRepo: env.RELEASES_GITHUB_REPO, cacheSeconds: env.RELEASES_CACHE_SECONDS },
+    push: env.PUSH_VAPID_PUBLIC_KEY
+      ? { publicKey: env.PUSH_VAPID_PUBLIC_KEY, privateKey: env.PUSH_VAPID_PRIVATE_KEY, subject: pushSubject }
+      : { publicKey: null, privateKey: null, subject: null },
   };
 };
 

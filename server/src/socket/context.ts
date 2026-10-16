@@ -6,7 +6,10 @@ import { rolesHavePermission, type Permission } from '../core/roles.js';
 import { AppError, errorMessage, isAppError, notAuthenticated } from '../errors.js';
 import type { ConnectedUser, PublicAccount } from '../types.js';
 
-export type LimiterKind = 'chat' | 'reaction' | 'signal' | 'game' | 'generic' | 'auth';
+export type LimiterKind = 'chat' | 'reaction' | 'signal' | 'game' | 'generic' | 'auth' | 'search';
+
+/** Full-text searches one socket may run per minute. */
+export const SEARCHES_PER_MINUTE = 60;
 
 /** Per-connection state. One instance per socket, discarded on disconnect. */
 export interface SocketContext {
@@ -48,6 +51,7 @@ export const createSocketContext = (app: AppContext, io: Server, socket: Socket,
     game: new RateLimiter(1200, 10_000, false),
     generic: new RateLimiter(300, 10_000, false),
     auth: new RateLimiter(20, 60_000, false),
+    search: new RateLimiter(SEARCHES_PER_MINUTE, 60_000, false),
   },
 });
 
@@ -114,9 +118,13 @@ export const handle = <T = unknown>(
     const limiter = sctx.limiters[options.limiter ?? 'generic'];
     const verdict = limiter.hit(event);
     if (!verdict.allowed) {
-      if (verdict.remaining === 0 && options.limiter !== 'signal' && options.limiter !== 'game') {
+      const message = 'You are doing that too fast. Try again in a moment.';
+      // A request that waits for an acknowledgement gets its refusal there instead of timing out.
+      if (ack) {
+        ack({ success: false, error: message, code: 'RATE_LIMITED' });
+      } else if (verdict.remaining === 0 && options.limiter !== 'signal' && options.limiter !== 'game') {
         socket.emit(options.errorEvent ?? 'error', {
-          message: 'You are doing that too fast. Try again in a moment.',
+          message,
           code: 'RATE_LIMITED',
           ...(options.errorExtras ? options.errorExtras(raw) : {}),
         });

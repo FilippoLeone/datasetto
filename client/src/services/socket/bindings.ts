@@ -4,6 +4,8 @@ import { api } from './api';
 import { selectChannel } from '@/features/channels/channelActions';
 import { sounds } from '@/services/sounds';
 import { notifyDesktop } from '@/services/native/desktop';
+import { syncPushSubscription } from '@/services/pushNotifications';
+import { createVisibilityHeartbeat } from '@/services/visibilityHeartbeat';
 import {
   account,
   authError,
@@ -22,6 +24,7 @@ import {
   defaultChannelId,
   markRead,
   markUnread,
+  pendingChannelId,
   rememberSelection,
   selectedChannelId,
   setChannels,
@@ -84,10 +87,26 @@ const SESSION_ENDING_CODES = new Set(['SESSION_FAILED', 'ACCOUNT_DISABLED', 'ACC
 
 let installed = false;
 
+/**
+ * Tells the server whether this page is visible, so direct messages and mentions are
+ * pushed to the user's devices only while no window of theirs shows the app. Reports
+ * are only worth sending on a live, signed-in socket (a disconnected socket would queue them).
+ */
+const heartbeat = createVisibilityHeartbeat({
+  send: (visible) => {
+    if (socketClient.connected && isAuthenticated.value) api.reportVisibility(visible);
+  },
+});
+
 /** Wire every server event into the stores. Call once before connecting. */
 export const installSocketBindings = (): void => {
   if (installed) return;
   installed = true;
+
+  effect(() => {
+    if (isAuthenticated.value) heartbeat.start();
+    else heartbeat.stop();
+  });
 
   socketClient.on('connect', () => {
     batch(() => {
@@ -122,6 +141,17 @@ export const installSocketBindings = (): void => {
       if (modal.value?.type === 'auth') closeModal();
     });
 
+    // Every (re)connect starts as "visible" on the server: say what this page really is.
+    heartbeat.pulse();
+    // This browser's push subscription follows the login (no-op unless notifications are on here).
+    void syncPushSubscription();
+
+    // A notification click or /app?channel=<id> asked for a channel: it wins over the remembered one.
+    const wanted = pendingChannelId.value;
+    if (wanted && channelsById.value.has(wanted)) {
+      pendingChannelId.value = null;
+      rememberSelection(wanted);
+    }
     // (Re)join the channel the UI is showing so the server sends history and counts us.
     // Not while a temporary password is in force: the server refuses everything but the password change.
     const target = selectedChannelId.value && channelsById.value.has(selectedChannelId.value) ? selectedChannelId.value : defaultChannelId();

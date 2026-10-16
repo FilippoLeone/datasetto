@@ -406,6 +406,18 @@
   }
 }
 
+@keyframes message-flash {
+  0%,
+  55% {
+    background-color: var(--color-brand-soft);
+    box-shadow: inset 3px 0 0 var(--color-brand);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 3px 0 0 transparent;
+  }
+}
+
 @keyframes shimmer {
   0% {
     background-position: 200% 0;
@@ -463,6 +475,29 @@
 .motion-dock[data-state='closed'] {
   animation: dock-out var(--motion-base) var(--ease-in) both;
   pointer-events: none;
+}
+
+/* Search panel (header dropdown or the phone's full-screen page). */
+.motion-panel[data-state='open'] {
+  animation: dialog-in var(--motion-base) var(--ease-out) both;
+}
+
+.motion-panel[data-state='closed'] {
+  animation: dialog-out var(--motion-fast) var(--ease-in) both;
+  pointer-events: none;
+}
+
+/* Matched terms in search snippets. */
+.search-snippet mark {
+  background: rgba(240, 178, 50, 0.3);
+  color: var(--color-text-bright);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* The message a search result jumped to: lit for a moment, then fades back. */
+.message-row.is-highlighted {
+  animation: message-flash 2.5s var(--ease-out) both;
 }
 
 /* Dialogs: the overlay fades, the card rises. ModalHost wraps the open dialog in a

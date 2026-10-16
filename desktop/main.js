@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell, screen, globalShortcut } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -315,9 +315,9 @@ async function promptScreenshareSource(options = {}) {
     });
 
     activePickerWindow = pickerWindow;
-    // The picker itself must not be offered as a window to share.
-    const ownSourceId = pickerWindow.getMediaSourceId();
-    const withoutPicker = (list) => list.filter((source) => source.id !== ownSourceId);
+    // Neither the picker itself nor the voice overlay must be offered as a window to share.
+    const ownSourceIds = new Set([pickerWindow.getMediaSourceId(), overlayMediaSourceId()].filter(Boolean));
+    const withoutPicker = (list) => list.filter((source) => !ownSourceIds.has(source.id));
 
     let refreshTimer = null;
     let refreshing = false;
@@ -408,6 +408,252 @@ async function promptScreenshareSource(options = {}) {
   });
 }
 
+
+// ============================================
+// System-wide push to talk
+// ============================================
+// The renderer asks for an Electron accelerator (client/src/lib/shortcut.ts builds it
+// from the key the user recorded) while in a voice channel with push to talk on, and
+// drops it again when leaving voice or switching modes. globalShortcut is an ordinary
+// OS hotkey registration (RegisterHotKey on Windows): nothing is injected into other
+// processes, so anti-cheat systems have nothing to object to. The OS only reports
+// presses; while the key is held it repeats them at the keyboard's repeat rate and the
+// renderer treats the key as released once the repeats stop (pushToTalkHold.ts).
+const ACCELERATOR_PATTERN = /^[A-Za-z0-9+\-=[\];'",.\/\\`~!@#$%^&*()_{}|:<>?]{1,64}$/;
+let pttAccelerator = null;
+
+function sendToRenderer(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+}
+
+function unregisterPushToTalk() {
+  if (!pttAccelerator) {
+    return;
+  }
+  try {
+    globalShortcut.unregister(pttAccelerator);
+  } catch (error) {
+    console.warn('[Desktop] Could not unregister the push-to-talk key:', error?.message ?? error);
+  }
+  pttAccelerator = null;
+}
+
+/** Replace the registered push-to-talk key; `null` only unregisters. */
+function setPushToTalkShortcut(accelerator) {
+  unregisterPushToTalk();
+  if (accelerator === null || accelerator === undefined || accelerator === '') {
+    return { accelerator: null, registered: false };
+  }
+  if (typeof accelerator !== 'string' || !ACCELERATOR_PATTERN.test(accelerator)) {
+    return { accelerator: String(accelerator).slice(0, 64), registered: false, error: 'invalid' };
+  }
+  let registered = false;
+  try {
+    registered = globalShortcut.register(accelerator, () => {
+      sendToRenderer('ptt:pressed', { accelerator, at: Date.now() });
+    });
+  } catch (error) {
+    console.warn('[Desktop] Push-to-talk key rejected:', accelerator, error?.message ?? error);
+    return { accelerator, registered: false, error: 'invalid' };
+  }
+  if (registered) {
+    pttAccelerator = accelerator;
+    console.log('[Desktop] Push-to-talk key registered:', accelerator);
+    return { accelerator, registered: true };
+  }
+  console.warn('[Desktop] Push-to-talk key is taken by the system or another app:', accelerator);
+  return { accelerator, registered: false, error: 'taken' };
+}
+
+/** Whether `accelerator` could be registered, leaving the current registration as it is. */
+function checkPushToTalkShortcut(accelerator) {
+  if (typeof accelerator !== 'string' || !ACCELERATOR_PATTERN.test(accelerator)) {
+    return { available: false };
+  }
+  if (accelerator === pttAccelerator) {
+    return { available: true };
+  }
+  try {
+    const ok = globalShortcut.register(accelerator, () => undefined);
+    if (ok) {
+      globalShortcut.unregister(accelerator);
+    }
+    return { available: ok };
+  } catch {
+    return { available: false };
+  }
+}
+
+// ============================================
+// Voice overlay
+// ============================================
+// A small frameless, transparent, always-on-top window in a corner of the primary
+// display (desktop/overlay). It ignores the mouse, never takes focus and is fed by the
+// renderer with the current voice state. It is an ordinary top-level window: games in
+// exclusive fullscreen cover it, borderless and windowed games show it.
+const OVERLAY_WIDTH = 288;
+const OVERLAY_MIN_HEIGHT = 56;
+const OVERLAY_MAX_HEIGHT = 640;
+const OVERLAY_MARGIN = 16;
+const OVERLAY_CORNERS = new Set(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
+let overlayWindow = null;
+let overlayLoaded = false;
+const overlayConfig = { enabled: false, corner: 'top-right' };
+let overlayState = null;
+let overlayHeight = 120;
+
+function overlayMediaSourceId() {
+  try {
+    return overlayWindow && !overlayWindow.isDestroyed() ? overlayWindow.getMediaSourceId() : null;
+  } catch {
+    return null;
+  }
+}
+
+function overlayBounds() {
+  const area = screen.getPrimaryDisplay().workArea;
+  const height = Math.max(OVERLAY_MIN_HEIGHT, Math.min(OVERLAY_MAX_HEIGHT, Math.round(overlayHeight)));
+  const right = overlayConfig.corner.endsWith('right');
+  const bottom = overlayConfig.corner.startsWith('bottom');
+  return {
+    x: right ? area.x + area.width - OVERLAY_WIDTH - OVERLAY_MARGIN : area.x + OVERLAY_MARGIN,
+    y: bottom ? area.y + area.height - height - OVERLAY_MARGIN : area.y + OVERLAY_MARGIN,
+    width: OVERLAY_WIDTH,
+    height,
+  };
+}
+
+function positionOverlay() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) {
+    return;
+  }
+  overlayWindow.setBounds(overlayBounds());
+}
+
+function createOverlayWindow() {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    return overlayWindow;
+  }
+  const bounds = overlayBounds();
+  overlayWindow = new BrowserWindow({
+    ...bounds,
+    title: 'Datasetto voice overlay',
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'overlay', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
+  });
+  overlayLoaded = false;
+  // Clicks go straight through to whatever is underneath.
+  overlayWindow.setIgnoreMouseEvents(true);
+  // Above fullscreen-ish windows too (borderless games); "screen-saver" is the highest level.
+  overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  if (process.platform === 'darwin') {
+    overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+  // Keep it out of screen captures (your own screen share, recordings).
+  try {
+    overlayWindow.setContentProtection(true);
+  } catch {
+    /* not supported on this platform */
+  }
+  overlayWindow.webContents.on('did-finish-load', () => {
+    overlayLoaded = true;
+    pushOverlayState();
+  });
+  overlayWindow.on('closed', () => {
+    overlayWindow = null;
+    overlayLoaded = false;
+  });
+  overlayWindow.loadFile(path.join(__dirname, 'overlay', 'index.html')).catch((error) => {
+    console.error('[Desktop] Failed to load the voice overlay:', error);
+  });
+  return overlayWindow;
+}
+
+function pushOverlayState() {
+  if (!overlayWindow || overlayWindow.isDestroyed() || !overlayLoaded) {
+    return;
+  }
+  overlayWindow.webContents.send('overlay:state', overlayState);
+}
+
+/** Show the overlay while enabled and in voice, hide it otherwise. */
+function syncOverlay() {
+  const shouldShow = overlayConfig.enabled && overlayState !== null;
+  if (!shouldShow) {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      if (overlayWindow.isVisible()) {
+        overlayWindow.hide();
+      }
+      // Clear the page too, so nothing stale (or still animating) shows when it comes back.
+      if (overlayLoaded) {
+        overlayWindow.webContents.send('overlay:state', null);
+      }
+    }
+    return;
+  }
+  const window = createOverlayWindow();
+  pushOverlayState();
+  positionOverlay();
+  if (!window.isVisible()) {
+    window.showInactive();
+  }
+}
+
+function destroyOverlay() {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.destroy();
+  }
+  overlayWindow = null;
+  overlayLoaded = false;
+}
+
+/** Sanitise what the renderer sends before another window draws it. */
+function sanitizeOverlayState(state) {
+  if (!state || typeof state !== 'object') {
+    return null;
+  }
+  const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '');
+  const imageUrl = (value) => (typeof value === 'string' && /^(https?:|data:image\/)/i.test(value) && value.length < 2_000_000 ? value : null);
+  const participants = Array.isArray(state.participants)
+    ? state.participants.slice(0, 12).map((entry) => ({
+        id: text(entry?.id, 64),
+        name: text(entry?.name, 80) || 'Unknown',
+        avatarUrl: imageUrl(entry?.avatarUrl),
+        speaking: Boolean(entry?.speaking),
+        muted: Boolean(entry?.muted),
+        deafened: Boolean(entry?.deafened),
+        self: Boolean(entry?.self),
+      }))
+    : [];
+  return {
+    channelName: text(state.channelName, 80) || 'Voice',
+    participants,
+    more: Number.isFinite(Number(state.more)) ? Math.max(0, Math.round(Number(state.more))) : 0,
+    muted: Boolean(state.muted),
+    deafened: Boolean(state.deafened),
+    pushToTalk: Boolean(state.pushToTalk),
+    transmitting: Boolean(state.transmitting),
+  };
+}
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -631,8 +877,22 @@ function createWindow() {
     }
   });
 
+  // A reload or navigation of the client starts from scratch: it registers its key and
+  // feeds the overlay again, so forget what the previous page set up.
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (!details || details.isSameDocument || details.isMainFrame === false) {
+      return;
+    }
+    unregisterPushToTalk();
+    overlayState = null;
+    syncOverlay();
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
+    unregisterPushToTalk();
+    overlayState = null;
+    syncOverlay();
   });
 
   if (supportsTrayMinimize) {
@@ -776,6 +1036,11 @@ app.whenReady().then(() => {
   // Test notification support on startup
   console.log('[Desktop] Notification supported:', Notification.isSupported());
 
+  // Keep the overlay in its corner when displays change (resolution, taskbar, monitors).
+  screen.on('display-metrics-changed', () => positionOverlay());
+  screen.on('display-added', () => positionOverlay());
+  screen.on('display-removed', () => positionOverlay());
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -794,7 +1059,13 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  destroyOverlay();
   closeLogging();
+});
+
+app.on('will-quit', () => {
+  unregisterPushToTalk();
+  globalShortcut.unregisterAll();
 });
 
 ipcMain.handle('app:get-info', () => ({
@@ -952,4 +1223,37 @@ ipcMain.on('voice:activity', (_event, payload) => {
     muted: Boolean(payload?.muted),
   };
   updateTrayVoiceIndicator(nextState);
+});
+
+// System-wide push to talk (see the section above).
+ipcMain.handle('ptt:set', (_event, payload) => setPushToTalkShortcut(payload?.accelerator ?? null));
+
+ipcMain.handle('ptt:check', (_event, payload) => checkPushToTalkShortcut(payload?.accelerator));
+
+// Voice overlay (see the section above).
+ipcMain.handle('overlay:configure', (_event, options) => {
+  overlayConfig.enabled = Boolean(options?.enabled);
+  if (OVERLAY_CORNERS.has(options?.corner)) {
+    overlayConfig.corner = options.corner;
+  }
+  syncOverlay();
+  return { enabled: overlayConfig.enabled, corner: overlayConfig.corner };
+});
+
+ipcMain.on('overlay:state', (_event, state) => {
+  overlayState = sanitizeOverlayState(state);
+  syncOverlay();
+});
+
+// The overlay page reports the height of its card so the window hugs the content.
+ipcMain.on('overlay:size', (event, payload) => {
+  if (!overlayWindow || overlayWindow.isDestroyed() || event.sender !== overlayWindow.webContents) {
+    return;
+  }
+  const height = Number(payload?.height);
+  if (!Number.isFinite(height) || height <= 0) {
+    return;
+  }
+  overlayHeight = height;
+  positionOverlay();
 });

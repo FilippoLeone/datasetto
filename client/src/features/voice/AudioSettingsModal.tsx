@@ -6,8 +6,19 @@ import { micLevel, voiceStatus } from '@/state/voice';
 import { SCREEN_QUALITY_OPTIONS } from '@/services/screenCapture';
 import { audioSettings, updateAudioSettings } from '@/state/settings';
 import { closeModal, toast } from '@/state/ui';
+import { NotificationsSection } from '@/features/settings/NotificationsSection';
+import { supportsVoiceOverlay } from './desktopVoice';
+import { ShortcutCapture } from './ShortcutCapture';
 import { voiceManager } from './voiceManager';
+import type { OverlayCorner } from './voiceOverlayState';
 import type { AudioSettings, DeviceInfo, ScreenQuality } from '@/types/protocol';
+
+const OVERLAY_CORNERS: Array<{ value: OverlayCorner; label: string }> = [
+  { value: 'top-left', label: 'Top left' },
+  { value: 'top-right', label: 'Top right' },
+  { value: 'bottom-left', label: 'Bottom left' },
+  { value: 'bottom-right', label: 'Bottom right' },
+];
 
 const BITRATES = [
   { value: '32000', label: '32 kbps (data saver)' },
@@ -22,7 +33,6 @@ export const AudioSettingsModal = () => {
   const [mics, setMics] = useState<DeviceInfo[]>([]);
   const [speakers, setSpeakers] = useState<DeviceInfo[]>([]);
   const [testing, setTesting] = useState(false);
-  const [capturing, setCapturing] = useState(false);
 
   const patch = (changes: Partial<AudioSettings>) => setDraft((current) => ({ ...current, ...changes }));
 
@@ -33,21 +43,6 @@ export const AudioSettingsModal = () => {
     });
     return () => voiceManager.stopMicTest();
   }, []);
-
-  useEffect(() => {
-    if (!capturing) return;
-    const onKey = (event: KeyboardEvent) => {
-      event.preventDefault();
-      if (event.code === 'Escape') {
-        setCapturing(false);
-        return;
-      }
-      patch({ pttKey: event.code, pttEnable: true });
-      setCapturing(false);
-    };
-    window.addEventListener('keydown', onKey, { capture: true });
-    return () => window.removeEventListener('keydown', onKey, { capture: true });
-  }, [capturing]);
 
   const toggleTest = async () => {
     if (testing) {
@@ -70,8 +65,8 @@ export const AudioSettingsModal = () => {
 
   return (
     <Modal
-      title="Voice & audio"
-      subtitle={voiceStatus.value === 'connected' ? 'Changes apply to your current call.' : undefined}
+      title="Settings"
+      subtitle={voiceStatus.value === 'connected' ? 'Voice changes apply to your current call.' : 'Voice, audio, screen share and notifications.'}
       onClose={closeModal}
       size="lg"
       footer={
@@ -133,14 +128,7 @@ export const AudioSettingsModal = () => {
 
           <h3 className="mt-3 mb-1 text-xs font-semibold tracking-wide text-text-muted uppercase">Transmission</h3>
           <Toggle label="Push to talk" description="Hold a key to transmit instead of voice activity." checked={draft.pttEnable} onChange={(value) => patch({ pttEnable: value })} />
-          {draft.pttEnable && (
-            <div className="flex items-center justify-between py-2 text-sm">
-              <span className="text-text-bright">Key: {draft.pttKey ? <code className="rounded-sm bg-base px-1.5 py-0.5 font-mono">{draft.pttKey}</code> : <span className="text-text-muted">not set</span>}</span>
-              <Button size="sm" variant="secondary" onClick={() => setCapturing(true)}>
-                {capturing ? 'Press a key…' : 'Set key'}
-              </Button>
-            </div>
-          )}
+          {draft.pttEnable && <ShortcutCapture value={draft.pttKey} onChange={(pttKey) => patch({ pttKey })} />}
           <Select label="Bitrate" value={String(draft.voiceBitrate)} options={BITRATES} onChange={(value) => patch({ voiceBitrate: Number(value) })} />
           <Toggle label="Send silence efficiently (DTX)" description="Saves bandwidth when you are not talking." checked={draft.dtx} onChange={(value) => patch({ dtx: value })} />
 
@@ -149,7 +137,25 @@ export const AudioSettingsModal = () => {
           <p className="text-xs text-text-muted">
             Applies to voice channels and screenshare rooms, also while you are sharing. Native presets keep your display's own resolution; 120 fps needs a 120 Hz display and a browser that allows it. Friends who need the server's relay (TURN) are bound by its bandwidth cap, which can soften the native presets unless the server runs without one.
           </p>
+
+          {supportsVoiceOverlay() && (
+            <>
+              <h3 className="mt-3 mb-1 text-xs font-semibold tracking-wide text-text-muted uppercase">Voice overlay</h3>
+              <Toggle
+                label="Show the voice overlay"
+                description="A small always-on-top card with your channel, who is talking and your mute state, shown while you are in voice."
+                checked={draft.overlayEnabled}
+                onChange={(value) => patch({ overlayEnabled: value })}
+              />
+              {draft.overlayEnabled && <Select label="Corner" value={draft.overlayCorner} options={OVERLAY_CORNERS} onChange={(value) => patch({ overlayCorner: value as OverlayCorner })} />}
+              <p className="text-xs text-text-muted">
+                The overlay is an ordinary window that ignores clicks; nothing is injected into games. Games in exclusive fullscreen cover it, so use borderless or windowed mode.
+              </p>
+            </>
+          )}
         </section>
+
+        <NotificationsSection />
       </div>
       <p className="mt-2 text-xs text-text-faint">Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings.</p>
     </Modal>

@@ -188,6 +188,59 @@ export interface ChatMessage {
   reactions?: ReactionSummary[];
 }
 
+/** `chat:history:before` answer: the page of history older than a known message. */
+export interface OlderHistoryResponse {
+  success: boolean;
+  error?: string;
+  code?: string;
+  channelId?: string;
+  messages?: ChatMessage[];
+  hasMore?: boolean;
+}
+
+/** One piece of a search snippet; `match` parts are the terms that hit. */
+export interface SnippetPart {
+  text: string;
+  match: boolean;
+}
+
+/** One hit of the `search` event. */
+export interface SearchResult {
+  id: string;
+  channelId: string;
+  channelName: string;
+  channelType: ChannelType;
+  authorId: string | null;
+  authorName: string;
+  authorAvatarUrl: string | null;
+  roles: RoleName[];
+  isSuperuser: boolean;
+  ts: number;
+  snippet: SnippetPart[];
+}
+
+/** `search` payload. */
+export interface SearchParams {
+  query: string;
+  channelId?: string | null;
+  authorId?: string | null;
+  limit?: number;
+  offset?: number;
+}
+
+/** `search` answer (over the acknowledgement). */
+export interface SearchResponse {
+  success: boolean;
+  error?: string;
+  code?: string;
+  query?: string;
+  results?: SearchResult[];
+  total?: number;
+  hasMore?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
 /** `chat:reaction`: someone added or removed an emoji; `reactions` is the message's full list afterwards. */
 export interface ReactionEvent {
   channelId: string;
@@ -207,7 +260,12 @@ export interface AudioSettings {
   micGain: number;
   outputVol: number;
   pttEnable: boolean;
+  /** Push-to-talk shortcut as stored by lib/shortcut.ts (`Ctrl+Shift+KeyV`, or a bare `KeyboardEvent.code`). */
   pttKey: string;
+  /** Desktop app: show the always-on-top voice overlay while in a voice channel. */
+  overlayEnabled: boolean;
+  /** Desktop app: corner of the primary display the overlay sits in. */
+  overlayCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   micDeviceId?: string;
   spkDeviceId?: string;
   voiceBitrate: number;
@@ -347,11 +405,34 @@ export interface ServerInfo {
   limits: { maxChannels: number; maxMessageLength: number; chatHistoryLimit: number; messageRetentionPerChannel: number; maxMessagesPerMinute: number };
   streaming: { maxViewers: number; maxBitrateKbps: number; monthlyEgressBytes: number; watchdog: boolean; ticketSecretSet: boolean };
   turn: { enabled: boolean; urls: string[]; stunUrls: string[]; credentialTtlSeconds: number };
+  push: { enabled: boolean; subject: string | null; subscriptions: number };
   urls: { rtmp: string | null; hls: string | null };
   cors: string[];
   storage: { dataDir: string; databasePath: string };
   counts: { accounts: number; channels: number; messages: number; online: number; invites: number };
 }
+
+// ------------------------------------------------------------ push notifications
+
+/** `push:subscribe` payload: `PushSubscription.toJSON()` plus this browser's user agent. */
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: { p256dh: string; auth: string };
+  userAgent?: string;
+}
+
+/** One of the account's subscriptions as the server lists them (never the keys). */
+export interface PushSubscriptionInfo {
+  id: string;
+  endpoint: string;
+  userAgent: string | null;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
+/** Acknowledgement of a `push:*` request. */
+export type PushAck<T = object> = ({ success: true } & T) | { success: false; error: string; code?: string };
 
 /** `admin:invites:create` payload. */
 export interface CreateInviteInput {
