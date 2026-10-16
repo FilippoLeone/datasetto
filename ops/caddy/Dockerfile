@@ -11,6 +11,9 @@ WORKDIR /src
 COPY client/package.json client/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY client/ ./
+# client/src/features/activity/catalogue.test.ts type-checks the desktop shell game matcher
+# from ../../../../desktop/games; the tsc gate in `npm run build` needs it at that path.
+COPY desktop/games /desktop/games
 RUN npm run build
 
 FROM caddy:2.11-alpine

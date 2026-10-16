@@ -19,6 +19,8 @@
 .claude
 .github
 desktop
+# The client unit tests type-check the shell game matcher; the web image build needs these two files.
+!desktop/games
 mobile
 server
 ops/data
