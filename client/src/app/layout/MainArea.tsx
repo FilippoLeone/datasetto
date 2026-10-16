@@ -1,6 +1,6 @@
-import { Hash, Menu as MenuIcon, MonitorUp, Radio, Users, Volume2 } from 'lucide-preact';
-import { IconButton } from '@/components';
-import { selectedChannel } from '@/state/channels';
+import { Hash, Lock, Menu as MenuIcon, MessageCircle, MonitorUp, Radio, Users, Volume2 } from 'lucide-preact';
+import { Avatar, IconButton } from '@/components';
+import { channelLabel, selectedChannel } from '@/state/channels';
 import { onlineCount } from '@/state/presence';
 import { isMobile, isPhone, membersOpen, showMembers, sidebarOpen } from '@/state/ui';
 import { ChatView } from '@/features/chat/ChatView';
@@ -14,6 +14,7 @@ export const CHANNEL_ICONS: Record<ChannelType, typeof Hash> = {
   voice: Volume2,
   stream: Radio,
   screenshare: MonitorUp,
+  dm: MessageCircle,
 };
 
 const Header = ({ channel }: { channel: Channel | null }) => {
@@ -26,9 +27,23 @@ const Header = ({ channel }: { channel: Channel | null }) => {
           <MenuIcon size={20} />
         </IconButton>
       )}
-      <Icon size={20} className="shrink-0 text-text-muted" />
-      <h2 className="truncate text-base font-semibold text-text-bright">{channel?.name ?? 'Datasetto'}</h2>
+      {channel?.type === 'dm' && channel.dm ? (
+        <Avatar seed={channel.dm.peerId} name={channel.dm.peerName} src={channel.dm.peerAvatarUrl} size={24} />
+      ) : (
+        <Icon size={20} className="shrink-0 text-text-muted" />
+      )}
+      <h2 className="truncate text-base font-semibold text-text-bright">{channel ? channelLabel(channel) : 'Datasetto'}</h2>
+      {channel?.type === 'dm' && channel.dm && <span className="truncate text-xs text-text-faint">{channel.dm.peerUsername}</span>}
+      {channel?.visibility === 'private' && channel.type !== 'dm' && <Lock size={14} className="shrink-0 text-text-muted" aria-label="Private channel" />}
       {channel?.type === 'stream' && channel.isLive && <span className="live-dot text-xs font-bold text-live uppercase">Live</span>}
+      {channel?.topic && !mobile && (
+        <>
+          <span className="mx-1 h-5 w-px shrink-0 bg-border-strong" aria-hidden="true" />
+          <p className="min-w-0 truncate text-sm text-text-muted" title={channel.topic}>
+            {channel.topic}
+          </p>
+        </>
+      )}
       <span className="flex-1" />
       <IconButton
         label={mobile ? 'Members' : showMembers.value ? 'Hide members' : 'Show members'}
@@ -60,7 +75,7 @@ export const MainArea = () => {
               <p className="text-sm">Pick a channel to get started.</p>
             </div>
           )}
-          {channel?.type === 'text' && <ChatView channel={channel} />}
+          {(channel?.type === 'text' || channel?.type === 'dm') && <ChatView channel={channel} />}
           {channel?.type === 'stream' && <StreamPage channel={channel} />}
           {channel?.type === 'voice' && <VoicePage channel={channel} />}
           {channel?.type === 'screenshare' && <ScreensharePage channel={channel} />}

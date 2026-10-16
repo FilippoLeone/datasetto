@@ -60,8 +60,8 @@ interface DesktopAPI {
   updateVoiceActivity: (state: { connected: boolean; speaking: boolean; muted: boolean }) => void;
   pickScreenshareSource: (options?: {
     audio?: boolean;
-    /** Shown in the picker's footer; older shells ignore it. */
-    quality?: { width: number; height: number; fps: number; label: string };
+    /** Shown in the picker's footer; older shells ignore it. `null` width/height = the display's native resolution. */
+    quality?: { width: number | null; height: number | null; fps: number; label: string };
   }) => Promise<{
     success: boolean;
     source?: DesktopScreenshareSource;

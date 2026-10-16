@@ -1,13 +1,16 @@
 import { signal } from '@preact/signals';
-import type { ChannelType, NotificationType } from '@/types/protocol';
+import type { CreatableChannelType, NotificationType } from '@/types/protocol';
+
+export type AdminSection = 'users' | 'invites' | 'channels' | 'bans' | 'usage' | 'server';
 
 export type Modal =
   | { type: 'auth'; mode: 'login' | 'register' }
   | { type: 'profile' }
-  | { type: 'createChannel'; channelType: ChannelType }
+  | { type: 'createChannel'; channelType: CreatableChannelType }
+  | { type: 'joinPrivateChannel' }
   | { type: 'streamKey'; channelId: string }
   | { type: 'audioSettings' }
-  | { type: 'admin'; tab: 'users' | 'channels' | 'bans' }
+  | { type: 'admin'; tab: AdminSection }
   | { type: 'channelPermissions'; channelId: string }
   | { type: 'confirm'; title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void };
 

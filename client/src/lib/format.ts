@@ -26,6 +26,17 @@ export const formatMessageTime = (timestamp: number): string => {
 
 export const formatFullDate = (timestamp: number): string => fullFormatter.format(new Date(timestamp));
 
+/** "just now", "5 min ago", "3 h ago", "2 days ago", else a date; "never" for null. */
+export const formatRelative = (timestamp: number | null | undefined, now = Date.now()): string => {
+  if (!timestamp) return 'never';
+  const diff = Math.max(0, now - timestamp);
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return Math.floor(diff / 60_000) + ' min ago';
+  if (diff < 86_400_000) return Math.floor(diff / 3_600_000) + ' h ago';
+  if (diff < 7 * 86_400_000) return Math.floor(diff / 86_400_000) + ' days ago';
+  return dateFormatter.format(new Date(timestamp));
+};
+
 /** "Today", "Yesterday" or a date, for day separators. */
 export const formatDayLabel = (timestamp: number): string => {
   const date = new Date(timestamp);

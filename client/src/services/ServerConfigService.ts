@@ -18,7 +18,7 @@ export interface ServerIceConfig {
 export interface ServerConfig {
   version: string;
   serverTime: number;
-  registration: { mode: 'open' | 'invite' | 'closed'; requiresInvite: boolean };
+  registration: { mode: 'open' | 'invite' | 'closed'; requiresInvite: boolean; acceptsInviteLinks: boolean };
   urls: { rtmp: string | null; hls: string | null };
   ice: ServerIceConfig;
   limits: { maxMessageLength: number; passwordMinLength: number };
@@ -161,6 +161,7 @@ class ServerConfigService {
       registration: {
         mode: mode === 'invite' || mode === 'closed' ? mode : 'open',
         requiresInvite: mode === 'invite',
+        acceptsInviteLinks: mode !== 'closed',
       },
       urls: {
         rtmp: typeof data.urls?.rtmp === 'string' && data.urls.rtmp ? data.urls.rtmp : null,

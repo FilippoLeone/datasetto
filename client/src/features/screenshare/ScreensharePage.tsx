@@ -42,6 +42,7 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
             volume={streamAudio.volume * audioSettings.value.outputVol}
             sinkId={audioSettings.value.spkDeviceId}
             audioIndicator
+            stats
             audioControls={
               hostKey
                 ? {

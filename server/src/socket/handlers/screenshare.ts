@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { idSchema } from '../../core/validation.js';
-import { AppError, forbidden, notFound } from '../../errors.js';
+import { AppError, notFound } from '../../errors.js';
 import { handle, requireUser, type SocketContext } from '../context.js';
 
 const channelPayload = z.object({ channelId: idSchema.optional().nullable() }).partial().nullable().optional();
@@ -28,7 +28,7 @@ export const registerScreenshareHandlers = (sctx: SocketContext): void => {
     (payload) => {
       const user = requireUser(sctx);
       const channel = resolveChannel(payload, sctx.currentChannel);
-      if (!app.channels.canAccess(channel, user, 'stream')) throw forbidden('No permission to share screen in this channel');
+      app.channels.requireAccess(channel, user, 'stream', 'No permission to share screen in this channel');
 
       try {
         app.presence.startScreenshare(channel.id, {
@@ -69,6 +69,7 @@ export const registerScreenshareHandlers = (sctx: SocketContext): void => {
     (payload) => {
       const user = requireUser(sctx);
       const channel = resolveChannel(payload, sctx.currentChannel);
+      app.channels.requireAccess(channel, user, 'view', 'No permission to watch this channel');
       const session = app.presence.getScreenshare(channel.id);
 
       if (!session) {

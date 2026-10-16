@@ -52,6 +52,7 @@ export const teardownSocket = (sctx: SocketContext, minigames: Minigames): void 
   leaveScreenshares(sctx);
 
   app.presence.removeUser(socket.id);
+  app.accounts.touchLastSeen(sctx.user.accountId);
   sctx.user = null;
   sctx.account = null;
   sctx.sessionToken = null;

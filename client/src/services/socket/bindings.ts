@@ -1,9 +1,22 @@
-import { batch } from '@preact/signals';
+import { batch, effect } from '@preact/signals';
 import { socketClient } from './client';
 import { api } from './api';
+import { selectChannel } from '@/features/channels/channelActions';
 import { sounds } from '@/services/sounds';
 import { notifyDesktop } from '@/services/native/desktop';
-import { account, authError, authStatus, clearSession, connectionStatus, isAuthenticated, sessionToken, setAuthenticated, socketId, updateAccount } from '@/state/session';
+import {
+  account,
+  authError,
+  authStatus,
+  clearSession,
+  connectionStatus,
+  isAuthenticated,
+  sessionToken,
+  setAuthenticated,
+  socketId,
+  suspendSession,
+  updateAccount,
+} from '@/state/session';
 import {
   channelsById,
   defaultChannelId,
@@ -13,12 +26,19 @@ import {
   selectedChannelId,
   setChannels,
 } from '@/state/channels';
-import { appendMessage, removeMessage, setHistory } from '@/state/chat';
+import { appendMessage, removeMessage, setHistory, setReactions } from '@/state/chat';
 import { users } from '@/state/presence';
 import { closeModal, modal, toast } from '@/state/ui';
 import {
   adminAccounts,
   adminBans,
+  adminInvites,
+  adminServerInfo,
+  adminSessions,
+  adminSettings,
+  adminUsage,
+  channelMembers,
+  lastCreatedInvite,
   channelPermissions,
   minigameState,
   setScreenshareSession,
@@ -29,13 +49,20 @@ import { containsMention } from '@/lib/text';
 import { serverConfig } from '@/services/ServerConfigService';
 import type {
   Account,
+  AdminSession,
+  AdminUsage,
   BanRecord,
   Channel,
   ChannelGroup,
+  ChannelMember,
   ChannelPermissions,
   ChatMessage,
   IceConfigPayload,
+  InviteToken,
+  ReactionEvent,
   ScreenshareSessionEvent,
+  ServerInfo,
+  ServerSettings,
   ServerError,
   SessionInfo,
   StreamKeyResponse,
@@ -53,7 +80,7 @@ interface AuthSuccess {
   isNewAccount?: boolean;
 }
 
-const SESSION_ENDING_CODES = new Set(['SESSION_FAILED', 'ACCOUNT_DISABLED', 'BANNED']);
+const SESSION_ENDING_CODES = new Set(['SESSION_FAILED', 'ACCOUNT_DISABLED', 'ACCOUNT_DELETED', 'BANNED', 'PASSWORD_RESET', 'SESSION_REVOKED']);
 
 let installed = false;
 
@@ -96,8 +123,9 @@ export const installSocketBindings = (): void => {
     });
 
     // (Re)join the channel the UI is showing so the server sends history and counts us.
+    // Not while a temporary password is in force: the server refuses everything but the password change.
     const target = selectedChannelId.value && channelsById.value.has(selectedChannelId.value) ? selectedChannelId.value : defaultChannelId();
-    if (target) {
+    if (target && !payload.account.mustChangePassword) {
       rememberSelection(target);
       api.joinChannel(target);
     }
@@ -112,6 +140,15 @@ export const installSocketBindings = (): void => {
 
   socketClient.on<ServerError>('auth:error', (payload) => {
     const code = payload.code ?? '';
+    if (code === 'SIGNED_IN_ELSEWHERE') {
+      // Another device took over. Stay signed out here (no automatic resume) but keep the saved token.
+      const message = payload.message || 'You signed in somewhere else, so this device was signed out.';
+      suspendSession();
+      authError.value = message;
+      toast.warning(message, 8000);
+      sounds.play('disconnect', 0.4);
+      return;
+    }
     if (SESSION_ENDING_CODES.has(code)) {
       const message = payload.message || 'Your session ended. Please sign in again.';
       clearSession();
@@ -135,9 +172,9 @@ export const installSocketBindings = (): void => {
     toast.info('Signed out');
   });
 
-  socketClient.on<{ account: Account }>('account:updated', ({ account: next }) => {
+  socketClient.on<{ account: Account; source?: string }>('account:updated', ({ account: next, source }) => {
     updateAccount(next);
-    toast.success('Profile updated');
+    if (source !== 'avatar') toast.success('Profile updated');
   });
   socketClient.on<{ account: Account }>('account:data', ({ account: next }) => updateAccount(next));
   socketClient.on<{ account: Account }>('account:rolesUpdated', ({ account: next }) => {
@@ -161,14 +198,40 @@ export const installSocketBindings = (): void => {
 
   socketClient.on<{ channelId: string }>('channel:joined', ({ channelId }) => markRead(channelId));
 
-  socketClient.on<{ channelId: string }>('channel:deleted', ({ channelId }) => {
+  socketClient.on<{ channelId: string; reason?: string }>('channel:deleted', ({ channelId, reason }) => {
     if (selectedChannelId.value === channelId) {
-      const next = defaultChannelId();
+      const next = defaultChannelId(channelId);
       rememberSelection(next);
       if (next) api.joinChannel(next);
     }
-    toast.info('Channel was deleted');
+    toast.info(reason === 'removed' ? 'You were removed from a private channel' : 'Channel was deleted');
   });
+
+  // The channel we just created or joined becomes the selection once the list that contains it arrives.
+  const selectWhenListed = (channelId: string) => {
+    if (channelsById.value.has(channelId)) {
+      selectChannel(channelId);
+      return;
+    }
+    const stop = effect(() => {
+      if (!channelsById.value.has(channelId)) return;
+      stop();
+      selectChannel(channelId);
+    });
+    window.setTimeout(stop, 5000);
+  };
+
+  socketClient.on<{ channelId: string; channelName: string }>('channels:created', ({ channelId, channelName }) => {
+    toast.success('#' + channelName + ' created');
+    selectWhenListed(channelId);
+  });
+  socketClient.on<{ channelId: string; channelName: string }>('channels:privateJoined', ({ channelId, channelName }) => {
+    toast.success('You joined #' + channelName);
+    if (modal.value?.type === 'joinPrivateChannel') closeModal();
+    selectWhenListed(channelId);
+  });
+  socketClient.on<{ channelId: string }>('channels:updated', () => toast.success('Channel settings saved'));
+  socketClient.on<{ channelId: string; peerName: string }>('dm:opened', ({ channelId }) => selectWhenListed(channelId));
 
   socketClient.on<{ channelId: string; permissions: ChannelPermissions }>('channels:permissionsUpdated', (payload) => {
     channelPermissions.value = { ...channelPermissions.value, [payload.channelId]: payload.permissions };
@@ -184,9 +247,14 @@ export const installSocketBindings = (): void => {
     if (!viewing) markUnread(message.channelId);
     sounds.play('message', viewing ? 0.25 : 0.4);
     const me = account.value;
+    const channel = channelsById.value.get(message.channelId);
+    if (channel?.type === 'dm') {
+      // Every direct message counts as a mention of its recipient.
+      if (!viewing) void notifyDesktop('Message from ' + message.from, message.text);
+      return;
+    }
     if (me && containsMention(message.text, [me.displayName, me.username])) {
-      const channelName = channelsById.value.get(message.channelId)?.name ?? 'chat';
-      void notifyDesktop(message.from + ' in #' + channelName, message.text);
+      void notifyDesktop(message.from + ' in #' + (channel?.name ?? 'chat'), message.text);
     }
   });
 
@@ -199,6 +267,10 @@ export const installSocketBindings = (): void => {
     removeMessage(channelId, messageId);
   });
 
+  socketClient.on<ReactionEvent>('chat:reaction', (event) => {
+    setReactions(event.channelId, event.messageId, event.reactions);
+  });
+
   // ------------------------------------------------------------- presence
 
   socketClient.on<User[]>('user:update', (list) => {
@@ -209,6 +281,8 @@ export const installSocketBindings = (): void => {
 
   socketClient.on<ServerError | undefined>('error', (payload) => {
     if (!payload || payload.code === 'NOT_AUTHENTICATED') return;
+    // The password screen already explains this one.
+    if (payload.code === 'PASSWORD_CHANGE_REQUIRED') return;
     toast.error(payload.message || 'Request failed');
   });
 
@@ -244,6 +318,21 @@ export const installSocketBindings = (): void => {
     upsertAdminAccount(next);
     toast.success('Roles updated for ' + next.displayName);
   });
+  socketClient.on<{ account: Account }>('admin:accounts:updated', ({ account: next }) => {
+    upsertAdminAccount(next);
+    toast.success('Renamed to ' + next.displayName);
+  });
+  socketClient.on<{ account: Account }>('admin:accounts:passwordReset', ({ account: next }) => {
+    upsertAdminAccount(next);
+    toast.success('Temporary password set for ' + next.displayName + '; they must change it at the next sign-in');
+  });
+  socketClient.on<{ account: Account }>('admin:accounts:deleted', ({ account: next }) => {
+    upsertAdminAccount(next);
+    toast.success('Account deleted');
+  });
+  socketClient.on<{ accountId: string; sessions: AdminSession[] }>('admin:accounts:sessions', (payload) => {
+    adminSessions.value = { ...adminSessions.value, [payload.accountId]: payload };
+  });
   socketClient.on<{ account: Account }>('admin:accounts:disabled', ({ account: next }) => {
     upsertAdminAccount(next);
     toast.success(next.displayName + ' disabled');
@@ -259,12 +348,32 @@ export const installSocketBindings = (): void => {
   socketClient.on<{ bans: BanRecord[] }>('admin:bans:list', ({ bans }) => {
     adminBans.value = bans;
   });
+  socketClient.on<AdminUsage>('admin:usage', (usage) => {
+    adminUsage.value = usage;
+  });
+  socketClient.on<ServerInfo>('admin:server:info', (info) => {
+    adminServerInfo.value = info;
+  });
+  socketClient.on<{ settings: ServerSettings; saved?: boolean }>('admin:settings', ({ settings, saved }) => {
+    adminSettings.value = settings;
+    if (saved) toast.success('Server settings saved');
+  });
+  socketClient.on<{ invites: InviteToken[] }>('admin:invites:list', ({ invites }) => {
+    adminInvites.value = invites;
+  });
+  socketClient.on<{ invite: InviteToken }>('admin:invites:created', ({ invite }) => {
+    lastCreatedInvite.value = invite;
+    toast.success('Invite created');
+  });
   socketClient.on<{ channelId: string; permissions: ChannelPermissions }>('admin:channels:permissions', (payload) => {
     channelPermissions.value = { ...channelPermissions.value, [payload.channelId]: payload.permissions };
   });
   socketClient.on<{ channelId: string; permissions: ChannelPermissions }>('admin:channels:permissionsUpdated', (payload) => {
     channelPermissions.value = { ...channelPermissions.value, [payload.channelId]: payload.permissions };
     toast.success('Channel permissions saved');
+  });
+  socketClient.on<{ channelId: string; members: ChannelMember[] }>('admin:channels:members', (payload) => {
+    channelMembers.value = { ...channelMembers.value, [payload.channelId]: payload.members };
   });
   socketClient.on<ServerError>('admin:error', (payload) => toast.error(payload.message));
 

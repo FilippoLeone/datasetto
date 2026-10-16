@@ -37,6 +37,22 @@ export const authStatus = signal<AuthStatus>(persisted.token ? 'resuming' : 'ano
 export const socketId = signal<string | null>(null);
 /** Last auth error shown in the auth dialog. */
 export const authError = signal<string | null>(null);
+/** Invite token taken from an `?invite=TOKEN` link; prefills the registration form. */
+export const pendingInvite = signal<string | null>(null);
+
+/** Read `?invite=TOKEN` from the page URL once at boot and drop it from the address bar. */
+export const captureInviteFromUrl = (): void => {
+  try {
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get('invite')?.trim();
+    if (!token) return;
+    pendingInvite.value = token.slice(0, 64);
+    url.searchParams.delete('invite');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+  } catch {
+    /* non-standard location (file://) */
+  }
+};
 
 export const permissions = computed<RolePermissions>(() => mergeRolePermissions(account.value?.roles ?? []));
 export const isAuthenticated = computed(() => authStatus.value === 'authenticated' && account.value !== null);
@@ -56,6 +72,7 @@ export const setAuthenticated = (nextAccount: Account, token: string): void => {
   sessionToken.value = token;
   authStatus.value = 'authenticated';
   authError.value = null;
+  pendingInvite.value = null;
   persist();
 };
 
@@ -70,4 +87,16 @@ export const clearSession = (): void => {
   sessionToken.value = null;
   authStatus.value = 'anonymous';
   Storage.remove(AUTH_KEY);
+};
+
+/**
+ * Sign this tab out without touching the saved token: used when another
+ * device (or tab) took over the account. The token is still valid there, and
+ * in the same browser the other tab may just have saved a newer one. Without
+ * a token in memory the socket will not try to resume, so there is no loop.
+ */
+export const suspendSession = (): void => {
+  account.value = null;
+  sessionToken.value = null;
+  authStatus.value = 'anonymous';
 };

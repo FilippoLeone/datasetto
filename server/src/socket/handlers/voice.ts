@@ -63,7 +63,7 @@ export const registerVoiceHandlers = (sctx: SocketContext, minigames: Minigames)
 
     const channel = app.channels.get(channelId);
     if (!channel || channel.type !== 'voice') throw new AppError('Invalid voice channel', 'INVALID_VOICE_CHANNEL', 400);
-    if (!app.channels.canAccess(channel, user, 'voice')) throw forbidden('No permission to join this voice channel');
+    app.channels.requireAccess(channel, user, 'voice', 'No permission to join this voice channel');
 
     if (sctx.voiceChannel && sctx.voiceChannel !== channel.id) {
       leaveVoiceRoom(sctx, minigames);

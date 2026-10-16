@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { RateLimiter } from '../../core/rateLimit.js';
 import { AppError } from '../../errors.js';
 import { sanitizeAccount } from '../../services/accounts.js';
+import { AvatarService } from '../../services/avatars.js';
 import { SessionService } from '../../services/sessions.js';
 import type { PublicAccount } from '../../types.js';
 import { handle, requireUser, type SocketContext } from '../context.js';
@@ -62,15 +63,36 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
     }
   };
 
+  /**
+   * SINGLE_SESSION_PER_ACCOUNT: the newest connection wins. Older sockets of
+   * the same account are told why and dropped; their clients do not retry.
+   */
+  const disconnectOlderSockets = (accountId: string) => {
+    if (!app.config.sessions.singlePerAccount) return;
+    for (const socketId of app.presence.getSocketsByAccount(accountId)) {
+      if (socketId === socket.id) continue;
+      const older = sctx.io.sockets.sockets.get(socketId);
+      if (!older) continue;
+      older.emit('auth:error', {
+        message: 'You signed in somewhere else, so this device was signed out. Sign in again here to take over.',
+        code: 'SIGNED_IN_ELSEWHERE',
+      });
+      older.disconnect(true);
+      app.log.info({ accountId, olderSocketId: socketId, newerSocketId: socket.id }, 'older connection replaced');
+    }
+  };
+
   const finalize = (account: PublicAccount, token: string, expiresAt: number, isNewAccount: boolean) => {
     if (sctx.user) {
       // Re-authenticating on a live socket: drop the previous identity first.
       app.presence.removeUser(socket.id);
     }
+    disconnectOlderSockets(account.id);
     sctx.account = account;
     sctx.sessionToken = token;
     sctx.sessionTokenHash = SessionService.hashToken(token);
     sctx.user = app.presence.addUser(socket.id, account);
+    app.accounts.touchLastSeen(account.id);
 
     socket.emit('auth:success', authSuccessPayload(sctx, account, isNewAccount, expiresAt));
     app.broadcast.users();
@@ -174,7 +196,11 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
       if (payload.newPassword) {
         await app.accounts.changePassword(user.accountId, payload.currentPassword, payload.newPassword);
         app.sessions.revokeAll(user.accountId, sctx.sessionTokenHash);
+        app.log.info({ accountId: user.accountId, forced: Boolean(sctx.account?.mustChangePassword) }, 'password changed');
       }
+
+      // Switching to an external avatar URL (or none) discards the uploaded file.
+      if (payload.avatarUrl !== undefined && !AvatarService.isLocalUrl(payload.avatarUrl)) app.avatars.remove(user.accountId);
 
       const updated = app.accounts.updateProfile(user.accountId, {
         displayName: payload.displayName,

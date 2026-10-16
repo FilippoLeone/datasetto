@@ -41,7 +41,8 @@ export const streamRouter = (ctx: AppContext): Router => {
 
   router.get('/api/stream/:channelName/status', (req, res) => {
     const channel = ctx.channels.getByName(String(req.params.channelName ?? ''));
-    if (!channel || channel.type !== 'stream') {
+    // Private stream channels are not acknowledged on this unauthenticated endpoint.
+    if (!channel || channel.type !== 'stream' || channel.visibility === 'private') {
       res.status(404).json({ error: 'Channel not found', code: 'NOT_FOUND', isLive: false });
       return;
     }

@@ -105,6 +105,90 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    name: 'private_channels',
+    up: `
+      ALTER TABLE channels ADD COLUMN topic TEXT;
+      ALTER TABLE channels ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public';
+      ALTER TABLE channels ADD COLUMN join_password_hash TEXT;
+
+      CREATE TABLE channel_members (
+        channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        added_by TEXT,
+        joined_at INTEGER NOT NULL,
+        PRIMARY KEY (channel_id, account_id)
+      );
+      CREATE INDEX channel_members_account_idx ON channel_members(account_id);
+    `,
+  },
+  {
+    version: 4,
+    name: 'invite_tokens',
+    up: `
+      CREATE TABLE invite_tokens (
+        id TEXT PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        note TEXT,
+        max_uses INTEGER NOT NULL DEFAULT 1,
+        uses INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        revoked_at INTEGER
+      );
+      ALTER TABLE accounts ADD COLUMN invite_token_id TEXT REFERENCES invite_tokens(id) ON DELETE SET NULL;
+      CREATE INDEX accounts_invite_token_idx ON accounts(invite_token_id);
+    `,
+  },
+  {
+    version: 5,
+    name: 'message_reactions',
+    up: `
+      CREATE TABLE message_reactions (
+        message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        emoji TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (message_id, account_id, emoji)
+      );
+      CREATE INDEX message_reactions_message_idx ON message_reactions(message_id);
+    `,
+  },
+  {
+    // Direct messages are channels of type 'dm' (two members in channel_members, no group).
+    // last_message_at orders the DM list by recency.
+    version: 6,
+    name: 'direct_messages',
+    up: `
+      ALTER TABLE channels ADD COLUMN last_message_at INTEGER;
+      CREATE INDEX channels_type_idx ON channels(type);
+    `,
+  },
+  {
+    // Admin-editable server settings as JSON values (e.g. permission templates for new channels).
+    version: 7,
+    name: 'settings',
+    up: `
+      CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        updated_by TEXT
+      );
+    `,
+  },
+  {
+    // Admin user management: temporary passwords that must be changed, last activity, soft deletion.
+    version: 8,
+    name: 'account_management',
+    up: `
+      ALTER TABLE accounts ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE accounts ADD COLUMN last_seen_at INTEGER;
+      ALTER TABLE accounts ADD COLUMN deleted_at INTEGER;
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

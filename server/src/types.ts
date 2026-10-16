@@ -3,8 +3,10 @@
  * docs/PROTOCOL.md and mirrored by client/src/types/index.ts.
  */
 
-export type ChannelType = 'text' | 'voice' | 'stream' | 'screenshare';
-export const CHANNEL_TYPES: readonly ChannelType[] = ['text', 'voice', 'stream', 'screenshare'];
+/** Channel kinds users create. `dm` channels are created by the server for one-to-one conversations. */
+export type CreatableChannelType = 'text' | 'voice' | 'stream' | 'screenshare';
+export type ChannelType = CreatableChannelType | 'dm';
+export const CHANNEL_TYPES: readonly CreatableChannelType[] = ['text', 'voice', 'stream', 'screenshare'];
 
 export type RoleName = 'superuser' | 'admin' | 'moderator' | 'streamer' | 'user';
 
@@ -18,7 +20,7 @@ export interface PermissionEntry {
 
 export type ChannelPermissions = Record<PermissionAction, PermissionEntry>;
 
-export type AccountStatus = 'active' | 'disabled';
+export type AccountStatus = 'active' | 'disabled' | 'deleted';
 
 export interface AccountRecord {
   id: string;
@@ -35,6 +37,25 @@ export interface AccountRecord {
   updatedAt: number;
   disabledAt: number | null;
   disabledReason: string | null;
+  /** Invite token that created the account, when one was used. */
+  inviteTokenId: string | null;
+  /** Set by an admin password reset: the next sign-in must set a new password first. */
+  mustChangePassword: boolean;
+  /** Last authenticated activity (sign-in, reconnect, disconnect). */
+  lastSeenAt: number | null;
+  deletedAt: number | null;
+}
+
+export interface InviteTokenRecord {
+  id: string;
+  token: string;
+  note: string | null;
+  maxUses: number;
+  uses: number;
+  createdBy: string | null;
+  createdAt: number;
+  expiresAt: number | null;
+  revokedAt: number | null;
 }
 
 /** Account as sent to clients (never includes the password hash). */
@@ -50,25 +71,50 @@ export interface SessionRecord {
   ip: string | null;
 }
 
+export type ChannelVisibility = 'public' | 'private';
+export const CHANNEL_VISIBILITIES: readonly ChannelVisibility[] = ['public', 'private'];
+
 export interface ChannelRecord {
   id: string;
   name: string;
   type: ChannelType;
   groupId: string | null;
+  topic: string | null;
+  /** Private channels are only listed for their members (and admins). */
+  visibility: ChannelVisibility;
+  /** bcrypt hash of the join password of a private channel; never sent to clients. */
+  joinPasswordHash: string | null;
   streamKey: string | null;
   permissions: ChannelPermissions;
   position: number;
   createdAt: number;
   updatedAt: number;
+  /** When the newest message was posted; orders direct messages. */
+  lastMessageAt: number | null;
+}
+
+export interface ChannelMemberRecord {
+  channelId: string;
+  accountId: string;
+  addedBy: string | null;
+  joinedAt: number;
 }
 
 export interface ChannelGroupRecord {
   id: string;
   name: string;
-  type: ChannelType;
+  type: CreatableChannelType;
   collapsed: boolean;
   position: number;
   createdAt: number;
+}
+
+/** One emoji on a message with everyone who added it (names for the hover list). */
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  accountIds: string[];
+  names: string[];
 }
 
 export interface MessageRecord {
@@ -83,6 +129,7 @@ export interface MessageRecord {
   isSuperuser: boolean;
   edited: boolean;
   deleted: boolean;
+  reactions: ReactionSummary[];
 }
 
 export interface BanRecord {
@@ -161,6 +208,14 @@ export interface ChannelView {
   name: string;
   type: ChannelType;
   groupId: string | null;
+  topic: string | null;
+  visibility: ChannelVisibility;
+  hasPassword: boolean;
+  /** Members of a private channel; 0 for public channels. */
+  memberCount: number;
+  lastMessageAt: number | null;
+  /** For `dm` channels: the other participant, as seen by the receiving user. */
+  dm?: { peerId: string; peerName: string; peerUsername: string; peerAvatarUrl: string | null } | null;
   count: number;
   isLive: boolean;
   liveStartedAt: number | null;

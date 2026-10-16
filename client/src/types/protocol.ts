@@ -26,7 +26,7 @@ export interface SessionInfo {
   expiresAt?: number | null;
 }
 
-export type AccountStatus = 'active' | 'disabled';
+export type AccountStatus = 'active' | 'disabled' | 'deleted';
 
 export interface Account {
   id: string;
@@ -42,6 +42,25 @@ export interface Account {
   updatedAt?: number;
   disabledAt?: number | null;
   disabledReason?: string | null;
+  /** Set by an admin password reset: a new password must be chosen before anything else. */
+  mustChangePassword?: boolean;
+  lastSeenAt?: number | null;
+  deletedAt?: number | null;
+}
+
+/** One live session of an account, as listed to admins (`admin:accounts:sessions`). */
+export interface AdminSession {
+  /** Prefix of the session's hash; addresses the session when revoking. */
+  id: string;
+  createdAt: number;
+  lastSeenAt: number;
+  expiresAt: number;
+  userAgent: string | null;
+  ip: string | null;
+  /** A socket is currently connected with this session. */
+  online: boolean;
+  /** This is the admin's own session (cannot be revoked here). */
+  current: boolean;
 }
 
 /** A connected user (one per socket). `id` is the socket id. */
@@ -58,7 +77,9 @@ export interface User {
   currentChannel?: string | null;
 }
 
-export type ChannelType = 'text' | 'voice' | 'stream' | 'screenshare';
+/** Channel kinds users create; `dm` channels are one-to-one conversations made by the server. */
+export type CreatableChannelType = 'text' | 'voice' | 'stream' | 'screenshare';
+export type ChannelType = CreatableChannelType | 'dm';
 export type ChannelPermissionAction = 'view' | 'chat' | 'voice' | 'stream' | 'manage';
 
 export interface ChannelPermissionEntry {
@@ -78,11 +99,23 @@ export interface MinigameSummary {
   updatedAt?: number;
 }
 
+export type ChannelVisibility = 'public' | 'private';
+
 export interface Channel {
   id: string;
   name: string;
   type: ChannelType;
   groupId?: string | null;
+  topic?: string | null;
+  /** Private channels are listed only for members and admins. */
+  visibility?: ChannelVisibility;
+  /** A private channel that can be joined with a password. */
+  hasPassword?: boolean;
+  /** Members of a private channel (0 for public ones). */
+  memberCount?: number;
+  lastMessageAt?: number | null;
+  /** For `dm` channels: the other participant. */
+  dm?: { peerId: string; peerName: string; peerUsername: string; peerAvatarUrl: string | null } | null;
   count: number;
   isLive?: boolean;
   liveStartedAt?: number | null;
@@ -101,8 +134,43 @@ export interface Channel {
 export interface ChannelGroup {
   id: string;
   name: string;
-  type: ChannelType;
+  type: CreatableChannelType;
   collapsed?: boolean;
+}
+
+/** `channels:create` payload. */
+export interface CreateChannelInput {
+  name: string;
+  type: CreatableChannelType;
+  topic?: string | null;
+  visibility?: ChannelVisibility;
+  /** Join password for a private channel. */
+  password?: string | null;
+}
+
+/** `channels:update` payload (admins). `password: null` removes the password. */
+export interface UpdateChannelInput {
+  topic?: string | null;
+  visibility?: ChannelVisibility;
+  password?: string | null;
+}
+
+/** One member of a private channel, as listed to admins. */
+export interface ChannelMember {
+  accountId: string;
+  username: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+  addedBy: string | null;
+  joinedAt: number;
+}
+
+/** One emoji on a message and everyone who added it. */
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  accountIds: string[];
+  names: string[];
 }
 
 export interface ChatMessage {
@@ -117,6 +185,18 @@ export interface ChatMessage {
   isSuperuser?: boolean;
   edited?: boolean;
   deleted?: boolean;
+  reactions?: ReactionSummary[];
+}
+
+/** `chat:reaction`: someone added or removed an emoji; `reactions` is the message's full list afterwards. */
+export interface ReactionEvent {
+  channelId: string;
+  messageId: string;
+  emoji: string;
+  accountId: string;
+  displayName: string;
+  added: boolean;
+  reactions: ReactionSummary[];
 }
 
 export interface AudioSettings {
@@ -138,8 +218,11 @@ export interface AudioSettings {
   screenQuality: ScreenQuality;
 }
 
-/** Screen share quality presets; see services/screenCapture.ts for the numbers. */
-export type ScreenQuality = '720p30' | '1080p60';
+/**
+ * Screen share quality presets; see services/screenCapture.ts for the numbers.
+ * The `native*` presets keep the captured display's own resolution.
+ */
+export type ScreenQuality = '720p30' | '1080p60' | 'native60' | 'native120';
 
 export interface DeviceInfo {
   deviceId: string;
@@ -202,6 +285,79 @@ export interface BanRecord {
   bannedBy: string | null;
   bannedAt: number;
   expiresAt: number | null;
+}
+
+export type InviteStatus = 'active' | 'revoked' | 'expired' | 'exhausted';
+
+/** Invite token as listed to admins (`admin:invites:list`). */
+export interface InviteToken {
+  id: string;
+  token: string;
+  note: string | null;
+  maxUses: number;
+  uses: number;
+  createdBy: string | null;
+  createdByName: string | null;
+  createdAt: number;
+  expiresAt: number | null;
+  revokedAt: number | null;
+  status: InviteStatus;
+  redeemedBy: Array<{ accountId: string; username: string; displayName: string; createdAt: number }>;
+}
+
+/** Admin-editable server settings (`admin:settings`). */
+export interface ServerSettings {
+  /** Permission template applied to new channels of each kind; absent kinds use the server default. */
+  channelPermissionTemplates: Partial<Record<CreatableChannelType, ChannelPermissions>>;
+}
+
+/** `admin:settings:update` payload; a template set to null clears it. */
+export interface ServerSettingsUpdate {
+  channelPermissionTemplates?: Partial<Record<CreatableChannelType, Partial<ChannelPermissions> | null>>;
+}
+
+export interface MonthlyUsage {
+  month: string;
+  hlsEgressBytes: number;
+  streamSeconds: number;
+  updatedAt: number;
+}
+
+/** `admin:usage`: streaming traffic and what is live (admins). */
+export interface AdminUsage {
+  currentMonth: MonthlyUsage;
+  months: MonthlyUsage[];
+  budgetBytes: number;
+  maxViewers: number;
+  maxBitrateKbps: number;
+  online: number;
+  liveStreams: Array<{ channelId: string; channelName: string; displayName: string | null; startedAt: number; viewerCount: number }>;
+}
+
+/** `admin:server:info`: the running configuration, read-only (superusers). */
+export interface ServerInfo {
+  version: string;
+  env: string;
+  startedAt: number;
+  uptimeSeconds: number;
+  node: string;
+  registration: { mode: 'open' | 'invite' | 'closed'; inviteCodeSet: boolean; adminEmails: string[] };
+  sessions: { ttlDays: number; singlePerAccount: boolean };
+  security: { passwordMinLength: number; maxConnectionsPerIp: number; trustProxy: boolean };
+  limits: { maxChannels: number; maxMessageLength: number; chatHistoryLimit: number; messageRetentionPerChannel: number; maxMessagesPerMinute: number };
+  streaming: { maxViewers: number; maxBitrateKbps: number; monthlyEgressBytes: number; watchdog: boolean; ticketSecretSet: boolean };
+  turn: { enabled: boolean; urls: string[]; stunUrls: string[]; credentialTtlSeconds: number };
+  urls: { rtmp: string | null; hls: string | null };
+  cors: string[];
+  storage: { dataDir: string; databasePath: string };
+  counts: { accounts: number; channels: number; messages: number; online: number; invites: number };
+}
+
+/** `admin:invites:create` payload. */
+export interface CreateInviteInput {
+  maxUses?: number;
+  expiresAt?: number | null;
+  note?: string | null;
 }
 
 // ---------------------------------------------------------------- minigames

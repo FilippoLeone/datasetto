@@ -360,6 +360,10 @@ Everything that can cost money is gated or capped. The knobs live in
   public `/api/config` carries STUN only) and expire after 12 h. coturn is
   capped at 1.5 Mbit/s per session, 20 Mbit/s in total, 40 sessions, 6 per
   user, and refuses to relay to private, link-local and metadata addresses.
+  The per-session cap also bounds relayed screen shares: a viewer behind a
+  strict NAT who needs the relay sees a softer picture at the 1080p60 and
+  native presets (direct peer-to-peer connections are not affected); raise
+  `TURN_MAX_BPS` in `ops/turn/entrypoint.sh` if the bill allows it.
 - **HTTP and sockets.** Helmet headers, strict CORS, 256 KB JSON bodies, 256 KB
   socket messages, 20 sockets per IP, 300 API requests per IP per minute, and
   per-event buckets for chat, signalling, games and auth. Registration is
