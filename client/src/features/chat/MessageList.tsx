@@ -87,6 +87,19 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
   const list = messages.value[channel.id] ?? [];
   const loaded = loadedChannels.value[channel.id] ?? false;
   const rows = buildRows(list);
+  // Messages that arrive after the history is on screen fade in; the history itself does not.
+  const seen = useRef<{ channelId: string; loaded: boolean; ids: Set<string>; fresh: Set<string> } | null>(null);
+  if (!seen.current || seen.current.channelId !== channel.id) {
+    seen.current = { channelId: channel.id, loaded, ids: new Set(list.map((message) => message.id)), fresh: new Set() };
+  } else {
+    for (const message of list) {
+      if (seen.current.ids.has(message.id)) continue;
+      seen.current.ids.add(message.id);
+      if (seen.current.loaded) seen.current.fresh.add(message.id);
+    }
+    seen.current.loaded = loaded;
+  }
+  const fresh = seen.current.fresh;
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const [showJump, setShowJump] = useState(false);
@@ -128,9 +141,21 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
             <p className="text-sm text-text-muted">This is the start of #{channel.name}.</p>
           </div>
         )}
-        {!loaded && <p className="px-4 py-3 text-sm text-text-faint">Loading messages…</p>}
+        {!loaded && (
+          <div className="flex flex-col gap-4 px-4 py-3" aria-busy="true" aria-label="Loading messages">
+            {['70%', '45%', '60%'].map((width, index) => (
+              <div key={index} className="flex gap-3">
+                <span className="skeleton h-10 w-10 shrink-0" style={{ borderRadius: '9999px' }} />
+                <span className="flex min-w-0 flex-1 flex-col gap-2 pt-1">
+                  <span className="skeleton h-3 w-32" />
+                  <span className="skeleton h-3" style={{ width }} />
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         {rows.map((row) => (
-          <div key={row.message.id}>
+          <div key={row.message.id} className={cn(fresh.has(row.message.id) && 'animate-message-in')}>
             {row.dayLabel && (
               <div className="my-3 flex items-center gap-3 px-4 text-[11px] font-semibold text-text-faint">
                 <span className="h-px flex-1 bg-border-strong" />

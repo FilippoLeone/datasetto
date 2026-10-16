@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -196,28 +196,90 @@ const trayVoiceState = {
 };
 let lastSingleInstanceWarningAt = 0;
 let activePickerWindow = null;
+// Screen share picker (desktop/picker). Thumbnails are refreshed while it is open so
+// the cards show what each screen and window is doing right now.
+const PICKER_THUMBNAIL_SIZE = { width: 480, height: 270 };
+const PICKER_REFRESH_MS = 2000;
+
+/** Physical size and primary flag of the display a screen source belongs to. */
+function describeDisplay(source) {
+  if (!source.display_id) {
+    return null;
+  }
+  try {
+    const display = screen.getAllDisplays().find((candidate) => String(candidate.id) === String(source.display_id));
+    if (!display) {
+      return null;
+    }
+    return {
+      width: Math.round(display.size.width * display.scaleFactor),
+      height: Math.round(display.size.height * display.scaleFactor),
+      primary: display.id === screen.getPrimaryDisplay().id,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function buildPickerPayload(sources) {
-  return sources.map((source) => ({
-    id: source.id,
-    name: source.name,
-    type: source.id?.startsWith('screen:') ? 'screen' : 'window',
-    display_id: source.display_id, // Pass display_id to renderer
-    thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : null,
-    appIcon:
-      source.appIcon && typeof source.appIcon.toDataURL === 'function' && !source.appIcon.isEmpty()
-        ? source.appIcon.toDataURL()
-        : null,
-  }));
+  return sources.map((source) => {
+    const isScreen = Boolean(source.id?.startsWith('screen:'));
+    return {
+      id: source.id,
+      name: source.name,
+      type: isScreen ? 'screen' : 'window',
+      display_id: source.display_id, // Pass display_id to renderer
+      display: isScreen ? describeDisplay(source) : null,
+      thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : null,
+      appIcon:
+        source.appIcon && typeof source.appIcon.toDataURL === 'function' && !source.appIcon.isEmpty()
+          ? source.appIcon.toDataURL()
+          : null,
+    };
+  });
+}
+
+function fetchPickerSources() {
+  return desktopCapturer.getSources({
+    types: ['screen', 'window'],
+    thumbnailSize: PICKER_THUMBNAIL_SIZE,
+    fetchWindowIcons: true,
+  });
+}
+
+/** The quality hint the client sends along ({ width, height, fps, label }), sanitised. */
+function pickerQualityHint(quality) {
+  if (!quality || typeof quality !== 'object') {
+    return null;
+  }
+  const asNumber = (value) => (Number.isFinite(Number(value)) && Number(value) > 0 ? Math.round(Number(value)) : null);
+  return {
+    width: asNumber(quality.width),
+    height: asNumber(quality.height),
+    fps: asNumber(quality.fps),
+    label: typeof quality.label === 'string' ? quality.label.slice(0, 80) : null,
+  };
+}
+
+/** A window size that fits the display the app is on, with margins on small screens. */
+function pickerWindowSize() {
+  let workArea = { width: 1280, height: 800 };
+  try {
+    const display = mainWindow && !mainWindow.isDestroyed() ? screen.getDisplayMatching(mainWindow.getBounds()) : screen.getPrimaryDisplay();
+    workArea = display.workAreaSize;
+  } catch {
+    // Fall back to the defaults above.
+  }
+  return {
+    width: Math.max(520, Math.min(880, workArea.width - 80)),
+    height: Math.max(440, Math.min(680, workArea.height - 80)),
+  };
 }
 
 async function promptScreenshareSource(options = {}) {
-  const pickerOptions = {
-    types: ['screen', 'window'],
-    thumbnailSize: { width: 420, height: 240 },
-    fetchWindowIcons: true,
-  };
-  const sources = await desktopCapturer.getSources(pickerOptions);
+  const sources = await fetchPickerSources();
   const allowAudio = options?.requestAudio !== false;
+  const quality = pickerQualityHint(options?.quality);
 
   if (!sources || sources.length === 0) {
     throw new Error('No capture sources available');
@@ -228,17 +290,22 @@ async function promptScreenshareSource(options = {}) {
   }
 
   return new Promise((resolve) => {
+    const { width, height } = pickerWindowSize();
     const pickerWindow = new BrowserWindow({
-      width: 720,
-      height: 560,
-      resizable: false,
+      width,
+      height,
+      minWidth: 520,
+      minHeight: 440,
+      useContentSize: true,
+      resizable: true,
       maximizable: false,
       minimizable: false,
-      title: 'Share Your Screen',
+      fullscreenable: false,
+      title: 'Share your screen',
       modal: true,
       parent: mainWindow ?? undefined,
       autoHideMenuBar: true,
-      backgroundColor: '#11131a',
+      backgroundColor: '#1e1f22',
       show: false,
       webPreferences: {
         preload: path.join(__dirname, 'picker', 'preload.js'),
@@ -248,13 +315,57 @@ async function promptScreenshareSource(options = {}) {
     });
 
     activePickerWindow = pickerWindow;
+    // The picker itself must not be offered as a window to share.
+    const ownSourceId = pickerWindow.getMediaSourceId();
+    const withoutPicker = (list) => list.filter((source) => source.id !== ownSourceId);
+
+    let refreshTimer = null;
+    let refreshing = false;
+    let settled = false;
+
+    const sendSources = (list, update) => {
+      if (pickerWindow.isDestroyed()) {
+        return;
+      }
+      pickerWindow.webContents.send('screenshare-picker:sources', {
+        allowAudio,
+        quality,
+        update,
+        sources: buildPickerPayload(withoutPicker(list)),
+      });
+    };
+
+    const stopRefresh = () => {
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+    };
+
+    const refreshThumbnails = async () => {
+      if (refreshing || settled || pickerWindow.isDestroyed()) {
+        return;
+      }
+      refreshing = true;
+      try {
+        sendSources(await fetchPickerSources(), true);
+      } catch (error) {
+        console.warn('[Desktop] Screenshare picker refresh failed:', error?.message ?? error);
+      } finally {
+        refreshing = false;
+      }
+    };
 
     const cleanup = (result) => {
+      settled = true;
+      stopRefresh();
       if (activePickerWindow === pickerWindow) {
         activePickerWindow = null;
       }
       resolve(result ?? null);
-      pickerWindow.destroy();
+      if (!pickerWindow.isDestroyed()) {
+        pickerWindow.destroy();
+      }
     };
 
     const handleSelection = (_event, payload) => {
@@ -271,6 +382,8 @@ async function promptScreenshareSource(options = {}) {
     ipcMain.once('screenshare-picker:cancel', handleCancel);
 
     pickerWindow.on('closed', () => {
+      settled = true;
+      stopRefresh();
       ipcMain.removeListener('screenshare-picker:selected', handleSelection);
       ipcMain.removeListener('screenshare-picker:cancel', handleCancel);
       if (activePickerWindow === pickerWindow) {
@@ -282,10 +395,10 @@ async function promptScreenshareSource(options = {}) {
     pickerWindow.once('ready-to-show', () => {
       pickerWindow.show();
       pickerWindow.focus();
-      pickerWindow.webContents.send('screenshare-picker:sources', {
-        allowAudio,
-        sources: buildPickerPayload(sources),
-      });
+      sendSources(sources, false);
+      refreshTimer = setInterval(() => {
+        void refreshThumbnails();
+      }, PICKER_REFRESH_MS);
     });
 
     pickerWindow.loadFile(path.join(__dirname, 'picker', 'index.html')).catch((error) => {
@@ -792,7 +905,7 @@ ipcMain.handle('app:open-log-file', async () => {
 
 ipcMain.handle('screenshare:pick-source', async (_event, payload) => {
   try {
-    const selection = await promptScreenshareSource({ requestAudio: payload?.audio !== false });
+    const selection = await promptScreenshareSource({ requestAudio: payload?.audio !== false, quality: payload?.quality });
     if (!selection || !selection.source) {
       return { success: false, error: 'cancelled' };
     }

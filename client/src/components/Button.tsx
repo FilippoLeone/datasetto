@@ -32,7 +32,7 @@ export const Button = ({ variant = 'primary', size = 'md', loading, block, class
     type={type as 'button' | 'submit' | 'reset'}
     disabled={disabled || loading}
     className={cn(
-      'inline-flex items-center justify-center gap-2 rounded-sm font-medium transition-colors select-none',
+      'inline-flex items-center justify-center gap-2 rounded-sm font-medium transition-[background-color,color,opacity,transform] duration-150 ease-out select-none enabled:active:scale-[0.98] motion-reduce:enabled:active:scale-100',
       'disabled:cursor-not-allowed disabled:opacity-50',
       VARIANTS[variant],
       SIZES[size],

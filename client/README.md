@@ -79,6 +79,8 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
 - Components stay presentational; long-lived logic (timers, media, reconnection) belongs in services.
 - Keep the web build same-origin friendly: relative URLs by default, absolute ones only for the desktop/mobile shells.
 - The Electron (`desktop/`) and Capacitor (`mobile/`) shells load the production bundle unchanged.
+- Motion is short (150 to 250 ms, ease-out) and defined once: durations, easings and the `animate-*` enter animations live in the `@theme` block of `styles/app.css`, leave animations are driven by `data-state="closed"` through the `usePresence` / `useListPresence` hooks in `lib/motion.ts`. `prefers-reduced-motion` switches all non-essential motion off (spinners keep turning).
+- Camera capture goes through `services/voice/cameraCapture.ts`: ideal-only constraints, a retry ladder down to a bare request, a fallback to the machine's other cameras, and error text that tells "in use or blocked" from "constraints refused" from "no camera".
 
 ## Public pages and SEO
 
