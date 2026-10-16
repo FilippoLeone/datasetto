@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { permissionsInputSchema } from '../core/validation.js';
 import { parseJson, type DB } from '../db/index.js';
@@ -60,6 +61,18 @@ export class SettingsService {
 
   all(): ServerSettings {
     return { channelPermissionTemplates: this.channelPermissionTemplates() };
+  }
+
+  /**
+   * A random secret that survives restarts (e.g. for signing media tickets):
+   * generated on first use and kept in the settings table.
+   */
+  secret(key: string): Buffer {
+    const existing = this.read<string | null>(key, null);
+    if (typeof existing === 'string' && existing.length >= 32) return Buffer.from(existing, 'base64url');
+    const fresh = randomBytes(32);
+    this.write(key, fresh.toString('base64url'), null);
+    return fresh;
   }
 
   channelPermissionTemplates(): ChannelPermissionTemplates {

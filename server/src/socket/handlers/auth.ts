@@ -49,6 +49,8 @@ const authSuccessPayload = (sctx: SocketContext, account: PublicAccount, isNewAc
   session: { token: sctx.sessionToken, expiresAt },
   // TURN credentials are only ever sent to signed-in users (relay traffic is paid egress).
   ice: sctx.app.turn.iceConfig(),
+  // Signed viewer ticket for pictures in chat (appended to /api/uploads/* URLs as ?t=).
+  media: sctx.app.uploads.issueTicket(account.id),
   ...channelsPayload(sctx.app, requireUser(sctx)),
   isNewAccount,
 });

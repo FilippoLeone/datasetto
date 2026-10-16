@@ -91,6 +91,8 @@ export interface ChannelRecord {
   updatedAt: number;
   /** When the newest message was posted; orders direct messages. */
   lastMessageAt: number | null;
+  /** Fetch a preview card for the first link of each message (on by default). */
+  linkPreviews: boolean;
 }
 
 export interface ChannelMemberRecord {
@@ -117,6 +119,49 @@ export interface ReactionSummary {
   names: string[];
 }
 
+/** An uploaded picture as stored (`message_attachments`). */
+export interface AttachmentRecord {
+  id: string;
+  /** Null until the upload is bound to a message. */
+  messageId: string | null;
+  accountId: string;
+  kind: 'image';
+  fileName: string;
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  storedName: string;
+  previewName: string | null;
+  previewWidth: number | null;
+  previewHeight: number | null;
+  createdAt: number;
+}
+
+/** An attachment as sent to clients: URLs are server-relative and need the viewer's media ticket. */
+export interface AttachmentView {
+  id: string;
+  kind: 'image';
+  fileName: string;
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  url: string;
+  previewUrl: string;
+  previewWidth: number | null;
+  previewHeight: number | null;
+}
+
+/** What the first link of a message pointed at (Open Graph or title/description). */
+export interface LinkPreviewView {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  siteName: string | null;
+}
+
 export interface MessageRecord {
   id: string;
   channelId: string;
@@ -130,6 +175,9 @@ export interface MessageRecord {
   edited: boolean;
   deleted: boolean;
   reactions: ReactionSummary[];
+  attachments: AttachmentView[];
+  /** The link preview card, once fetched and unless the author removed it. */
+  preview: LinkPreviewView | null;
 }
 
 export interface BanRecord {
@@ -227,6 +275,7 @@ export interface ChannelView {
   /** Members of a private channel; 0 for public channels. */
   memberCount: number;
   lastMessageAt: number | null;
+  linkPreviews: boolean;
   /** For `dm` channels: the other participant, as seen by the receiving user. */
   dm?: { peerId: string; peerName: string; peerUsername: string; peerAvatarUrl: string | null } | null;
   count: number;

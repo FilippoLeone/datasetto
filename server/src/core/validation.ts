@@ -53,12 +53,12 @@ export const emojiSchema = z
   .max(16, 'Not an emoji')
   .regex(/^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|[0-9#*]️?⃣|‍|️)+$/u, 'Not an emoji');
 
-/** Strips control characters except tab/newline and trims. */
-export const messageTextSchema = (maxLength: number) =>
+/** Strips control characters except tab/newline and trims. `allowEmpty` for messages that carry pictures. */
+export const messageTextSchema = (maxLength: number, allowEmpty = false) =>
   z
     .string()
     .transform((value) => value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim())
-    .pipe(z.string().min(1, 'Message cannot be empty').max(maxLength, `Message must be ${maxLength} characters or less`));
+    .pipe(z.string().min(allowEmpty ? 0 : 1, 'Message cannot be empty').max(maxLength, `Message must be ${maxLength} characters or less`));
 
 const permissionEntryInput = z
   .object({

@@ -63,6 +63,11 @@ const envSchema = z.object({
   MAX_MESSAGES_PER_MINUTE: intFromEnv(30, 1, 600),
   MAX_CONNECTIONS_PER_IP: intFromEnv(20, 1, 1000),
 
+  // Pictures in chat: largest file accepted per upload (PNG, JPEG, WebP, GIF), stored under DATA_DIR/uploads.
+  UPLOAD_MAX_MB: intFromEnv(10, 1, 100),
+  // Link previews fetch the first http(s) link of a message server side; off = never make outbound requests for them.
+  LINK_PREVIEWS: boolFromEnv(true),
+
   TURN_URLS: listFromEnv([]),
   TURN_SECRET: optionalString,
   TURN_CREDENTIAL_TTL_SECONDS: intFromEnv(43200, 300, 7 * 24 * 3600),
@@ -111,6 +116,15 @@ export interface AppConfig {
     messageRetentionPerChannel: number;
     maxMessagesPerMinute: number;
   };
+  uploads: {
+    /** Largest accepted file in bytes. */
+    maxBytes: number;
+    /** Pictures one message may carry. */
+    maxFilesPerMessage: number;
+    /** Longest side of the resized preview that sits next to the original. */
+    previewMaxPx: number;
+  };
+  linkPreviews: { enabled: boolean };
   turn: { urls: string[]; secret: string | null; credentialTtlSeconds: number; stunUrls: string[] };
   streaming: { maxViewers: number; maxBitrateKbps: number; monthlyEgressBytes: number; statUrl: string | null; ticketSecret: string | null };
   releases: { githubRepo: string; cacheSeconds: number };
@@ -183,6 +197,8 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       messageRetentionPerChannel: env.MESSAGE_RETENTION_PER_CHANNEL,
       maxMessagesPerMinute: env.MAX_MESSAGES_PER_MINUTE,
     },
+    uploads: { maxBytes: env.UPLOAD_MAX_MB * 1024 * 1024, maxFilesPerMessage: 10, previewMaxPx: 1280 },
+    linkPreviews: { enabled: env.LINK_PREVIEWS },
     turn: {
       urls: env.TURN_URLS,
       secret: env.TURN_SECRET,
