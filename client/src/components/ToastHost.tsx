@@ -24,7 +24,7 @@ export const ToastHost = () => (
       >
         <span className="mt-px shrink-0">{ICONS[toast.type]}</span>
         <span className="min-w-0 flex-1 break-words text-text-bright">{toast.message}</span>
-        <button type="button" aria-label="Dismiss" className="shrink-0 text-text-muted hover:text-text-bright" onClick={() => dismissToast(toast.id)}>
+        <button type="button" aria-label="Dismiss" className="-m-2 shrink-0 p-2 text-text-muted hover:text-text-bright" onClick={() => dismissToast(toast.id)}>
           <X size={16} />
         </button>
       </div>

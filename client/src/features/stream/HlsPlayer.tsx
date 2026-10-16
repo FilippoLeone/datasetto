@@ -186,10 +186,13 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
 
   const toggleFullscreen = async () => {
     const node = containerRef.current;
+    const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
     if (!node) return;
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
-      else await node.requestFullscreen();
+      else if (typeof node.requestFullscreen === 'function') await node.requestFullscreen();
+      // iPhone: only the <video> itself can go fullscreen, through WebKit's native player.
+      else if (video?.webkitEnterFullscreen) video.webkitEnterFullscreen();
     } catch {
       /* unsupported */
     }
@@ -230,7 +233,7 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 px-6 text-center text-sm font-medium text-white">{overlay}</div>
       )}
       {live && (
-        <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 pt-6 pb-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 pt-6 pb-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
           <IconButton label={paused ? 'Play' : 'Pause'} size="sm" className="text-white hover:bg-white/15" onClick={togglePlay}>
             {paused ? <Play size={18} /> : <Pause size={18} />}
           </IconButton>

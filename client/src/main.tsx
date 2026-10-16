@@ -7,6 +7,7 @@ import { installSocketBindings } from '@/services/socket/bindings';
 import { socketClient } from '@/services/socket/client';
 import { voiceManager } from '@/features/voice/voiceManager';
 import { screenshareService } from '@/features/screenshare/screenshareService';
+import { installCapacitorAppHandlers } from '@/services/native/capacitorApp';
 
 const bootstrap = async (): Promise<void> => {
   // Runtime config (registration mode, ICE servers, public URLs). Non-fatal when unreachable.
@@ -14,6 +15,7 @@ const bootstrap = async (): Promise<void> => {
   installSocketBindings();
   voiceManager.init();
   screenshareService.init();
+  void installCapacitorAppHandlers();
   socketClient.connect(runtimeUrls.serverUrl);
   render(<App />, document.getElementById('app') as HTMLElement);
 };

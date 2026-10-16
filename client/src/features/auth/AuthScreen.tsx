@@ -16,7 +16,7 @@ export const AuthScreen = ({ resuming }: { resuming: boolean }) => {
   }, [resuming]);
 
   return (
-    <div className="flex h-full w-full items-center justify-center bg-base p-4">
+    <div className="flex h-full w-full items-center justify-center bg-base p-safe">
       {resuming && !stalled ? (
         <div className="flex flex-col items-center gap-3 text-text-muted">
           <Spinner size={28} />

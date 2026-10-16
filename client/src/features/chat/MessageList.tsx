@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { ArrowDown, Hash, Trash2 } from 'lucide-preact';
 import { Avatar, RoleBadge } from '@/components';
 import { cn } from '@/lib/cn';
+import { isTouchPrimary } from '@/lib/device';
 import { formatDayLabel, formatFullDate, formatMessageTime, sameDay } from '@/lib/format';
 import { api } from '@/services/socket/api';
 import { loadedChannels, messages } from '@/state/chat';
@@ -35,8 +36,15 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
   const me = account.value;
   const own = Boolean(me && message.accountId === me.id);
   const deletable = own || can('canDeleteAnyMessage');
+  // Touch screens have no hover: a tap on the message toggles its actions.
+  const [active, setActive] = useState(false);
   return (
-    <div className={cn('message-row group relative flex gap-3 px-4 py-0.5 hover:bg-black/10', showHeader && 'mt-3')}>
+    <div
+      className={cn('message-row group relative flex gap-3 px-4 py-0.5 hover:bg-black/10 pointer-coarse:py-1', showHeader && 'mt-3', active && 'is-active')}
+      onClick={() => {
+        if (deletable && isTouchPrimary()) setActive((value) => !value);
+      }}
+    >
       <div className="w-10 shrink-0">
         {showHeader ? (
           <Avatar seed={message.accountId ?? message.from} name={message.from} size={40} />
@@ -64,7 +72,7 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
             type="button"
             aria-label="Delete message"
             title="Delete message"
-            className="p-1.5 text-text-muted hover:text-live"
+            className="p-1.5 text-text-muted hover:text-live pointer-coarse:p-2.5"
             onClick={() => api.deleteMessage(channelId, message.id)}
           >
             <Trash2 size={16} />

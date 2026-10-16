@@ -2,7 +2,7 @@ import { Hash, Menu as MenuIcon, MonitorUp, Radio, Users, Volume2 } from 'lucide
 import { IconButton } from '@/components';
 import { selectedChannel } from '@/state/channels';
 import { onlineCount } from '@/state/presence';
-import { isMobile, membersOpen, showMembers, sidebarOpen } from '@/state/ui';
+import { isMobile, isPhone, membersOpen, showMembers, sidebarOpen } from '@/state/ui';
 import { ChatView } from '@/features/chat/ChatView';
 import { StreamPage } from '@/features/stream/StreamPage';
 import { VoicePage } from '@/features/voice/VoicePage';
@@ -21,7 +21,7 @@ const Header = ({ channel }: { channel: Channel | null }) => {
   const mobile = isMobile.value;
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 shadow-sm">
-      {mobile && (
+      {isPhone.value && (
         <IconButton label="Open channels" size="sm" onClick={() => (sidebarOpen.value = true)}>
           <MenuIcon size={20} />
         </IconButton>

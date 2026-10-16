@@ -2,7 +2,7 @@ import { useEffect } from 'preact/hooks';
 import { cn } from '@/lib/cn';
 import { ToastHost } from '@/components';
 import { authStatus, connectionStatus, isAuthenticated } from '@/state/session';
-import { closeDrawers, isMobile, membersOpen, showMembers, sidebarOpen } from '@/state/ui';
+import { closeDrawers, isMobile, isPhone, membersOpen, showMembers, sidebarOpen } from '@/state/ui';
 import { Sidebar } from './layout/Sidebar';
 import { MainArea } from './layout/MainArea';
 import { MemberList } from './layout/MemberList';
@@ -39,23 +39,24 @@ export const App = () => {
   }
 
   const mobile = isMobile.value;
+  const phone = isPhone.value;
   const membersVisible = mobile ? membersOpen.value : showMembers.value;
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-main">
-      {/* Sidebar: static on desktop, drawer on mobile */}
+    <div className={cn('flex h-full w-full overflow-hidden bg-main safe-top safe-x', !phone && 'safe-bottom')}>
+      {/* Sidebar: static on desktop and tablets, drawer on phones */}
       <aside
         className={cn(
           'flex h-full w-60 shrink-0 flex-col bg-sidebar',
-          mobile && 'fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs shadow-modal transition-transform duration-200',
-          mobile && (sidebarOpen.value ? 'translate-x-0' : '-translate-x-full'),
+          phone && 'fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs shadow-modal transition-transform duration-200 safe-top safe-bottom',
+          phone && (sidebarOpen.value ? 'translate-x-0' : '-translate-x-full'),
         )}
         aria-label="Channels"
       >
         <Sidebar />
       </aside>
 
-      <main className={cn('flex min-w-0 flex-1 flex-col', mobile && 'pb-14')}>
+      <main className={cn('flex min-w-0 flex-1 flex-col', phone && 'pb-toolbar')}>
         <MainArea />
       </main>
 
@@ -63,7 +64,7 @@ export const App = () => {
         <aside
           className={cn(
             'flex h-full w-60 shrink-0 flex-col bg-sidebar',
-            mobile && 'fixed inset-y-0 right-0 z-40 w-[85vw] max-w-xs shadow-modal animate-fade-in',
+            mobile && 'fixed inset-y-0 right-0 z-40 w-[85vw] max-w-xs shadow-modal animate-fade-in safe-top safe-bottom',
           )}
           aria-label="Members"
         >
@@ -71,11 +72,11 @@ export const App = () => {
         </aside>
       )}
 
-      {mobile && (sidebarOpen.value || membersOpen.value) && (
+      {((phone && sidebarOpen.value) || (mobile && membersOpen.value)) && (
         <button type="button" aria-label="Close panels" className="fixed inset-0 z-30 bg-overlay animate-fade-in" onClick={closeDrawers} />
       )}
 
-      {mobile && <MobileToolbar />}
+      {phone && <MobileToolbar />}
       <ModalHost />
       <ConnectionBanner />
       <ToastHost />

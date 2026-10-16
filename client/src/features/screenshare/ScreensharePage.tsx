@@ -2,6 +2,7 @@ import { useEffect } from 'preact/hooks';
 import { MonitorUp, MonitorX } from 'lucide-preact';
 import { Button } from '@/components';
 import { cn } from '@/lib/cn';
+import { canCaptureScreen } from '@/lib/device';
 import { screenshareSessions } from '@/state/misc';
 import { socketId } from '@/state/session';
 import { isMobile } from '@/state/ui';
@@ -35,10 +36,13 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
             <p className="text-text-muted">
               {someoneElseSharing ? screenshareStatus.value || 'Connecting to ' + (session?.hostName ?? 'the presenter') + '…' : screenshareStatus.value || 'Nobody is sharing in #' + channel.name + '.'}
             </p>
-            {!someoneElseSharing && (
+            {!someoneElseSharing && canCaptureScreen() && (
               <Button variant="success" onClick={() => void screenshareService.startHosting(channel.id)}>
                 <MonitorUp size={16} /> Share your screen
               </Button>
+            )}
+            {!someoneElseSharing && !canCaptureScreen() && (
+              <p className="max-w-xs text-xs text-text-faint">Sharing a screen needs the desktop app or a desktop browser. You can still watch from here.</p>
             )}
           </div>
         )}

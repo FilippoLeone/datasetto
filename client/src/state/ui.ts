@@ -63,6 +63,15 @@ mobileQuery.addEventListener('change', (event) => {
   }
 });
 
+// Phones (below the md breakpoint) also put the channel sidebar in a drawer and show the
+// bottom toolbar; tablets keep the sidebar and only use the member drawer.
+const phoneQuery = window.matchMedia('(max-width: 767px)');
+export const isPhone = signal(phoneQuery.matches);
+phoneQuery.addEventListener('change', (event) => {
+  isPhone.value = event.matches;
+  if (!event.matches) sidebarOpen.value = false;
+});
+
 /** Mobile drawers. */
 export const sidebarOpen = signal(false);
 export const membersOpen = signal(false);

@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { Gamepad2, Headphones, HeadphoneOff, Mic, MicOff, MonitorUp, Phone, PhoneOff, RefreshCw, Settings, Video, VideoOff, Volume2 } from 'lucide-preact';
 import { Avatar, Button, IconButton, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
+import { canCaptureScreen } from '@/lib/device';
 import { usersById, usersInVoice } from '@/state/presence';
 import { account, can } from '@/state/session';
 import { audioSettings } from '@/state/settings';
@@ -91,7 +92,7 @@ const Toolbar = () => {
   const cameraOn = localCameraStream.value !== null;
   const screenOn = localScreenStream.value !== null;
   return (
-    <div className="flex items-center justify-center gap-2 py-3">
+    <div className="flex flex-wrap items-center justify-center gap-2 px-3 py-3">
       <IconButton label={muted ? 'Unmute' : 'Mute'} size="lg" tone={localMuted.value ? 'danger' : 'default'} className="bg-sidebar" onClick={() => void voiceManager.toggleMute()}>
         {muted ? <MicOff size={22} /> : <Mic size={22} />}
       </IconButton>
@@ -106,9 +107,11 @@ const Toolbar = () => {
           <RefreshCw size={22} />
         </IconButton>
       )}
-      <IconButton label={screenOn ? 'Stop sharing screen' : 'Share screen'} size="lg" active={screenOn} className="bg-sidebar" onClick={() => void voiceManager.toggleScreenShare()}>
-        <MonitorUp size={22} />
-      </IconButton>
+      {canCaptureScreen() && (
+        <IconButton label={screenOn ? 'Stop sharing screen' : 'Share screen'} size="lg" active={screenOn} className="bg-sidebar" onClick={() => void voiceManager.toggleScreenShare()}>
+          <MonitorUp size={22} />
+        </IconButton>
+      )}
       <IconButton label="Audio settings" size="lg" className="bg-sidebar" onClick={() => openModal({ type: 'audioSettings' })}>
         <Settings size={22} />
       </IconButton>

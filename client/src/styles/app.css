@@ -62,6 +62,7 @@
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
     overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
   button {
@@ -75,6 +76,16 @@
   select {
     font: inherit;
     color: inherit;
+  }
+
+  /* No double-tap zoom delay on touch screens. */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role='button'] {
+    touch-action: manipulation;
   }
 
   a {
@@ -120,6 +131,22 @@
 
   .safe-top {
     padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .safe-x {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  /* At least 1rem on every side, more where the device has a notch or home indicator. */
+  .p-safe {
+    padding: max(1rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) max(1rem, env(safe-area-inset-bottom, 0px))
+      max(1rem, env(safe-area-inset-left, 0px));
+  }
+
+  /* Room for the fixed phone toolbar (h-14) plus the home indicator. */
+  .pb-toolbar {
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
   }
 
   .speaking-ring {
@@ -192,13 +219,22 @@
 }
 
 /* ------------------------------------------------------------ components */
-.message-row:hover .message-actions {
-  opacity: 1;
-}
-
+/* Message actions: hover reveals them with a mouse; on touch screens a tap on the
+   message toggles `is-active` (see MessageList), keyboard focus always shows them. */
 .message-actions {
   opacity: 0;
   transition: opacity 120ms ease;
+}
+
+.message-row:focus-within .message-actions,
+.message-row.is-active .message-actions {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .message-row:hover .message-actions {
+    opacity: 1;
+  }
 }
 
 .message-mention {
@@ -242,4 +278,15 @@
 
 video.mirror {
   transform: scaleX(-1);
+}
+
+/* ---------------------------------------------------------------- touch */
+/* Form controls render at 16px on touch devices so iOS does not zoom the page when
+   one is focused. Unlayered on purpose: it must beat Tailwind's text-* utilities. */
+@media (pointer: coarse) {
+  input:not([type='range']):not([type='checkbox']):not([type='radio']),
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }

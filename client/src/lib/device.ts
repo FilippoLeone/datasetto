@@ -48,11 +48,27 @@ export const isMobileDevice = (): boolean => {
 };
 
 export const isElectron = (): boolean => {
-  return typeof window !== 'undefined' && !!(window as any).desktopAPI;
+  return typeof window !== 'undefined' && Boolean(window.desktopAPI);
 };
 
 export const isCapacitor = (): boolean => {
-  return typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
+  return typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.() === true;
+};
+
+/** The primary input is a finger: no hover and an imprecise pointer (phones, tablets). */
+export const isTouchPrimary = (): boolean => {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+};
+
+/**
+ * Whether this runtime can capture a screen: the Electron picker or getDisplayMedia.
+ * Mobile WebViews (Android, iOS) have neither, so share buttons are hidden there.
+ */
+export const canCaptureScreen = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  if (window.desktopAPI?.pickScreenshareSource) return true;
+  const devices = typeof navigator !== 'undefined' ? (navigator.mediaDevices as (MediaDevices & { getDisplayMedia?: unknown }) | undefined) : undefined;
+  return typeof devices?.getDisplayMedia === 'function';
 };
 
 export const isNativeApp = (): boolean => {

@@ -10,7 +10,8 @@ interface IconButtonProps extends Omit<JSX.ButtonHTMLAttributes<HTMLButtonElemen
   children?: ComponentChildren;
 }
 
-const SIZES = { sm: 'h-7 w-7', md: 'h-9 w-9', lg: 'h-11 w-11' };
+// Larger hit areas where the primary pointer is a finger.
+const SIZES = { sm: 'h-7 w-7 pointer-coarse:h-9 pointer-coarse:w-9', md: 'h-9 w-9 pointer-coarse:h-10 pointer-coarse:w-10', lg: 'h-11 w-11' };
 const TONES = {
   default: 'text-text-muted hover:text-text-bright hover:bg-hover',
   danger: 'text-white bg-danger hover:bg-danger-hover',

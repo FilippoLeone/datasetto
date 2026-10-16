@@ -31,10 +31,10 @@ export const Menu = ({ items, children, align = 'left', className }: MenuProps) 
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false);
     };
-    document.addEventListener('mousedown', onDown);
+    document.addEventListener('pointerdown', onDown);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('pointerdown', onDown);
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
@@ -71,7 +71,7 @@ export const Menu = ({ items, children, align = 'left', className }: MenuProps) 
                 item.onSelect();
               }}
               className={cn(
-                'flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm transition-colors disabled:opacity-40',
+                'flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm transition-colors disabled:opacity-40 pointer-coarse:py-2.5',
                 item.danger ? 'text-[#fa777c] hover:bg-danger hover:text-white' : 'text-text hover:bg-brand hover:text-white',
               )}
             >

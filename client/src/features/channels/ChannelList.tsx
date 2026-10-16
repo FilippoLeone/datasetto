@@ -82,12 +82,12 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
     <li>
       <div
         className={cn(
-          'group flex items-center gap-1.5 rounded-sm px-2 py-1.5 text-sm transition-colors',
+          'group flex items-center gap-1.5 rounded-sm px-2 text-sm transition-colors',
           active ? 'bg-active text-text-bright' : 'text-text-muted hover:bg-hover hover:text-text',
           (unreadCount > 0 || inVoice) && !active && 'text-text-bright',
         )}
       >
-        <button type="button" onClick={onClick} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+        <button type="button" onClick={onClick} className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left pointer-coarse:py-2.5">
           <Icon size={18} className={cn('shrink-0', inVoice && 'text-success')} />
           <span className={cn('truncate', unreadCount > 0 && 'font-semibold')}>{channel.name}</span>
           {channel.type === 'stream' && channel.isLive && <span className="live-dot ml-1 text-[10px] font-bold text-live uppercase">Live</span>}
@@ -100,7 +100,7 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
         )}
         {items.length > 0 && (
           <Menu items={items} align="right">
-            <button type="button" aria-label="Channel options" className="rounded-sm p-0.5 text-text-faint opacity-0 group-hover:opacity-100 hover:text-text-bright focus:opacity-100">
+            <button type="button" aria-label="Channel options" className="rounded-sm p-0.5 text-text-faint opacity-0 group-hover:opacity-100 hover:text-text-bright focus:opacity-100 pointer-coarse:p-1.5 pointer-coarse:opacity-100">
               <ChevronDown size={14} />
             </button>
           </Menu>
@@ -117,8 +117,8 @@ const Group = ({ type }: { type: ChannelType }) => {
   const canCreate = can('canCreateChannels');
   return (
     <section className="mb-3">
-      <div className="group flex items-center gap-1 px-1 py-1 text-[11px] font-semibold tracking-wide text-text-muted uppercase">
-        <button type="button" className="flex min-w-0 flex-1 items-center gap-1 hover:text-text-bright" onClick={() => toggleGroup(type)} aria-expanded={!collapsed}>
+      <div className="group flex items-center gap-1 px-1 text-[11px] font-semibold tracking-wide text-text-muted uppercase">
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-1 py-1 hover:text-text-bright pointer-coarse:py-2" onClick={() => toggleGroup(type)} aria-expanded={!collapsed}>
           {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
           <span className="truncate">{GROUP_LABELS[type]}</span>
         </button>
@@ -127,7 +127,7 @@ const Group = ({ type }: { type: ChannelType }) => {
             type="button"
             aria-label={'Create ' + type + ' channel'}
             title={'Create ' + type + ' channel'}
-            className="rounded-sm p-0.5 opacity-0 group-hover:opacity-100 hover:text-text-bright focus:opacity-100"
+            className="rounded-sm p-0.5 opacity-0 group-hover:opacity-100 hover:text-text-bright focus:opacity-100 pointer-coarse:p-2 pointer-coarse:opacity-100"
             onClick={() => openModal({ type: 'createChannel', channelType: type })}
           >
             <Plus size={14} />
