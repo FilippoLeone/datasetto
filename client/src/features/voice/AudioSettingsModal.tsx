@@ -12,9 +12,9 @@ import type { AudioSettings, DeviceInfo, ScreenQuality } from '@/types/protocol'
 const BITRATES = [
   { value: '32000', label: '32 kbps (data saver)' },
   { value: '48000', label: '48 kbps' },
-  { value: '64000', label: '64 kbps (default)' },
+  { value: '64000', label: '64 kbps' },
   { value: '96000', label: '96 kbps' },
-  { value: '128000', label: '128 kbps (music)' },
+  { value: '128000', label: '128 kbps (default, best quality)' },
 ];
 
 export const AudioSettingsModal = () => {

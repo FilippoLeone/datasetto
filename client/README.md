@@ -72,6 +72,10 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
   goes through the TURN relay is capped at about 1.5 Mbit/s by the relay
   (`TURN_MAX_BPS` in `ops/turn/entrypoint.sh`), so they see a softer picture
   at the higher presets; direct connections are not affected.
+- Voice uses Opus at 128 kbps by default (Voice & audio settings > Bitrate
+  offers 32 to 128 kbps); the value is applied to our sender through
+  `setParameters` and asked of the other side through `maxaveragebitrate` in
+  the SDP.
 
 ## Conventions
 

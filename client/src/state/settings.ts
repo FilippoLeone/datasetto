@@ -26,7 +26,7 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   outputVol: 1,
   pttEnable: false,
   pttKey: '',
-  voiceBitrate: num(config.VOICE_OPUS_BITRATE, 64000, 6000, 128000),
+  voiceBitrate: num(config.VOICE_OPUS_BITRATE, 128000, 6000, 128000),
   dtx: bool(config.VOICE_DTX_ENABLED, true),
   latencyHint: 'interactive',
   vadThreshold: num(config.VOICE_VAD_THRESHOLD, 0.07, 0.01, 0.5),

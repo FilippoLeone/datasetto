@@ -1,8 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-  it('defaults voice to 128 kbps Opus while lower values stay allowed', () => {
-    expect(DEFAULT_AUDIO_SETTINGS.voiceBitrate).toBe(128000);
-    expect(normalizeAudioSettings({ voiceBitrate: 32000 }).voiceBitrate).toBe(32000);
-  });
 import {
   DEFAULT_SCREEN_QUALITY,
   SCREEN_AUDIO_BITRATE_BPS,

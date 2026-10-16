@@ -58,8 +58,9 @@ const ICE_RESTART_DELAY_MS = 2000;
 const ICE_RESTART_MAX_ATTEMPTS = 3;
 const OPUS_BITRATE_MIN = 6000;
 const OPUS_BITRATE_MAX = 128000;
+// 128 kbps Opus is transparent for speech and fine for music; the settings dialog can lower it.
 const OPUS_TARGET_BITRATE = Math.round(
-  parseNumberEnv(config.VOICE_OPUS_BITRATE, 64000, {
+  parseNumberEnv(config.VOICE_OPUS_BITRATE, 128000, {
     min: OPUS_BITRATE_MIN,
     max: OPUS_BITRATE_MAX,
   })
@@ -1950,6 +1951,8 @@ export class VoiceService extends EventEmitter<EventMap> {
         params.set('maxptime', this.opusMaxPtime.toString());
         params.set('maxplaybackrate', this.opusMaxPlaybackRate.toString());
         params.set('usedtx', this.dtxEnabled ? '1' : '0');
+        // Ask the remote encoder for the same bitrate we cap our own sender at (RFC 7587).
+        params.set('maxaveragebitrate', this.voiceBitrate.toString());
 
         const newParams = Array.from(params.entries())
           .map(([k, v]) => (v ? `${k}=${v}` : k))
