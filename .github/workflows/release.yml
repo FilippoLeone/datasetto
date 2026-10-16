@@ -408,7 +408,7 @@ jobs:
             desktop/release/*.dmg
             desktop/release/*.AppImage
             desktop/release/*.deb
-            desktop/release/*.yml
+            desktop/release/latest*.yml
             desktop/release/*.blockmap
           if-no-files-found: error
 
