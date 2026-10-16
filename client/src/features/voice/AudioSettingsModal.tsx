@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { Mic } from 'lucide-preact';
 import { Button, Modal, Select, Slider, Toggle } from '@/components';
 import { cn } from '@/lib/cn';
+import { isTouchPrimary } from '@/lib/device';
 import { micLevel, voiceStatus } from '@/state/voice';
 import { SCREEN_QUALITY_OPTIONS } from '@/services/screenCapture';
 import { audioSettings, updateAudioSettings } from '@/state/settings';
@@ -162,7 +163,7 @@ export const AudioSettingsModal = () => {
         <NotificationsSection />
       </div>
       <DesktopUpdatesSection />
-      <p className="mt-2 text-xs text-text-faint">Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings.</p>
+      {!isTouchPrimary() && <p className="mt-2 text-xs text-text-faint">Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings.</p>}
     </Modal>
   );
 };

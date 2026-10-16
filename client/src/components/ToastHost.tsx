@@ -32,7 +32,7 @@ export const ToastHost = () => {
           <button
             type="button"
             aria-label="Dismiss"
-            className="-m-2 shrink-0 p-2 text-text-muted transition-colors duration-150 hover:text-text-bright"
+            className="-m-2 shrink-0 p-2 text-text-muted transition-colors duration-150 hover:text-text-bright pointer-coarse:-m-3 pointer-coarse:p-3"
             onClick={() => dismissToast(toast.id)}
           >
             <X size={16} />

@@ -72,6 +72,12 @@
     margin: 0;
   }
 
+  html {
+    /* The page itself never scrolls (the lists do), so no pull-to-refresh or rubber band.
+       Chrome reads the viewport value from the root element, not from body. */
+    overscroll-behavior: none;
+  }
+
   body {
     background: var(--color-base);
     color: var(--color-text);
@@ -477,6 +483,44 @@
   pointer-events: none;
 }
 
+/* Bottom sheets (components/Sheet.tsx): the backdrop fades, the card slides up from the
+   bottom edge; data-state="closed" on the root plays both in reverse. */
+.sheet-backdrop {
+  animation: fade-in var(--motion-base) var(--ease-out) both;
+}
+
+.sheet-card {
+  animation: sheet-in var(--motion-slow) var(--ease-out) both;
+}
+
+[data-state='closed'] > .sheet-backdrop {
+  animation: fade-out var(--motion-fast) var(--ease-in) both;
+  pointer-events: none;
+}
+
+[data-state='closed'] > .sheet-card {
+  animation: sheet-out var(--motion-base) var(--ease-in) both;
+  pointer-events: none;
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes sheet-out {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
 /* Search panel (header dropdown or the phone's full-screen page). */
 .motion-panel[data-state='open'] {
   animation: dialog-in var(--motion-base) var(--ease-out) both;
@@ -550,6 +594,12 @@
   opacity: 1;
 }
 
+/* The time of a grouped message: hover with a mouse, a tap (is-active) on touch screens. */
+.message-row:focus-within .message-time,
+.message-row.is-active .message-time {
+  opacity: 1;
+}
+
 @media (hover: hover) {
   .message-row:hover .message-actions {
     opacity: 1;
@@ -564,35 +614,72 @@
   font-weight: 500;
 }
 
-.range-input {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 6px;
-  border-radius: 9999px;
-  background: var(--color-active);
-  outline: none;
-}
+/* Sliders: the input is the hit area (16px, 28px on touch screens), the 6px track is drawn
+   on the track pseudo-element. In the components layer so width utilities still apply. */
+@layer components {
+  .range-input {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 16px;
+    background: transparent;
+    outline: none;
+    cursor: pointer;
+  }
 
-.range-input::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 9999px;
-  background: var(--color-text-bright);
-  border: none;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
-}
+  .range-input::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--color-active);
+  }
 
-.range-input::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border-radius: 9999px;
-  background: var(--color-text-bright);
-  border: none;
-  cursor: pointer;
+  .range-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -5px;
+    border-radius: 9999px;
+    background: var(--color-text-bright);
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+
+  .range-input::-moz-range-track {
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--color-active);
+  }
+
+  .range-input::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: var(--color-text-bright);
+    border: none;
+  }
+
+  .range-input:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 1px;
+  }
+
+  @media (pointer: coarse) {
+    .range-input {
+      height: 28px;
+    }
+
+    .range-input::-webkit-slider-thumb {
+      width: 24px;
+      height: 24px;
+      margin-top: -9px;
+    }
+
+    .range-input::-moz-range-thumb {
+      width: 24px;
+      height: 24px;
+    }
+  }
 }
 
 video.mirror {
@@ -622,5 +709,13 @@ video.mirror {
   textarea,
   select {
     font-size: 16px;
+  }
+
+  /* A long press opens the message sheet (which has "Copy text"), so the browser must not
+     start a text selection or a link callout on the same gesture. */
+  .message-row {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
 }

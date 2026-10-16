@@ -236,6 +236,45 @@ live in `localStorage` (`datasetto.gameActivity.v1`); `gameActivity.ts` (normali
 and `catalogue.test.ts` (the shell's matcher and catalogue, loaded from `desktop/games/`) are unit tested. In a
 browser, on a phone or with an older desktop shell the section is not shown and nothing is sent.
 
+## On a phone
+
+Phones (under 768 px, or any touch screen shorter than 500 px, which is a phone held sideways)
+get the channel and member drawers, the bottom toolbar and touch behaviour that the desktop
+layout never sees: `state/ui.ts` keeps `isPhone`, `isLandscapePhone` and `keyboardOpen`, and the
+styles use Tailwind's `pointer-coarse:` variant, so a desktop window of the same size is untouched.
+
+- **Targets.** Every control is at least 40 px on a coarse pointer: icon and text buttons, channel
+  rows and their options, dialog close, chips, sliders (a 28 px hit area with a 24 px thumb) and
+  switch rows (the whole label toggles, not only the switch).
+- **Sheets instead of pop-ups.** `components/Sheet.tsx` is a bottom sheet rendered into `<body>`.
+  On touch screens `Menu` (channel options, members, voice peers) and `EmojiPicker` render as
+  sheets, so nothing is clipped by a scroll container or too small to hit.
+- **Messages.** A long press (450 ms, `lib/gestures.ts`) opens the message sheet: six quick
+  reactions, more reactions, copy text, delete when allowed, and who reacted. A tap still shows
+  the hover actions and the time of a grouped message. Text selection is off on message rows on
+  touch screens so the long press is not a selection; "Copy text" replaces it.
+- **Drawers.** Swipe right in the main area for the channel drawer, left for the member drawer,
+  and the opposite way on an open drawer to close it (`app/useDrawerSwipe.ts`; the thresholds and
+  the drawer rules in `lib/gestures.ts` are unit tested). A closed drawer is `inert`.
+- **Back closes panels.** `lib/backStack.ts` keeps a stack of open panels (sheets, pickers,
+  dialogs, the search page, the admin area, drawers). Android back (Capacitor) pops it before the
+  app goes to the background; on touch browsers every panel is a history entry, so the browser's
+  back button and gesture do the same instead of leaving the app. Desktop browsers get no history
+  entries.
+- **Keyboard.** While a text field has the focus and the viewport shrank (`lib/keyboard.ts`) the
+  bottom toolbar hides and the message list keeps the newest message in view (a ResizeObserver
+  re-sticks it to the bottom). Dialogs do not auto-focus their first field on touch screens, so
+  the keyboard waits for a tap. `index.html` asks for `interactive-widget=resizes-content`.
+- **Landscape.** A phone held sideways keeps the drawers, loses the bottom toolbar (the header has
+  the same buttons), shows a voice channel with video edge to edge with the call controls floating
+  over the picture, and puts the stream chat beside the player.
+- **Player.** The stream player's bar shows on a tap and hides after three seconds of playback.
+- **Install.** `services/installPrompt.ts` catches Chrome's `beforeinstallprompt`; the channel
+  drawer then shows an "Install Datasetto" card, and iOS Safari gets the Share > Add to Home
+  Screen steps. "Not now" hides it for two weeks (`lib/installPrompt.ts`, tested). The manifest
+  and icons live in `public/`.
+- **Cropper.** The avatar cropper takes a two-finger pinch to zoom next to drag, wheel and the slider.
+
 ## Conventions
 
 - State lives in `state/*` as signals; mutate through the exported helpers, never from components directly except trivial UI flags.

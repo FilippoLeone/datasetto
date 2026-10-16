@@ -56,7 +56,19 @@ export const toast = {
 
 // Responsive layout -----------------------------------------------------------
 
-const mobileQuery = window.matchMedia('(max-width: 1023px)');
+/** Below the lg breakpoint: the member list becomes a drawer. */
+export const MOBILE_QUERY = '(max-width: 1023px)';
+/**
+ * Phones: below the md breakpoint, or a touch screen that is short enough to
+ * be a phone held sideways (a landscape phone is wider than 767px but still
+ * needs the drawer and the compact chrome; a desktop window of that height
+ * has a fine pointer and keeps the tablet/desktop layout).
+ */
+export const PHONE_QUERY = '(max-width: 767px), ((max-height: 500px) and (pointer: coarse))';
+/** A phone held sideways: the bottom toolbar goes, voice shows the video edge to edge. */
+export const LANDSCAPE_PHONE_QUERY = '(max-height: 500px) and (pointer: coarse) and (orientation: landscape)';
+
+const mobileQuery = window.matchMedia(MOBILE_QUERY);
 export const isMobile = signal(mobileQuery.matches);
 mobileQuery.addEventListener('change', (event) => {
   isMobile.value = event.matches;
@@ -66,14 +78,27 @@ mobileQuery.addEventListener('change', (event) => {
   }
 });
 
-// Phones (below the md breakpoint) also put the channel sidebar in a drawer and show the
-// bottom toolbar; tablets keep the sidebar and only use the member drawer.
-const phoneQuery = window.matchMedia('(max-width: 767px)');
+// Phones also put the channel sidebar in a drawer and show the bottom toolbar;
+// tablets keep the sidebar and only use the member drawer.
+const phoneQuery = window.matchMedia(PHONE_QUERY);
 export const isPhone = signal(phoneQuery.matches);
 phoneQuery.addEventListener('change', (event) => {
   isPhone.value = event.matches;
   if (!event.matches) sidebarOpen.value = false;
 });
+
+const landscapePhoneQuery = window.matchMedia(LANDSCAPE_PHONE_QUERY);
+export const isLandscapePhone = signal(landscapePhoneQuery.matches);
+landscapePhoneQuery.addEventListener('change', (event) => {
+  isLandscapePhone.value = event.matches;
+});
+
+/**
+ * A text field has the focus on a touch screen, so the on-screen keyboard is
+ * (most likely) up: the bottom toolbar hides to give the composer the room.
+ * Maintained by lib/keyboard.ts.
+ */
+export const keyboardOpen = signal(false);
 
 /** Mobile drawers. */
 export const sidebarOpen = signal(false);
