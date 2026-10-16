@@ -313,6 +313,43 @@ export interface ServerSettingsUpdate {
   channelPermissionTemplates?: Partial<Record<CreatableChannelType, Partial<ChannelPermissions> | null>>;
 }
 
+export interface MonthlyUsage {
+  month: string;
+  hlsEgressBytes: number;
+  streamSeconds: number;
+  updatedAt: number;
+}
+
+/** `admin:usage`: streaming traffic and what is live (admins). */
+export interface AdminUsage {
+  currentMonth: MonthlyUsage;
+  months: MonthlyUsage[];
+  budgetBytes: number;
+  maxViewers: number;
+  maxBitrateKbps: number;
+  online: number;
+  liveStreams: Array<{ channelId: string; channelName: string; displayName: string | null; startedAt: number; viewerCount: number }>;
+}
+
+/** `admin:server:info`: the running configuration, read-only (superusers). */
+export interface ServerInfo {
+  version: string;
+  env: string;
+  startedAt: number;
+  uptimeSeconds: number;
+  node: string;
+  registration: { mode: 'open' | 'invite' | 'closed'; inviteCodeSet: boolean; adminEmails: string[] };
+  sessions: { ttlDays: number; singlePerAccount: boolean };
+  security: { passwordMinLength: number; maxConnectionsPerIp: number; trustProxy: boolean };
+  limits: { maxChannels: number; maxMessageLength: number; chatHistoryLimit: number; messageRetentionPerChannel: number; maxMessagesPerMinute: number };
+  streaming: { maxViewers: number; maxBitrateKbps: number; monthlyEgressBytes: number; watchdog: boolean; ticketSecretSet: boolean };
+  turn: { enabled: boolean; urls: string[]; stunUrls: string[]; credentialTtlSeconds: number };
+  urls: { rtmp: string | null; hls: string | null };
+  cors: string[];
+  storage: { dataDir: string; databasePath: string };
+  counts: { accounts: number; channels: number; messages: number; online: number; invites: number };
+}
+
 /** `admin:invites:create` payload. */
 export interface CreateInviteInput {
   maxUses?: number;

@@ -1,6 +1,8 @@
 import { signal } from '@preact/signals';
 import type { CreatableChannelType, NotificationType } from '@/types/protocol';
 
+export type AdminSection = 'users' | 'invites' | 'channels' | 'bans' | 'usage' | 'server';
+
 export type Modal =
   | { type: 'auth'; mode: 'login' | 'register' }
   | { type: 'profile' }
@@ -8,7 +10,7 @@ export type Modal =
   | { type: 'joinPrivateChannel' }
   | { type: 'streamKey'; channelId: string }
   | { type: 'audioSettings' }
-  | { type: 'admin'; tab: 'users' | 'invites' | 'channels' | 'bans' }
+  | { type: 'admin'; tab: AdminSection }
   | { type: 'channelPermissions'; channelId: string }
   | { type: 'confirm'; title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void };
 

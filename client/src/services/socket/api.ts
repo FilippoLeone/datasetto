@@ -99,6 +99,8 @@ export const api = {
   updateChannelPermissions: (channelId: string, permissions: Partial<ChannelPermissions>) =>
     emit('admin:channels:updatePermissions', { channelId, permissions }),
   getSettings: () => emit('admin:settings:get'),
+  getUsage: () => emit('admin:usage:get'),
+  getServerInfo: () => emit('admin:server:info'),
   updateSettings: (input: ServerSettingsUpdate) => emit('admin:settings:update', input),
   listInvites: () => emit('admin:invites:list'),
   createInvite: (input: CreateInviteInput) => emit('admin:invites:create', input),

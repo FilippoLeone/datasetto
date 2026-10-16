@@ -380,6 +380,10 @@ export class PresenceService {
     return this.liveStreams.get(channelId) ?? null;
   }
 
+  listStreams(): ActiveStream[] {
+    return Array.from(this.liveStreams.values());
+  }
+
   // ------------------------------------------------------------ minigames
 
   setMinigame(channelId: string, summary: MinigameSummary | null): void {

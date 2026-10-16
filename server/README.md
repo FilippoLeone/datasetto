@@ -95,11 +95,23 @@ rate limits apply.
 | `admin:invites:list`, `admin:invites:create {maxUses?, expiresAt?, note?}`, `admin:invites:revoke/delete {inviteId}` | `admin:invites:list {invites[]}`, `admin:invites:created {invite}` |
 | `admin:settings:get`, `admin:settings:update {channelPermissionTemplates?: {text?, voice?, stream?, screenshare?}}` | `admin:settings {settings, saved?}` |
 | `admin:accounts:update {accountId, displayName}`, `admin:accounts:resetPassword {accountId, temporaryPassword}`, `admin:accounts:delete {accountId}`, `admin:accounts:sessions:list {accountId}`, `admin:accounts:sessions:revoke {accountId, sessionId?}` | `admin:accounts:updated/passwordReset/deleted {account}`, `admin:accounts:sessions {accountId, sessions[]}` |
+| `admin:usage:get` (admins), `admin:server:info` (superusers) | `admin:usage {currentMonth, months[], budgetBytes, online, liveStreams[]}`, `admin:server:info {version, registration, sessions, limits, streaming, turn, storage, counts, …}` (no secrets) |
 | `voice:game:start/join/leave/input/end/leaderboard` | `voice:game:state/update/started/ended/leaderboard` |
 
 Presence is broadcast as `user:update users[]` to everyone whenever it changes.
 Stream keys are never included in channel lists; they are only returned by
 `stream:key:request` to users allowed to stream on that channel.
+
+### Admin panel
+
+The client's admin area (`/app/admin`, or the shield in the sidebar) has the
+sections Members, Invites, Channels (with the permission templates), Bans,
+Usage and Server. Usage reads `usage_months` (estimated HLS egress and stream
+time per month against `STREAM_MONTHLY_EGRESS_GB`), the live streams with
+their viewer counts and the number of connected sockets. Server shows the
+running configuration read from the environment (version, registration mode,
+session rules, limits, streaming caps, TURN, storage paths) to superusers
+only; secrets are never included.
 
 ### User management
 

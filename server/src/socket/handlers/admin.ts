@@ -5,7 +5,7 @@ import { AppError, notFound } from '../../errors.js';
 import { inviteStatus, MAX_INVITE_USES } from '../../services/invites.js';
 import { settingsUpdateSchema } from '../../services/settings.js';
 import type { InviteTokenRecord } from '../../types.js';
-import { handle, requirePermission, type SocketContext } from '../context.js';
+import { handle, requirePermission, requireUser, type SocketContext } from '../context.js';
 
 const rolesSchema = z.object({ accountId: idSchema, roles: z.array(z.string().max(32)).min(1).max(10) });
 const accountSchema = z.object({ accountId: idSchema, reason: z.string().max(500).optional().nullable() });
@@ -328,6 +328,67 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
     app.broadcast.channels();
     app.broadcast.users();
     app.log.info({ channelId, accountId, by: actor.accountId }, 'channel member removed');
+  });
+
+  // --------------------------------------------------------- usage & server
+
+  handle(sctx, 'admin:usage:get', { errorEvent: ERR, code: 'USAGE_FAILED' }, () => {
+    requirePermission(sctx, 'canManageUsers', 'No permission to view usage');
+    const { config } = app;
+    socket.emit('admin:usage', {
+      currentMonth: app.usage.get(),
+      months: app.usage.recent(12),
+      budgetBytes: config.streaming.monthlyEgressBytes,
+      maxViewers: config.streaming.maxViewers,
+      maxBitrateKbps: config.streaming.maxBitrateKbps,
+      online: app.presence.onlineCount(),
+      liveStreams: app.presence.listStreams().map((stream) => ({
+        channelId: stream.channelId,
+        channelName: app.channels.get(stream.channelId)?.name ?? stream.channelId,
+        displayName: stream.displayName,
+        startedAt: stream.startedAt,
+        viewerCount: app.presence.channelMemberCount(stream.channelId),
+      })),
+    });
+  });
+
+  handle(sctx, 'admin:server:info', { errorEvent: ERR, code: 'SERVER_INFO_FAILED' }, () => {
+    const actor = requireUser(sctx);
+    if (!actor.isSuperuser) throw new AppError('Only superusers can view the server configuration', 'FORBIDDEN', 403);
+    const { config } = app;
+    socket.emit('admin:server:info', {
+      version: config.version,
+      env: config.env,
+      startedAt: app.startedAt,
+      uptimeSeconds: Math.round((Date.now() - app.startedAt) / 1000),
+      node: process.version,
+      registration: {
+        mode: config.registration.mode,
+        inviteCodeSet: config.registration.inviteCode !== null,
+        adminEmails: config.registration.adminEmails,
+      },
+      sessions: { ttlDays: Math.round(config.sessions.ttlMs / 86_400_000), singlePerAccount: config.sessions.singlePerAccount },
+      security: { passwordMinLength: config.security.passwordMinLength, maxConnectionsPerIp: config.security.maxConnectionsPerIp, trustProxy: config.server.trustProxy },
+      limits: config.limits,
+      streaming: {
+        maxViewers: config.streaming.maxViewers,
+        maxBitrateKbps: config.streaming.maxBitrateKbps,
+        monthlyEgressBytes: config.streaming.monthlyEgressBytes,
+        watchdog: config.streaming.statUrl !== null,
+        ticketSecretSet: config.streaming.ticketSecret !== null,
+      },
+      turn: { enabled: app.turn.isEnabled(), urls: config.turn.urls, stunUrls: config.turn.stunUrls, credentialTtlSeconds: config.turn.credentialTtlSeconds },
+      urls: config.publicUrls,
+      cors: config.cors.origins,
+      storage: { dataDir: config.storage.dataDir, databasePath: config.database.path },
+      counts: {
+        accounts: app.accounts.count(),
+        channels: app.channels.count(),
+        messages: app.messages.count(),
+        online: app.presence.onlineCount(),
+        invites: app.invites.count(),
+      },
+    });
   });
 
   // -------------------------------------------------------------- settings

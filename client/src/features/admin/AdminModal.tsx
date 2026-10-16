@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Ban, Copy, KeyRound, Link2, Trash2, XCircle } from 'lucide-preact';
-import { Button, Field, Modal, Select, TextInput } from '@/components';
+import { Activity, Ban, Copy, Hash, KeyRound, Link2, Server, Ticket, Trash2, Users, X, XCircle } from 'lucide-preact';
+import { Button, Field, IconButton, Select, TextInput } from '@/components';
 import { cn } from '@/lib/cn';
 import { formatFullDate } from '@/lib/format';
 import { inviteLinkFor } from '@/lib/inviteLink';
@@ -10,12 +10,13 @@ import { channels } from '@/state/channels';
 import { adminAccounts, adminBans, adminInvites, adminSettings, lastCreatedInvite } from '@/state/misc';
 import { EMPTY_PERMISSIONS, PermissionsEditor } from './PermissionsEditor';
 import { MembersTab } from './MembersTab';
-import { can } from '@/state/session';
-import { closeModal, openModal, toast } from '@/state/ui';
+import { UsageSection } from './UsageSection';
+import { ServerSection } from './ServerSection';
+import { can, isSuperuser } from '@/state/session';
+import { closeModal, openModal, toast, type AdminSection } from '@/state/ui';
 import { CHANNEL_ICONS } from '@/app/layout/MainArea';
 import type { ChannelPermissions, CreatableChannelType, InviteToken } from '@/types/protocol';
 
-type Tab = 'users' | 'invites' | 'channels' | 'bans';
 
 
 const USES_OPTIONS = [
@@ -299,43 +300,107 @@ const BansTab = () => {
   );
 };
 
-export const AdminModal = ({ initialTab }: { initialTab: Tab }) => {
-  const [tab, setTab] = useState<Tab>(initialTab);
+/** Where the panel lives in the address bar: /app/admin on the deployed site, /admin in dev. */
+const adminPath = (): string => (window.location.pathname.startsWith('/app') ? '/app/admin' : '/admin');
+const appPath = (): string => (window.location.pathname.startsWith('/app') ? '/app' : '/');
+
+/** True when the page was opened on the admin deep link. */
+export const openedOnAdminPath = (): boolean => /\/admin\/?$/.test(window.location.pathname);
+
+interface SectionInfo {
+  id: AdminSection;
+  label: string;
+  hint: string;
+  icon: typeof Users;
+  show: boolean;
+}
+
+/**
+ * Full-screen admin area with a section list on the left. Opened from the
+ * sidebar shield or by visiting /app/admin; closing returns to the app.
+ */
+export const AdminModal = ({ initialTab }: { initialTab: AdminSection }) => {
+  const [tab, setTab] = useState<AdminSection>(initialTab);
 
   useEffect(() => {
     api.listAccounts();
     if (can('canBanUsers')) api.listBans();
+    const previous = window.location.pathname + window.location.search + window.location.hash;
+    try {
+      window.history.replaceState(null, '', adminPath());
+    } catch {
+      /* file:// in the shells */
+    }
+    return () => {
+      try {
+        window.history.replaceState(null, '', openedOnAdminPath() ? appPath() : previous.replace(/\/admin\/?$/, '') || appPath());
+      } catch {
+        /* ignore */
+      }
+    };
   }, []);
 
-  const tabs: Array<{ id: Tab; label: string; show: boolean }> = [
-    { id: 'users', label: 'Members', show: can('canManageUsers') },
-    { id: 'invites', label: 'Invites', show: can('canManageUsers') },
-    { id: 'channels', label: 'Channels', show: can('canManageChannelPermissions') || can('canDeleteChannels') },
-    { id: 'bans', label: 'Bans', show: can('canBanUsers') },
-  ];
+  const sections: SectionInfo[] = (
+    [
+    { id: 'users', label: 'Members', hint: 'Accounts, roles, passwords, sessions', icon: Users, show: can('canManageUsers') },
+    { id: 'invites', label: 'Invites', hint: 'Invite links and who used them', icon: Ticket, show: can('canManageUsers') },
+    { id: 'channels', label: 'Channels', hint: 'Permissions and defaults for new channels', icon: Hash, show: can('canManageChannelPermissions') || can('canDeleteChannels') },
+    { id: 'bans', label: 'Bans', hint: 'Banned accounts', icon: Ban, show: can('canBanUsers') },
+    { id: 'usage', label: 'Usage', hint: 'Streaming traffic, live streams, viewers', icon: Activity, show: can('canManageUsers') },
+    { id: 'server', label: 'Server', hint: 'Version, registration, limits (superusers)', icon: Server, show: isSuperuser.value },
+    ] satisfies SectionInfo[]
+  ).filter((entry) => entry.show);
+  const current = sections.find((entry) => entry.id === tab) ?? sections[0];
 
   return (
-    <Modal title="Server admin" onClose={closeModal} size="lg">
-      <div className="mb-4 flex gap-1 rounded-md bg-base p-1" role="tablist">
-        {tabs
-          .filter((entry) => entry.show)
-          .map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === entry.id}
-              onClick={() => setTab(entry.id)}
-              className={cn('flex-1 rounded-sm py-1.5 text-sm font-medium', tab === entry.id ? 'bg-active text-text-bright' : 'text-text-muted hover:text-text')}
-            >
-              {entry.label}
-            </button>
-          ))}
+    <div className="fixed inset-0 z-50 flex flex-col bg-main animate-fade-in safe-top safe-x safe-bottom" role="dialog" aria-modal="true" aria-label="Server admin">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4 shadow-sm">
+        <Server size={18} className="text-text-muted" />
+        <h2 className="text-base font-semibold text-text-bright">Server admin</h2>
+        <span className="hidden text-xs text-text-faint sm:inline">{adminPath()}</span>
+        <span className="flex-1" />
+        <IconButton label="Close admin" size="sm" onClick={closeModal}>
+          <X size={18} />
+        </IconButton>
+      </header>
+      <div className="flex min-h-0 flex-1">
+        <nav className="scrollbar-thin flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-sidebar p-2 max-md:w-14" aria-label="Admin sections">
+          {sections.map((entry) => {
+            const Icon = entry.icon;
+            const active = entry.id === current?.id;
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                onClick={() => setTab(entry.id)}
+                title={entry.hint}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex items-center gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors max-md:justify-center',
+                  active ? 'bg-active text-text-bright' : 'text-text-muted hover:bg-hover hover:text-text',
+                )}
+              >
+                <Icon size={16} className="shrink-0" />
+                <span className="min-w-0 max-md:hidden">
+                  <span className="block truncate font-medium">{entry.label}</span>
+                  <span className="block truncate text-[11px] text-text-faint">{entry.hint}</span>
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+        <main className="scrollbar-thin min-w-0 flex-1 overflow-y-auto p-4">
+          <div className="mx-auto max-w-4xl">
+            <h3 className="mb-3 text-lg font-semibold text-text-bright">{current?.label}</h3>
+            {current?.id === 'users' && <MembersTab />}
+            {current?.id === 'invites' && <InvitesTab />}
+            {current?.id === 'channels' && <ChannelsTab />}
+            {current?.id === 'bans' && <BansTab />}
+            {current?.id === 'usage' && <UsageSection />}
+            {current?.id === 'server' && <ServerSection />}
+          </div>
+        </main>
       </div>
-      {tab === 'users' && <MembersTab />}
-      {tab === 'invites' && <InvitesTab />}
-      {tab === 'channels' && <ChannelsTab />}
-      {tab === 'bans' && <BansTab />}
-    </Modal>
+    </div>
   );
 };

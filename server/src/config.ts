@@ -52,6 +52,8 @@ const envSchema = z.object({
   ADMIN_EMAILS: listFromEnv([]).transform((list) => list.map((email) => email.toLowerCase())),
 
   SESSION_TTL_DAYS: intFromEnv(30, 1, 365),
+  // One signed-in device per account: a new sign-in disconnects the previous socket.
+  SINGLE_SESSION_PER_ACCOUNT: boolFromEnv(true),
   PASSWORD_MIN_LENGTH: intFromEnv(8, 8, 64),
 
   MAX_CHANNELS: intFromEnv(50, 1, 500),
@@ -93,7 +95,7 @@ export interface AppConfig {
   cors: { origins: string[]; allowNativeOrigins: boolean };
   publicUrls: { rtmp: string | null; hls: string | null };
   registration: { mode: Env['REGISTRATION_MODE']; inviteCode: string | null; adminEmails: string[] };
-  sessions: { ttlMs: number };
+  sessions: { ttlMs: number; singlePerAccount: boolean };
   security: { passwordMinLength: number; maxConnectionsPerIp: number };
   limits: {
     maxChannels: number;
@@ -152,7 +154,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       inviteCode: env.REGISTRATION_INVITE_CODE,
       adminEmails: env.ADMIN_EMAILS,
     },
-    sessions: { ttlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000 },
+    sessions: { ttlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000, singlePerAccount: env.SINGLE_SESSION_PER_ACCOUNT },
     security: { passwordMinLength: env.PASSWORD_MIN_LENGTH, maxConnectionsPerIp: env.MAX_CONNECTIONS_PER_IP },
     limits: {
       maxChannels: env.MAX_CHANNELS,

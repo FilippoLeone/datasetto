@@ -21,8 +21,10 @@ import {
   adminAccounts,
   adminBans,
   adminInvites,
+  adminServerInfo,
   adminSessions,
   adminSettings,
+  adminUsage,
   channelMembers,
   lastCreatedInvite,
   channelPermissions,
@@ -36,6 +38,7 @@ import { serverConfig } from '@/services/ServerConfigService';
 import type {
   Account,
   AdminSession,
+  AdminUsage,
   BanRecord,
   Channel,
   ChannelGroup,
@@ -46,6 +49,7 @@ import type {
   InviteToken,
   ReactionEvent,
   ScreenshareSessionEvent,
+  ServerInfo,
   ServerSettings,
   ServerError,
   SessionInfo,
@@ -322,6 +326,12 @@ export const installSocketBindings = (): void => {
   });
   socketClient.on<{ bans: BanRecord[] }>('admin:bans:list', ({ bans }) => {
     adminBans.value = bans;
+  });
+  socketClient.on<AdminUsage>('admin:usage', (usage) => {
+    adminUsage.value = usage;
+  });
+  socketClient.on<ServerInfo>('admin:server:info', (info) => {
+    adminServerInfo.value = info;
   });
   socketClient.on<{ settings: ServerSettings; saved?: boolean }>('admin:settings', ({ settings, saved }) => {
     adminSettings.value = settings;
