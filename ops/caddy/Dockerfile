@@ -15,4 +15,4 @@ COPY --from=build /src/dist /srv
 # Fail the build on a broken Caddyfile (placeholders need a value to validate).
 RUN SITE_ADDRESS=:80 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -q --spider http://127.0.0.1:80/landing.html || exit 1
+  CMD wget -q --spider http://127.0.0.1:8081/healthz || exit 1

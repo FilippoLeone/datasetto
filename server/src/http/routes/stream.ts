@@ -72,7 +72,8 @@ export const streamRouter = (ctx: AppContext): Router => {
       return;
     }
 
-    if (ctx.usage.monthEgressBytes() >= ctx.config.streaming.monthlyEgressBytes) {
+    const budget = ctx.config.streaming.monthlyEgressBytes;
+    if (budget > 0 && ctx.usage.monthEgressBytes() >= budget) {
       ctx.log.warn({ ip: input.ip, name: input.name || null }, 'stream publish rejected: monthly egress budget used up');
       res.status(403).json({ allowed: false, code: 'EGRESS_BUDGET_EXCEEDED' });
       return;

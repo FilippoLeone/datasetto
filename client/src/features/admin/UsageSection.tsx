@@ -41,7 +41,10 @@ export const UsageSection = () => {
           <div className={cn('h-full rounded-full transition-[width]', ratio > 0.9 ? 'bg-danger' : ratio > 0.7 ? 'bg-warning' : 'bg-success')} style={{ width: Math.round(ratio * 100) + '%' }} />
         </div>
         <p className="mt-1 text-xs text-text tabular-nums">
-          {gigabytes(used)} of {gigabytes(usage.budgetBytes)} ({Math.round(ratio * 100)}%) · {formatDuration(usage.currentMonth.streamSeconds * 1000)} streamed
+          {usage.budgetBytes > 0
+            ? `${gigabytes(used)} of ${gigabytes(usage.budgetBytes)} (${Math.round(ratio * 100)}%)`
+            : `${gigabytes(used)} served, no monthly budget`}{' '}
+          · {formatDuration(usage.currentMonth.streamSeconds * 1000)} streamed
         </p>
       </section>
 
@@ -73,7 +76,8 @@ export const UsageSection = () => {
             </ul>
           )}
           <p className="mt-1 text-xs text-text-faint">
-            Limits: {usage.maxViewers} viewers per stream, {usage.maxBitrateKbps} kbps ingest.
+            Limits: {usage.maxViewers > 0 ? `${usage.maxViewers} viewers per stream` : 'no viewer cap'},{' '}
+            {usage.maxBitrateKbps > 0 ? `${usage.maxBitrateKbps} kbps ingest` : 'no ingest cap'}.
           </p>
         </div>
       </section>

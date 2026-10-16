@@ -68,9 +68,9 @@ export const ServerSection = () => {
         <Row label="Messages per minute" value={String(info.limits.maxMessagesPerMinute)} hint="MAX_MESSAGES_PER_MINUTE" />
       </Group>
       <Group title="Streaming">
-        <Row label="Viewers per stream" value={String(info.streaming.maxViewers)} hint="STREAM_MAX_VIEWERS" />
-        <Row label="Ingest bitrate cap" value={info.streaming.maxBitrateKbps + ' kbps'} hint="STREAM_MAX_BITRATE_KBPS" />
-        <Row label="Monthly egress budget" value={(info.streaming.monthlyEgressBytes / 1e9).toFixed(0) + ' GB'} hint="STREAM_MONTHLY_EGRESS_GB" />
+        <Row label="Viewers per stream" value={info.streaming.maxViewers > 0 ? String(info.streaming.maxViewers) : 'no limit'} hint="STREAM_MAX_VIEWERS" />
+        <Row label="Ingest bitrate cap" value={info.streaming.maxBitrateKbps > 0 ? info.streaming.maxBitrateKbps + ' kbps' : 'no limit'} hint="STREAM_MAX_BITRATE_KBPS" />
+        <Row label="Monthly egress budget" value={info.streaming.monthlyEgressBytes > 0 ? (info.streaming.monthlyEgressBytes / 1e9).toFixed(0) + ' GB' : 'no limit'} hint="STREAM_MONTHLY_EGRESS_GB" />
         <Row label="Watchdog (rtmp stat)" value={yesNo(info.streaming.watchdog)} hint="RTMP_STAT_URL" />
         <Row label="HLS ticket secret set" value={yesNo(info.streaming.ticketSecretSet)} hint="HLS_TICKET_SECRET" />
         <Row label="Public RTMP / HLS" value={(info.urls.rtmp ?? 'derived') + ' · ' + (info.urls.hls ?? 'derived')} hint="PUBLIC_RTMP_URL / PUBLIC_HLS_URL" />

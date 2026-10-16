@@ -36,7 +36,11 @@ export const channelFromHlsPath = (uri: string): string | null => {
 export const hlsRouter = (ctx: AppContext): Router => {
   const router = Router();
   const ticketLimiter = new RateLimiter(60, 60_000);
-  const overBudget = () => ctx.usage.monthEgressBytes() >= ctx.config.streaming.monthlyEgressBytes;
+  // A budget of 0 means there is none (unmetered host).
+  const overBudget = () => {
+    const budget = ctx.config.streaming.monthlyEgressBytes;
+    return budget > 0 && ctx.usage.monthEgressBytes() >= budget;
+  };
 
   router.post('/api/stream/:channelName/ticket', (req, res) => {
     if (!ticketLimiter.hit(req.ip ?? 'unknown').allowed) {
@@ -64,8 +68,9 @@ export const hlsRouter = (ctx: AppContext): Router => {
       res.status(403).json({ error: 'Streaming is paused until next month: the traffic budget is used up.', code: 'EGRESS_BUDGET_EXCEEDED' });
       return;
     }
-    // The viewer is usually already counted (it joined the channel over the socket).
-    if (ctx.presence.channelMemberCount(channel.id) > ctx.config.streaming.maxViewers) {
+    // The viewer is usually already counted (it joined the channel over the socket). 0 = no cap.
+    const maxViewers = ctx.config.streaming.maxViewers;
+    if (maxViewers > 0 && ctx.presence.channelMemberCount(channel.id) > maxViewers) {
       res.status(429).json({ error: 'This stream is full right now', code: 'STREAM_FULL', maxViewers: ctx.config.streaming.maxViewers });
       return;
     }

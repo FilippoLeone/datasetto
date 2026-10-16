@@ -56,8 +56,8 @@ export const DEFAULT_SCREEN_QUALITY: ScreenQuality = '1080p60';
 /**
  * Per-viewer encoder caps. The presenter uploads one copy per viewer, so the
  * bitrate adds up; a friend reached through the TURN relay is additionally
- * limited to about 1.5 Mbit/s by the relay (see ops/README.md) and gets a
- * softer picture at the higher presets.
+ * bound by the relay's per-session cap (TURN_MAX_BPS, 12 Mbit/s by default,
+ * see ops/README.md) and gets a softer picture at the native presets.
  */
 export const SCREEN_QUALITY_PRESETS: Record<ScreenQuality, ScreenQualityPreset> = {
   '720p30': { id: '720p30', label: '720p · 30 fps (data saver)', width: 1280, height: 720, fps: 30, maxBitrateBps: 3_500_000 },

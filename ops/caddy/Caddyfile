@@ -2,6 +2,14 @@
 	admin off
 }
 
+# Docker's health probe. A plain-HTTP listener on a port that is not published:
+# on the real site Caddy answers every request on :80 with a redirect to HTTPS,
+# which the probe cannot follow, so it would report the container unhealthy.
+:8081 {
+	respond /healthz 200
+	respond 404
+}
+
 {$SITE_ADDRESS} {
 	encode zstd gzip
 

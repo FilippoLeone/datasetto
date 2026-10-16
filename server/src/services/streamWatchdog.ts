@@ -71,8 +71,9 @@ export class StreamWatchdog {
     this.timer = null;
   }
 
+  /** A budget of 0 means there is none (unmetered host). */
   overBudget(now = Date.now()): boolean {
-    return this.ctx.usage.monthEgressBytes(now) >= this.options.monthlyEgressBytes;
+    return this.options.monthlyEgressBytes > 0 && this.ctx.usage.monthEgressBytes(now) >= this.options.monthlyEgressBytes;
   }
 
   /** One poll of nginx-rtmp; exported for tests. */
@@ -99,7 +100,8 @@ export class StreamWatchdog {
       // Every viewer downloads roughly what the publisher uploads.
       this.ctx.usage.addEgress((stream.bwIn / 8) * seconds * viewers, seconds, now);
 
-      if (stream.bwIn > this.options.maxBitrateKbps * 1000) {
+      // A cap of 0 means publishers may send whatever OBS is set to.
+      if (this.options.maxBitrateKbps > 0 && stream.bwIn > this.options.maxBitrateKbps * 1000) {
         const strikes = (this.strikes.get(stream.name) ?? 0) + 1;
         this.strikes.set(stream.name, strikes);
         if (strikes >= 2) {

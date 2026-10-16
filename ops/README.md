@@ -174,14 +174,16 @@ traffic (OVH) or 20 TB per month with cheap per-TB overage (Hetzner). That is a
 hundred times the GCP free allowance, so on a VPS the egress budget is not what
 protects the bill:
 
-- set `STREAM_MONTHLY_EGRESS_GB` high (for example `5000`) so streaming never
-  pauses for budget reasons;
-- keep `STREAM_MAX_VIEWERS` and `STREAM_MAX_BITRATE_KBPS` as the real limits.
-  They protect the small CPU and the uplink: 10 viewers at 6000 kbps is 60 Mbit/s
-  out plus the OBS ingest, a fraction of VPS-1's 500 Mbit/s port and still fine
-  on a 100 Mbit/s entry plan;
-- skip `--egress-guard`, or on a 20 TB plan run it with
-  `EGRESS_SOFT_LIMIT_GB=15000` and `EGRESS_HARD_LIMIT_GB=18000`.
+- on unmetered traffic (OVH) switch the budget-driven limits off: `0` for
+  `STREAM_MONTHLY_EGRESS_GB`, `STREAM_MAX_BITRATE_KBPS` and `STREAM_MAX_VIEWERS`,
+  and `0` for `TURN_MAX_BPS` and `TURN_BPS_CAPACITY` so relayed screen shares
+  are not softened. A friend group's worst case (a 20 Mbit/s OBS stream to ten
+  viewers plus a few relayed shares) stays far below VPS-1's 500 Mbit/s port;
+  the stream key check, viewer tickets, TURN session quotas and the rate limits
+  keep protecting the box;
+- on a 20 TB plan (Hetzner) keep `STREAM_MONTHLY_EGRESS_GB=15000` instead, and
+  run `--egress-guard` with `EGRESS_SOFT_LIMIT_GB=15000` and
+  `EGRESS_HARD_LIMIT_GB=18000`.
 
 Everything else in "Keeping the bill small" applies unchanged: viewer tickets,
 the RTMP key check, TURN quotas and the rate limits are in the app and the
@@ -336,14 +338,15 @@ Everything that can cost money is gated or capped. The knobs live in
   accounts that may view the channel, bound to that channel, and expire after
   10 minutes (the player renews them). A leaked stream URL serves nothing.
 - **Viewer cap.** `STREAM_MAX_VIEWERS` (10) tickets per live stream; beyond that
-  the player shows "stream is full".
+  the player shows "stream is full". `0` removes the cap.
 - **Bitrate cap.** The app polls nginx-rtmp every 15 s and drops a publisher
   that sends more than `STREAM_MAX_BITRATE_KBPS` (6000) twice in a row, with a
-  toast in the channel telling them to lower it in OBS.
+  toast in the channel telling them to lower it in OBS. `0` removes the cap.
 - **Monthly budget.** The app estimates egress as publisher bitrate x viewers
   and stores it per month in SQLite. At `STREAM_MONTHLY_EGRESS_GB` (150) it
   drops publishers, refuses new publishes and stops issuing tickets until the
-  next month.
+  next month. `0` means no budget (the usage is still recorded for the admin
+  panel).
 - **VM backstop.** `ops/common/egress-guard.sh` runs from a systemd timer every
   5 minutes (always on GCP, with `--egress-guard` on a VPS), counts bytes sent
   on the public interface per month, shapes all egress to 1 Mbit/s at
@@ -358,12 +361,14 @@ Everything that can cost money is gated or capped. The knobs live in
   limited per IP. The stat and control endpoints are not reachable from outside.
 - **TURN.** Credentials are only sent to signed-in users over the socket (the
   public `/api/config` carries STUN only) and expire after 12 h. coturn is
-  capped at 1.5 Mbit/s per session, 20 Mbit/s in total, 40 sessions, 6 per
-  user, and refuses to relay to private, link-local and metadata addresses.
-  The per-session cap also bounds relayed screen shares: a viewer behind a
-  strict NAT who needs the relay sees a softer picture at the 1080p60 and
-  native presets (direct peer-to-peer connections are not affected); raise
-  `TURN_MAX_BPS` in `ops/turn/entrypoint.sh` if the bill allows it.
+  capped at 1.5 MB/s per session (`TURN_MAX_BPS`, 12 Mbit/s: coturn counts
+  bytes), 20 MB/s in total (`TURN_BPS_CAPACITY`, 160 Mbit/s), 40 sessions
+  (`TURN_TOTAL_QUOTA`), 6 per user (`TURN_USER_QUOTA`), and refuses to relay
+  to private, link-local and metadata addresses. The per-session cap also
+  bounds relayed screen shares: a viewer behind a strict NAT who needs the
+  relay sees a softer picture above the 1080p60 preset (direct peer-to-peer
+  connections are not affected). On unmetered traffic set `TURN_MAX_BPS=0`
+  and `TURN_BPS_CAPACITY=0` in `ops/.env`; the quotas stay.
 - **HTTP and sockets.** Helmet headers, strict CORS, 256 KB JSON bodies, 256 KB
   socket messages, 20 sockets per IP, 300 API requests per IP per minute, and
   per-event buckets for chat, signalling, games and auth. Registration is

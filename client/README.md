@@ -77,9 +77,10 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
   screen tile shows the resolution and frame rate it actually plays at.
 - The presenter uploads one copy per viewer, so 1080p60 with three viewers
   needs roughly 25 Mbit/s of upload. A viewer who cannot connect directly and
-  goes through the TURN relay is capped at about 1.5 Mbit/s by the relay
-  (`TURN_MAX_BPS` in `ops/turn/entrypoint.sh`), so they see a softer picture
-  at the higher presets; direct connections are not affected.
+  goes through the TURN relay is bound by the relay's per-session cap
+  (`TURN_MAX_BPS` in `ops/.env`, 12 Mbit/s by default, 0 for none), so on a
+  capped server they see a softer picture at the native presets; direct
+  connections are not affected.
 - Voice uses Opus at 128 kbps by default (Voice & audio settings > Bitrate
   offers 32 to 128 kbps); the value is applied to our sender through
   `setParameters` and asked of the other side through `maxaveragebitrate` in
