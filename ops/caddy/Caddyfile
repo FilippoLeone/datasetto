@@ -1,0 +1,42 @@
+{
+	admin off
+}
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
+		-Server
+	}
+
+	# API, realtime socket and health live in the Node.js container.
+	@backend path /api/* /socket.io/* /health
+	handle @backend {
+		reverse_proxy app:4000
+	}
+
+	# HLS playlists and segments are produced by nginx-rtmp.
+	handle /hls/* {
+		reverse_proxy rtmp:8080
+	}
+
+	# Everything else is the static client.
+	handle {
+		root * /srv
+
+		@assets path /assets/*
+		@pages not path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header @pages Cache-Control "no-cache"
+
+		rewrite / /landing.html
+		rewrite /app /index.html
+		rewrite /app/* /index.html
+		try_files {path} {path}.html /index.html
+		file_server
+	}
+}

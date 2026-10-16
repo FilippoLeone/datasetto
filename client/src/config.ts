@@ -25,10 +25,11 @@ const getEnv = (key: string, fallback: string): string => {
 
 export const config = {
   // Server URLs
-  SERVER_URL: getEnv('VITE_SERVER_URL', 'http://localhost:4000'),
-  API_BASE_URL: getEnv('VITE_API_BASE_URL', 'http://localhost:4000'),
-  HLS_BASE_URL: getEnv('VITE_HLS_BASE_URL', 'http://localhost/hls'),
-  RTMP_SERVER_URL: getEnv('VITE_RTMP_SERVER_URL', 'rtmp://localhost/live'),
+  // Empty means same-origin (derived at runtime); see utils/helpers resolveRuntimeConfig.
+  SERVER_URL: getEnv('VITE_SERVER_URL', ''),
+  API_BASE_URL: getEnv('VITE_API_BASE_URL', ''),
+  HLS_BASE_URL: getEnv('VITE_HLS_BASE_URL', ''),
+  RTMP_SERVER_URL: getEnv('VITE_RTMP_SERVER_URL', ''),
 
   // Mobile Defaults
   MOBILE_DEFAULT_SERVER_URL: getEnv('VITE_MOBILE_DEFAULT_SERVER_URL', 'https://datasetto.com'),

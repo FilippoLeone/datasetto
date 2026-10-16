@@ -1,22 +1,45 @@
 {
   "name": "datasetto-server",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "description": "Datasetto backend: accounts, channels, chat, voice signaling, stream auth",
   "type": "module",
-  "main": "src/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "import-legacy": "tsx src/scripts/import-legacy.ts",
+    "backup": "tsx src/scripts/backup.ts"
   },
   "dependencies": {
-    "bcryptjs": "^2.4.3",
-    "cors": "^2.8.5",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.6",
     "dotenv": "^16.6.1",
-    "express": "^4.19.2",
-    "redis": "^4.7.0",
-    "socket.io": "^4.7.5"
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "pino": "^10.4.0",
+    "socket.io": "^4.8.4",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.19.2",
+    "@types/supertest": "^7.2.1",
+    "pino-pretty": "^13.2.0",
+    "socket.io-client": "^4.8.4",
+    "supertest": "^7.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
   }
 }

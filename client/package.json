@@ -1,32 +1,42 @@
 {
   "name": "datasetto-client",
   "private": true,
-  "version": "0.2.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "type-check": "tsc --noEmit",
-    "format": "prettier --write \"src/**/*.{ts,js,css}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,js,css}\""
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
     "@capacitor/app": "^7.1.0",
     "@capacitor/core": "^7.4.3",
     "@capawesome-team/capacitor-android-foreground-service": "^7.0.1",
-    "hls.js": "^1.5.15",
-  "socket.io-client": "^4.7.5",
-  "datasetto-client": "file:"
+    "@preact/signals": "^2.11.3",
+    "clsx": "^2.1.1",
+    "hls.js": "^1.7.3",
+    "lucide-preact": "^1.58.0",
+    "preact": "^10.29.8",
+    "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.1.14",
+    "@preact/preset-vite": "^2.10.6",
+    "@tailwindcss/vite": "^4.1.18",
     "@types/node": "^20.10.0",
-    "lightningcss": "^1.30.2",
-    "postcss": "^8.5.6",
-    "prettier": "^3.1.0",
-    "tailwindcss": "^4.1.14",
-    "typescript": "^5.6.2",
-    "vite": "^5.4.2"
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "jsdom": "^26.1.0",
+    "prettier": "^3.9.10",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.2",
+    "vite": "^5.4.21",
+    "vitest": "^3.2.4"
   }
 }

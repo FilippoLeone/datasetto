@@ -1,0 +1,62 @@
+import type { SocketContext } from './context.js';
+import type { Minigames } from './handlers/minigame.js';
+
+/**
+ * Remove a socket from its voice room, notifying peers and the minigame
+ * engine. Shared by voice:leave, voice:join (room switch), kicks and disconnect.
+ */
+export const leaveVoiceRoom = (sctx: SocketContext, minigames: Minigames): string | null => {
+  const { app, socket } = sctx;
+  const channelId = app.presence.leaveVoice(socket.id) ?? sctx.voiceChannel;
+  sctx.voiceChannel = null;
+  if (!channelId) return null;
+
+  socket.to(channelId).emit('voice:peer-leave', { id: socket.id });
+  if (sctx.currentChannel !== channelId) {
+    void socket.leave(channelId);
+  }
+  minigames.handleVoiceMemberLeft(channelId, socket.id);
+  return channelId;
+};
+
+/** Stop hosting / viewing screenshares this socket is involved in. */
+export const leaveScreenshares = (sctx: SocketContext): void => {
+  const { app, socket } = sctx;
+  const { hosting, viewing } = app.presence.screensharesInvolving(socket.id);
+
+  for (const channelId of hosting) {
+    app.presence.stopScreenshare(channelId);
+    app.broadcast.screenshare(channelId);
+  }
+  for (const channelId of viewing) {
+    app.presence.removeScreenshareViewer(channelId, socket.id);
+    app.broadcast.screenshare(channelId);
+  }
+  sctx.screenshareHosting = null;
+  sctx.screenshareViewing = null;
+};
+
+/**
+ * Forget everything about the authenticated user behind this socket. Used on
+ * disconnect, logout and when a socket re-authenticates as another account.
+ */
+export const teardownSocket = (sctx: SocketContext, minigames: Minigames): void => {
+  const { app, socket } = sctx;
+  if (!sctx.user) return;
+
+  if (sctx.currentChannel) {
+    app.presence.leaveChannel(socket.id, sctx.currentChannel);
+    sctx.currentChannel = null;
+  }
+  leaveVoiceRoom(sctx, minigames);
+  leaveScreenshares(sctx);
+
+  app.presence.removeUser(socket.id);
+  sctx.user = null;
+  sctx.account = null;
+  sctx.sessionToken = null;
+  sctx.sessionTokenHash = null;
+
+  app.broadcast.users();
+  app.broadcast.channels();
+};

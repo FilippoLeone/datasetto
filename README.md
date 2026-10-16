@@ -4,185 +4,83 @@ This software is being built with the sole purpose of me using it with my friend
 
 <img width="1910" height="914" alt="image" src="https://github.com/user-attachments/assets/59a9b5db-fe71-48d9-b027-556cfe0f2f71" />
 
-# 🎮 Datasetto
+# Datasetto
 
-A modern, self-hosted streaming platform with RTMP streaming, screensharing, voice chat, and text chat. A teamspeak/discord open source alternative.
+A self-hosted Discord/TeamSpeak alternative for a small group of friends: text
+channels, peer-to-peer voice with camera and screenshare, OBS streaming with HLS
+playback, a few voice-channel minigames, and admin tooling. Runs on one small
+VM for about the price of a coffee a week.
 
-[![Docker](https://img.shields.io/badge/Docker-Ready-blue)](https://www.docker.com/)
-[![Node.js](https://img.shields.io/badge/Node.js-20+-green)](https://nodejs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
+## Features
 
-**Perfect for small self-hosted communities**
+- **Text channels** with persistent history, moderation (delete, ban, voice timeout)
+- **Voice channels** over WebRTC mesh: echo cancellation, noise suppression, push to talk, camera, screenshare
+- **Live streams**: OBS publishes to RTMP, viewers watch low-latency HLS in a theater layout with chat
+- **Screenshare rooms** for one presenter and many viewers
+- **Minigames** inside voice channels (Slither, Pacman, Fighter) with a persistent leaderboard
+- **Accounts and roles**: superuser, admin, moderator, streamer, user; per-channel permissions; invite-only registration
+- **Clients**: web app, Electron desktop app (`desktop/`), Capacitor Android/iOS app (`mobile/`)
 
-## 📥 Downloads
+## Architecture
 
-Pre-built applications are available in [Releases](../../releases):
-- 🤖 **Android APK** - Install on Android devices
-- 🖥️ **Windows** - `.exe` installer and portable version
-- 🐧 **Linux** - `.AppImage` and `.deb` packages
-- 🍎 **macOS** - `.dmg` installer
-
-## ✨ Features
-
-### Core Features
-- 🎮 **RTMP Streaming** - OBS integration with HLS playback (inline theater mode + popout window)
-- 🎤 **WebRTC Voice Chat** - P2P voice communication with echo cancellation & noise suppression
-- 💬 **Text Chat** - Real-time messaging with per-channel history (100 messages in-memory)
-- 🎬 **Video Player Controls** - Play/pause, volume, fullscreen, keyboard shortcuts (Space/F/M/C/Arrows)
-- 👥 **Multi-Channel** - Separate text, voice, and stream channels 
-- 🔐 **Role System** - Superuser, admin, moderator, streamer, and user roles
-- 📱 **Responsive Design** - Mobile-friendly interface
----
-
-## 🚀 Quick Start
-
-### Local Development
-
-```bash
-cd ops
-docker compose up -d
+```
+client/   Preact + TypeScript single page app (signals, Tailwind, Socket.IO, WebRTC, hls.js)
+server/   Node.js 22+ TypeScript API: Express + Socket.IO, SQLite (better-sqlite3), zod validation, pino logs
+ops/      Docker Compose stack (Caddy, app, nginx-rtmp, coturn) and Google Cloud scripts
+desktop/  Electron shell around the web client
+mobile/   Capacitor shell around the web client
 ```
 
-### Production Deployment
+The server is the source of truth. State that must survive restarts (accounts,
+sessions, channels, permissions, messages, bans, leaderboards) lives in one
+SQLite file; live state (who is online, voice rooms, active streams) is in
+memory and rebuilt as clients reconnect. Media never touches the server except
+RTMP ingest and the optional TURN relay.
 
-#### VPS Deployment (Ubuntu/Debian)
-```bash
-chmod +x deploy-vps.sh
-sudo ./deploy-vps.sh
-```
+## Quick start (local)
 
-#### GCP Deployment
-```bash
-chmod +x deploy-gcp.sh
-./deploy-gcp.sh
-```
-
-#### Manual Deployment
-```bash
-# 1. Install Docker
-curl -fsSL https://get.docker.com | sudo sh
-sudo apt install -y docker-compose-plugin
-
-# 2. Clone/upload your code
-cd /opt/datasetto
-
-# 3. Configure environment
-cd ops
-cp .env.example .env
-nano .env  # Edit SERVER_URL, HLS_BASE_URL, SUPERUSER_SECRET
-
-# 4. Deploy
-docker compose -f docker-compose.prod.yml up -d
-```
-
-**Server Requirements (few users + streamer):**
-- 2 vCPU, 2-4GB RAM, 10-40GB SSD
-
----
-
-## 🏗️ Architecture
-
-**Stack:** nginx-rtmp → Node.js (Express + Socket.IO) → TypeScript (Vite + HLS.js + WebRTC)
----
-
-## 🖥️ Desktop App (Electron)
-
-Prefer a native-feeling desktop window? Check out the new Electron workspace under `desktop/`.
+Requirements: Docker Desktop.
 
 ```bash
-cd desktop
-npm install
-npm run dev     # launches Vite + Electron side-by-side
-npm run build   # packages production installers (requires client build)
+cp ops/.env.example ops/.env
+# for a local test set REGISTRATION_MODE=open and clear REGISTRATION_INVITE_CODE
+docker compose -f ops/docker-compose.yml -f ops/docker-compose.local.yml up --build -d
 ```
 
-See `desktop/README.md` for full details on development and packaging.
+Open <http://localhost:8080/app>. The first registered account becomes admin.
+OBS: server `rtmp://localhost/live`, stream key from the key dialog of a stream channel.
 
----
-
-## 🎮 How to Use
-
-### 1. Stream with OBS
-1. Open OBS Studio → Settings → Stream
-2. **Service:** Custom
-3. **Server:** `rtmp://YOUR_SERVER/live`
-4. **Stream Key:** Get from web interface (e.g., `main-stream+ABC123xyz456...`)
-5. Start Streaming
-
-### 2. Watch & Chat
-1. Open web interface
-2. Enter your display name
-3. Click on a stream channel (📺)
-4. Click "Theater Mode" to watch inline or "Pop Out" for resizable window
-5. Use chat to talk with viewers
-
-### 3. Voice Chat
-1. Click on a voice channel (🔊)
-2. Click "Join Voice"
-3. Adjust settings in the sidebar:
-   - Mute/Deafen controls
-   - Push-to-talk (optional)
-   - Echo cancellation, noise suppression
-   - Mic/speaker device selection
-
-### Video Player Controls
-- **Space/K** - Play/Pause
-- **F** - Fullscreen
-- **M** - Mute/Unmute
-- **C** - Toggle Chat
-- **↑/↓** - Volume ±10%
-
----
-
-### Firewall Ports
-```bash
-sudo ufw allow 80,443/tcp    # HTTP/HTTPS (includes HLS)
-sudo ufw allow 1935/tcp      # RTMP
-sudo ufw allow 4000/tcp      # Backend API
-```
-
----
-
-### Monitoring
-```bash
-# View logs
-docker compose -f ops/docker-compose.prod.yml logs -f
-
-# Resource usage
-docker stats
-
-# Check stream health
-curl http://localhost/hls/CHANNEL_NAME.m3u8
-```
-
-### Backup & Updates
-```bash
-# Backup environment
-cp /opt/datasetto/ops/.env ~/backup/.env.backup
-
-# Update application
-cd /opt/datasetto
-git pull
-docker compose -f ops/docker-compose.prod.yml build --no-cache
-docker compose -f ops/docker-compose.prod.yml up -d
-```
-
----
-
-## 📄 License
-
- GNU AGPLv3 - See root LICENSE file
-
----
-
-## 🚀 Ready to Deploy?
+## Deploy to Google Cloud
 
 ```bash
-# Quick production deployment on Ubuntu/Debian VPS
-chmod +x deploy-vps.sh
-sudo ./deploy-vps.sh
-
-# Or for Google Cloud Platform
-chmod +x deploy-gcp.sh
-./deploy-gcp.sh
+# fill in ops/.env (domain, invite code, admin email), then:
+ops/gcp/create-vm.sh
 ```
+
+One `e2-micro` VM in `europe-west1`, automatic HTTPS via Caddy, nightly SQLite
+backups to a bucket, budget alerts. Expected cost: 13 to 15 EUR per month with
+occasional streaming, less in the US free-tier regions. Details, cost
+breakdown and day-two operations: [ops/README.md](ops/README.md).
+
+## Development
+
+```bash
+cd server && npm install && cp .env.example .env && npm run dev    # API on :4000, hot reload
+cd client && npm install && npm run dev                            # UI on :5173, proxies to the Docker stack on :8080
+cd client && npm run lint && npm test                              # eslint + vitest
+cd server && npm test                                              # vitest: services, HTTP, socket protocol
+```
+
+Server configuration is documented in [server/.env.example](server/.env.example);
+the socket and HTTP protocol in [server/README.md](server/README.md).
+
+## Desktop and mobile apps
+
+See [desktop/README.md](desktop/README.md) and [mobile/README.md](mobile/README.md).
+Both wrap the web client and point at a server URL (`desktop/resources/runtime-config.json`,
+`client/.env.mobile`). Pre-built installers are published in GitHub Releases by
+`.github/workflows/release.yml`.
+
+## License
+
+GNU AGPLv3, see [LICENSE.md](LICENSE.md).

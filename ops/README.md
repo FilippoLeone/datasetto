@@ -1,156 +1,152 @@
-# 🐳 Operations & Deployment
+# Operations
 
-## 🚀 Quick Deploy (Ubuntu VPS)
+Everything needed to run Datasetto: locally with Docker, and on one small
+Google Cloud VM for roughly 10 to 15 EUR a month.
 
-```bash
-# On VPS
-cd ~/datasetto/ops
-chmod +x deploy-vps.sh
-./deploy-vps.sh
+## Layout
+
+```
+ops/
+  docker-compose.yml        the stack (web, app, rtmp, optional turn)
+  docker-compose.local.yml  overrides for http://localhost:8080
+  .env.example              configuration template -> copy to .env
+  caddy/                    web image: builds the client, serves it with Caddy, TLS, reverse proxy
+  rtmp/                     nginx-rtmp image: OBS ingest -> HLS
+  turn/entrypoint.sh        coturn settings (ephemeral credentials)
+  gcp/                      create-vm.sh, deploy.sh, destroy.sh, VM-side startup/update/backup
 ```
 
-Then configure DNS:
-1. Point an **A** record (e.g. `app.yourdomain.com`) to your VPS IP for the web UI (can sit behind a CDN)
-2. If you want RTMPS behind Cloudflare (or another TLS proxy), create a Spectrum/ TCP proxy for port **1935** (or 443 if you terminate TLS separately) that forwards to your server. Otherwise point a second record (e.g. `rtmp.yourdomain.com`) directly to the VPS and leave the CDN disabled.
-3. Visit: https://app.yourdomain.com
-
-**See [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md) for full instructions.**
-
----
-
-## Docker Compose Configurations
-
-### Development (`docker-compose.yml`)
-```bash
-docker compose up -d
+```
+Internet
+  |-- 80/443 ----> web (Caddy) --/api,/socket.io,/health--> app (Node, SQLite in volume app_data)
+  |                          \--/hls/*------------------> rtmp (nginx-rtmp, HLS in RAM)
+  |-- 1935 ------> rtmp  (OBS publish; key checked by app via /internal/stream/publish)
+  '-- 3478 + UDP range ----> turn (coturn, host network, only with COMPOSE_PROFILES=turn)
 ```
 
-**Services:**
-- `rtmp` - nginx-rtmp (port 1935 RTMP, internal HLS on 80)
-- `server` - Node.js backend (port 4000)
-- `client` - Vite dev server (port 5173)
+Voice, camera and screenshare media go peer to peer over WebRTC; the server
+only signals. TURN is a fallback relay for friends behind strict NATs.
 
-**Access:** http://localhost:5173
-
-### Production (`docker-compose.prod.yml`)
-```bash
-docker compose -f docker-compose.prod.yml up -d
-```
-
-- `turn` - self-built coturn relay (TCP/UDP 3478, UDP media relay range)
-- `rtmp` - nginx-rtmp with custom build (RTMP on 1935, internal HLS on 80)
-- `server` - Node.js with resource limits (4000)
-- `client` - nginx serving static build (8081)
-
-**Performance defaults:** For a Radxa Zero 2 Pro (4 GB), the compose files now use a conservative profile: RTMP at ~896 MB / 1.6 vCPU, backend at ~256–320 MB / 0.5–0.6 vCPU, and lightweight limits for TURN/client/proxy/redis. This keeps enough headroom for the kernel page cache and avoids jitter under sustained live streaming.
-
-**Note:** Port 80 is used by host nginx reverse proxy for path-based routing. When the deployment script runs without a domain, it now sets `CADDY_SITE_ADDRESS=http://<ip>`, so Caddy stays on plain HTTP for LAN/IP testing instead of forcing an invalid HTTPS cert.
-
-**Multi-arch builds:** Both the `rtmp` (custom nginx-rtmp) and `turn` (coturn) images are now built locally, so `docker compose build --pull` works on either `linux/amd64` or `linux/arm64`. To publish prebuilt images for mixed clusters, run `docker buildx build --push --platform linux/amd64,linux/arm64 ...` inside the `ops/` directory and point the compose services at your registry tags.
-
-## Configuration Files
-
-- `nginx-rtmp.conf` - RTMP server configuration (transcoding, HLS settings)
-- `nginx.dev.conf` - Development nginx config
-- `nginx.conf` - Production nginx config (reverse proxy)
-- `.env.example` - Environment variables template
-
-## Useful Commands
+## Run locally
 
 ```bash
-# View logs
-docker compose logs -f
-
-# Restart services
-docker compose restart
-
-# Rebuild and restart
-docker compose up --build -d
-
-# Stop all services
-docker compose down
-
-# Check status
-docker compose ps
-
-# Monitor resources
-docker stats
+cp ops/.env.example ops/.env          # set REGISTRATION_MODE=open for a quick local test
+docker compose -f ops/docker-compose.yml -f ops/docker-compose.local.yml up --build -d
 ```
 
-## 🎥 Streaming Performance Tips
-
-- **OBS encoder settings**: Target a 2-second keyframe interval, constant bitrate (CBR), and a bitrate your uplink can sustain (e.g. 3500–5000 Kbps for 720p60, 6000 Kbps for 1080p60). Keep B-frames ≤ 2 and enable “Network Optimizations” (OBS 31+).
-- **Monitor the stat endpoint**: Visit `http://your-server/stat` to confirm `bw_in` stays below your encoder bitrate and that GOP cache remains populated.
-- **Container resources**: On Radxa 4 GB class hardware, keep RTMP near ~896 MB and ~1.6 CPU, backend around ~256–320 MB and ~0.5–0.6 CPU, and keep supporting services tight. If you move to bigger hardware you can raise `deploy.resources.limits` in `docker-compose.prod.yml`.
-- **Disk vs RAM**: HLS chunks now live in RAM for low latency. If you need persistence for debugging, replace the `tmpfs` entry with a bind mount to fast SSD storage.
-
-## Environment Variables
-
-See `.env.example` for all available options. Key variables:
+Open <http://localhost:8080/app>, register (the first account is admin), open a
+second browser profile to see presence and chat. Stream to it with OBS or ffmpeg:
 
 ```bash
-SUPERUSER_SECRET=your-secret-here
-SERVER_URL=http://YOUR_IP:4000
-API_BASE_URL=http://YOUR_IP:4000
-HLS_BASE_URL=http://YOUR_IP/hls
+ffmpeg -re -f lavfi -i testsrc=size=1280x720:rate=30 -f lavfi -i sine=frequency=440 \
+  -t 60 -c:v libx264 -preset veryfast -b:v 2500k -g 60 -c:a aac -f flv "rtmp://localhost/live/main-stream?key=<TOKEN>"
 ```
 
-### Deploying Behind a Domain / Cloudflare
+The stream key shown in the channel's key dialog is `main-stream?key=<TOKEN>`:
+nginx-rtmp keeps `main-stream` as the stream name and hands `key` to the app for
+validation, so playback URLs (`/hls/main-stream/index.m3u8`) never contain the token.
 
-When serving the app at `https://yourdomain.com` you typically want **two DNS records**:
+Client development with hot reload against the Docker stack:
 
-- `app.yourdomain.com` (or root): can sit behind Cloudflare/another CDN and forwards HTTP traffic on port 80.
-- `rtmp.yourdomain.com`: points to the RTMP container over **TCP 1935**. If you require TLS termination in front of the server, you can proxy RTMP through a service like Cloudflare Spectrum; otherwise keep it DNS-only and stream directly.
+```bash
+cd client && npm install && npm run dev      # http://localhost:5173, proxies /api,/socket.io,/hls to :8080
+```
 
-Firewall / networking checklist:
+Server development without Docker:
 
-- Open ports **80** and **1935** on the host firewall / cloud security group.
-- If you use a managed load balancer, add a TCP listener for 1935 that targets the RTMP container.
-- From your laptop run `telnet rtmp.yourdomain.com 1935` (or `nc`) to verify the port is reachable before testing with OBS.
+```bash
+cd server && npm install && cp .env.example .env && npm run dev   # http://localhost:4000
+npm test
+```
 
-Once networking is set up, export these variables before running the production compose file (either in your shell or an `.env` file):
+## Deploy to Google Cloud
 
-	```bash
-	export SERVER_URL=https://app.yourdomain.com
-	export API_BASE_URL=https://app.yourdomain.com
-	export HLS_BASE_URL=https://app.yourdomain.com/hls
-	export CORS_ORIGIN=https://app.yourdomain.com
-	```
+Prerequisites: `gcloud` authenticated, a project with billing (the scripts default
+to project `datasetto`), a domain you control, and Docker images published by
+the GitHub Actions workflow (`.github/workflows/images.yml`, pushed to GHCR on
+every push to `main`).
+After the first workflow run, set the three `datasetto-*` packages to public
+(GitHub profile > Packages > package > Package settings > Change visibility) so the
+VM can pull them without credentials. If a pull fails, the startup script falls
+back to building the images on the VM, which is slow on an e2-micro but works
+thanks to the swap file.
 
-- Rebuild the client so that Socket.IO and API calls stay on the same origin (avoids mixed-content issues behind HTTPS proxies).
-- Cloudflare forwards WebSocket traffic, so you can keep the orange cloud enabled on the **HTTP** record. For the RTMP record, either enable Spectrum (paid) to proxy TCP 1935 (or 443 if you prefer RTMPS) or leave it grey-clouded to pass traffic directly to the container.
+1. Fill in `ops/.env`:
+   - `SITE_ADDRESS=chat.example.com`, `CORS_ORIGINS=https://chat.example.com`
+   - `REGISTRATION_MODE=invite` and a long `REGISTRATION_INVITE_CODE`
+   - `ADMIN_EMAILS=you@example.com`
+   - `PUBLIC_RTMP_URL=rtmp://chat.example.com/live`
+   - optional TURN: `COMPOSE_PROFILES=turn`, `TURN_SECRET`, `TURN_REALM`, `TURN_URLS=turn:chat.example.com:3478`
+2. Create the VM (idempotent):
+   ```bash
+   BUDGET_AMOUNT=15EUR BACKUP_BUCKET=datasetto-backups-<something-unique> ops/gcp/create-vm.sh
+   ```
+   This enables the Compute API, opens 80/443/1935 (and TURN ports when enabled),
+   creates an `e2-micro` in `europe-west1` with a 10 GB balanced disk on the
+   Standard network tier, and passes `ops/.env` to the VM as instance metadata.
+   The startup script installs Docker, adds 2 GB swap, clones the repo and runs
+   `docker compose up -d`. Optionally it creates a billing budget with alerts at
+   50/90/100 percent and a 30-day-lifecycle backup bucket.
+3. Point a DNS `A` record for your domain at the printed IP. Caddy fetches a
+   Let's Encrypt certificate on the first request.
+4. Open `https://chat.example.com/app`, register with your admin email.
 
-### WebRTC / Voice Connectivity
+Updates after a push to `main` (new images on GHCR): `ops/gcp/deploy.sh`.
+It re-sends `ops/.env`, then on the VM pulls the git ref, pulls images and
+recreates changed containers. Rollback by setting `IMAGE_TAG=<commit sha>` in
+`ops/.env` and running `deploy.sh` again.
 
-If users are joining from restrictive networks you will need a TURN relay in addition to the bundled Google STUN servers. The production compose file now ships a `turn` service built from source on Alpine (multi-arch) listening on port **3478** (TCP+UDP) with relay ports **49160-49200/UDP**. Update your firewall or cloud security group to allow those ranges.
+Useful commands:
 
-1. Copy `.env.example` → `.env` and set:
-	- `TURN_REALM`, `TURN_USERNAME`, `TURN_PASSWORD`
-	- Optional `TURN_EXTERNAL_IP` if the host sits behind NAT (e.g. cloud provider private IP with public elastic IP)
-	- `VITE_TURN_URL`, `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL` (or `VITE_WEBRTC_ICE_SERVERS`) — keep these credentials identical to the TURN values above
-2. Bring the stack up: `docker compose -f docker-compose.prod.yml up -d turn`
-3. Verify the TURN service answers: `telnet yourdomain.com 3478` (TCP) and `traceroute -U -p 3478 yourdomain.com` (UDP)
+```bash
+gcloud compute ssh datasetto --zone europe-west1-b                       # shell on the VM
+gcloud compute ssh datasetto --zone europe-west1-b -- \
+  'cd /opt/datasetto/ops && sudo docker compose ps && sudo docker compose logs --tail 100'
+sudo tail -f /var/log/datasetto-startup.log                              # first boot progress (on the VM)
+ops/gcp/destroy.sh                                                       # delete VM + firewall rules
+```
 
-Two ways to configure the frontend build (only one is required):
+## Cost (europe-west1, approximate, October 2026 list prices)
 
-- Provide a full ICE server array as JSON (this overrides the defaults):
+| Item | Monthly |
+| --- | --- |
+| e2-micro VM, 730 h | about 7 EUR |
+| 10 GB pd-balanced boot disk | about 1 EUR |
+| External IPv4 address in use (ephemeral or static) | about 3 EUR |
+| Egress, Standard tier, around 0.08 EUR/GB | 2 to 4 EUR for 25 to 50 GB |
+| Cloud Logging, GCS backups (a few MB) | 0 |
 
-	```bash
-	export VITE_WEBRTC_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:turn.yourdomain.com:3478","username":"user","credential":"pass"}]'
-	```
+Total: roughly 13 to 15 EUR with a few streaming evenings a month. Chat, voice
+and screenshare cost nearly nothing in egress because media is peer to peer.
+Streaming is the only variable: every viewer downloads the full stream bitrate
+from the VM, so a 4 Mbps stream watched by 4 people for 2 hours is about 14 GB.
+Keep OBS at 2500 to 4000 kbps and the bill stays inside the budget.
 
-- Or set the shorthand TURN variables (appends to the default STUN servers):
+Alternative within the Always Free tier: `REGION=us-central1 ZONE=us-central1-a
+ops/gcp/create-vm.sh` makes the VM itself free (one e2-micro per month in
+us-west1/us-central1/us-east1, 30 GB standard disk, 1 GB egress). Only the IP
+address and egress are billed, roughly 4 to 7 EUR, at the price of 100 ms
+extra latency to Europe for signaling (voice still goes peer to peer). Verify
+current prices in the Google Cloud pricing calculator before relying on these
+numbers.
 
-	```bash
-	# Multiple TURN URLs allowed (comma or whitespace separated)
-	export VITE_TURN_URL="turn:turn.yourdomain.com:3478 turn:backup.yourdomain.com:3478"
-	export VITE_TURN_USERNAME=user
-	export VITE_TURN_CREDENTIAL=pass
-	```
+## Operations notes
 
-- When no `transport` query parameter is supplied the client automatically
-  adds both UDP and TCP variants, so you only need to list each host once.
-
-Always rebuild the `client` image after changing these values so the generated SDP advertises your TURN relay. After deployment, open `chrome://webrtc-internals` (or Firefox `about:webrtc`) during a call and confirm that `relay` candidates appear and selected ICE servers reference your TURN hostname.
-
-> **Tuning:** The voice service honours `VITE_VOICE_OPUS_*` variables for bitrate/PTIME defaults. Stick with the provided conservative speech profile (64 kbps mono, 20 ms packets) unless you need stereo music streams; higher bitrates demand more TURN bandwidth.
+- **Data**: a single SQLite file at `/data/datasetto.db` in the `app_data`
+  volume (accounts, sessions, channels, messages, bans, leaderboards). Backups:
+  `/etc/cron.daily/datasetto-backup` writes a consistent copy to
+  `/var/backups/datasetto` and, when configured, to the GCS bucket.
+  Restore: stop the stack, copy the file over the volume's `datasetto.db`, start.
+- **Importing the old JSON stores**: `cd server && npm run import-legacy -- /path/to/old/storage`
+  (reads `accounts.json` and `messages.json`; password hashes carry over).
+- **Secrets**: `ops/.env` lives on your machine and in instance metadata (visible
+  to anyone with project access). Rotate `REGISTRATION_INVITE_CODE` and
+  `TURN_SECRET` by editing `.env` and running `deploy.sh`.
+- **Logs**: `docker compose logs` on the VM (JSON lines, rotated at 3 x 10 MB per
+  container). Set `LOG_LEVEL=debug` in `.env` for socket-level detail.
+- **Memory**: the compose file caps containers (web 128 MB, app 320 MB, rtmp 192 MB,
+  turn 96 MB) so a leak cannot take the 1 GB VM down; the swap file covers image
+  pulls. Move to `MACHINE_TYPE=e2-small` if voice rooms get large.
+- **Firewall**: only 80, 443, 1935 and (optionally) TURN ports are open. The
+  `/internal/*` stream callbacks are not routed by Caddy and are reachable only
+  from the Docker network.
