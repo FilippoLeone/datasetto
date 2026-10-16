@@ -1,4 +1,8 @@
 User-agent: *
 Allow: /
+Disallow: /app
+Disallow: /api/
+Disallow: /hls/
+Disallow: /socket.io/
 
-Sitemap: https://datasetto.com/sitemap.xml
+Sitemap: __SITE_URL__/sitemap.xml

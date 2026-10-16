@@ -33,6 +33,10 @@
 		header @assets Cache-Control "public, max-age=31536000, immutable"
 		header @pages Cache-Control "no-cache"
 
+		# One canonical URL per page: the landing page lives at /, the app at /app.
+		redir /landing.html / permanent
+		redir /index.html /app permanent
+		redir /downloads /downloads.html permanent
 		rewrite / /landing.html
 		rewrite /app /index.html
 		rewrite /app/* /index.html

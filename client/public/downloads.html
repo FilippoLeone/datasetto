@@ -1,735 +1,211 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Datasetto - Downloads</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Download Datasetto – desktop and Android apps</title>
+  <meta name="description" content="Get Datasetto for Windows, macOS, Linux and Android, or use the web app. Native shells add a tray icon, global push to talk and screen sharing with system audio.">
+  <link rel="canonical" href="__SITE_URL__/downloads.html">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#1e1f22">
+  <meta name="color-scheme" content="dark">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  
-  <!-- Structured Data (JSON-LD) for SEO -->
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Datasetto">
+  <meta property="og:title" content="Download Datasetto – desktop and Android apps">
+  <meta property="og:description" content="Windows, macOS, Linux and Android builds of the self-hosted Discord alternative, plus the web app.">
+  <meta property="og:url" content="__SITE_URL__/downloads.html">
+  <meta property="og:image" content="__SITE_URL__/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "Organization",
-        "@id": "#organization",
-        "name": "Datasetto",
-        "url": "https://datasetto.com",
-        "logo": {
-          "@type": "ImageObject",
-          "url": "https://datasetto.com/favicon.svg"
-        }
-      },
-      {
-        "@type": "WebSite",
-        "@id": "#website",
-        "url": "https://datasetto.com",
-        "name": "Datasetto",
-        "publisher": {
-          "@id": "#organization"
-        }
-      },
-      {
-        "@type": "BreadcrumbList",
-        "itemListElement": [
-          {
-            "@type": "ListItem",
-            "position": 1,
-            "name": "Home",
-            "item": "https://datasetto.com"
-          },
-          {
-            "@type": "ListItem",
-            "position": 2,
-            "name": "Downloads",
-            "item": "https://datasetto.com/downloads.html"
-          }
-        ]
-      }
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Datasetto", "item": "__SITE_URL__/" },
+      { "@type": "ListItem", "position": 2, "name": "Downloads", "item": "__SITE_URL__/downloads.html" }
     ]
   }
   </script>
 
   <style>
     :root {
-      --bg-primary: #0a0a0b;
-      --bg-secondary: #111113;
-      --bg-tertiary: #18181b;
-      --text-normal: #e4e4e7;
-      --text-muted: #71717a;
-      --brand-primary: #3ed5d6;
-      --brand-secondary: #6366f1;
-      --success: #10b981;
-      --danger: #ef4444;
+      --base: #1e1f22; --sidebar: #2b2d31; --elevated: #383a40;
+      --border: rgba(255,255,255,.06); --border-strong: rgba(255,255,255,.12);
+      --text: #dbdee1; --muted: #949ba4; --faint: #6d6f78; --bright: #f2f3f5;
+      --brand: #5865f2; --brand-hover: #4752c4; --teal: #0fa4a5; --orange: #ff8a3d; --success: #23a559;
+      --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     }
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-normal);
-      min-height: 100vh;
-      line-height: 1.6;
-    }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 2rem;
-    }
-
-    header {
-      text-align: center;
-      padding: 3rem 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      margin-bottom: 3rem;
-    }
-
-    .logo {
-      font-size: 2.5rem;
-      font-weight: 700;
-      background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      margin-bottom: 0.5rem;
-    }
-
-    .tagline {
-      color: var(--text-muted);
-      font-size: 1.1rem;
-    }
-
-    .version-badge {
-      display: inline-block;
-      padding: 0.25rem 0.75rem;
-      background: rgba(99, 102, 241, 0.2);
-      border: 1px solid rgba(99, 102, 241, 0.3);
-      border-radius: 20px;
-      font-size: 0.85rem;
-      color: var(--brand-secondary);
-      margin-top: 1rem;
-    }
-
-    h2 {
-      font-size: 1.5rem;
-      margin-bottom: 1.5rem;
-      color: var(--text-normal);
-    }
-
-    .downloads-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 1.5rem;
-      margin-bottom: 3rem;
-    }
-
-    .platform-card {
-      background: var(--bg-secondary);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      padding: 1.5rem;
-      transition: all 0.2s ease;
-    }
-
-    .platform-card:hover {
-      border-color: rgba(62, 213, 214, 0.3);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    }
-
-    .platform-header {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      margin-bottom: 1rem;
-    }
-
-    .platform-icon {
-      width: 48px;
-      height: 48px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--bg-tertiary);
-      border-radius: 12px;
-    }
-
-    .platform-icon svg {
-      width: 28px;
-      height: 28px;
-      fill: var(--text-normal);
-    }
-
-    .platform-name {
-      font-size: 1.25rem;
-      font-weight: 600;
-    }
-
-    .platform-arch {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-
-    .download-options {
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-
-    .download-btn {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.875rem 1rem;
-      background: var(--bg-tertiary);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      color: var(--text-normal);
-      text-decoration: none;
-      font-size: 0.95rem;
-      transition: all 0.15s ease;
-    }
-
-    .download-btn:hover {
-      background: rgba(62, 213, 214, 0.1);
-      border-color: rgba(62, 213, 214, 0.3);
-    }
-
-    .download-btn.primary {
-      background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
-      border: none;
-      font-weight: 500;
-    }
-
-    .download-btn.primary:hover {
-      opacity: 0.9;
-      transform: translateY(-1px);
-    }
-
-    .download-btn .file-info {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .download-btn .file-size {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      padding: 0.2rem 0.5rem;
-      background: rgba(0, 0, 0, 0.3);
-      border-radius: 6px;
-    }
-
-    .download-btn.primary .file-size {
-      background: rgba(0, 0, 0, 0.2);
-      color: rgba(255, 255, 255, 0.8);
-    }
-
-    .download-btn svg {
-      width: 18px;
-      height: 18px;
-    }
-
-    .no-releases {
-      text-align: center;
-      padding: 3rem;
-      background: var(--bg-secondary);
-      border-radius: 16px;
-      color: var(--text-muted);
-    }
-
-    .requirements {
-      background: var(--bg-secondary);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      padding: 1.5rem;
-      margin-top: 2rem;
-    }
-
-    .requirements h3 {
-      font-size: 1.1rem;
-      margin-bottom: 1rem;
-    }
-
-    .requirements ul {
-      list-style: none;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 0.5rem;
-    }
-
-    .requirements li {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      color: var(--text-muted);
-      font-size: 0.9rem;
-    }
-
-    .requirements li svg {
-      width: 16px;
-      height: 16px;
-      color: var(--success);
-    }
-
-    .loading {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 4rem;
-    }
-
-    .spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid var(--bg-tertiary);
-      border-top-color: var(--brand-primary);
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    footer {
-      text-align: center;
-      padding: 2rem;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-      margin-top: 3rem;
-      color: var(--text-muted);
-      font-size: 0.9rem;
-    }
-
-    footer a {
-      color: var(--brand-primary);
-      text-decoration: none;
-    }
-
-    footer a:hover {
-      text-decoration: underline;
-    }
-
-    .back-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      color: var(--text-muted);
-      text-decoration: none;
-      margin-bottom: 2rem;
-      font-size: 0.9rem;
-      transition: color 0.15s;
-    }
-
-    .back-link:hover {
-      color: var(--text-normal);
-    }
-
-    .back-link svg {
-      width: 16px;
-      height: 16px;
-    }
-
-    .build-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.5rem 1rem;
-      background: rgba(99, 102, 241, 0.2);
-      border: 1px solid rgba(99, 102, 241, 0.3);
-      border-radius: 8px;
-      color: var(--text-normal);
-      font-size: 0.9rem;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-
-    .build-btn:hover:not(:disabled) {
-      background: rgba(99, 102, 241, 0.3);
-      border-color: rgba(99, 102, 241, 0.5);
-    }
-
-    .build-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    @media (max-width: 1024px) {
-      .container {
-        padding: 1rem;
-      }
-
-      header {
-        padding: 2rem 0;
-      }
-
-      .logo {
-        font-size: 2rem;
-      }
-
-      .downloads-grid {
-        grid-template-columns: 1fr;
-      }
-    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font); background: var(--base); color: var(--text); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; text-decoration: none; }
+    a:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 6px; }
+    .container { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+    h1, h2, h3 { margin: 0; color: var(--bright); letter-spacing: -0.02em; line-height: 1.15; }
+    h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; }
+    h3 { font-size: 1.1rem; font-weight: 700; }
+    p { margin: 0; }
+    .lead { color: var(--muted); font-size: 1.1rem; max-width: 60ch; }
+    .site-header { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); background: rgba(30,31,34,.78); border-bottom: 1px solid var(--border); }
+    .nav { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 16px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--bright); }
+    .brand img { width: 28px; height: 28px; border-radius: 7px; }
+    .nav-links { display: flex; gap: 24px; font-size: 14px; font-weight: 500; color: var(--muted); }
+    .nav-links a:hover { color: var(--bright); }
+    @media (max-width: 760px) { .nav-links { display: none; } }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; border-radius: 10px; font-weight: 600; font-size: 15px; border: 1px solid transparent; transition: transform .15s, background .15s; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary { background: var(--brand); color: #fff; }
+    .btn-primary:hover { background: var(--brand-hover); }
+    .btn-ghost { background: rgba(255,255,255,.04); color: var(--bright); border-color: var(--border-strong); }
+    .btn-ghost:hover { background: rgba(255,255,255,.08); }
+    .btn svg { width: 18px; height: 18px; }
+    .nav .btn { padding: 9px 16px; font-size: 14px; }
+    main { padding: clamp(48px, 7vw, 88px) 0 64px; }
+    .head { margin-bottom: 40px; }
+    .head p { margin-top: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+    .card { background: var(--sidebar); border: 1px solid var(--border); border-radius: 16px; padding: 26px; display: flex; flex-direction: column; gap: 10px; }
+    .card .icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: rgba(88,101,242,.16); color: #a5adff; margin-bottom: 6px; }
+    .card .icon svg { width: 22px; height: 22px; }
+    .card .icon.teal { background: rgba(15,164,165,.16); color: #4fd1d2; }
+    .card .icon.orange { background: rgba(255,138,61,.16); color: #ffb07a; }
+    .card .icon.green { background: rgba(35,165,89,.16); color: #5ad38a; }
+    .card p { color: var(--muted); font-size: 15px; }
+    .card ul { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .card li { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--base); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 14px; }
+    .card li span { color: var(--muted); font-size: 13px; }
+    .card li a { color: var(--bright); font-weight: 600; }
+    .card li a:hover { color: #a5adff; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+    .note { margin-top: 32px; background: var(--sidebar); border: 1px solid var(--border); border-radius: 16px; padding: 22px 26px; color: var(--muted); font-size: 15px; }
+    .note strong { color: var(--bright); }
+    .note code { font: 13px ui-monospace, 'Cascadia Code', Consolas, monospace; background: var(--base); padding: 2px 6px; border-radius: 5px; color: #cdd1d6; }
+    footer { border-top: 1px solid var(--border); padding: 32px 0 40px; color: var(--muted); font-size: 14px; }
+    .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px 24px; }
+    .foot nav { display: flex; flex-wrap: wrap; gap: 18px; }
+    .foot nav a:hover { color: var(--bright); }
+    .version { color: var(--faint); font-size: 13px; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <a href="/" class="back-link">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M19 12H5M12 19l-7-7 7-7"/>
-      </svg>
-      Back to Datasetto
-    </a>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/" aria-label="Datasetto home"><img src="/favicon.svg" alt="" width="28" height="28">Datasetto</a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="/#features">Features</a>
+        <a href="/#how">Self-host</a>
+        <a href="/downloads.html" aria-current="page">Downloads</a>
+        <a href="https://github.com/FilippoLeone/datasetto" rel="noopener">GitHub</a>
+      </nav>
+      <a class="btn btn-primary" href="/app">Open the app</a>
+    </div>
+  </header>
 
-    <header>
-      <div class="logo">Datasetto</div>
-      <p class="tagline">Self-hosted streaming platform with voice chat</p>
-      <span class="version-badge" id="current-version">Loading...</span>
-    </header>
+  <main class="container">
+    <div class="head">
+      <h1>Get Datasetto on your devices</h1>
+      <p class="lead">The web app is the full experience and needs nothing installed. The native shells add a tray icon, global push to talk, system notifications and a proper screen picker with system audio.</p>
+      <p class="version" id="release-line">Builds are published on GitHub Releases.</p>
+    </div>
 
-    <main>
-      <h2>Download Desktop App</h2>
-      
-      <div id="downloads-container">
-        <div class="loading">
-          <div class="spinner"></div>
-        </div>
-      </div>
+    <div class="grid">
+      <article class="card" id="web">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+        <h3>Web app</h3>
+        <p>Chrome, Edge, Firefox and Safari on desktop, plus a phone layout. Add it to your home screen for an app-like window.</p>
+        <div class="actions"><a class="btn btn-primary" href="/app">Open the app</a></div>
+      </article>
 
-      <div class="requirements">
-        <h3>System Requirements</h3>
-        <ul>
-          <li>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 6L9 17l-5-5"/>
-            </svg>
-            Windows 10 or later (64-bit)
-          </li>
-          <li>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 6L9 17l-5-5"/>
-            </svg>
-            macOS 10.15 (Catalina) or later
-          </li>
-          <li>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 6L9 17l-5-5"/>
-            </svg>
-            Ubuntu 20.04+ / Debian 10+ / Fedora 32+
-          </li>
-          <li>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 6L9 17l-5-5"/>
-            </svg>
-            4 GB RAM minimum
-          </li>
-          <li>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 6L9 17l-5-5"/>
-            </svg>
-            200 MB disk space
-          </li>
-          <li>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 6L9 17l-5-5"/>
-            </svg>
-            Internet connection for voice/streaming
-          </li>
+      <article class="card" id="desktop">
+        <div class="icon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <h3>Desktop</h3>
+        <p>Windows, macOS and Linux. Share any window or screen with system audio and mute from the tray.</p>
+        <ul id="desktop-assets">
+          <li><a href="https://github.com/FilippoLeone/datasetto/releases/latest" rel="noopener">Latest release on GitHub</a><span>all platforms</span></li>
         </ul>
-      </div>
+      </article>
 
-      <!-- Admin Build Panel (hidden by default) -->
-      <div id="admin-panel" class="requirements" style="display: none; margin-top: 2rem; border-color: rgba(99, 102, 241, 0.3);">
-        <h3>🔧 Build Management</h3>
-        <p style="color: var(--text-muted); margin: 0.5rem 0 1rem;">Trigger new builds directly from the server via Docker.</p>
-        
-        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
-          <button onclick="triggerBuild('linux')" class="build-btn" id="btn-linux">
-            <span>🐧</span> Build Linux
-          </button>
-          <button onclick="triggerBuild('win')" class="build-btn" id="btn-win">
-            <span>🪟</span> Build Windows
-          </button>
-          <button onclick="triggerBuild('all')" class="build-btn" id="btn-all">
-            <span>🌍</span> Build All
-          </button>
-        </div>
-        
-        <div id="build-status" style="display: none; padding: 1rem; background: rgba(0,0,0,0.3); border-radius: 8px; margin-top: 1rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-            <div class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></div>
-            <span id="build-status-text">Building...</span>
-          </div>
-          <pre id="build-logs" style="font-size: 0.75rem; color: var(--text-muted); max-height: 200px; overflow-y: auto; margin: 0;"></pre>
-        </div>
-      </div>
-    </main>
+      <article class="card" id="android">
+        <div class="icon orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+        <h3>Android</h3>
+        <p>Voice keeps running in the background and the camera flips between front and back. Install the APK directly; Android asks once to allow installs from your browser.</p>
+        <ul id="android-assets">
+          <li><a href="https://github.com/FilippoLeone/datasetto/releases/latest" rel="noopener">Latest APK on GitHub</a><span>Android 8+</span></li>
+        </ul>
+      </article>
 
-    <footer>
-      <p>
-        Datasetto is open source. 
-        <a href="https://github.com/FilippoLeone/datasetto" target="_blank" rel="noopener">View on GitHub</a>
-      </p>
-    </footer>
-  </div>
+      <article class="card" id="source">
+        <div class="icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M14 4l-4 16"/></svg></div>
+        <h3>Build it yourself</h3>
+        <p>Everything is open source under the GNU AGPLv3. The iOS app is built from the same code with Xcode.</p>
+        <div class="actions">
+          <a class="btn btn-ghost" href="https://github.com/FilippoLeone/datasetto" rel="noopener">Source code</a>
+          <a class="btn btn-ghost" href="https://github.com/FilippoLeone/datasetto/blob/main/desktop/README.md" rel="noopener">Desktop build guide</a>
+          <a class="btn btn-ghost" href="https://github.com/FilippoLeone/datasetto/blob/main/mobile/README.md" rel="noopener">Mobile build guide</a>
+        </div>
+      </article>
+    </div>
+
+    <div class="note">
+      <strong>Which server does the app connect to?</strong> The web app talks to the server that serves it. The desktop and Android apps ask for a server address on first start, or read it from <code>runtime-config.json</code> next to the desktop executable. Your friends simply enter the address of the server you run.
+    </div>
+  </main>
+
+  <footer>
+    <div class="container foot">
+      <span>© Datasetto · GNU AGPLv3</span>
+      <nav aria-label="Footer">
+        <a href="/">Home</a>
+        <a href="https://github.com/FilippoLeone/datasetto/releases" rel="noopener">All releases</a>
+        <a href="https://github.com/FilippoLeone/datasetto/issues" rel="noopener">Report a bug</a>
+      </nav>
+    </div>
+  </footer>
 
   <script>
-    const PLATFORM_ICONS = {
-      windows: `<svg viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-13.051-1.851"/></svg>`,
-      macos: `<svg viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>`,
-      linux: `<svg viewBox="0 0 24 24"><path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.534a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.002c-.06-.135-.12-.2-.283-.334-.381-.3-.705-.467-1.075-.467-.154 0-.31.03-.468.065-.082.067-.166.135-.249.201h-.003c.041.135.062.198.062.333 0 .466-.247.868-.678 1.202-.166.135-.365.27-.564.335a4.222 4.222 0 00-.426-.066c-.276-.133-.479-.333-.738-.467-.276-.2-.557-.403-.834-.4h-.003l-.003-.003a.381.381 0 01-.11.003c-.12.008-.238-.01-.351-.066a.795.795 0 01-.298-.199l-.045-.067c-.196.066-.39.198-.56.132a.296.296 0 01-.172-.266c-.052-.066-.103-.135-.125-.201-.021-.133.036-.268.048-.4-.071.066-.14.2-.223.265-.026.066-.052.068-.091.068-.038 0-.085-.003-.127-.068a.598.598 0 01-.106-.199 4.357 4.357 0 01-.07-.398c-.006-.135-.003-.2.016-.333h-.003l.003-.003v-.003h-.003c-.035.135-.062.267-.093.4a.572.572 0 01-.176.266c-.061.067-.148.133-.21.133a.24.24 0 01-.12-.032c-.036-.02-.035-.068-.035-.132.001-.135.035-.27.087-.401.052-.135.126-.267.191-.468l.003-.003c-.042 0-.071.003-.168.003-.097 0-.222-.002-.307-.067a.395.395 0 01-.158-.266c-.01-.2.058-.4.183-.535.068-.068.191-.135.258-.203.07-.067.178-.135.22-.2.043-.068.053-.135.053-.269 0-.133 0-.268-.043-.4-.043-.133-.095-.266-.152-.398-.106-.267-.205-.535-.347-.8-.068-.133-.182-.265-.241-.4a1.156 1.156 0 01-.131-.467c-.004-.133.017-.267.071-.4.054-.133.139-.266.253-.399.163-.266.357-.465.58-.665a6.15 6.15 0 00.704-.663c.187-.2.349-.4.458-.6.114-.203.177-.4.182-.668v-.003c-.005-.27-.079-.536-.209-.67-.132-.134-.31-.203-.529-.268-.204-.067-.443-.133-.7-.2a1.815 1.815 0 01-.496-.2c-.129-.066-.233-.2-.325-.333a.962.962 0 01-.125-.47c-.013-.2.015-.4.07-.535.055-.133.134-.2.253-.268.12-.067.257-.134.42-.2.326-.134.678-.27.985-.47a3.91 3.91 0 00.798-.668c.205-.203.37-.403.524-.602.15-.2.27-.403.382-.535.114-.135.21-.2.336-.27.1-.068.207-.066.344-.066z"/></svg>`,
-      android: `<svg viewBox="0 0 24 24"><path d="M17.523 15.34q-.375 0-.66-.264-.284-.263-.284-.66 0-.374.27-.645.27-.272.66-.272.374 0 .66.272.285.27.285.66 0 .382-.271.646-.27.264-.66.264zm-11.046 0q-.375 0-.66-.264-.284-.263-.284-.66 0-.374.27-.645.27-.272.66-.272.374 0 .66.272.285.27.285.66 0 .382-.271.646-.27.264-.66.264zm11.405-6.375 1.95-3.39q.106-.18.044-.36-.063-.18-.243-.255-.18-.074-.345.015-.166.09-.256.24l-1.98 3.435q-1.665-.766-3.552-.766-1.887 0-3.552.766L7.967 5.215q-.09-.15-.256-.24-.165-.09-.345-.015-.18.075-.243.255-.062.18.044.36l1.95 3.39Q5.562 10.83 4.5 14.145h15q-1.062-3.315-4.618-5.18z"/></svg>`
-    };
-
-    const DOWNLOAD_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
-
-    function formatBytes(bytes) {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-    }
-
-    function getPlatformFromFilename(filename) {
-      const lower = filename.toLowerCase();
-      if (lower.includes('win') || lower.endsWith('.exe')) return 'windows';
-      if (lower.includes('mac') || lower.endsWith('.dmg')) return 'mac';
-      if (lower.includes('linux') || lower.endsWith('.appimage') || lower.endsWith('.deb')) return 'linux';
-      return 'unknown';
-    }
-
-    function getArchFromFilename(filename) {
-      const lower = filename.toLowerCase();
-      if (lower.includes('arm64') || lower.includes('aarch64')) return 'ARM64';
-      if (lower.includes('x64') || lower.includes('amd64') || lower.includes('x86_64')) return 'x64';
-      if (lower.includes('x86') || lower.includes('ia32')) return 'x86';
-      return '';
-    }
-
-    function getFileType(filename) {
-      const lower = filename.toLowerCase();
-      if (lower.endsWith('.apk')) return 'APK';
-      if (lower.endsWith('.exe') && lower.includes('setup')) return 'Installer';
-      if (lower.endsWith('.exe')) return 'Portable';
-      if (lower.endsWith('.msi')) return 'MSI Installer';
-      if (lower.endsWith('.dmg')) return 'DMG';
-      if (lower.endsWith('.pkg')) return 'PKG';
-      if (lower.endsWith('.appimage')) return 'AppImage';
-      if (lower.endsWith('.deb')) return 'Debian Package';
-      if (lower.endsWith('.rpm')) return 'RPM Package';
-      if (lower.endsWith('.tar.gz')) return 'Archive';
-      if (lower.endsWith('.zip')) return 'ZIP Archive';
-      return 'Download';
-    }
-
-    async function loadReleases() {
-      const container = document.getElementById('downloads-container');
-      const versionBadge = document.getElementById('current-version');
-
+    // Fill in direct links from the latest GitHub release; the static links above stay as the fallback.
+    (async () => {
       try {
-        const response = await fetch('/api/releases');
-        const data = await response.json();
-
-        if (!data.builds || data.builds.length === 0) {
-          container.innerHTML = `
-            <div class="no-releases">
-              <p>No releases available yet.</p>
-              <p style="margin-top: 0.5rem; font-size: 0.9rem;">Run the build script to create releases, or check back later.</p>
-            </div>
-          `;
-          versionBadge.textContent = 'No releases';
-          return;
-        }
-
-        versionBadge.textContent = `v${data.version}`;
-
-        // Group files by platform
-        const platforms = {
-          windows: { name: 'Windows', files: [] },
-          macos: { name: 'macOS', files: [] },
-          linux: { name: 'Linux', files: [] },
-          android: { name: 'Android', files: [] }
+        const res = await fetch('https://api.github.com/repos/FilippoLeone/datasetto/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
+        if (!res.ok) return;
+        const release = await res.json();
+        const assets = Array.isArray(release.assets) ? release.assets : [];
+        const mb = (bytes) => (bytes / 1048576).toFixed(0) + ' MB';
+        const platform = (name) => {
+          const n = name.toLowerCase();
+          if (n.endsWith('.apk')) return ['android', 'Android'];
+          if (n.endsWith('.exe') || n.endsWith('.msi')) return ['desktop', 'Windows'];
+          if (n.endsWith('.dmg') || n.endsWith('.pkg')) return ['desktop', 'macOS'];
+          if (n.endsWith('.appimage') || n.endsWith('.deb') || n.endsWith('.rpm')) return ['desktop', 'Linux'];
+          return null;
         };
-
-        data.builds.forEach(build => {
-          const platform = build.platform;
-          if (platforms[platform]) {
-            platforms[platform].files.push({
-              filename: build.filename,
-              url: build.downloadUrl,
-              size: build.size,
-              sizeFormatted: build.sizeFormatted,
-              arch: build.arch,
-              type: getFileType(build.filename),
-              downloads: build.downloads || 0
-            });
-          }
-        });
-
-        let html = '<div class="downloads-grid">';
-
-        Object.entries(platforms).forEach(([key, platform]) => {
-          if (platform.files.length === 0) return;
-
-          const archs = [...new Set(platform.files.map(f => f.arch).filter(Boolean))].join(', ');
-
-          html += `
-            <div class="platform-card">
-              <div class="platform-header">
-                <div class="platform-icon">${PLATFORM_ICONS[key === 'macos' ? 'mac' : key] || ''}</div>
-                <div>
-                  <div class="platform-name">${platform.name}</div>
-                  ${archs ? `<div class="platform-arch">${archs}</div>` : ''}
-                </div>
-              </div>
-              <div class="download-options">
-          `;
-
-          platform.files.forEach((file, index) => {
-            const isPrimary = index === 0;
-            html += `
-              <a href="${file.url}" class="download-btn ${isPrimary ? 'primary' : ''}" download>
-                <span class="file-info">
-                  ${DOWNLOAD_ICON}
-                  <span>${file.type}${file.arch ? ` (${file.arch})` : ''}</span>
-                </span>
-                <span class="file-size">${file.sizeFormatted}</span>
-              </a>
-            `;
-          });
-
-          html += '</div></div>';
-        });
-
-        html += '</div>';
-
-        // Add build date if available
-        if (data.buildDate) {
-          const buildDate = new Date(data.buildDate);
-          html += `
-            <div class="requirements" style="margin-top: 2rem;">
-              <h3>Build Information</h3>
-              <p style="color: var(--text-muted); margin-top: 0.5rem;">Built on ${buildDate.toLocaleDateString()} at ${buildDate.toLocaleTimeString()}</p>
-            </div>
-          `;
+        const lists = { desktop: [], android: [] };
+        for (const asset of assets) {
+          const match = platform(asset.name);
+          if (!match) continue;
+          lists[match[0]].push('<li><a href="' + asset.browser_download_url + '" rel="noopener">' + match[1] + ' · ' + asset.name.replace(/[<>&"]/g, '') + '</a><span>' + mb(asset.size) + '</span></li>');
         }
-
-        container.innerHTML = html;
-
-      } catch (error) {
-        console.error('Failed to load releases:', error);
-        container.innerHTML = `
-          <div class="no-releases">
-            <p>Unable to load releases.</p>
-            <p style="margin-top: 0.5rem; font-size: 0.9rem;">Please try again later.</p>
-          </div>
-        `;
-        versionBadge.textContent = 'Error';
+        for (const key of Object.keys(lists)) {
+          if (lists[key].length) document.getElementById(key + '-assets').innerHTML = lists[key].join('');
+        }
+        if (release.tag_name) {
+          const line = document.getElementById('release-line');
+          line.textContent = 'Latest release ' + release.tag_name + (release.published_at ? ' · ' + new Date(release.published_at).toLocaleDateString() : '');
+        }
+      } catch {
+        /* offline or rate limited: keep the static links */
       }
-    }
-
-    // Admin panel is hidden by default
-    // In the future, this could check server-side permissions
-    function checkAdminAccess() {
-      // Admin build features are disabled for now
-      // The panel remains hidden unless manually enabled
-    }
-
-    // Trigger a build
-    async function triggerBuild(platform) {
-      const statusDiv = document.getElementById('build-status');
-      const statusText = document.getElementById('build-status-text');
-      const logsDiv = document.getElementById('build-logs');
-      const buttons = document.querySelectorAll('.build-btn');
-
-      // Disable all buttons
-      buttons.forEach(btn => btn.disabled = true);
-      
-      // Show status
-      statusDiv.style.display = 'block';
-      statusText.textContent = `Starting ${platform} build...`;
-      logsDiv.textContent = '';
-
-      try {
-        const response = await fetch('/api/releases/build', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ platform }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Build failed to start');
-        }
-
-        statusText.textContent = `Building ${platform}... This may take several minutes.`;
-        
-        // Poll for status updates
-        pollBuildStatus();
-
-      } catch (error) {
-        statusText.textContent = `Error: ${error.message}`;
-        buttons.forEach(btn => btn.disabled = false);
-      }
-    }
-
-    // Poll build status
-    let pollInterval = null;
-    async function pollBuildStatus() {
-      const statusText = document.getElementById('build-status-text');
-      const logsDiv = document.getElementById('build-logs');
-      const buttons = document.querySelectorAll('.build-btn');
-
-      if (pollInterval) clearInterval(pollInterval);
-
-      pollInterval = setInterval(async () => {
-        try {
-          const response = await fetch('/api/releases/build/status');
-          const data = await response.json();
-
-          if (data.recentLogs) {
-            logsDiv.textContent = data.recentLogs.join('\n');
-            logsDiv.scrollTop = logsDiv.scrollHeight;
-          }
-
-          if (data.isBuilding) {
-            const duration = data.duration ? ` (${Math.floor(data.duration / 60)}m ${data.duration % 60}s)` : '';
-            statusText.textContent = `Building ${data.platform}...${duration}`;
-          } else {
-            clearInterval(pollInterval);
-            pollInterval = null;
-            
-            const lastLog = data.recentLogs?.[data.recentLogs.length - 1] || '';
-            if (lastLog.includes('✅')) {
-              statusText.textContent = 'Build completed successfully!';
-              // Reload releases
-              setTimeout(() => {
-                loadReleases();
-              }, 1000);
-            } else {
-              statusText.textContent = 'Build finished (check logs for details)';
-            }
-            
-            buttons.forEach(btn => btn.disabled = false);
-          }
-        } catch (error) {
-          console.error('Failed to poll status:', error);
-        }
-      }, 2000);
-    }
-
-    // Load releases on page load
-    loadReleases();
-    checkAdminAccess();
+    })();
   </script>
 </body>
 </html>
