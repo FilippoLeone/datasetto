@@ -4,7 +4,8 @@ Electron shell around the Datasetto web client (`client/`, Preact + Vite). It lo
 
 ## Prerequisites
 
-- Node.js 20+ and npm 10+
+- Node.js 22.12+ (24 LTS recommended, it is what CI uses) and npm 10+
+- Electron 44 (Chromium 152, Node 24 inside the app) packaged with electron-builder 26; the installers run on Windows 10+, macOS 13+ and glibc Linux x64
 - The web client dependencies installed (`npm install` inside `client/`); the renderer is built from there
 - For local testing, the Docker stack on <http://localhost:8080>, started from the repo root with
   `docker compose -f ops/docker-compose.yml -f ops/docker-compose.local.yml up -d`
@@ -54,13 +55,15 @@ npm run prepare:renderer
 npm run build
 ```
 
-During packaging the build script also regenerates the desktop icon (PNG + ICO) from a simple Datasetto monogram and clears old release artifacts. The final outputs appear in `desktop/release/`:
+During packaging the build script also regenerates the desktop icon (PNG + ICO) from a simple Datasetto monogram and clears old release artifacts. The outputs appear in `desktop/release/`, named after the version in `package.json` (`Datasetto-<version>-<os>-<arch>.<ext>`):
 
-- `Datasetto Setup <version>.exe` (NSIS installer)
-- `Datasetto-<version>-win-x64.exe` (portable build – no installer)
-- `win-unpacked/` (unzipped application directory)
+- Windows: `Datasetto-<version>-win-x64.exe` and `win-unpacked/`
+- Linux: `Datasetto-<version>-linux-x86_64.AppImage` and `Datasetto-<version>-linux-amd64.deb`
+- macOS: `Datasetto-<version>-mac-arm64.dmg`
 
 > **Tip:** `npm run build` already chains `build:renderer`, `prepare:renderer`, icon generation, and a cleanup step before calling `electron-builder`, so you can run it directly when you want a packaged `.exe`/`.dmg`/AppImage. `npm run release` (or `release:win`, `release:linux`, `release:mac`) wraps the same steps for multi-platform builds.
+
+The published installers come from `.github/workflows/release.yml`: on every GitHub release it runs these same steps on Windows, Linux and macOS runners, sets the package version from the release tag (`v0.1.9` → `0.1.9`) and attaches the files to the release.
 
 To tweak the icon artwork, edit `scripts/generate-icon.mjs` (it uses `pngjs` to draw a gradient monogram) and rerun `npm run generate:icon`.
 
@@ -74,13 +77,13 @@ desktop/
 ├─ preload.js           # contextBridge: window.desktopAPI + window.datasettoDesktopConfig
 ├─ picker/              # Screen/window picker window (HTML + preload)
 ├─ renderer/            # Copied Vite build output (generated, git-ignored)
-├─ resources/           # Icons and the bundled runtime-config.json
+├─ resources/           # App and tray icons (generated) and the bundled runtime-config.json
 ├─ scripts/
 │  ├─ copy-dist.mjs     # Copies client/dist into renderer/
-│  ├─ generate-icon.mjs # Draws the app icon
+│  ├─ generate-icon.mjs # Draws the app and tray icons
 │  ├─ clean-release.mjs # Clears release/ before packaging
 │  └─ build-release.mjs # Multi-platform packaging helper
-└─ package.json         # Desktop-specific dependencies & scripts
+└─ package.json         # Desktop-specific dependencies, scripts and the electron-builder config
 ```
 
 ## How the shell and the client talk
@@ -88,6 +91,7 @@ desktop/
 `preload.js` exposes two globals through `contextBridge`; the typed contract lives in `client/src/types/globals.d.ts` and must stay in sync with the preload:
 
 - `window.desktopAPI`: `getInfo`, `getRuntimeConfig`, `showNotification`, `checkNotificationPermission`, `updateVoiceActivity` (tray icon state), `pickScreenshareSource` (native picker, returns the chosen `desktopCapturer` source and whether to share system audio), `openExternal`, `getLogPath`, `openLogFile`, `log`.
+  The picker (`picker/`) is a modal window styled like the client (tokens copied from `client/src/styles/app.css`): tabs for entire screens and windows, thumbnails refreshed every two seconds while it is open, display size on screen cards, a "Share system audio" switch, and arrow/Enter/Escape keyboard control. The client may pass `{ audio, quality: { width, height, fps, label } }`; the quality is only shown as a hint in the footer and the result object is unchanged.
 - `window.datasettoDesktopConfig`: `{ serverUrl, apiBaseUrl, hlsBaseUrl, rtmpServerUrl }`, read by `client/src/lib/runtimeConfig.ts` before the build-time `VITE_*` fallbacks.
 
 The client uses these helpers from `client/src/services/native/desktop.ts` and `client/src/features/screenshare/screenshareService.ts`; every call is a no-op in a plain browser.
@@ -97,7 +101,7 @@ The client uses these helpers from `client/src/services/native/desktop.ts` and `
 - `ELECTRON_START_URL` makes the shell load a URL instead of `renderer/index.html` (used by `npm run dev`) and opens DevTools detached.
 - `F12` / `Ctrl+Shift+I` toggles DevTools in any build; `Ctrl+Shift+L` reveals the log file (`datasetto.log` next to a portable executable, otherwise in the user-data folder).
 - `renderer/`, `release/` and a local `desktop/runtime-config.json` are git-ignored.
-- Update the icons inside `resources/` (`icon.icns`, `icon.ico`, `icon.png`) before shipping to match your branding.
+- The icons in `resources/` (`icon.png`, `icon.ico`, `icon-speaking.*`, `tray-*.*`) are all drawn by `scripts/generate-icon.mjs`; change the artwork there rather than editing the files.
 - Adjust the `build` section in `package.json` if you need different packaging targets or signing options.
 - Packaging tweaks already enabled:
   - Relative asset paths when `VITE_BUILD_TARGET=desktop`, so the portable build resolves bundled files correctly.
@@ -134,4 +138,4 @@ The desktop shell ships with production defaults pointed at `https://datasetto.c
 
 3. The built-in default, `https://datasetto.com`.
 
-Whichever source provides `serverUrl` wins, and any URL it leaves out is derived from that server (`<server>` for the API, `<server>/hls`, `rtmp://<host>/live`) rather than mixed with a lower-priority source. A single `DATASETTO_SERVER_URL` is therefore enough to point the app at another server. When the renderer is loaded from a web server (`ELECTRON_START_URL`) and nothing is configured, all four values are empty and the client uses the page origin.
+Whichever source provides `serverUrl` wins, and any URL it leaves out is derived from that server (`<server>` for the API, `<server>/hls`, `rtmp://<host>/live`) rather than mixed with a lower-priority source. A single `DATASETTO_SERVER_URL` is therefore enough to point the app at another server. When the renderer is loaded from a web server (`ELECTRON_START_URL`) and nothing is configured, all four values are empty and the client uses the page origin. The RTMP URL shown in the stream key dialog always comes from the server (`PUBLIC_RTMP_URL`) when it is reachable; the configured value is only the fallback.

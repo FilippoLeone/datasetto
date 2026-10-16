@@ -30,15 +30,14 @@
     "release:mac": "node ./scripts/build-release.mjs --platform mac",
     "release:all": "node ./scripts/build-release.mjs --platform all"
   },
-  "dependencies": {},
   "devDependencies": {
-    "electron": "^31.3.0",
-    "concurrently": "^8.2.2",
-    "cross-env": "^7.0.3",
-    "electron-builder": "^24.13.3",
-    "png-to-ico": "^2.1.8",
+    "concurrently": "^10.0.6",
+    "cross-env": "^10.1.0",
+    "electron": "^44.8.0",
+    "electron-builder": "^26.15.3",
+    "png-to-ico": "^3.0.2",
     "pngjs": "^7.0.0",
-    "wait-on": "^7.0.2"
+    "wait-on": "^9.5.1"
   },
   "build": {
     "appId": "com.datasetto.desktop",
@@ -69,17 +68,26 @@
     ],
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.social-networking"
+      "category": "public.app-category.social-networking",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Datasetto uses the microphone for voice channels.",
+        "NSCameraUsageDescription": "Datasetto uses the camera for video in voice channels.",
+        "NSAudioCaptureUsageDescription": "Datasetto captures system audio when you share your screen with sound."
+      }
     },
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "resources/icon.ico"

@@ -32,13 +32,30 @@ const features = [
 
 const iconVector = `<?xml version="1.0" encoding="utf-8"?>\n<vector xmlns:android="http://schemas.android.com/apk/res/android"\n    android:width="24dp"\n    android:height="24dp"\n    android:viewportWidth="24"\n    android:viewportHeight="24">\n    <path\n        android:fillColor="#FFFFFFFF"\n        android:pathData="M12,2a10,10 0 1,0 0,20 10,10 0 1,0 0,-20zM10.2,7.4l1.8,1.8 1.8,-1.8 1.6,1.6 -1.8,1.8 1.8,1.8 -1.6,1.6 -1.8,-1.8 -1.8,1.8 -1.6,-1.6 1.8,-1.8 -1.8,-1.8z" />\n</vector>\n`;
 
+// The manifest fragments above are joined with \n. The manifest is edited on LF so they match
+// on a CRLF checkout (Windows, core.autocrlf=true) as well as an LF one, and written back in the
+// line-ending style it was read in, so repeated runs leave the file byte-for-byte unchanged.
+function detectEol(text) {
+  return text.includes('\r\n') ? '\r\n' : '\n';
+}
+
+function normalizeEol(text) {
+  return text.replace(/\r\n/g, '\n');
+}
+
+function withEol(text, eol) {
+  return eol === '\n' ? text : normalizeEol(text).replace(/\n/g, eol);
+}
+
 function ensureManifest() {
   if (!existsSync(androidManifestPath)) {
     console.warn('[configure-android-foreground-service] AndroidManifest.xml not found, skipping foreground service configuration.');
     return;
   }
 
-  let manifest = readFileSync(androidManifestPath, 'utf8');
+  const source = readFileSync(androidManifestPath, 'utf8');
+  const eol = detectEol(source);
+  let manifest = normalizeEol(source);
 
   const receiverRegex = /<receiver[\s\S]*?NotificationActionBroadcastReceiver[\s\S]*?>/;
   const serviceRegex = /<service[\s\S]*?AndroidForegroundService[\s\S]*?>/;
@@ -93,7 +110,7 @@ function ensureManifest() {
     }
   }
 
-  writeFileSync(androidManifestPath, `${manifest.trim()}\n`, 'utf8');
+  writeFileSync(androidManifestPath, withEol(`${manifest.trim()}\n`, eol), 'utf8');
 }
 
 function ensureIcon() {
@@ -101,7 +118,8 @@ function ensureIcon() {
     mkdirSync(drawableDir, { recursive: true });
   }
 
-  writeFileSync(iconPath, iconVector, 'utf8');
+  const eol = existsSync(iconPath) ? detectEol(readFileSync(iconPath, 'utf8')) : '\n';
+  writeFileSync(iconPath, withEol(iconVector, eol), 'utf8');
 }
 
 ensureManifest();

@@ -16,7 +16,7 @@ ops/
   turn/entrypoint.sh        coturn settings (ephemeral credentials)
   common/                   egress-guard.sh + its systemd installer, shared by gcp/ and vps/
   gcp/                      create-vm.sh, deploy.sh, destroy.sh, VM-side startup/update/backup
-  vps/                      install.sh and backup.sh for a plain Debian/Ubuntu VPS (OVH, Hetzner)
+  vps/                      install.sh and backup.sh for a plain Debian/Ubuntu VPS (OVH, Hetzner); install-ssh-key.ps1 for the first login
 ```
 
 ```
@@ -81,9 +81,13 @@ builds them from source on the VPS; that takes a few minutes on 2 vCPU and
 works even with 2 GB RAM thanks to the swap file it adds (on 4 GB the swap step
 is skipped).
 
+From Windows, `.\ops\vps\install-ssh-key.ps1 -Server <server-ip> -User debian`
+copies your `~/.ssh/id_ed25519.pub` to the VPS using the password from the
+provider's email, so the `ssh` commands below need no password.
+
 The three commands, from the repository root (`<ref>` is the branch or tag to
-deploy, for example `productionize-rewrite`, and `<user>` is `root` on Hetzner
-or the `debian`/`ubuntu` sudo user on OVH):
+deploy, for example `main` or a release tag such as `v0.1.9`, and `<user>` is
+`root` on Hetzner or the `debian`/`ubuntu` sudo user on OVH):
 
 ```bash
 scp ops/.env <user>@<server-ip>:datasetto.env

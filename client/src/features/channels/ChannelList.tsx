@@ -82,7 +82,7 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
     <li>
       <div
         className={cn(
-          'group flex items-center gap-1.5 rounded-sm px-2 text-sm transition-colors',
+          'group flex items-center gap-1.5 rounded-sm px-2 text-sm transition-colors duration-150 active:bg-active',
           active ? 'bg-active text-text-bright' : 'text-text-muted hover:bg-hover hover:text-text',
           (unreadCount > 0 || inVoice) && !active && 'text-text-bright',
         )}
@@ -94,7 +94,11 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
           {channel.type === 'voice' && channel.currentMinigame && <Gamepad2 size={14} className="ml-1 shrink-0 text-warning" />}
           {channel.type === 'screenshare' && channel.screenshareHostName && <span className="ml-1 text-[10px] font-bold text-success uppercase">Sharing</span>}
         </button>
-        {unreadCount > 0 && !active && <span className="rounded-full bg-live px-1.5 text-[10px] font-bold text-white">{unreadCount}</span>}
+        {unreadCount > 0 && !active && (
+          <span key={unreadCount} className="rounded-full bg-live px-1.5 text-[10px] font-bold text-white animate-badge-pop">
+            {unreadCount}
+          </span>
+        )}
         {(channel.type === 'stream' || channel.type === 'screenshare') && channel.count > 0 && (
           <span className="text-[11px] text-text-faint tabular-nums" title="Watching">{channel.count}</span>
         )}

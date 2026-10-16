@@ -7,11 +7,16 @@ const Item = ({ label, icon, active, onClick, badge }: { label: string; icon: pr
   <button
     type="button"
     onClick={onClick}
-    className={cn('relative flex h-14 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-medium', active ? 'text-text-bright' : 'text-text-muted')}
+    className={cn('relative flex h-14 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-medium transition-colors duration-150 active:bg-hover', active ? 'text-text-bright' : 'text-text-muted')}
   >
     {icon}
     <span>{label}</span>
-    {badge ? <span className="absolute top-1 right-[calc(50%-18px)] rounded-full bg-live px-1.5 text-[10px] font-bold text-white">{badge}</span> : null}
+    {/* Keyed on the count so every change pops the badge. */}
+    {badge ? (
+      <span key={badge} className="absolute top-1 right-[calc(50%-18px)] rounded-full bg-live px-1.5 text-[10px] font-bold text-white animate-badge-pop">
+        {badge}
+      </span>
+    ) : null}
   </button>
 );
 

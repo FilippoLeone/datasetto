@@ -3,6 +3,8 @@ import { Gamepad2, Headphones, HeadphoneOff, Mic, MicOff, MonitorUp, Phone, Phon
 import { Avatar, Button, IconButton, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
 import { canCaptureScreen } from '@/lib/device';
+import { MOTION, useListPresence, type PresenceState } from '@/lib/motion';
+import { useElementSize } from '@/lib/useElementSize';
 import { usersById, usersInVoice } from '@/state/presence';
 import { screenAudioPref, screenHostKey, setScreenAudioPref } from '@/state/screenAudio';
 import { account, can } from '@/state/session';
@@ -25,12 +27,13 @@ import {
 } from '@/state/voice';
 import { api } from '@/services/socket/api';
 import { VideoTile } from './VideoTile';
+import { VIDEO_GRID_GAP, videoGridLayout } from './videoGrid';
 import { useVoiceTimer } from './VoiceDock';
 import { voiceManager } from './voiceManager';
 import { MinigamePanel } from '@/features/minigames/MinigamePanel';
 import type { Channel } from '@/types/protocol';
 
-const PeerTile = ({ peer, isMe }: { peer: VoicePeer; isMe: boolean }) => {
+const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state?: PresenceState }) => {
   const user = usersById.value.get(peer.id);
   const me = account.value;
   const speaking = isMe ? localSpeaking.value : peer.speaking;
@@ -69,8 +72,9 @@ const PeerTile = ({ peer, isMe }: { peer: VoicePeer; isMe: boolean }) => {
   return (
     <Menu items={items}>
       <div
+        data-state={state}
         className={cn(
-          'flex w-36 flex-col items-center gap-2 rounded-lg bg-sidebar p-4 transition-shadow',
+          'motion-tile flex w-36 flex-col items-center gap-2 rounded-lg bg-sidebar p-4 transition-[box-shadow,background-color] duration-150',
           speaking && 'ring-2 ring-success',
           items.length > 0 && 'cursor-pointer hover:bg-hover',
         )}
@@ -95,13 +99,19 @@ const Toolbar = () => {
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 px-3 py-3">
       <IconButton label={muted ? 'Unmute' : 'Mute'} size="lg" tone={localMuted.value ? 'danger' : 'default'} className="bg-sidebar" onClick={() => void voiceManager.toggleMute()}>
-        {muted ? <MicOff size={22} /> : <Mic size={22} />}
+        <span key={muted ? 'muted' : 'live'} className="inline-flex animate-icon-swap">
+          {muted ? <MicOff size={22} /> : <Mic size={22} />}
+        </span>
       </IconButton>
       <IconButton label={localDeafened.value ? 'Undeafen' : 'Deafen'} size="lg" tone={localDeafened.value ? 'danger' : 'default'} className="bg-sidebar" onClick={() => void voiceManager.toggleDeafen()}>
-        {localDeafened.value ? <HeadphoneOff size={22} /> : <Headphones size={22} />}
+        <span key={localDeafened.value ? 'deaf' : 'hearing'} className="inline-flex animate-icon-swap">
+          {localDeafened.value ? <HeadphoneOff size={22} /> : <Headphones size={22} />}
+        </span>
       </IconButton>
       <IconButton label={cameraOn ? 'Turn camera off' : 'Turn camera on'} size="lg" active={cameraOn} className="bg-sidebar" onClick={() => void voiceManager.toggleCamera()}>
-        {cameraOn ? <Video size={22} /> : <VideoOff size={22} />}
+        <span key={cameraOn ? 'on' : 'off'} className="inline-flex animate-icon-swap">
+          {cameraOn ? <Video size={22} /> : <VideoOff size={22} />}
+        </span>
       </IconButton>
       {cameraOn && isMobile.value && (
         <IconButton label="Flip camera" size="lg" className="bg-sidebar" onClick={() => void voiceManager.flipCamera()}>
@@ -169,6 +179,12 @@ const VideoGrid = () => {
     if (streams.screen) tiles.push({ key: peerId + ':screen', stream: streams.screen, label: name + "'s screen", screen: { remote: true, peerId } });
     if (streams.camera) tiles.push({ key: peerId + ':camera', stream: streams.camera, label: name });
   }
+  // Tiles scale in when a stream appears and out when it ends (lib/motion.ts).
+  const present = useListPresence(tiles, (tile) => tile.key, MOTION.base);
+  // Columns and row height that give the tiles the most picture for the space the grid has
+  // (measured; rows share the height equally until the grid has been measured once).
+  const [gridRef, gridSize] = useElementSize();
+  const layout = gridSize ? videoGridLayout(present.length, gridSize.width - 24, gridSize.height - 24) : null;
   if (tiles.length === 0) return null;
   const focusedTile = tiles.find((tile) => tile.key === focused) ?? (tiles.length === 1 ? tiles[0] : null);
   if (focusedTile) {
@@ -187,9 +203,18 @@ const VideoGrid = () => {
     );
   }
   return (
-    <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-1 gap-2 p-3 sm:grid-cols-2">
-      {tiles.map((tile) => (
-        <VideoTile key={tile.key} stream={tile.stream} label={tile.label} mirror={tile.mirror} {...tileAudio(tile)} className="min-h-40" onClick={() => setFocused(tile.key)} />
+    <div
+      ref={gridRef}
+      className="scrollbar-thin grid min-h-0 flex-1 content-center justify-center overflow-y-auto p-3"
+      style={{
+        gap: VIDEO_GRID_GAP + 'px',
+        gridTemplateColumns: layout ? 'repeat(' + layout.columns + ', ' + layout.cellWidth + 'px)' : 'repeat(' + Math.min(2, present.length) + ', minmax(0, 1fr))',
+        gridTemplateRows: layout ? 'repeat(' + layout.rows + ', ' + layout.cellHeight + 'px)' : undefined,
+        gridAutoRows: layout ? undefined : 'minmax(0, 1fr)',
+      }}
+    >
+      {present.map(({ item: tile, state }) => (
+        <VideoTile key={tile.key} state={state} stream={tile.stream} label={tile.label} mirror={tile.mirror} {...tileAudio(tile)} className="min-h-0" onClick={() => setFocused(tile.key)} />
       ))}
     </div>
   );
@@ -203,6 +228,9 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
   const [showGame, setShowGame] = useState(false);
   const game = minigameState.value;
   const gameOpen = connectedHere && (showGame || (game !== null && game.channelId === channel.id));
+  const peers = peerList.value;
+  // Friends scale in when they join and out when they leave (lib/motion.ts).
+  const peerTiles = useListPresence(peers, (peer) => peer.id, MOTION.base);
 
   if (!connectedHere) {
     return (
@@ -231,8 +259,6 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
     );
   }
 
-  const peers = peerList.value;
-
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-base/40">
       <div className="flex items-center justify-between px-4 pt-3 text-xs text-text-muted">
@@ -250,8 +276,8 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
       ) : (
         <div className="scrollbar-thin flex flex-1 flex-wrap content-start justify-center gap-3 overflow-y-auto p-4">
           {me && <PeerTile peer={{ id: 'me', name: me.displayName, muted: localMuted.value, deafened: localDeafened.value, speaking: localSpeaking.value, camera: false, screen: false, quality: 'unknown' }} isMe />}
-          {peers.map((peer) => (
-            <PeerTile key={peer.id} peer={peer} isMe={false} />
+          {peerTiles.map((entry) => (
+            <PeerTile key={entry.key} peer={entry.item} isMe={false} state={entry.state} />
           ))}
         </div>
       )}

@@ -12,16 +12,16 @@
     "doctor": "npx cap doctor"
   },
   "dependencies": {
-    "@capacitor/app": "^7.1.2",
-    "@capacitor/core": "^7.4.3",
-    "@capacitor/keyboard": "^7.0.6",
-    "@capawesome-team/capacitor-android-foreground-service": "^7.0.1"
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/keyboard": "^8.0.0",
+    "@capawesome-team/capacitor-android-foreground-service": "^8.1.0"
   },
   "devDependencies": {
-    "@capacitor/android": "^7.4.3",
-    "@capacitor/cli": "^7.4.3",
-    "@capacitor/ios": "^7.4.3",
-    "dotenv": "^16.4.5",
-    "typescript": "^5.4.5"
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
+    "dotenv": "^18.0.8",
+    "typescript": "~6.0.3"
   }
 }

@@ -169,7 +169,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
 /** Load `.env` (if present, outside production) and build the configuration. */
 export const loadConfigFromEnvFile = (): AppConfig => {
   if (process.env.NODE_ENV !== 'production') {
-    loadDotenv({ path: process.env.DOTENV_PATH ?? '.env' });
+    loadDotenv({ path: process.env.DOTENV_PATH ?? '.env', quiet: true });
   }
   return loadConfig(process.env);
 };

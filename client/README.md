@@ -8,11 +8,14 @@ services, and components only read signals and call actions.
 npm install
 npm run dev        # http://localhost:5173, proxies /api, /socket.io and /hls to the Docker stack on :8080
 npm run build      # type-check + production bundle in dist/
+npm run typecheck  # tsc only
 npm run lint
-npm test           # vitest unit tests for lib/ and state/
+npm test           # vitest unit tests for lib/, state/ and services/
 ```
 
 Set `VITE_DEV_PROXY` to point the dev proxy somewhere else than `http://localhost:8080`.
+Build-time defaults are listed in `.env.example` (copy it to `.env` for `npm run dev`);
+the web build served by Caddy needs none of them because everything is same-origin.
 
 ## Layout
 
@@ -20,13 +23,15 @@ Set `VITE_DEV_PROXY` to point the dev proxy somewhere else than `http://localhos
 src/
   main.tsx                 bootstrap: runtime config -> socket -> render
   app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts
-  state/                   signals: session, channels, chat, presence, voice, settings, ui, misc (streams, screenshare, admin, minigame)
+  state/                   signals: session, channels, chat, presence, voice, settings, ui, screenAudio, misc (streams, screenshare, admin, minigame)
   services/
     socket/                SocketClient (reconnecting socket.io), api (typed emits), bindings (server events -> state)
     voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate)
     native/                Electron bridge, Capacitor foreground service and audio routes
+    screenCapture          getDisplayMedia / desktop picker capture with system audio, shared by rooms and voice channels
     ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs
-    sounds                 synthesised UI sounds
+    sounds, AudioNotificationService   synthesised UI sounds
+  audio/worklets/          AudioWorklet processors (noise gate)
   features/
     auth/                  sign-in / register gate, profile dialog
     channels/              channel list, create/delete, stream key dialog, confirm dialog
@@ -37,9 +42,12 @@ src/
     minigames/             canvas engine (slither, pacman, fighter) + panel
     admin/                 members, channel permissions, bans
   components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost
-  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime URLs
-  types/protocol.ts        wire types shared with the server
+  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs
+  types/                   protocol.ts (wire types shared with the server), globals.d.ts (desktop and Capacitor globals)
   styles/app.css           Tailwind v4 theme tokens (dark palette) and the few custom classes
+  test/setup.ts            vitest environment (jsdom)
+public/                    copied as-is: landing.html, downloads.html, robots.txt, sitemap.xml, site.webmanifest, icons
+scripts/brand-assets.py    redraws the PNG icons and the Open Graph card (Pillow)
 ```
 
 ## Sharing a game with sound
@@ -71,6 +79,8 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
 - Components stay presentational; long-lived logic (timers, media, reconnection) belongs in services.
 - Keep the web build same-origin friendly: relative URLs by default, absolute ones only for the desktop/mobile shells.
 - The Electron (`desktop/`) and Capacitor (`mobile/`) shells load the production bundle unchanged.
+- Motion is short (150 to 250 ms, ease-out) and defined once: durations, easings and the `animate-*` enter animations live in the `@theme` block of `styles/app.css`, leave animations are driven by `data-state="closed"` through the `usePresence` / `useListPresence` hooks in `lib/motion.ts`. `prefers-reduced-motion` switches all non-essential motion off (spinners keep turning).
+- Camera capture goes through `services/voice/cameraCapture.ts`: ideal-only constraints, a retry ladder down to a bare request, a fallback to the machine's other cameras, and error text that tells "in use or blocked" from "constraints refused" from "no camera".
 
 ## Public pages and SEO
 

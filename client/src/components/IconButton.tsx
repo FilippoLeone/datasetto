@@ -1,7 +1,7 @@
-import type { ComponentChildren, JSX } from 'preact';
+import type { ButtonHTMLAttributes, ComponentChildren } from 'preact';
 import { cn } from '@/lib/cn';
 
-interface IconButtonProps extends Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, 'size' | 'label'> {
+interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'size' | 'label'> {
   /** Accessible name, also used as the tooltip. */
   label: string;
   size?: 'sm' | 'md' | 'lg';
@@ -26,7 +26,7 @@ export const IconButton = ({ label, size = 'md', tone = 'default', active, class
     title={label}
     aria-pressed={active}
     className={cn(
-      'inline-flex shrink-0 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+      'inline-flex shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 ease-out enabled:active:scale-95 motion-reduce:enabled:active:scale-100 disabled:cursor-not-allowed disabled:opacity-40',
       SIZES[size],
       TONES[tone],
       active && tone === 'default' && 'bg-active text-text-bright',

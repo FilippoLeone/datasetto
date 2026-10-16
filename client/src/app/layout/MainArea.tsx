@@ -52,16 +52,19 @@ export const MainArea = () => {
     <>
       <Header channel={channel} />
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {!channel && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-text-muted">
-            <Hash size={40} className="text-text-faint" />
-            <p className="text-sm">Pick a channel to get started.</p>
-          </div>
-        )}
-        {channel?.type === 'text' && <ChatView channel={channel} />}
-        {channel?.type === 'stream' && <StreamPage channel={channel} />}
-        {channel?.type === 'voice' && <VoicePage channel={channel} />}
-        {channel?.type === 'screenshare' && <ScreensharePage channel={channel} />}
+        {/* Keyed on the channel so switching fades the new view in. */}
+        <div key={channel?.id ?? 'none'} className="flex min-h-0 flex-1 flex-col animate-view-in">
+          {!channel && (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-text-muted">
+              <Hash size={40} className="text-text-faint" />
+              <p className="text-sm">Pick a channel to get started.</p>
+            </div>
+          )}
+          {channel?.type === 'text' && <ChatView channel={channel} />}
+          {channel?.type === 'stream' && <StreamPage channel={channel} />}
+          {channel?.type === 'voice' && <VoicePage channel={channel} />}
+          {channel?.type === 'screenshare' && <ScreensharePage channel={channel} />}
+        </div>
       </div>
     </>
   );

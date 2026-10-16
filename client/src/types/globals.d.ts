@@ -58,7 +58,11 @@ interface DesktopAPI {
   showNotification: (options: { title: string; body: string; type?: string; silent?: boolean }) => Promise<unknown>;
   checkNotificationPermission: () => Promise<unknown>;
   updateVoiceActivity: (state: { connected: boolean; speaking: boolean; muted: boolean }) => void;
-  pickScreenshareSource: (options?: { audio?: boolean }) => Promise<{
+  pickScreenshareSource: (options?: {
+    audio?: boolean;
+    /** Shown in the picker's footer; older shells ignore it. */
+    quality?: { width: number; height: number; fps: number; label: string };
+  }) => Promise<{
     success: boolean;
     source?: DesktopScreenshareSource;
     shareAudio?: boolean;
