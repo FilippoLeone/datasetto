@@ -57,14 +57,29 @@ jobs:
           VITE_SERVER_URL=https://datasetto.com
           VITE_API_BASE_URL=https://datasetto.com
           VITE_HLS_BASE_URL=https://datasetto.com/hls
+          VITE_APP_VERSION=${TAG#v}
           NODE_ENV=production
           EOF
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: Version the Android app from the release tag
+        run: |
+          # versionName is the tag without the v; versionCode must grow with every release
+          # (major * 1000000 + minor * 1000 + patch, so v0.1.12 -> 1012).
+          VERSION="${TAG#v}"
+          IFS=. read -r MAJOR MINOR PATCH _ <<< "${VERSION%%-*}"
+          CODE=$(( ${MAJOR:-0} * 1000000 + ${MINOR:-0} * 1000 + ${PATCH:-0} ))
+          sed -i -E "s/versionCode [0-9]+/versionCode ${CODE}/; s/versionName \"[^\"]*\"/versionName \"${VERSION}\"/" mobile/android/app/build.gradle
+          grep -E "versionCode|versionName" mobile/android/app/build.gradle
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
       - name: Build web client
         run: |
           cd mobile
           npm run build:web
-          
+
           # Verify the web build succeeded
           if [ ! -d "../client/dist" ] || [ -z "$(ls -A ../client/dist 2>/dev/null)" ]; then
             echo "❌ Web build failed - client/dist is missing or empty!"
@@ -336,7 +351,8 @@ jobs:
         shell: bash
         run: |
           cd client
-          VITE_BUILD_TARGET=desktop npm run build
+          TAG="${{ github.event.release.tag_name || github.event.inputs.tag }}"
+          VITE_BUILD_TARGET=desktop VITE_APP_VERSION="${TAG#v}" npm run build
 
       - name: Prepare renderer
         shell: bash
@@ -372,6 +388,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check the updater metadata
+        shell: bash
+        run: |
+          # electron-updater reads latest.yml (Windows), latest-mac.yml and latest-linux.yml
+          # from the release; the .blockmap files allow differential downloads.
+          cd desktop/release
+          ls -l *.yml *.blockmap
+          grep -H '^version:' *.yml
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -381,6 +406,8 @@ jobs:
             desktop/release/*.dmg
             desktop/release/*.AppImage
             desktop/release/*.deb
+            desktop/release/*.yml
+            desktop/release/*.blockmap
           if-no-files-found: error
 
   # Upload all artifacts to release
@@ -407,6 +434,7 @@ jobs:
 
       # iOS upload removed - build is disabled (requires Apple Developer account)
 
+      # Installers plus the updater metadata (latest*.yml, *.blockmap) the desktop app reads.
       - name: Upload Desktop builds to release
         uses: softprops/action-gh-release@v3
         with:
