@@ -6,7 +6,7 @@ export const emailSchema = z
   .trim()
   .min(3, 'Email is required')
   .max(254, 'Email must be 254 characters or less')
-  .email('Email must be a valid address')
+  .pipe(z.email('Email must be a valid address'))
   .transform((value) => value.toLowerCase());
 
 export const passwordSchema = (minLength: number) =>

@@ -4,7 +4,7 @@ import { AppError, forbidden, notFound } from '../../errors.js';
 import { handle, requireUser, type SocketContext } from '../context.js';
 
 const channelPayload = z.object({ channelId: idSchema.optional().nullable() }).partial().nullable().optional();
-const signalSchema = z.object({ to: idSchema, data: z.unknown(), channelId: idSchema.optional().nullable() });
+const signalSchema = z.object({ to: idSchema, data: z.unknown().optional(), channelId: idSchema.optional().nullable() });
 
 const extras = (raw: unknown) => ({
   channelId: (raw as { channelId?: string } | null | undefined)?.channelId ?? null,

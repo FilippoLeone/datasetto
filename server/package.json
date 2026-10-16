@@ -22,12 +22,12 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
-    "dotenv": "^16.6.1",
+    "dotenv": "^18.0.8",
     "express": "^5.3.0",
     "helmet": "^8.3.0",
     "pino": "^10.4.0",
     "socket.io": "^4.8.4",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
@@ -39,7 +39,7 @@
     "socket.io-client": "^4.8.4",
     "supertest": "^7.3.1",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3",
+    "typescript": "~6.0.3",
     "vitest": "^5.0.5"
   }
 }

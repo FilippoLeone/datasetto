@@ -29,14 +29,14 @@ const siteUrlPlugin = () => ({
     server.middlewares.use((req, res, next) => {
       const file = (req.url || '').split('?')[0];
       if (!['/landing.html', '/downloads.html', '/robots.txt', '/sitemap.xml'].includes(file)) return next();
-      const source = resolve(__dirname, 'public', file.slice(1));
+      const source = resolve(import.meta.dirname, 'public', file.slice(1));
       if (!existsSync(source)) return next();
       res.setHeader('Content-Type', file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.xml') ? 'application/xml' : 'text/plain');
       res.end(fillPlaceholders(readFileSync(source, 'utf8')));
     });
   },
   closeBundle() {
-    const dist = resolve(__dirname, 'dist');
+    const dist = resolve(import.meta.dirname, 'dist');
     for (const file of ['landing.html', 'downloads.html', 'robots.txt', 'sitemap.xml']) {
       const target = resolve(dist, file);
       if (!existsSync(target)) continue;
@@ -52,7 +52,7 @@ export default defineConfig({
   plugins: [preact(), tailwindcss(), siteUrlPlugin()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src'),
+      '@': resolve(import.meta.dirname, './src'),
     },
   },
   server: {
@@ -70,12 +70,15 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          hls: ['hls.js'],
-          socket: ['socket.io-client'],
-          preact: ['preact', '@preact/signals'],
+        // Vite 8 bundles with Rolldown: the old manualChunks map became codeSplitting groups.
+        codeSplitting: {
+          groups: [
+            { name: 'hls', test: /[\/]node_modules[\/]hls\.js[\/]/ },
+            { name: 'socket', test: /[\/]node_modules[\/](socket\.io-client|socket\.io-parser|engine\.io-client|engine\.io-parser|@socket\.io)[\/]/ },
+            { name: 'preact', test: /[\/]node_modules[\/](preact|@preact)[\/]/ },
+          ],
         },
       },
     },

@@ -4,18 +4,18 @@
 # Usage:
 #   docker compose -f docker-compose.builder.yml up --build
 
-FROM node:20-bookworm
+FROM node:24-trixie
 
 # Install Android SDK dependencies
 RUN apt-get update && apt-get install -y \
-    openjdk-17-jdk \
+    openjdk-21-jdk-headless \
     wget \
     unzip \
     git \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Java home
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64
 ENV PATH=$PATH:$JAVA_HOME/bin
 
 # Android SDK setup
@@ -33,7 +33,7 @@ RUN mkdir -p $ANDROID_HOME/cmdline-tools && \
 
 # Accept licenses and install required SDK components
 RUN yes | sdkmanager --licenses > /dev/null 2>&1 || true && \
-    sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+    sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
 # Create app directory
 WORKDIR /build

@@ -4,7 +4,7 @@
 # Usage:
 #   docker compose -f docker-compose.builder.yml up --build
 
-FROM node:20-bookworm
+FROM node:24-bookworm
 
 # Install build dependencies for Linux
 RUN apt-get update && apt-get install -y \

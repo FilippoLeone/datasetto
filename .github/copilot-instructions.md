@@ -6,8 +6,8 @@ Datasetto is a self-hosted voice, video, streaming and chat server for a small f
 - **Deployment target**: one small VM (GCP e2-micro) running `ops/docker-compose.yml`. Keep resource use and egress low; this is a hobby project with a 10 to 15 EUR monthly budget.
 
 ## Server (`server/`)
-- TypeScript, ESM (`NodeNext`), Node 22+. Build with `tsc`, run `dist/index.js`. Tests: `npm test` (vitest).
-- Layers: `config.ts` (zod env) -> `context.ts` (services) -> `http/` (Express 5) and `socket/` (Socket.IO 4).
+- TypeScript 6, ESM (`NodeNext`), Node 24 (22.12+ minimum). Build with `tsc`, run `dist/index.js`. Tests: `npm test` (vitest 5).
+- Layers: `config.ts` (zod 4 env schema) -> `context.ts` (services) -> `http/` (Express 5) and `socket/` (Socket.IO 4).
 - Persistence is SQLite via `better-sqlite3` (`src/db`, migrations in `db/migrations.ts`; bump `user_version` with a new entry, never edit old ones). Live state belongs in `services/presence.ts`, not the database.
 - Every socket handler goes through `handle()` in `socket/context.ts`: zod schema, auth requirement, rate-limit bucket, error event. Throw `AppError(message, code, status)` for user-facing failures.
 - Keep the wire protocol compatible with the client (`client/src/types/protocol.ts`, documented in `server/README.md`). Add events; do not rename existing ones.
@@ -15,7 +15,7 @@ Datasetto is a self-hosted voice, video, streaming and chat server for a small f
 - The minigame engine (`src/minigames/MinigameManager.js`) is plain JavaScript on purpose; adapt its dependencies through the small adapter in `socket/index.ts`.
 
 ## Client (`client/`)
-- **Preact + TypeScript (TSX)** with `@preact/signals` for state and Tailwind v4 for styling. Lucide icons. No React, no router: a single page driven by signals.
+- **Preact + TypeScript (TSX)** with `@preact/signals` for state and Tailwind v4 for styling. Lucide icons. No React, no router: a single page driven by signals. Built with Vite 8 (Rolldown: chunk groups live under `build.rolldownOptions.output.codeSplitting`), tested with Vitest 5 + jsdom.
 - Layers: `state/` (signals + mutation helpers) <- `services/socket/bindings.ts` (server events) and feature managers (`features/voice/voiceManager.ts`, `features/screenshare/screenshareService.ts`) <- components in `features/*` and `app/`.
 - All client-to-server messages go through `services/socket/api.ts`. Add new events there and handle replies in `bindings.ts`.
 - Media engines (`services/voice/VoiceService.ts`, `AudioService.ts`, the HLS player, screenshare peers) are framework-agnostic classes; components never touch RTCPeerConnection directly.
