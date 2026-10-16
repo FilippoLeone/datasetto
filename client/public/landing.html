@@ -269,12 +269,18 @@
     .cost strong { color: var(--bright); font-size: 24px; letter-spacing: -0.02em; }
     .cost span { color: var(--muted); font-size: 14px; }
 
-    /* Apps */
+    /* Downloads */
     .apps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
     @media (max-width: 760px) { .apps { grid-template-columns: 1fr; } }
     .apps .card { display: flex; flex-direction: column; }
     .apps .card p { flex: 1; margin-bottom: 18px; }
     .apps .card .btn { align-self: flex-start; }
+    .release-line { margin-top: 10px; font-size: 13px; color: var(--faint); }
+    .dl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .dl-actions .btn { padding: 10px 14px; font-size: 14px; }
+    .dl-footnote { margin-top: 22px; font-size: 14px; color: var(--muted); }
+    .dl-footnote a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+    .dl-footnote a:hover { color: var(--bright); }
 
     /* FAQ */
     .faq { max-width: 760px; }
@@ -314,7 +320,7 @@
       <nav class="nav-links" aria-label="Primary">
         <a href="#features">Features</a>
         <a href="#how">Self-host</a>
-        <a href="#apps">Apps</a>
+        <a href="#downloads">Downloads</a>
         <a href="#faq">FAQ</a>
         <a href="https://github.com/FilippoLeone/datasetto" rel="noopener">GitHub</a>
       </nav>
@@ -334,7 +340,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
               Open the app
             </a>
-            <a class="btn btn-ghost" href="/downloads.html">Get the desktop app</a>
+            <a class="btn btn-ghost" href="#downloads">Download the apps</a>
           </div>
           <div class="hero-meta rise d3">
             <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>Free, no accounts to buy</span>
@@ -452,33 +458,35 @@ ops/gcp/create-vm.sh</pre>
       </div>
     </section>
 
-    <section id="apps">
+    <section id="downloads">
       <div class="container">
         <div class="section-head">
-          <span class="eyebrow">Apps</span>
-          <h2>In the browser, on the desktop, in your pocket</h2>
-          <p class="lead">The web app is the full experience. The native shells add a tray icon, global push to talk and a proper screen picker.</p>
+          <span class="eyebrow">Downloads</span>
+          <h2>Get Datasetto on your devices</h2>
+          <p class="lead">The web app is the full experience and needs nothing installed. The desktop and Android apps add a tray icon, global push to talk, system notifications and screen sharing with system audio.</p>
+          <p class="release-line" id="release-line">Installers are published on GitHub Releases.</p>
         </div>
         <div class="apps">
           <article class="card">
             <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
             <h3>Web</h3>
             <p>Nothing to install. Chrome, Edge, Firefox and Safari on any desktop, and a phone layout with drawers and a bottom bar.</p>
-            <a class="btn btn-primary" href="/app">Open the app</a>
+            <div class="dl-actions"><a class="btn btn-primary" href="/app">Open the app</a></div>
           </article>
           <article class="card">
             <div class="icon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
             <h3>Desktop</h3>
             <p>Windows, macOS and Linux. Share any window or screen with system audio, mute from the tray, get notified when someone mentions you.</p>
-            <a class="btn btn-ghost" href="/downloads.html">Download</a>
+            <div class="dl-actions" id="dl-desktop"><a class="btn btn-ghost" href="/downloads.html">All desktop downloads</a></div>
           </article>
           <article class="card">
             <div class="icon orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
             <h3>Android</h3>
-            <p>Voice stays connected in the background with a foreground service, and the camera flips between front and back.</p>
-            <a class="btn btn-ghost" href="/downloads.html#android">Get the APK</a>
+            <p>Voice stays connected in the background with a foreground service, and the camera flips between front and back. Install the APK directly.</p>
+            <div class="dl-actions" id="dl-android"><a class="btn btn-ghost" href="/downloads.html#android">Get the APK</a></div>
           </article>
         </div>
+        <p class="dl-footnote">Everything is open source (GNU AGPLv3); the iOS app is built from the same code with Xcode. <a href="/downloads.html">Full downloads page</a> · <a href="https://github.com/FilippoLeone/datasetto/releases" rel="noopener">All releases on GitHub</a></p>
       </div>
     </section>
 
@@ -538,5 +546,41 @@ ops/gcp/create-vm.sh</pre>
       </nav>
     </div>
   </footer>
+
+  <script>
+    (async () => {
+      try {
+        const res = await fetch('/api/releases', { headers: { Accept: 'application/json' } });
+        if (!res.ok) return;
+        const release = await res.json();
+        const builds = Array.isArray(release.builds) ? release.builds : [];
+        const esc = (text) => String(text).replace(/[<>&"]/g, '');
+        const label = { windows: 'Windows', macos: 'macOS', linux: 'Linux' };
+        const seen = {};
+        const desktop = [];
+        for (const build of builds) {
+          const name = label[build.platform];
+          if (!name) continue;
+          // One button per platform: the first (sorted) file of each, e.g. the .deb before the AppImage.
+          if (seen[build.platform]) continue;
+          seen[build.platform] = true;
+          desktop.push('<a class="btn btn-ghost" href="' + esc(build.downloadUrl) + '" rel="noopener" title="' + esc(build.filename) + '">' + name + '</a>');
+        }
+        if (desktop.length) {
+          desktop.push('<a class="btn btn-ghost" href="/downloads.html">More</a>');
+          document.getElementById('dl-desktop').innerHTML = desktop.join('');
+        }
+        const apk = builds.find((build) => build.platform === 'android');
+        if (apk) {
+          document.getElementById('dl-android').innerHTML = '<a class="btn btn-ghost" href="' + esc(apk.downloadUrl) + '" rel="noopener" title="' + esc(apk.filename) + '">Download the APK</a>';
+        }
+        if (release.tag) {
+          document.getElementById('release-line').textContent = 'Latest release ' + release.tag + (release.buildDate ? ' · ' + new Date(release.buildDate).toLocaleDateString() : '');
+        }
+      } catch {
+        /* offline: keep the static links */
+      }
+    })();
+  </script>
 </body>
 </html>
