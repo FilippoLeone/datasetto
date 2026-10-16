@@ -8,6 +8,7 @@ import { socketClient } from '@/services/socket/client';
 import { voiceManager } from '@/features/voice/voiceManager';
 import { screenshareService } from '@/features/screenshare/screenshareService';
 import { installCapacitorAppHandlers } from '@/services/native/capacitorApp';
+import { installUpdateNotices } from '@/services/updates';
 import { captureInviteFromUrl } from '@/state/session';
 
 const bootstrap = async (): Promise<void> => {
@@ -18,6 +19,7 @@ const bootstrap = async (): Promise<void> => {
   voiceManager.init();
   screenshareService.init();
   void installCapacitorAppHandlers();
+  installUpdateNotices();
   socketClient.connect(runtimeUrls.serverUrl);
   render(<App />, document.getElementById('app') as HTMLElement);
 };

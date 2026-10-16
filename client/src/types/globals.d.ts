@@ -27,6 +27,8 @@ interface ImportMetaEnv {
   readonly VITE_VOICE_VAD_THRESHOLD?: string;
   readonly VITE_NOISE_REDUCTION_LEVEL?: string;
   readonly VITE_SITE_URL?: string;
+  /** Release version this bundle was built from (set by CI from the tag); empty in local builds. */
+  readonly VITE_APP_VERSION?: string;
   readonly DEV: boolean;
   readonly PROD: boolean;
   readonly MODE: string;
@@ -72,9 +74,38 @@ interface DesktopAPI {
   getLogPath: () => Promise<string>;
   openLogFile: () => Promise<unknown>;
   log: (level: string, ...args: unknown[]) => void;
+  /** Updater bridge; absent in desktop shells older than the updater. */
+  getUpdateState?: () => Promise<DesktopUpdateState>;
+  setAutoUpdate?: (enabled: boolean) => Promise<DesktopUpdateState>;
+  checkForUpdates?: () => Promise<DesktopUpdateState>;
+  /** Quit and install a downloaded update (`status === 'ready'`). */
+  installUpdate?: () => Promise<boolean>;
+  /** Subscribe to state changes; returns the unsubscribe function. */
+  onUpdateState?: (listener: (state: DesktopUpdateState) => void) => () => void;
 }
 
 declare global {
+  /**
+   * What the Electron shell's updater (desktop/updater.js) is doing.
+   * `self`: the app installs updates itself (Windows installer, Linux AppImage/deb).
+   * `notice`: it can only announce a newer version (macOS, the portable Windows build).
+   * `off`: unpackaged development run.
+   */
+  interface DesktopUpdateState {
+    autoUpdate: boolean;
+    mode: 'self' | 'notice' | 'off';
+    status: 'idle' | 'checking' | 'downloading' | 'ready' | 'available' | 'none' | 'error';
+    currentVersion: string;
+    /** The newer version, when there is one. */
+    version: string | null;
+    /** Download progress in percent while `downloading`. */
+    percent: number | null;
+    /** Where to get the newer version in `notice` mode. */
+    url: string | null;
+    error: string | null;
+    checkedAt: number | null;
+  }
+
   interface Window {
     datasettoDesktopConfig?: DatasettoDesktopConfig;
     desktopAPI?: DesktopAPI;

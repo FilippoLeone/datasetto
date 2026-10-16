@@ -6,6 +6,7 @@ import { micLevel, voiceStatus } from '@/state/voice';
 import { SCREEN_QUALITY_OPTIONS } from '@/services/screenCapture';
 import { audioSettings, updateAudioSettings } from '@/state/settings';
 import { closeModal, toast } from '@/state/ui';
+import { DesktopUpdatesSection } from '@/features/settings/DesktopUpdatesSection';
 import { voiceManager } from './voiceManager';
 import type { AudioSettings, DeviceInfo, ScreenQuality } from '@/types/protocol';
 
@@ -151,6 +152,7 @@ export const AudioSettingsModal = () => {
           </p>
         </section>
       </div>
+      <DesktopUpdatesSection />
       <p className="mt-2 text-xs text-text-faint">Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings.</p>
     </Modal>
   );
