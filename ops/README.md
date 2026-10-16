@@ -1,7 +1,8 @@
 # Operations
 
-Everything needed to run Datasetto: locally with Docker, and on one small
-Google Cloud VM for roughly 10 to 15 EUR a month.
+Everything needed to run Datasetto: locally with Docker, on a cheap VPS (OVH,
+Hetzner; the primary target, 4 to 7 EUR a month) or, as the alternative, on
+one small Google Cloud VM for roughly 10 to 15 EUR a month.
 
 ## Layout
 
@@ -13,7 +14,9 @@ ops/
   caddy/                    web image: builds the client, serves it with Caddy, TLS, reverse proxy
   rtmp/                     nginx-rtmp image: OBS ingest -> HLS
   turn/entrypoint.sh        coturn settings (ephemeral credentials)
+  common/                   egress-guard.sh + its systemd installer, shared by gcp/ and vps/
   gcp/                      create-vm.sh, deploy.sh, destroy.sh, VM-side startup/update/backup
+  vps/                      install.sh and backup.sh for a plain Debian/Ubuntu VPS (OVH, Hetzner)
 ```
 
 ```
@@ -59,7 +62,131 @@ cd server && npm install && cp .env.example .env && npm run dev   # http://local
 npm test
 ```
 
-## Deploy to Google Cloud
+## Deploy to a VPS (OVH, Hetzner)
+
+The same stack runs on any plain VPS with a public IPv4 running Debian 13 (the
+tested primary target; the OVH order uses it), Debian 12, Ubuntu 24.04 or
+26.04: OVH VPS-1, Hetzner CX23, or similar (2 vCPU, 4 GB RAM; 1 vCPU and 2 GB
+work too). `ops/vps/install.sh` does on a VPS what the GCP startup script does
+from instance metadata, without `gcloud`, the metadata server or GCS.
+
+Prerequisites: root (or a sudo user) over SSH on the VPS, a domain whose `A`
+record you can point at the server, and `ops/.env` filled in on your machine
+exactly as for GCP (step 1 of the GCP section; on a VPS also set
+`TURN_EXTERNAL_IP` to the server's IPv4 when you enable TURN, and see the
+cost note below for `STREAM_MONTHLY_EGRESS_GB`). Nothing needs to be
+installed on the VPS beforehand. If the GHCR images are not public, the script
+builds them from source on the VPS; that takes a few minutes on 2 vCPU and
+works even with 2 GB RAM thanks to the swap file it adds (on 4 GB the swap step
+is skipped).
+
+The three commands, from the repository root (`<ref>` is the branch or tag to
+deploy, for example `productionize-rewrite`, and `<user>` is `root` on Hetzner
+or the `debian`/`ubuntu` sudo user on OVH):
+
+```bash
+scp ops/.env <user>@<server-ip>:datasetto.env
+ssh <user>@<server-ip> 'curl -fsSLO https://raw.githubusercontent.com/FilippoLeone/datasetto/<ref>/ops/vps/install.sh'
+ssh <user>@<server-ip> 'sudo bash install.sh --env ./datasetto.env --ref <ref>'
+```
+
+Then create the DNS `A` record for `SITE_ADDRESS` pointing at the server (the
+script prints the IP), open `https://<your domain>/app` and register with an
+`ADMIN_EMAILS` address. Caddy fetches the Let's Encrypt certificate on the
+first request, so the record can be created before or after the install.
+
+What the script sets up (it is idempotent; re-running it only changes what
+differs, and `--help` lists every option):
+
+- **System**: a 2 GB swap file when RAM is below 3 GB, unattended security
+  upgrades, Docker Engine with the compose plugin from `get.docker.com`.
+- **Code and config**: the repository in `/opt/datasetto` at `--ref`, your env
+  file copied to `/opt/datasetto/ops/.env` with mode 600 (Windows line endings
+  are stripped), with the same sanity checks as `create-vm.sh`.
+- **Firewall** (`ufw`): default deny incoming, SSH rate limited (`ufw limit`) on
+  the port sshd is configured for (override with `--ssh-port`), and only 80/tcp,
+  443/tcp, 443/udp (HTTP/3) and 1935/tcp (OBS) open. With `COMPOSE_PROFILES=turn`
+  it also opens 3478 tcp+udp and the relay range 49152 to 49400/udp, and closes
+  them again when the profile is removed. Docker publishes 80, 443 and 1935
+  straight into iptables, bypassing ufw; those are exactly the ports meant to be
+  open, and the app and HLS ports (4000, 8080) are not published at all, so ufw
+  mainly protects SSH and anything else on the host. `--no-firewall` leaves the
+  firewall to you (for example when the provider's firewall is already in use).
+- **Containers**: `docker compose pull`, falling back to a local build, then
+  `docker compose up -d`, plus a `datasetto.service` systemd unit so the stack
+  comes back after a reboot (`systemctl status datasetto`, `systemctl stop datasetto`).
+- **Backups**: `ops/vps/backup.sh` runs every night at 04:00 from the
+  `datasetto-backup.timer` systemd timer. It asks the app container for a
+  consistent copy through SQLite's online backup API, gzips it into
+  `/var/backups/datasetto` (mode 600) and keeps the 14 newest. Set
+  `BACKUP_RCLONE_REMOTE` in `ops/.env` (any rclone remote and path, such as
+  `b2:my-bucket/datasetto`) and run `rclone config` once as root to also push
+  each copy off the server; uploads older than 30 days are pruned there. Run it
+  by hand with `systemctl start datasetto-backup`; the log is
+  `/var/log/datasetto-backup.log`. Restore as on GCP: stop the stack, copy the
+  file over `datasetto.db` in the `app_data` volume, start.
+- **Egress guard** (optional): `--egress-guard` installs the same monthly
+  traffic backstop as on GCP (`ops/common/egress-guard.sh`, 5-minute timer);
+  `--no-egress-guard` removes it and lifts any throttling. Leave it out on
+  unmetered plans.
+
+Updating after a push (new images on GHCR or new code to build): re-run the
+installer with the same `--ref`; it pulls the branch, pulls or rebuilds the
+images and recreates what changed, keeping the env file already in place:
+
+```bash
+sudo bash /opt/datasetto/ops/vps/install.sh --ref <ref>
+```
+
+or by hand:
+
+```bash
+cd /opt/datasetto && sudo git pull && cd ops && sudo docker compose pull && sudo docker compose up -d --remove-orphans
+```
+
+Rollback with `IMAGE_TAG=<commit sha>` in `ops/.env` when images come from
+GHCR, or `--ref <commit>` when they are built on the server. To change the
+configuration, edit `/opt/datasetto/ops/.env` and run `docker compose up -d`
+in `/opt/datasetto/ops` (or copy a new file over with `--env`).
+
+Useful commands on the VPS:
+
+```bash
+sudo systemctl status datasetto datasetto-backup.timer      # stack and backup timer
+cd /opt/datasetto/ops && sudo docker compose ps && sudo docker compose logs --tail 100
+sudo ufw status verbose                                      # firewall rules
+sudo tail -f /var/log/datasetto-install.log                  # install progress
+ls -l /var/backups/datasetto                                 # nightly copies
+```
+
+### Cost note
+
+The chosen plan is OVH VPS-1 (2027 range: 2 vCore, 4 GB RAM, 40 GB NVMe,
+500 Mbit/s with unlimited traffic, IPv4 included, Debian 13 image). It and its
+peers (OVH Starter/Value, Hetzner CX23) cost about 4 to 7 EUR per month
+excluding VAT (prices as of 2026-10; check the provider's page), with unmetered
+traffic (OVH) or 20 TB per month with cheap per-TB overage (Hetzner). That is a
+hundred times the GCP free allowance, so on a VPS the egress budget is not what
+protects the bill:
+
+- set `STREAM_MONTHLY_EGRESS_GB` high (for example `5000`) so streaming never
+  pauses for budget reasons;
+- keep `STREAM_MAX_VIEWERS` and `STREAM_MAX_BITRATE_KBPS` as the real limits.
+  They protect the small CPU and the uplink: 10 viewers at 6000 kbps is 60 Mbit/s
+  out plus the OBS ingest, a fraction of VPS-1's 500 Mbit/s port and still fine
+  on a 100 Mbit/s entry plan;
+- skip `--egress-guard`, or on a 20 TB plan run it with
+  `EGRESS_SOFT_LIMIT_GB=15000` and `EGRESS_HARD_LIMIT_GB=18000`.
+
+Everything else in "Keeping the bill small" applies unchanged: viewer tickets,
+the RTMP key check, TURN quotas and the rate limits are in the app and the
+compose file, not in the cloud provider.
+
+## Deploy to Google Cloud (alternative)
+
+The original target, kept as the alternative to the VPS path above: one
+e2-micro driven by `gcloud`, with configuration in instance metadata and
+backups in a GCS bucket.
 
 Prerequisites: `gcloud` authenticated, a project with billing (the scripts default
 to project `datasetto`), a domain you control, and Docker images published by
@@ -163,12 +290,14 @@ Everything that can cost money is gated or capped. The knobs live in
   and stores it per month in SQLite. At `STREAM_MONTHLY_EGRESS_GB` (150) it
   drops publishers, refuses new publishes and stops issuing tickets until the
   next month.
-- **VM backstop.** `ops/gcp/egress-guard.sh` runs from a systemd timer every
-  5 minutes, counts bytes sent on the public interface per month, shapes all
-  egress to 1 Mbit/s at `EGRESS_SOFT_LIMIT_GB` and stops the rtmp and turn
-  containers at `EGRESS_HARD_LIMIT_GB`. It lifts both automatically on the
-  first run of the next month. `datasetto-egress-guard --status` prints the
-  month-to-date figure; `/var/log/datasetto-egress.log` has the history.
+- **VM backstop.** `ops/common/egress-guard.sh` runs from a systemd timer every
+  5 minutes (always on GCP, with `--egress-guard` on a VPS), counts bytes sent
+  on the public interface per month, shapes all egress to 1 Mbit/s at
+  `EGRESS_SOFT_LIMIT_GB` and stops the rtmp and turn containers at
+  `EGRESS_HARD_LIMIT_GB`. It lifts both automatically on the first run of the
+  next month. `datasetto-egress-guard --status` prints the month-to-date
+  figure, `--lift` removes the limits by hand; `/var/log/datasetto-egress.log`
+  has the history.
 - **RTMP.** Only publishers with a valid `channel?key=token` get through
   (`on_publish` callback); nobody can pull RTMP; idle publishers are dropped
   after 10 s; at most 32 connections and 16 streams; publish attempts are rate
@@ -185,6 +314,7 @@ Everything that can cost money is gated or capped. The knobs live in
   Identity-Aware Proxy range (`gcloud compute ssh --tunnel-through-iap`),
   unattended security upgrades, a billing budget with alerts, and only ports
   80/443/1935 (plus 3478 and the relay range with the `turn` profile) open.
+  On a VPS, ufw enforces the same port list and rate-limits SSH instead.
 
 What this does not do: it will not stop a determined volumetric attack from
 saturating the VM's link (that costs you nothing extra, ingress is free) or
@@ -195,14 +325,17 @@ in front of ports 80/443; RTMP and TURN would stay direct.
 
 - **Data**: a single SQLite file at `/data/datasetto.db` in the `app_data`
   volume (accounts, sessions, channels, messages, bans, leaderboards). Backups:
-  `/etc/cron.daily/datasetto-backup` writes a consistent copy to
-  `/var/backups/datasetto` and, when configured, to the GCS bucket.
+  `/etc/cron.daily/datasetto-backup` (GCP) or the `datasetto-backup.timer`
+  systemd timer (VPS) writes a consistent copy to `/var/backups/datasetto`
+  and, when configured, to the GCS bucket or the rclone remote.
   Restore: stop the stack, copy the file over the volume's `datasetto.db`, start.
 - **Importing the old JSON stores**: `cd server && npm run import-legacy -- /path/to/old/storage`
   (reads `accounts.json` and `messages.json`; password hashes carry over).
 - **Secrets**: `ops/.env` lives on your machine and in instance metadata (visible
-  to anyone with project access). Rotate `REGISTRATION_INVITE_CODE` and
-  `TURN_SECRET` by editing `.env` and running `deploy.sh`.
+  to anyone with project access); on a VPS only on the server, as
+  `/opt/datasetto/ops/.env` with mode 600. Rotate `REGISTRATION_INVITE_CODE` and
+  `TURN_SECRET` by editing `.env` and running `deploy.sh` (GCP) or
+  `install.sh --env` (VPS).
 - **Logs**: `docker compose logs` on the VM (JSON lines, rotated at 3 x 10 MB per
   container). Set `LOG_LEVEL=debug` in `.env` for socket-level detail.
 - **Memory**: the compose file caps containers (web 128 MB, app 320 MB, rtmp 192 MB,
