@@ -30,7 +30,7 @@ src/
     messages.ts       chat history with retention and soft delete, older-history paging
     search.ts         full-text search over messages (FTS5 index, query sanitising, snippets)
     moderation.ts     bans (persistent) and voice timeouts (memory)
-    presence.ts       everything live: connected users (with page visibility), rooms, streams, screenshares
+    presence.ts       everything live: connected users (with page visibility and game activity), rooms, streams, screenshares
     push.ts           Web Push subscriptions per account and delivery through web-push (VAPID)
     messageNotifications.ts  who a message is for (DM peer, @mentions) and whether they are away
     turn.ts           ephemeral TURN credentials (coturn use-auth-secret)
@@ -112,8 +112,11 @@ rate limits apply.
 | `admin:usage:get` (admins), `admin:server:info` (superusers) | `admin:usage {currentMonth, months[], budgetBytes, online, liveStreams[]}`, `admin:server:info {version, registration, sessions, limits, streaming, turn, push, storage, counts, …}` (no secrets) |
 | `push:subscribe {endpoint, keys: {p256dh, auth}, userAgent?}`, `push:unsubscribe {endpoint}`, `push:list`, `push:test` (all answered through the acknowledgement: `{success, subscription?, subscriptions[], removed?, sent?}`), `presence:visibility {visible}` | `push:subscriptions` / `push:tested` when no acknowledgement was passed; errors on `push:error` (`PUSH_DISABLED`, `PUSH_INVALID`, `PUSH_NO_SUBSCRIPTIONS`) |
 | `voice:game:start/join/leave/input/end/leaderboard` | `voice:game:state/update/started/ended/leaderboard` |
+| `presence:activity {title}` (a game title of up to 64 characters, or `null`; one per socket per 10 s) | `user:update` with the user's `activity`; refusals on `presence:error` (`VALIDATION_FAILED`, `RATE_LIMITED`) |
 
-Presence is broadcast as `user:update users[]` to everyone whenever it changes.
+Presence is broadcast as `user:update users[]` to everyone whenever it changes;
+each entry carries `voiceChannel` and `activity` (the "Playing …" title, see
+[Game activity](#game-activity)).
 Stream keys are never included in channel lists; they are only returned by
 `stream:key:request` to users allowed to stream on that channel.
 
@@ -278,6 +281,20 @@ service reports gone (404, 410) are deleted; other delivery failures are logged
 and retried with the next message. `push:test` sends a notification to the
 caller's own devices right away. Without keys everything is a no-op and
 `/api/config` reports `push.enabled: false`.
+
+### Game activity
+
+The desktop app can show "Playing <game>" under a member's name. It is off by
+default there; when on, the app sends `presence:activity {title}` with the title
+of the game it recognised from its bundled list (or the user's own entries), and
+`{title: null}` when the game ends. The server never sees process names, only
+that title: a string of 1 to 64 characters without control characters, or null.
+It is kept on the connected socket in memory (`ConnectedUser.activity`), goes out
+to everyone as the `activity` field of `user:update`, and is cleared when the
+socket disconnects or re-authenticates; nothing is written to the database. One
+report per socket every 10 s is accepted; anything else is answered on
+`presence:error` (`RATE_LIMITED`, `VALIDATION_FAILED`), which the client ignores,
+and a report that does not change the title does not trigger a broadcast.
 
 ## Maintenance
 

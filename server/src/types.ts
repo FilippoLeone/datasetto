@@ -160,6 +160,8 @@ export interface ConnectedUser {
   visible: boolean;
   /** When `visible` was last reported (the client heartbeats while visible). */
   visibleAt: number;
+  /** Title of the game the desktop app reports as running (`presence:activity`), or null. */
+  activity: string | null;
 }
 
 /** A Web Push subscription as listed to its owner (keys are never sent back). */

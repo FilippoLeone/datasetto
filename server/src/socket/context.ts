@@ -6,10 +6,13 @@ import { rolesHavePermission, type Permission } from '../core/roles.js';
 import { AppError, errorMessage, isAppError, notAuthenticated } from '../errors.js';
 import type { ConnectedUser, PublicAccount } from '../types.js';
 
-export type LimiterKind = 'chat' | 'reaction' | 'signal' | 'game' | 'generic' | 'auth' | 'search';
+export type LimiterKind = 'chat' | 'reaction' | 'signal' | 'game' | 'generic' | 'auth' | 'search' | 'activity';
 
 /** Full-text searches one socket may run per minute. */
 export const SEARCHES_PER_MINUTE = 60;
+
+/** `presence:activity` reports: one per socket per this many milliseconds. */
+export const ACTIVITY_WINDOW_MS = 10_000;
 
 /** Per-connection state. One instance per socket, discarded on disconnect. */
 export interface SocketContext {
@@ -52,6 +55,7 @@ export const createSocketContext = (app: AppContext, io: Server, socket: Socket,
     generic: new RateLimiter(300, 10_000, false),
     auth: new RateLimiter(20, 60_000, false),
     search: new RateLimiter(SEARCHES_PER_MINUTE, 60_000, false),
+    activity: new RateLimiter(1, ACTIVITY_WINDOW_MS, false),
   },
 });
 
