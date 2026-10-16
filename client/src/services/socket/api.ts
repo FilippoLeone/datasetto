@@ -5,6 +5,9 @@ import type {
   CreateInviteInput,
   LeaderboardEntry,
   MinigameType,
+  OlderHistoryResponse,
+  SearchParams,
+  SearchResponse,
   ServerSettingsUpdate,
   UpdateChannelInput,
 } from '@/types/protocol';
@@ -60,6 +63,11 @@ export const api = {
   deleteMessage: (channelId: string, messageId: string) => emit('chat:delete', { channelId, messageId }),
   addReaction: (channelId: string, messageId: string, emoji: string) => emit('chat:react', { channelId, messageId, emoji }),
   removeReaction: (channelId: string, messageId: string, emoji: string) => emit('chat:unreact', { channelId, messageId, emoji }),
+  /** The page of history older than `beforeMessageId` (oldest first) and whether more exists. */
+  loadOlderMessages: (channelId: string, beforeMessageId: string, limit?: number) =>
+    socketClient.request<OlderHistoryResponse>('chat:history:before', { channelId, beforeMessageId, limit }),
+  /** Full-text search over the channels this user may read. */
+  search: (params: SearchParams) => socketClient.request<SearchResponse>('search', params),
 
   // voice
   joinVoice: (channelId: string) => emit('voice:join', channelId),

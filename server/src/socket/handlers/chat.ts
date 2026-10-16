@@ -5,6 +5,13 @@ import { AppError, forbidden, notFound } from '../../errors.js';
 import { handle, requireUser, type SocketContext } from '../context.js';
 
 const deleteSchema = z.object({ messageId: idSchema, channelId: idSchema });
+/** Largest page of older history one request may ask for. */
+export const MAX_HISTORY_PAGE = 200;
+const historyBeforeSchema = z.object({
+  channelId: idSchema,
+  beforeMessageId: idSchema,
+  limit: z.number().int().min(1).max(MAX_HISTORY_PAGE).optional().nullable(),
+});
 const reactionSchema = z.object({ messageId: idSchema, channelId: idSchema, emoji: emojiSchema });
 
 export const registerChatHandlers = (sctx: SocketContext): void => {
@@ -27,6 +34,22 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
     app.channels.touchActivity(channel.id, message.ts);
     // Everyone who can see the channel gets the message so unread badges and mentions work across channels.
     app.broadcast.toChannelViewers(channel.id, 'chat', message);
+  });
+
+  /**
+   * `chat:history:before {channelId, beforeMessageId, limit?}`: the page of history
+   * older than a message the client already has. Answered through the
+   * acknowledgement when one is given, else with `chat:history:older`.
+   */
+  handle(sctx, 'chat:history:before', { schema: historyBeforeSchema, code: 'HISTORY_FAILED' }, ({ channelId, beforeMessageId, limit }, ack) => {
+    const user = requireUser(sctx);
+    const channel = app.channels.get(channelId);
+    if (!channel) throw notFound('Channel');
+    if (!app.channels.canAccess(channel, user, 'view')) throw forbidden('No permission to access this channel');
+    const page = app.messages.historyBefore(channel.id, beforeMessageId, limit ?? undefined);
+    const response = { success: true as const, channelId: channel.id, messages: page.messages, hasMore: page.hasMore };
+    if (ack) ack(response);
+    else sctx.socket.emit('chat:history:older', response);
   });
 
   handle(sctx, 'chat:delete', { schema: deleteSchema, code: 'DELETE_FAILED' }, ({ messageId, channelId }) => {

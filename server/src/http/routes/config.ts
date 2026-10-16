@@ -29,6 +29,8 @@ export const configRouter = (ctx: AppContext): Router => {
       limits: {
         maxMessageLength: ctx.config.limits.maxMessageLength,
         passwordMinLength: ctx.config.security.passwordMinLength,
+        // Messages sent with `chat:history` on join; fewer than this means the channel's start is on screen.
+        chatHistoryLimit: ctx.config.limits.chatHistoryLimit,
       },
     });
   });

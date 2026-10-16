@@ -92,6 +92,16 @@ export class MessageService {
           ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?
         ) ORDER BY created_at ASC, rid ASC
       `),
+      // Older history, newest-first page before a cursor message (by time, then insertion order).
+      historyBefore: db.prepare(`
+        SELECT * FROM (
+          SELECT m.*, m.rowid AS rid FROM messages m
+          WHERE m.channel_id = ? AND m.deleted_at IS NULL
+            AND (m.created_at < ? OR (m.created_at = ? AND m.rowid < ?))
+          ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?
+        ) ORDER BY created_at ASC, rid ASC
+      `),
+      cursor: db.prepare('SELECT created_at, rowid AS rid FROM messages WHERE id = ? AND channel_id = ?'),
       byId: db.prepare('SELECT * FROM messages WHERE id = ? AND channel_id = ?'),
       softDelete: db.prepare('UPDATE messages SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL'),
       countChannel: db.prepare('SELECT COUNT(*) AS n FROM messages WHERE channel_id = ?'),
@@ -112,6 +122,11 @@ export class MessageService {
         SELECT r.message_id, r.account_id, r.emoji, r.created_at, a.display_name
         FROM message_reactions r LEFT JOIN accounts a ON a.id = r.account_id
         WHERE r.message_id = ? ORDER BY r.created_at ASC, r.rowid ASC
+      `),
+      reactionsOfMessages: db.prepare(`
+        SELECT r.message_id, r.account_id, r.emoji, r.created_at, a.display_name
+        FROM message_reactions r LEFT JOIN accounts a ON a.id = r.account_id
+        WHERE r.message_id IN (SELECT value FROM json_each(?)) ORDER BY r.created_at ASC, r.rowid ASC
       `),
       insertReaction: db.prepare(`
         INSERT INTO message_reactions (message_id, account_id, emoji, created_at) VALUES (?, ?, ?, ?)
@@ -165,6 +180,22 @@ export class MessageService {
     if (rows.length === 0) return [];
     const reactions = summarize(this.stmts.reactionsOfChannel.all(channelId) as ReactionRow[]);
     return rows.map((row) => rowToRecord(row, reactions.get(row.id) ?? []));
+  }
+
+  /**
+   * The page of history before `beforeMessageId` (oldest first) and whether
+   * anything older than that page exists. The cursor message must belong to the
+   * channel; it may itself be deleted.
+   */
+  historyBefore(channelId: string, beforeMessageId: string, limit = this.config.limits.chatHistoryLimit): { messages: MessageRecord[]; hasMore: boolean } {
+    const cursor = this.stmts.cursor.get(beforeMessageId, channelId) as { created_at: number; rid: number } | undefined;
+    if (!cursor) throw notFound('Message');
+    const rows = this.stmts.historyBefore.all(channelId, cursor.created_at, cursor.created_at, cursor.rid, limit + 1) as MessageRow[];
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(1) : rows;
+    if (page.length === 0) return { messages: [], hasMore: false };
+    const reactions = summarize(this.stmts.reactionsOfMessages.all(JSON.stringify(page.map((row) => row.id))) as ReactionRow[]);
+    return { messages: page.map((row) => rowToRecord(row, reactions.get(row.id) ?? [])), hasMore };
   }
 
   get(channelId: string, messageId: string): MessageRecord | null {

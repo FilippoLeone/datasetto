@@ -188,6 +188,59 @@ export interface ChatMessage {
   reactions?: ReactionSummary[];
 }
 
+/** `chat:history:before` answer: the page of history older than a known message. */
+export interface OlderHistoryResponse {
+  success: boolean;
+  error?: string;
+  code?: string;
+  channelId?: string;
+  messages?: ChatMessage[];
+  hasMore?: boolean;
+}
+
+/** One piece of a search snippet; `match` parts are the terms that hit. */
+export interface SnippetPart {
+  text: string;
+  match: boolean;
+}
+
+/** One hit of the `search` event. */
+export interface SearchResult {
+  id: string;
+  channelId: string;
+  channelName: string;
+  channelType: ChannelType;
+  authorId: string | null;
+  authorName: string;
+  authorAvatarUrl: string | null;
+  roles: RoleName[];
+  isSuperuser: boolean;
+  ts: number;
+  snippet: SnippetPart[];
+}
+
+/** `search` payload. */
+export interface SearchParams {
+  query: string;
+  channelId?: string | null;
+  authorId?: string | null;
+  limit?: number;
+  offset?: number;
+}
+
+/** `search` answer (over the acknowledgement). */
+export interface SearchResponse {
+  success: boolean;
+  error?: string;
+  code?: string;
+  query?: string;
+  results?: SearchResult[];
+  total?: number;
+  hasMore?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
 /** `chat:reaction`: someone added or removed an emoji; `reactions` is the message's full list afterwards. */
 export interface ReactionEvent {
   channelId: string;

@@ -21,7 +21,7 @@ export interface ServerConfig {
   registration: { mode: 'open' | 'invite' | 'closed'; requiresInvite: boolean; acceptsInviteLinks: boolean };
   urls: { rtmp: string | null; hls: string | null };
   ice: ServerIceConfig;
-  limits: { maxMessageLength: number; passwordMinLength: number };
+  limits: { maxMessageLength: number; passwordMinLength: number; chatHistoryLimit: number };
 }
 
 const DEFAULT_STUN: RTCIceServer[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
@@ -175,6 +175,7 @@ class ServerConfigService {
       limits: {
         maxMessageLength: typeof data.limits?.maxMessageLength === 'number' ? data.limits.maxMessageLength : 2000,
         passwordMinLength: typeof data.limits?.passwordMinLength === 'number' ? data.limits.passwordMinLength : 8,
+        chatHistoryLimit: typeof data.limits?.chatHistoryLimit === 'number' ? data.limits.chatHistoryLimit : 100,
       },
     };
   }

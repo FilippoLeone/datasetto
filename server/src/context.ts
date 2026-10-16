@@ -8,6 +8,7 @@ import { LeaderboardService } from './services/leaderboard.js';
 import { MessageService } from './services/messages.js';
 import { ModerationService } from './services/moderation.js';
 import { PresenceService } from './services/presence.js';
+import { SearchService } from './services/search.js';
 import { SessionService } from './services/sessions.js';
 import { SettingsService } from './services/settings.js';
 import { TurnService } from './services/turn.js';
@@ -39,6 +40,7 @@ export interface AppContext {
   settings: SettingsService;
   channels: ChannelService;
   messages: MessageService;
+  search: SearchService;
   moderation: ModerationService;
   presence: PresenceService;
   turn: TurnService;
@@ -74,6 +76,7 @@ export const createContext = (config: AppConfig, db: DB): AppContext => {
     settings: new SettingsService(db),
     channels,
     messages: new MessageService(db, config),
+    search: new SearchService(db),
     moderation: new ModerationService(db),
     presence: new PresenceService(),
     turn: new TurnService(config.turn),

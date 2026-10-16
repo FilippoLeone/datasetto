@@ -10,6 +10,7 @@ import { registerChannelHandlers } from './handlers/channels.js';
 import { registerChatHandlers } from './handlers/chat.js';
 import { registerMinigameHandlers, type Minigames } from './handlers/minigame.js';
 import { registerScreenshareHandlers } from './handlers/screenshare.js';
+import { registerSearchHandlers } from './handlers/search.js';
 import { registerVoiceHandlers } from './handlers/voice.js';
 import { teardownSocket } from './lifecycle.js';
 import { channelsPayload } from './payloads.js';
@@ -148,6 +149,7 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
     registerAuthHandlers(sctx, minigames);
     registerChannelHandlers(sctx);
     registerChatHandlers(sctx);
+    registerSearchHandlers(sctx);
     registerVoiceHandlers(sctx, minigames);
     registerScreenshareHandlers(sctx);
     registerAdminHandlers(sctx);

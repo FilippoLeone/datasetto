@@ -27,7 +27,8 @@ src/
     accounts.ts       register / authenticate / profile / roles / disable (bcrypt)
     sessions.ts       opaque bearer tokens, hashed at rest, sliding expiry
     channels.ts       persistent channels, groups, permissions, stream keys
-    messages.ts       chat history with retention and soft delete
+    messages.ts       chat history with retention and soft delete, older-history paging
+    search.ts         full-text search over messages (FTS5 index, query sanitising, snippets)
     moderation.ts     bans (persistent) and voice timeouts (memory)
     presence.ts       everything live: connected users, rooms, streams, screenshares
     turn.ts           ephemeral TURN credentials (coturn use-auth-secret)
@@ -94,6 +95,8 @@ rate limits apply.
 | --- | --- |
 | `channel:join id`, `channels:list`, `channels:create {name,type,groupId?,topic?,visibility?,password?}`, `channels:update {channelId,topic?,visibility?,password?}`, `channels:joinPrivate {name,password}`, `channels:delete idOrName`, `dm:open {accountId}` | `channel:joined`, `chat:history`, `channels:update {channels, groups}`, `channels:created`, `channels:updated`, `channels:privateJoined {channelId}`, `channel:deleted {channelId, reason?}`, `dm:opened {channelId, peerId, peerName}` |
 | `chat text`, `chat:delete {messageId, channelId}`, `chat:react/unreact {channelId, messageId, emoji}` | `chat message` (with `reactions[]`), `chat:messageDeleted`, `chat:reaction {channelId, messageId, emoji, accountId, displayName, added, reactions[]}` |
+| `chat:history:before {channelId, beforeMessageId, limit?}` (acknowledgement) | ack `{success, channelId, messages[], hasMore}`: the page of history older than a message the client has (oldest first, 1 to 200, default `CHAT_HISTORY_LIMIT`); `chat:history:older` when sent without an ack |
+| `search {query, channelId?, authorId?, limit?, offset?}` (acknowledgement) | ack `{success, query, results[], total, hasMore, limit, offset}`, each result `{id, channelId, channelName, channelType, authorId, authorName, authorAvatarUrl, roles, isSuperuser, ts, snippet: [{text, match}]}`; `search:results` when sent without an ack |
 | `voice:join id`, `voice:leave`, `voice:signal {to,data}`, `voice:stream-metadata`, `voice:state {muted,deafened}`, `voice:video:state` | `voice:joined {peers,startedAt,sessionId}`, `voice:peer-join`, `voice:peer-leave`, `voice:signal`, `voice:state`, `voice:video:state` |
 | `voice:kick`, `voice:timeout`, `user:ban {targetSocketId,...}` | `voice:kicked`, `voice:timeout`, `user:banned`, `moderation:success` |
 | `screenshare:start/stop/viewer:join/viewer:leave {channelId}`, `screenshare:signal` | `screenshare:session`, `screenshare:viewer:pending`, `screenshare:signal` |
@@ -165,6 +168,46 @@ channels. DMs do not count against `MAX_CHANNELS`. Each side's channel list
 entry carries `dm: {peerId, peerName, peerUsername, peerAvatarUrl}` for the
 other person, and `channels.last_message_at` (every channel) lets clients sort
 conversations by recency.
+
+### Message search
+
+`search` runs a full-text query over chat history and answers through the
+socket acknowledgement (the client's Ctrl+K panel). Migration 9 creates
+`messages_fts`, an FTS5 index with the `unicode61` tokenizer (case and accent
+insensitive) that reads its text from `messages` and is kept in step by three
+triggers (insert, update of `text`, delete); the migration also indexes every
+message that already exists. Soft-deleted messages stay in the table and are
+filtered out at query time, pruned or cascaded rows leave the index through
+the delete trigger, so a deleted message never comes back in results.
+
+Only channels the caller may `view` are searched: public channels, private
+channels they belong to (or manage, for admins), and their own conversations;
+nobody else's DMs, not even for superusers. `channelId` narrows the search to
+one of those channels (`FORBIDDEN` for any other, `NOT_FOUND` for an unknown
+id); `authorId` keeps only one account's messages. Results come newest first
+with `limit` 1 to 50 (default 25) and `offset` up to 1000; `total` counts
+every hit, `hasMore` says whether a next page exists. Each result carries a
+snippet of about fourteen words around the match as `[{text, match}]` parts,
+so the client highlights terms without ever rendering server HTML.
+
+The query is never passed to FTS5 as typed: it is split into words (letters
+and digits only), every word becomes a quoted string, text in double quotes
+stays one phrase and the last unquoted term matches as a prefix (`hel` finds
+`hello`). Operators (`AND`, `OR`, `NOT`, `NEAR`), column filters, parentheses
+and stray quotes therefore cannot change the meaning or break the query; at
+most 8 terms and 200 characters are used, and a query without a searchable
+word returns no results. Searches are rate limited at 60 per minute per
+socket, answered with `RATE_LIMITED` on the acknowledgement. Note for
+operators: do not `VACUUM` the database by hand, it can renumber the rowids
+the index is keyed on; `INSERT INTO messages_fts(messages_fts) VALUES
+('rebuild')` restores it.
+
+`chat:history:before` pages backwards through a channel's history for the
+same reader (view permission required): it returns the messages older than a
+message the client already holds, with reactions, skipping deleted ones, and
+`hasMore` tells whether the channel's start has been reached. The client uses
+it when scrolling to the top of a channel and to reach a search hit that is
+older than the history on screen.
 
 ### Reactions
 

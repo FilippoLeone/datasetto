@@ -1,6 +1,8 @@
 import { useEffect } from 'preact/hooks';
 import { closeDrawers, closeModal, membersOpen, modal, openModal, sidebarOpen } from '@/state/ui';
 import { isAuthenticated } from '@/state/session';
+import { searchOpen } from '@/state/search';
+import { closeSearch, openSearch } from '@/features/search/searchActions';
 import { voiceManager } from '@/features/voice/voiceManager';
 
 const isTypingTarget = (target: EventTarget | null): boolean => {
@@ -10,7 +12,10 @@ const isTypingTarget = (target: EventTarget | null): boolean => {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || element.isContentEditable;
 };
 
-/** App-wide keyboard shortcuts: Escape closes dialogs, Ctrl+Shift+M mutes, Ctrl+Shift+D deafens, push-to-talk. */
+/**
+ * App-wide keyboard shortcuts: Escape closes dialogs and the search panel, Ctrl+K
+ * (Cmd+K) opens message search, Ctrl+Shift+M mutes, Ctrl+Shift+D deafens, push-to-talk.
+ */
 export const useGlobalShortcuts = (): void => {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -18,11 +23,21 @@ export const useGlobalShortcuts = (): void => {
         closeModal();
         return;
       }
+      if (event.key === 'Escape' && searchOpen.value) {
+        closeSearch();
+        return;
+      }
       if (event.key === 'Escape' && (sidebarOpen.value || membersOpen.value)) {
         closeDrawers();
         return;
       }
       if (!isAuthenticated.value) return;
+
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.code === 'KeyK') {
+        event.preventDefault();
+        openSearch();
+        return;
+      }
 
       if (event.ctrlKey && event.shiftKey && !event.altKey) {
         if (event.code === 'KeyM') {

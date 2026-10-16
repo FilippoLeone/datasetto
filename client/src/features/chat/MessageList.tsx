@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { ArrowDown, Hash, MessageCircle, SmilePlus, Trash2 } from 'lucide-preact';
-import { Avatar, RoleBadge } from '@/components';
+import { Avatar, RoleBadge, Spinner } from '@/components';
 import { cn } from '@/lib/cn';
 import { isTouchPrimary } from '@/lib/device';
 import { formatDayLabel, formatFullDate, formatMessageTime, sameDay } from '@/lib/format';
+import { prefersReducedMotion } from '@/lib/motion';
+import { serverConfig } from '@/services/ServerConfigService';
 import { api } from '@/services/socket/api';
-import { loadedChannels, messages } from '@/state/chat';
+import { highlightedMessageId, historyExhausted, historyLoading, loadedChannels, messages, scrollTarget } from '@/state/chat';
 import { account, can } from '@/state/session';
 import { EmojiPicker } from './EmojiPicker';
+import { flashMessage, loadOlderMessages } from './history';
 import { MessageBody } from './MessageBody';
 import type { Channel, ChatMessage, ReactionSummary } from '@/types/protocol';
 
@@ -89,6 +92,8 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
   const { message, showHeader } = row;
   const me = account.value;
   const own = Boolean(me && message.accountId === me.id);
+  // Briefly lit after jumping here from a search result; the flash is feedback, so it survives reduced motion.
+  const highlighted = highlightedMessageId.value === message.id;
   const deletable = own || can('canDeleteAnyMessage');
   // Touch screens have no hover: a tap on the message toggles its actions.
   const [active, setActive] = useState(false);
@@ -101,7 +106,12 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
   };
   return (
     <div
-      className={cn('message-row group relative flex gap-3 px-4 py-0.5 hover:bg-black/10 pointer-coarse:py-1', showHeader && 'mt-3', (active || pickerOpen) && 'is-active')}
+      className={cn(
+        'message-row group relative flex gap-3 px-4 py-0.5 hover:bg-black/10 pointer-coarse:py-1',
+        showHeader && 'mt-3',
+        (active || pickerOpen) && 'is-active',
+        highlighted && 'is-highlighted motion-essential',
+      )}
       onClick={() => {
         if (isTouchPrimary()) setActive((value) => !value);
       }}
@@ -164,6 +174,11 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
 export const MessageList = ({ channel, compact }: { channel: Channel; compact?: boolean }) => {
   const list = messages.value[channel.id] ?? [];
   const loaded = loadedChannels.value[channel.id] ?? false;
+  const loadingOlder = historyLoading.value[channel.id] ?? false;
+  // The channel's first message is on screen: nothing older exists, or the first page was not even full.
+  const pageSize = serverConfig.get()?.limits.chatHistoryLimit ?? 100;
+  const atStart = (historyExhausted.value[channel.id] ?? false) || (loaded && list.length < pageSize);
+  const target = scrollTarget.value;
   const rows = buildRows(list);
   // Messages that arrive after the history is on screen fade in; the history itself does not.
   const seen = useRef<{ channelId: string; loaded: boolean; ids: Set<string>; fresh: Set<string> } | null>(null);
@@ -181,6 +196,9 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const [showJump, setShowJump] = useState(false);
+  // Scroll position to restore after older messages are put in front of the list.
+  const anchor = useRef<{ height: number; top: number } | null>(null);
+  const lastId = list[list.length - 1]?.id ?? null;
 
   const scrollToBottom = (smooth = false) => {
     const node = scrollRef.current;
@@ -194,10 +212,32 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
     scrollToBottom();
   }, [channel.id]);
 
+  // Only a new newest message moves the view; older pages arriving at the top do not.
   useEffect(() => {
     if (stickToBottom.current) scrollToBottom();
     else setShowJump(true);
+  }, [lastId]);
+
+  // Older messages were added above: keep what the user was looking at in place.
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    const saved = anchor.current;
+    if (!node || !saved) return;
+    anchor.current = null;
+    const delta = node.scrollHeight - saved.height;
+    if (delta > 0) node.scrollTop = saved.top + delta;
   }, [list.length]);
+
+  // A search result asked for one of these messages: bring it into view and light it up.
+  useEffect(() => {
+    if (!target || target.channelId !== channel.id) return;
+    const node = scrollRef.current?.querySelector<HTMLElement>('[data-message-id="' + CSS.escape(target.messageId) + '"]');
+    if (!node) return;
+    scrollTarget.value = null;
+    stickToBottom.current = false;
+    node.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    flashMessage(target.messageId);
+  }, [target, channel.id, list.length]);
 
   const onScroll = () => {
     const node = scrollRef.current;
@@ -205,12 +245,17 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
     const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
     stickToBottom.current = distance < 48;
     if (stickToBottom.current) setShowJump(false);
+    // Near the top: fetch the page before the oldest message we have.
+    if (node.scrollTop < 160 && loaded && list.length > 0 && !atStart && !loadingOlder) {
+      anchor.current = { height: node.scrollHeight, top: node.scrollTop };
+      void loadOlderMessages(channel.id);
+    }
   };
 
   return (
     <div className="relative min-h-0 flex-1">
       <div ref={scrollRef} onScroll={onScroll} className="scrollbar-thin h-full overflow-y-auto pb-4">
-        {!compact && channel.type === 'dm' && (
+        {!compact && atStart && channel.type === 'dm' && (
           <div className="px-4 pt-8 pb-2">
             <div className="mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-active">
               <MessageCircle size={32} className="text-text-bright" />
@@ -219,7 +264,7 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
             <p className="text-sm text-text-muted">This is the start of your conversation with {channel.dm?.peerName ?? 'them'}. Only the two of you can read it.</p>
           </div>
         )}
-        {!compact && channel.type !== 'dm' && (
+        {!compact && atStart && channel.type !== 'dm' && (
           <div className="px-4 pt-8 pb-2">
             <div className="mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-active">
               <Hash size={32} className="text-text-bright" />
@@ -241,8 +286,13 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
             ))}
           </div>
         )}
+        {loadingOlder && (
+          <div className="flex items-center justify-center gap-2 py-3 text-xs text-text-faint" aria-live="polite">
+            <Spinner size={14} /> Loading older messages…
+          </div>
+        )}
         {rows.map((row) => (
-          <div key={row.message.id} className={cn(fresh.has(row.message.id) && 'animate-message-in')}>
+          <div key={row.message.id} data-message-id={row.message.id} className={cn(fresh.has(row.message.id) && 'animate-message-in')}>
             {row.dayLabel && (
               <div className="my-3 flex items-center gap-3 px-4 text-[11px] font-semibold text-text-faint">
                 <span className="h-px flex-1 bg-border-strong" />

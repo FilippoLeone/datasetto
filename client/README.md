@@ -23,7 +23,7 @@ the web build served by Caddy needs none of them because everything is same-orig
 src/
   main.tsx                 bootstrap: runtime config -> socket -> render
   app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts
-  state/                   signals: session, channels, chat, presence, voice, settings, ui, screenAudio, misc (streams, screenshare, admin, minigame)
+  state/                   signals: session, channels, chat, search, presence, voice, settings, ui, screenAudio, misc (streams, screenshare, admin, minigame)
   services/
     socket/                SocketClient (reconnecting socket.io), api (typed emits), bindings (server events -> state)
     voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate)
@@ -35,7 +35,8 @@ src/
   features/
     auth/                  sign-in / register gate, profile dialog
     channels/              channel list, create/delete, stream key dialog, confirm dialog
-    chat/                  message list, composer, message rendering (links, mentions)
+    chat/                  message list, composer, message rendering (links, mentions), history paging and jump-to-message
+    search/                Ctrl+K message search: header box, results panel, debounced queries
     stream/                HLS player + live chat page
     voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation), voice page, dock, audio settings
     screenshare/           presenter/viewer rooms over direct WebRTC
@@ -84,6 +85,30 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
   offers 32 to 128 kbps); the value is applied to our sender through
   `setParameters` and asked of the other side through `maxaveragebitrate` in
   the SDP.
+
+## Searching messages
+
+The search box in the header (Ctrl+K, Cmd+K on a Mac; a magnifier button that
+opens a full-screen page on phones) searches the chat history of every channel
+you can read: public channels, private channels you belong to and your own
+direct messages. Results are grouped by channel, newest first, with the
+author's avatar, how long ago the message was sent and a snippet in which the
+matching words are highlighted. Searching starts after two letters and is
+debounced while you type; the last word matches as a prefix (`pine` finds
+`pineapple`) and a phrase in double quotes must appear as written.
+
+- **Everywhere / #channel** narrows the search to the channel that is open; the
+  filter icon on a result (or hovering it) limits results to that person, shown
+  as a removable "From …" chip. Arrow keys move through the results, Enter opens
+  the highlighted one, Escape closes the panel; "Load more" fetches the next page.
+- Clicking a result opens its channel and scrolls to the message, which lights
+  up for a moment. When the message is older than the history on screen the
+  client pages backwards (`chat:history:before`) until it has it. The same
+  paging runs when you scroll to the top of a channel; the "start of #channel"
+  banner only appears once there is nothing older to load.
+- Empty, loading and error states have their own panel content, and the panel's
+  enter/leave motion goes through `lib/motion.ts`, so it respects reduced motion
+  like every other dialog.
 
 ## Conventions
 

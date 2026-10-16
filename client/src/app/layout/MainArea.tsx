@@ -1,9 +1,12 @@
-import { Hash, Lock, Menu as MenuIcon, MessageCircle, MonitorUp, Radio, Users, Volume2 } from 'lucide-preact';
+import { Hash, Lock, Menu as MenuIcon, MessageCircle, MonitorUp, Radio, Search, Users, Volume2 } from 'lucide-preact';
 import { Avatar, IconButton } from '@/components';
 import { channelLabel, selectedChannel } from '@/state/channels';
 import { onlineCount } from '@/state/presence';
 import { isMobile, isPhone, membersOpen, showMembers, sidebarOpen } from '@/state/ui';
 import { ChatView } from '@/features/chat/ChatView';
+import { SearchInput } from '@/features/search/SearchInput';
+import { SearchPanel } from '@/features/search/SearchPanel';
+import { openSearch } from '@/features/search/searchActions';
 import { StreamPage } from '@/features/stream/StreamPage';
 import { VoicePage } from '@/features/voice/VoicePage';
 import { ScreensharePage } from '@/features/screenshare/ScreensharePage';
@@ -21,7 +24,7 @@ const Header = ({ channel }: { channel: Channel | null }) => {
   const Icon = channel ? CHANNEL_ICONS[channel.type] : Hash;
   const mobile = isMobile.value;
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 shadow-sm">
+    <header className="relative flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 shadow-sm">
       {isPhone.value && (
         <IconButton label="Open channels" size="sm" onClick={() => (sidebarOpen.value = true)}>
           <MenuIcon size={20} />
@@ -45,6 +48,15 @@ const Header = ({ channel }: { channel: Channel | null }) => {
         </>
       )}
       <span className="flex-1" />
+      {/* Message search: a box here, or a button that opens the full-screen panel on phones. */}
+      {isPhone.value ? (
+        <IconButton label="Search messages" size="sm" onClick={openSearch}>
+          <Search size={20} />
+        </IconButton>
+      ) : (
+        <SearchInput showShortcut className="w-44 shrink lg:w-60" />
+      )}
+      <SearchPanel />
       <IconButton
         label={mobile ? 'Members' : showMembers.value ? 'Hide members' : 'Show members'}
         size="sm"
