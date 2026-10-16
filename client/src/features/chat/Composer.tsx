@@ -3,7 +3,6 @@ import { AlertTriangle, ImagePlus, Send, Smile, X } from 'lucide-preact';
 import { IconButton } from '@/components';
 import { addFiles, attachmentIds, canSend, filesFromTransfer, removeDraft, transferHasFiles, updateDraft, type AttachmentDraft } from '@/lib/attachments';
 import { cn } from '@/lib/cn';
-import { api } from '@/services/socket/api';
 import { sounds } from '@/services/sounds';
 import { serverConfig } from '@/services/ServerConfigService';
 import { uploadImage, type UploadHandle } from '@/services/uploads';
@@ -12,6 +11,7 @@ import { connectionStatus } from '@/state/session';
 import { isMobile, toast } from '@/state/ui';
 import type { Channel } from '@/types/protocol';
 import { EmojiPicker } from './EmojiPicker';
+import { sendChatMessage } from './outboxService';
 
 /** One picture in the strip above the text box: thumbnail, progress, error, remove. */
 const DraftTile = ({ draft, onRemove, onRetry }: { draft: AttachmentDraft; onRemove: () => void; onRetry: () => void }) => (
@@ -50,9 +50,11 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
   const dragDepth = useRef(0);
   const maxLength = serverConfig.get()?.limits.maxMessageLength ?? 2000;
   const limits = serverConfig.uploadLimits();
-  const disabled = connectionStatus.value !== 'connected';
+  // Typing never waits for the connection: a message written while reconnecting is queued
+  // (shown as "sending" in the list) and goes out as soon as the socket is back.
+  const connected = connectionStatus.value === 'connected';
   const target = (channel.type === 'dm' ? '@' : '#') + channelLabel(channel);
-  const sendable = canSend(text, drafts) && !disabled;
+  const sendable = canSend(text, drafts);
 
   const discardAll = () => {
     for (const handle of uploads.current.values()) handle.abort();
@@ -87,7 +89,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
   };
 
   const attach = (files: File[]) => {
-    if (files.length === 0 || disabled) return;
+    if (files.length === 0) return;
     const result = addFiles(drafts, files, { maxBytes: limits.maxBytes, maxFiles: limits.maxFilesPerMessage, acceptedTypes: limits.acceptedTypes });
     for (const reason of new Set(result.rejected.map((entry) => entry.reason))) toast.warning(reason);
     const fresh = result.drafts.filter((draft) => !drafts.some((existing) => existing.key === draft.key));
@@ -131,7 +133,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
   const send = () => {
     if (!sendable) return;
     const value = text.trim().slice(0, maxLength);
-    api.sendMessage(value, attachmentIds(drafts));
+    sendChatMessage(channel.id, value, attachmentIds(drafts));
     sounds.play('messageSent', 0.2);
     setText('');
     for (const draft of drafts) URL.revokeObjectURL(draft.previewUrl);
@@ -189,7 +191,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
               input.value = '';
             }}
           />
-          <IconButton label="Add pictures" size="sm" className="mb-1" disabled={disabled} onClick={() => fileInputRef.current?.click()}>
+          <IconButton label="Add pictures" size="sm" className="mb-1" onClick={() => fileInputRef.current?.click()}>
             <ImagePlus size={20} />
           </IconButton>
           <textarea
@@ -197,8 +199,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
             value={text}
             rows={1}
             maxLength={maxLength}
-            disabled={disabled}
-            placeholder={disabled ? 'Reconnecting…' : 'Message ' + target}
+            placeholder={connected ? 'Message ' + target : 'Message ' + target + ' (sent when back online)'}
             aria-label={'Message ' + target}
             className="scrollbar-thin max-h-[200px] min-h-[40px] flex-1 resize-none bg-transparent py-2.5 text-sm text-text-bright placeholder:text-text-faint outline-none"
             onInput={(event) => {
@@ -223,7 +224,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
               <Smile size={20} />
             </IconButton>
             {emojiOpen && <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} />}
-            <IconButton label="Send" size="sm" tone={sendable ? 'brand' : 'default'} disabled={!sendable} onClick={send}>
+            <IconButton label={connected ? 'Send' : 'Send when back online'} size="sm" tone={sendable ? 'brand' : 'default'} disabled={!sendable} onClick={send}>
               <Send size={18} />
             </IconButton>
           </div>

@@ -215,6 +215,8 @@ export interface ChatMessage {
   edited?: boolean;
   deleted?: boolean;
   reactions?: ReactionSummary[];
+  /** Echo of the sender's queue id (only on the sender's own messages, never stored). */
+  clientId?: string | null;
   attachments?: Attachment[];
   preview?: LinkPreview | null;
 }
@@ -334,9 +336,46 @@ export interface DeviceInfo {
 
 export interface VoicePeerEvent {
   id: string;
+  /** Who is behind the socket; stable across their reconnects. */
+  accountId?: string;
   name: string;
   muted: boolean;
   deafened: boolean;
+  /** Their media session: unchanged while they keep their peer connections, new when they rebuilt. */
+  rtcSessionId?: string | null;
+  /** On a (re)join: the connections they still hold, so we know whether ours to them is still wanted. */
+  holding?: HeldPeerConnection[];
+}
+
+/** One peer connection a client still holds: who, and which media session of theirs. */
+export interface HeldPeerConnection {
+  accountId: string;
+  rtcSessionId: string | null;
+}
+
+export interface VoicePeerLeaveEvent {
+  id: string;
+  accountId?: string | null;
+  /** `replaced`: the same person took the seat over with a new socket (keep the media connection). */
+  reason?: 'left' | 'replaced';
+}
+
+/** Sent to every socket right before a graceful shutdown (a deploy). */
+export interface ServerRestartingEvent {
+  expectedWaitMs: number;
+  reason?: string;
+  at?: number;
+}
+
+/** Acknowledgement of a `chat` emit. */
+export interface ChatAck {
+  success: boolean;
+  messageId?: string;
+  channelId?: string;
+  clientId?: string | null;
+  ts?: number;
+  error?: string;
+  code?: string;
 }
 
 export interface VoiceJoinedEvent {
@@ -355,15 +394,47 @@ export interface ScreenshareSessionEvent {
   channelId: string;
   active: boolean;
   hostId: string | null;
+  /** Who presents; stable across the host's reconnects while `hostId` changes. */
+  hostAccountId?: string | null;
   hostName: string | null;
+  /** The host's media session id: our connection to them is still good while it stays the same. */
+  rtcSessionId?: string | null;
   startedAt: number | null;
   viewerCount: number;
+  /** When `active` is false: a deliberate stop (`host`) or the host's socket going away (`disconnect`). */
+  endedBy?: 'host' | 'disconnect' | null;
 }
 
 export interface ScreenshareSignalEvent {
   from: string;
   data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
   channelId?: string | null;
+}
+
+/** To the host: a viewer took a seat (or is back on a new socket). */
+export interface ScreenshareViewerPendingEvent {
+  channelId: string;
+  viewerId: string;
+  viewerAccountId?: string;
+  viewerName: string;
+  rtcSessionId?: string | null;
+  holding?: HeldPeerConnection[];
+}
+
+/** To a viewer: its seat is confirmed, with the presenter's identity. */
+export interface ScreenshareViewerSeatedEvent {
+  channelId: string;
+  hostId: string;
+  hostAccountId: string | null;
+  hostName: string | null;
+  rtcSessionId: string | null;
+}
+
+/** To a socket whose host or viewer seat another socket of the same account took over. */
+export interface ScreenshareReplacedEvent {
+  channelId: string;
+  role: 'host' | 'viewer';
+  bySocketId: string;
 }
 
 export interface StreamKeyResponse {

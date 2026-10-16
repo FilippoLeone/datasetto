@@ -1,4 +1,5 @@
 import { batch, signal } from '@preact/signals';
+import type { PendingMessage } from '@/features/chat/outbox';
 import type { ChatMessage, ReactionSummary } from '@/types/protocol';
 
 /** Kept per channel; matches the server's default retention so a jump can reach any message. */
@@ -18,6 +19,14 @@ export const historyLoading = signal<Record<string, boolean>>({});
 export const scrollTarget = signal<{ channelId: string; messageId: string } | null>(null);
 /** The message briefly highlighted after a jump. */
 export const highlightedMessageId = signal<string | null>(null);
+/** Our own messages not yet confirmed by the server, per channel, in send order (features/chat/outbox.ts). */
+export const pendingMessages = signal<Record<string, PendingMessage[]>>({});
+
+export const setPendingMessages = (entries: PendingMessage[]): void => {
+  const next: Record<string, PendingMessage[]> = {};
+  for (const entry of entries) (next[entry.channelId] ??= []).push(entry);
+  pendingMessages.value = next;
+};
 
 export const setHistory = (channelId: string, history: ChatMessage[]): void => {
   batch(() => {

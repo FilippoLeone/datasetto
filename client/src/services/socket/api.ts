@@ -1,6 +1,8 @@
 import { socketClient } from './client';
 import type {
+  ChatAck,
   ChannelPermissions,
+  HeldPeerConnection,
   CreateChannelInput,
   CreateInviteInput,
   LeaderboardEntry,
@@ -62,9 +64,14 @@ export const api = {
   regenerateStreamKey: (channelId: string) => emit('stream:key:regenerate', { channelId }),
 
   // chat
-  /** Text alone, or text (possibly empty) plus the ids of pictures uploaded through `services/uploads.ts`. */
-  sendMessage: (text: string, attachmentIds: string[] = []) =>
-    attachmentIds.length > 0 ? emit('chat', { text, attachmentIds }) : emit('chat', text),
+  /**
+   * Send one message and wait for the server's acknowledgement. The channel is named so a
+   * message queued while offline lands where it was typed; the client id comes back in the
+   * echoed `chat` event (features/chat/outbox.ts matches the pending copy with it). Pictures
+   * uploaded through `services/uploads.ts` ride along as attachment ids.
+   */
+  sendMessage: (channelId: string, text: string, clientId: string, attachmentIds: string[] = []) =>
+    socketClient.request<ChatAck>('chat', { text, channelId, clientId, attachmentIds }, 10_000),
   deleteMessage: (channelId: string, messageId: string) => emit('chat:delete', { channelId, messageId }),
   /** Take the link card off a message (own messages, or any with the delete-any-message right). */
   removePreview: (channelId: string, messageId: string) => emit('chat:preview:remove', { channelId, messageId }),
@@ -79,7 +86,12 @@ export const api = {
   search: (params: SearchParams) => socketClient.request<SearchResponse>('search', params),
 
   // voice
-  joinVoice: (channelId: string) => emit('voice:join', channelId),
+  /**
+   * Join (or, after a reconnect, rejoin) a voice room. `rtcSessionId` tells peers whether our
+   * connections survived; `holding` lists the ones we still have, so a peer we lost offers afresh.
+   */
+  joinVoice: (channelId: string, rtcSessionId: string | null = null, holding: HeldPeerConnection[] = []) =>
+    emit('voice:join', rtcSessionId ? { channelId, rtcSessionId, holding } : channelId),
   leaveVoice: () => emit('voice:leave'),
   sendVoiceSignal: (to: string, data: unknown) => emit('voice:signal', { to, data }),
   sendStreamMetadata: (to: string, metadata: unknown) => emit('voice:stream-metadata', { to, metadata }),
@@ -91,10 +103,12 @@ export const api = {
   banUser: (targetSocketId: string, targetName: string, reason?: string) =>
     emit('user:ban', { targetSocketId, targetName, reason }),
 
-  // screenshare rooms
-  startScreenshare: (channelId: string) => emit('screenshare:start', { channelId }),
+  // screenshare rooms (`rtcSessionId` and `holding`: see joinVoice)
+  startScreenshare: (channelId: string, rtcSessionId: string | null = null, holding: HeldPeerConnection[] = []) =>
+    emit('screenshare:start', { channelId, rtcSessionId, holding }),
   stopScreenshare: (channelId: string) => emit('screenshare:stop', { channelId }),
-  joinScreenshareViewer: (channelId: string) => emit('screenshare:viewer:join', { channelId }),
+  joinScreenshareViewer: (channelId: string, rtcSessionId: string | null = null, holding: HeldPeerConnection[] = []) =>
+    emit('screenshare:viewer:join', { channelId, rtcSessionId, holding }),
   leaveScreenshareViewer: (channelId: string) => emit('screenshare:viewer:leave', { channelId }),
   sendScreenshareSignal: (to: string, data: unknown, channelId: string | null) =>
     emit('screenshare:signal', { to, data, channelId }),

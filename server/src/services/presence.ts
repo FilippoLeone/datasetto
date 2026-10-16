@@ -7,6 +7,7 @@ import type {
   MinigameSummary,
   PublicAccount,
   ScreenshareSession,
+  ScreenshareViewer,
   VoiceParticipant,
   VoiceRoom,
 } from '../types.js';
@@ -22,9 +23,11 @@ export const MAX_ACTIVITY_LENGTH = 64;
 
 export interface VoicePeer {
   id: string;
+  accountId: string;
   name: string;
   muted: boolean;
   deafened: boolean;
+  rtcSessionId: string | null;
 }
 
 export interface PublicUser {
@@ -48,9 +51,19 @@ export interface ScreenshareView {
   channelId: string;
   active: boolean;
   hostId: string | null;
+  hostAccountId: string | null;
   hostName: string | null;
+  /** The host's media session id: viewers keep their connection while it stays the same. */
+  rtcSessionId: string | null;
   startedAt: number | null;
   viewerCount: number;
+}
+
+export interface StartScreenshareInput {
+  hostId: string;
+  accountId: string | null;
+  displayName: string | null;
+  rtcSessionId?: string | null;
 }
 
 export interface StartStreamInput {
@@ -268,7 +281,7 @@ export class PresenceService {
 
   // ---------------------------------------------------------------- voice
 
-  joinVoice(socketId: string, channelId: string): VoiceParticipant | null {
+  joinVoice(socketId: string, channelId: string, rtcSessionId: string | null = null): VoiceParticipant | null {
     const user = this.users.get(socketId);
     if (!user) return null;
 
@@ -281,10 +294,12 @@ export class PresenceService {
     const existing = room.participants.get(socketId);
     const participant: VoiceParticipant = {
       id: socketId,
+      accountId: user.accountId,
       name: user.displayName,
       muted: existing?.muted ?? false,
       deafened: existing?.deafened ?? false,
       joinedAt: existing?.joinedAt ?? Date.now(),
+      rtcSessionId: rtcSessionId ?? existing?.rtcSessionId ?? null,
     };
     room.participants.set(socketId, participant);
     user.voiceChannel = channelId;
@@ -322,10 +337,21 @@ export class PresenceService {
       .filter((participant) => participant.id !== excludeSocketId)
       .map((participant) => ({
         id: participant.id,
+        accountId: participant.accountId,
         name: participant.name,
         muted: participant.muted,
         deafened: participant.deafened,
+        rtcSessionId: participant.rtcSessionId,
       }));
+  }
+
+  /** Other sockets of the same account sitting in this voice room (a reconnect's dead predecessor, a second tab). */
+  voiceSeatsOfAccount(channelId: string, accountId: string, exceptSocketId: string): string[] {
+    const room = this.voiceRooms.get(channelId);
+    if (!room) return [];
+    return Array.from(room.participants.values())
+      .filter((participant) => participant.accountId === accountId && participant.id !== exceptSocketId)
+      .map((participant) => participant.id);
   }
 
   updateVoiceState(socketId: string, state: { muted: boolean; deafened: boolean }): boolean {
@@ -340,24 +366,40 @@ export class PresenceService {
 
   // ---------------------------------------------------------- screenshare
 
-  startScreenshare(
-    channelId: string,
-    host: { hostId: string; accountId: string | null; displayName: string | null },
-  ): ScreenshareSession {
+  /**
+   * Start a share, or take the seat over: the same account on another socket (a
+   * reconnect, a second tab) replaces the host id and keeps the viewers; another
+   * account is refused while the share is on. Returns the socket id replaced, if any.
+   */
+  startScreenshare(channelId: string, host: StartScreenshareInput): { session: ScreenshareSession; previousHostId: string | null } {
     const existing = this.screenshares.get(channelId);
-    if (existing && existing.hostId !== host.hostId) {
-      throw new Error('Channel already has an active screenshare');
+    if (existing) {
+      if (existing.hostId === host.hostId) {
+        if (host.rtcSessionId !== undefined) existing.rtcSessionId = host.rtcSessionId;
+        return { session: existing, previousHostId: null };
+      }
+      if (existing.accountId === null || existing.accountId !== host.accountId) {
+        throw new Error('Channel already has an active screenshare');
+      }
+      const previousHostId = existing.hostId;
+      existing.hostId = host.hostId;
+      existing.displayName = host.displayName;
+      if (host.rtcSessionId !== undefined) existing.rtcSessionId = host.rtcSessionId;
+      // The host's own other socket cannot be a viewer of its share.
+      existing.viewers.delete(host.hostId);
+      return { session: existing, previousHostId };
     }
-    const session: ScreenshareSession = existing ?? {
+    const session: ScreenshareSession = {
       channelId,
       hostId: host.hostId,
       accountId: host.accountId,
       displayName: host.displayName,
       startedAt: Date.now(),
-      viewers: new Set(),
+      rtcSessionId: host.rtcSessionId ?? null,
+      viewers: new Map(),
     };
     this.screenshares.set(channelId, session);
-    return session;
+    return { session, previousHostId: null };
   }
 
   stopScreenshare(channelId: string): ScreenshareSession | null {
@@ -370,15 +412,29 @@ export class PresenceService {
     return this.screenshares.get(channelId) ?? null;
   }
 
-  addScreenshareViewer(channelId: string, viewerId: string): boolean {
+  /**
+   * Seat a viewer. A seat the same account already holds through another socket
+   * (its reconnect's dead predecessor, a second tab) moves to this socket; the
+   * replaced socket id is returned so it can be told.
+   */
+  addScreenshareViewer(channelId: string, viewer: ScreenshareViewer): { seated: boolean; replacedViewerId: string | null } {
     const session = this.screenshares.get(channelId);
-    if (!session || session.hostId === viewerId) return false;
-    session.viewers.add(viewerId);
-    return true;
+    if (!session || session.hostId === viewer.id) return { seated: false, replacedViewerId: null };
+    let replacedViewerId: string | null = null;
+    for (const seat of session.viewers.values()) {
+      if (seat.id !== viewer.id && seat.accountId === viewer.accountId) replacedViewerId = seat.id;
+    }
+    if (replacedViewerId) session.viewers.delete(replacedViewerId);
+    session.viewers.set(viewer.id, { ...viewer, holding: viewer.holding.map((held) => ({ ...held })) });
+    return { seated: true, replacedViewerId };
   }
 
   removeScreenshareViewer(channelId: string, viewerId: string): boolean {
     return this.screenshares.get(channelId)?.viewers.delete(viewerId) ?? false;
+  }
+
+  screenshareViewers(channelId: string): ScreenshareViewer[] {
+    return Array.from(this.screenshares.get(channelId)?.viewers.values() ?? []);
   }
 
   screenshareView(channelId: string): ScreenshareView {
@@ -387,7 +443,9 @@ export class PresenceService {
       channelId,
       active: Boolean(session),
       hostId: session?.hostId ?? null,
+      hostAccountId: session?.accountId ?? null,
       hostName: session?.displayName ?? null,
+      rtcSessionId: session?.rtcSessionId ?? null,
       startedAt: session?.startedAt ?? null,
       viewerCount: session?.viewers.size ?? 0,
     };

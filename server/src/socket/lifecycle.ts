@@ -11,7 +11,11 @@ export const leaveVoiceRoom = (sctx: SocketContext, minigames: Minigames): strin
   sctx.voiceChannel = null;
   if (!channelId) return null;
 
-  socket.to(channelId).emit('voice:peer-leave', { id: socket.id });
+  // While the process shuts down every socket goes within milliseconds; a "left" here would make
+  // the peers still connected drop their media connection to someone who is only reconnecting.
+  if (!app.runtime.shuttingDown) {
+    socket.to(channelId).emit('voice:peer-leave', { id: socket.id, accountId: sctx.user?.accountId ?? null, reason: 'left' });
+  }
   if (sctx.currentChannel !== channelId) {
     void socket.leave(channelId);
   }
@@ -24,13 +28,16 @@ export const leaveScreenshares = (sctx: SocketContext): void => {
   const { app, socket } = sctx;
   const { hosting, viewing } = app.presence.screensharesInvolving(socket.id);
 
+  // While the process shuts down nothing is broadcast: the presenter and the viewers keep
+  // their media connections and put the room back together on the next process.
   for (const channelId of hosting) {
     app.presence.stopScreenshare(channelId);
-    app.broadcast.screenshare(channelId);
+    // The host's socket went away (maybe only for a moment): viewers keep the picture and wait a while.
+    if (!app.runtime.shuttingDown) app.broadcast.screenshare(channelId, null, { endedBy: 'disconnect' });
   }
   for (const channelId of viewing) {
     app.presence.removeScreenshareViewer(channelId, socket.id);
-    app.broadcast.screenshare(channelId);
+    if (!app.runtime.shuttingDown) app.broadcast.screenshare(channelId);
   }
   sctx.screenshareHosting = null;
   sctx.screenshareViewing = null;
@@ -58,6 +65,7 @@ export const teardownSocket = (sctx: SocketContext, minigames: Minigames): void 
   sctx.sessionToken = null;
   sctx.sessionTokenHash = null;
 
+  if (app.runtime.shuttingDown) return;
   app.broadcast.users();
   app.broadcast.channels();
 };

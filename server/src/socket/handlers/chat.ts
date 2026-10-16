@@ -7,12 +7,19 @@ import { notifyMessageRecipients } from '../../services/messageNotifications.js'
 import type { ChannelRecord, MessageRecord } from '../../types.js';
 import { handle, requireUser, type SocketContext } from '../context.js';
 
-/** `chat` takes the text alone, or text plus the ids of pictures uploaded through POST /api/uploads. */
+/**
+ * `chat` takes the text alone, or an object with the text and/or the ids of pictures
+ * uploaded through POST /api/uploads, the channel (so a message queued while offline
+ * lands where it was typed, whatever channel is open now) and a client-side id that is
+ * echoed back for matching the pending copy.
+ */
 const chatSchema = z.union([
   z.string().max(20_000),
   z.object({
     text: z.string().max(20_000).optional().nullable(),
     attachmentIds: z.array(idSchema).max(50).optional().nullable(),
+    channelId: idSchema.optional().nullable(),
+    clientId: z.string().min(1).max(64).optional().nullable(),
   }),
 ]);
 const deleteSchema = z.object({ messageId: idSchema, channelId: idSchema });
@@ -44,11 +51,13 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
     });
   };
 
-  handle(sctx, 'chat', { schema: chatSchema, code: 'CHAT_FAILED', limiter: 'chat' }, (payload) => {
+  handle(sctx, 'chat', { schema: chatSchema, code: 'CHAT_FAILED', limiter: 'chat' }, (payload, ack) => {
     const user = requireUser(sctx);
-    if (!sctx.currentChannel) throw new AppError('Join a channel first', 'NOT_IN_CHANNEL', 400);
+    const clientId = typeof payload === 'string' ? null : (payload.clientId ?? null);
+    const channelId = (typeof payload === 'string' ? null : payload.channelId) ?? sctx.currentChannel;
+    if (!channelId) throw new AppError('Join a channel first', 'NOT_IN_CHANNEL', 400);
 
-    const channel = app.channels.get(sctx.currentChannel);
+    const channel = app.channels.get(channelId);
     if (!channel) throw notFound('Channel');
     if (channel.type !== 'text' && channel.type !== 'stream' && channel.type !== 'dm') {
       throw new AppError('This channel does not support chat', 'CHAT_NOT_SUPPORTED', 400);
@@ -75,10 +84,12 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
       else pending = previewUrl;
     }
     // Everyone who can see the channel gets the message so unread badges and mentions work across channels.
-    app.broadcast.toChannelViewers(channel.id, 'chat', message);
+    // The sender's client id rides along (not stored) so its pending copy can be swapped for the real one.
+    app.broadcast.toChannelViewers(channel.id, 'chat', clientId ? { ...message, clientId } : message);
     if (pending) fetchPreviewLater(channel, message, pending);
     // The other side of a DM and @-mentioned people who are not looking at the app get a push.
     void notifyMessageRecipients(app, channel, message);
+    if (ack) ack({ success: true, messageId: message.id, channelId: channel.id, clientId, ts: message.ts });
   });
 
   // The author takes the link card off their own message (moderators may too).

@@ -51,6 +51,9 @@ const envSchema = z.object({
   REGISTRATION_INVITE_CODE: optionalString,
   ADMIN_EMAILS: listFromEnv([]).transform((list) => list.map((email) => email.toLowerCase())),
 
+  // What clients are told to expect when this process restarts (a deploy): the time
+  // the next container needs to answer again. The shutdown itself finishes within 10 s.
+  RESTART_EXPECTED_WAIT_SECONDS: intFromEnv(10, 1, 300),
   SESSION_TTL_DAYS: intFromEnv(30, 1, 365),
   // One signed-in device per account: a new sign-in disconnects the previous socket.
   SINGLE_SESSION_PER_ACCOUNT: boolFromEnv(true),
@@ -102,6 +105,8 @@ export interface AppConfig {
   isProduction: boolean;
   version: string;
   server: { port: number; host: string; trustProxy: boolean };
+  /** Graceful shutdown: `expectedWaitMs` goes out in `server:restarting`. */
+  shutdown: { expectedWaitMs: number };
   database: { path: string };
   storage: { dataDir: string };
   cors: { origins: string[]; allowNativeOrigins: boolean };
@@ -172,6 +177,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
     isProduction: env.NODE_ENV === 'production',
     version: readVersion(),
     server: { port: env.PORT, host: env.HOST, trustProxy: env.TRUST_PROXY },
+    shutdown: { expectedWaitMs: env.RESTART_EXPECTED_WAIT_SECONDS * 1000 },
     database: { path: env.DATABASE_PATH },
     storage: { dataDir: env.DATA_DIR ?? (env.DATABASE_PATH === ':memory:' ? './data' : dirname(env.DATABASE_PATH)) },
     cors: { origins: env.CORS_ORIGINS, allowNativeOrigins: env.ALLOW_NATIVE_ORIGINS },

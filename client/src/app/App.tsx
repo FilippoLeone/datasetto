@@ -3,8 +3,9 @@ import { cn } from '@/lib/cn';
 import { useBackClose } from '@/lib/backStack';
 import { MOTION, usePresence } from '@/lib/motion';
 import { ToastHost, UpdateNotice } from '@/components';
-import { account, authStatus, canManage, connectionStatus, isAuthenticated } from '@/state/session';
+import { account, authStatus, canManage, isAuthenticated } from '@/state/session';
 import { closeDrawers, isLandscapePhone, isMobile, isPhone, keyboardOpen, membersOpen, modal, openModal, showMembers, sidebarOpen } from '@/state/ui';
+import { ConnectionBanner } from './ConnectionBanner';
 import { Sidebar } from './layout/Sidebar';
 import { MainArea } from './layout/MainArea';
 import { MemberList } from './layout/MemberList';
@@ -17,16 +18,6 @@ import { openedOnAdminPath } from '@/features/admin/AdminModal';
 import { useGlobalShortcuts } from './useGlobalShortcuts';
 import { useDrawerSwipe } from './useDrawerSwipe';
 
-const ConnectionBanner = () => {
-  if (connectionStatus.value === 'connected') return null;
-  const text = connectionStatus.value === 'connecting' ? 'Connecting to server…' : 'Connection lost. Reconnecting…';
-  return (
-    <div className="pointer-events-none fixed top-0 right-0 left-0 z-[55] flex justify-center safe-top">
-      <div className="mt-2 rounded-full bg-warning px-3 py-1 text-xs font-semibold text-black shadow-pop animate-slide-up">{text}</div>
-    </div>
-  );
-};
-
 /** A closed drawer is off screen: keep its controls out of the tab order and the accessibility tree. */
 const useInert = (ref: { current: HTMLElement | null }, inert: boolean): void => {
   useEffect(() => {
@@ -37,7 +28,6 @@ const useInert = (ref: { current: HTMLElement | null }, inert: boolean): void =>
     else node.removeAttribute('aria-hidden');
   }, [ref, inert]);
 };
-
 export const App = () => {
   useGlobalShortcuts();
   useDrawerSwipe();

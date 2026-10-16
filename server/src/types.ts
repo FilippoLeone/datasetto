@@ -223,10 +223,17 @@ export interface PushSubscriptionView {
 
 export interface VoiceParticipant {
   id: string;
+  accountId: string;
   name: string;
   muted: boolean;
   deafened: boolean;
   joinedAt: number;
+  /**
+   * The client's id for its current set of peer connections. It survives a
+   * reconnect, so peers can tell "same person, same media session, new socket"
+   * (keep the connection) from "they rebuilt" (negotiate afresh).
+   */
+  rtcSessionId: string | null;
 }
 
 export interface VoiceRoom {
@@ -236,13 +243,32 @@ export interface VoiceRoom {
   participants: Map<string, VoiceParticipant>;
 }
 
+/** A peer connection a client still holds: who, and which media session of theirs. */
+export interface HeldConnection {
+  accountId: string;
+  rtcSessionId: string | null;
+}
+
+export interface ScreenshareViewer {
+  /** Socket id; changes when the viewer reconnects (the seat follows the account). */
+  id: string;
+  accountId: string;
+  displayName: string;
+  rtcSessionId: string | null;
+  /** What the viewer said it still holds when it (re)joined. */
+  holding: HeldConnection[];
+}
+
 export interface ScreenshareSession {
   channelId: string;
+  /** The host's socket id; a reconnecting host takes the seat over with a new one. */
   hostId: string;
   accountId: string | null;
   displayName: string | null;
   startedAt: number;
-  viewers: Set<string>;
+  /** The host's media session id (see VoiceParticipant.rtcSessionId). */
+  rtcSessionId: string | null;
+  viewers: Map<string, ScreenshareViewer>;
 }
 
 export interface ActiveStream {

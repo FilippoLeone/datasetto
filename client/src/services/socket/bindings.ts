@@ -3,6 +3,7 @@ import { socketClient } from './client';
 import { api } from './api';
 import { resyncGameActivity } from '@/features/activity/desktopActivity';
 import { selectChannel } from '@/features/channels/channelActions';
+import { outbox } from '@/features/chat/outboxService';
 import { sounds } from '@/services/sounds';
 import { notifyDesktop } from '@/services/native/desktop';
 import { syncPushSubscription } from '@/services/pushNotifications';
@@ -14,6 +15,10 @@ import {
   clearSession,
   connectionStatus,
   isAuthenticated,
+  reconnectAttempt,
+  reconnectNextAt,
+  reconnectWaitingFor,
+  serverRestarting,
   sessionToken,
   setAuthenticated,
   socketId,
@@ -69,6 +74,7 @@ import type {
   ReactionEvent,
   ScreenshareSessionEvent,
   ServerInfo,
+  ServerRestartingEvent,
   ServerSettings,
   ServerError,
   SessionInfo,
@@ -141,8 +147,10 @@ export const installSocketBindings = (): void => {
     batch(() => {
       connectionStatus.value = 'connected';
       socketId.value = socketClient.id;
+      serverRestarting.value = null;
     });
-    // The server keeps auth per socket, so every (re)connect re-presents the token.
+    // The server keeps auth per socket, so every (re)connect re-presents the same token:
+    // the server treats it as the same login (no other device is signed out by it).
     const token = sessionToken.value;
     if (token) {
       if (authStatus.value !== 'authenticated') authStatus.value = 'resuming';
@@ -151,12 +159,37 @@ export const installSocketBindings = (): void => {
   });
 
   socketClient.on<string>('disconnect', () => {
-    connectionStatus.value = 'reconnecting';
-    socketId.value = null;
+    batch(() => {
+      connectionStatus.value = navigator.onLine === false ? 'offline' : 'reconnecting';
+      socketId.value = null;
+    });
   });
 
   socketClient.on('connect_error', () => {
-    connectionStatus.value = 'reconnecting';
+    if (connectionStatus.value === 'connected') connectionStatus.value = 'reconnecting';
+  });
+
+  // The banner shows the attempt count and the next try; "offline" when the browser says so.
+  socketClient.onReconnectState((state) => {
+    batch(() => {
+      reconnectAttempt.value = state.attempt;
+      reconnectNextAt.value = state.nextAt;
+      reconnectWaitingFor.value = state.waitingFor;
+      if (!socketClient.connected && connectionStatus.value !== 'connecting') {
+        connectionStatus.value = state.waitingFor === 'network' ? 'offline' : 'reconnecting';
+      }
+    });
+  });
+  if (typeof window !== 'undefined') {
+    window.addEventListener('offline', () => {
+      if (!socketClient.connected) connectionStatus.value = 'offline';
+    });
+  }
+
+  // A deploy: the server says goodbye with the time the next container needs. The socket client
+  // already paces the first reconnect by it; this only drives the banner text.
+  socketClient.on<ServerRestartingEvent>('server:restarting', (notice) => {
+    serverRestarting.value = { expectedWaitMs: notice.expectedWaitMs, at: Date.now() };
   });
 
   // ---------------------------------------------------------------- auth
@@ -192,6 +225,8 @@ export const installSocketBindings = (): void => {
       rememberSelection(target);
       api.joinChannel(target);
     }
+    // Messages typed while the socket was down go out now, in order (the voice manager rejoins its room the same way).
+    outbox.flush();
 
     if (!wasAuthenticated) {
       const name = payload.account.displayName || payload.account.username;
@@ -306,6 +341,8 @@ export const installSocketBindings = (): void => {
   socketClient.on<ChatMessage>('chat', (message) => {
     appendMessage(message);
     const own = message.accountId && message.accountId === account.value?.id;
+    // Our own message came back: its pending copy leaves the list in the same render.
+    if (own && message.clientId) outbox.confirm(message.clientId);
     const viewing = selectedChannelId.value === message.channelId && document.visibilityState === 'visible';
     if (own) return;
     if (!viewing) markUnread(message.channelId);

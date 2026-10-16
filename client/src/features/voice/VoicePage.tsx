@@ -285,7 +285,7 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
       {!immersive && (
         <div className="flex items-center justify-between px-4 pt-3 text-xs text-text-muted">
           <span>
-            {voiceStatus.value === 'connected' ? 'Connected' : 'Connecting'} · {elapsed}
+            {voiceStatus.value === 'connected' ? 'Connected' : voiceStatus.value === 'reconnecting' ? 'Reconnecting (your call stays up)' : 'Connecting'} · {elapsed}
           </span>
           <button
             type="button"
