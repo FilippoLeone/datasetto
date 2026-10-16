@@ -35,7 +35,7 @@ const UserBar = () => {
           <Shield size={18} />
         </IconButton>
       )}
-      <IconButton label="Voice and audio settings" size="sm" onClick={() => openModal({ type: 'audioSettings' })}>
+      <IconButton label="Settings" size="sm" onClick={() => openModal({ type: 'audioSettings' })}>
         <Settings size={18} />
       </IconButton>
     </div>

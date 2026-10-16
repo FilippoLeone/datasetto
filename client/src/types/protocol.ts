@@ -400,11 +400,34 @@ export interface ServerInfo {
   limits: { maxChannels: number; maxMessageLength: number; chatHistoryLimit: number; messageRetentionPerChannel: number; maxMessagesPerMinute: number };
   streaming: { maxViewers: number; maxBitrateKbps: number; monthlyEgressBytes: number; watchdog: boolean; ticketSecretSet: boolean };
   turn: { enabled: boolean; urls: string[]; stunUrls: string[]; credentialTtlSeconds: number };
+  push: { enabled: boolean; subject: string | null; subscriptions: number };
   urls: { rtmp: string | null; hls: string | null };
   cors: string[];
   storage: { dataDir: string; databasePath: string };
   counts: { accounts: number; channels: number; messages: number; online: number; invites: number };
 }
+
+// ------------------------------------------------------------ push notifications
+
+/** `push:subscribe` payload: `PushSubscription.toJSON()` plus this browser's user agent. */
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: { p256dh: string; auth: string };
+  userAgent?: string;
+}
+
+/** One of the account's subscriptions as the server lists them (never the keys). */
+export interface PushSubscriptionInfo {
+  id: string;
+  endpoint: string;
+  userAgent: string | null;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
+/** Acknowledgement of a `push:*` request. */
+export type PushAck<T = object> = ({ success: true } & T) | { success: false; error: string; code?: string };
 
 /** `admin:invites:create` payload. */
 export interface CreateInviteInput {

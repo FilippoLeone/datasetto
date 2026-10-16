@@ -23,13 +23,15 @@ the web build served by Caddy needs none of them because everything is same-orig
 src/
   main.tsx                 bootstrap: runtime config -> socket -> render
   app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts
-  state/                   signals: session, channels, chat, search, presence, voice, settings, ui, screenAudio, misc (streams, screenshare, admin, minigame)
+  state/                   signals: session, channels, chat, search, presence, voice, settings, notifications (push status), ui, screenAudio, misc (streams, screenshare, admin, minigame)
   services/
     socket/                SocketClient (reconnecting socket.io), api (typed emits), bindings (server events -> state)
     voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate)
     native/                Electron bridge, Capacitor foreground service and audio routes
     screenCapture          getDisplayMedia / desktop picker capture with system audio, shared by rooms and voice channels
-    ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs
+    pushNotifications      Web Push opt-in per browser: permission, service worker, subscription, sync after sign-in
+    visibilityHeartbeat    tells the server whether this page is visible (push goes out only when no page is)
+    ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs, push
     sounds, AudioNotificationService   synthesised UI sounds
   audio/worklets/          AudioWorklet processors (noise gate)
   features/
@@ -42,14 +44,40 @@ src/
     screenshare/           presenter/viewer rooms over direct WebRTC
     minigames/             canvas engine (slither, pacman, fighter) + panel
     admin/                 members, channel permissions, bans
+    settings/              the Notifications section of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
   components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost
   lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs
   types/                   protocol.ts (wire types shared with the server), globals.d.ts (desktop and Capacitor globals)
   styles/app.css           Tailwind v4 theme tokens (dark palette) and the few custom classes
   test/setup.ts            vitest environment (jsdom)
-public/                    copied as-is: landing.html, downloads.html, robots.txt, sitemap.xml, site.webmanifest, icons
+public/                    copied as-is: landing.html, downloads.html, robots.txt, sitemap.xml, site.webmanifest, icons,
+                           sw.js (the push service worker, plain JS, no caching)
 scripts/brand-assets.py    redraws the PNG icons and the Open Graph card (Pillow)
 ```
+
+## Notifications
+
+Browsers (desktop browsers, Android Chrome and the installed PWA) can receive
+Web Push notifications for direct messages and @mentions while no window shows
+the app. It is opt-in per browser: Settings (the gear in the sidebar) >
+Notifications > "Notify me on this device" asks for permission, registers
+`public/sw.js` at the site root, subscribes with the server's VAPID public key
+from `/api/config` and sends the subscription to the server
+(`services/pushNotifications.ts`). The choice is remembered in `localStorage`
+and the subscription is re-sent after every sign-in, so it always belongs to the
+current login; turning it off tells the server and drops the browser
+subscription. "Send a test" asks the server for a notification right away. The
+section explains itself when push is unavailable: no secure context or service
+workers, the server has no keys, or notifications are blocked in the browser.
+
+The service worker only shows notifications and handles clicks: it focuses an
+open app window and posts `{type: 'push:open', channelId}` to it, or opens
+`/app?channel=<id>`; the app reads `?channel=` at boot (`state/channels.ts`,
+`pendingChannelId`) and selects that conversation once the channel list arrives.
+`services/visibilityHeartbeat.ts` reports `document.visibilityState` to the
+server on every change and every 30 s while visible, which is how the server
+knows nobody is looking. Inside the Electron and Capacitor shells nothing is
+registered: the desktop app shows native notifications through its bridge.
 
 ## Sharing a game with sound
 

@@ -220,6 +220,27 @@ export const migrations: Migration[] = [
       INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');
     `,
   },
+  {
+    // Web Push subscriptions: one row per browser (the endpoint is unique), owned by an account
+    // and by the login that registered it (session_hash); rows whose session is gone are dropped
+    // before sending, so a signed-out device stops receiving notifications.
+    version: 10,
+    name: 'push_subscriptions',
+    up: `
+      CREATE TABLE push_subscriptions (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        session_hash TEXT,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_agent TEXT,
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER
+      );
+      CREATE INDEX push_subscriptions_account_idx ON push_subscriptions(account_id);
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

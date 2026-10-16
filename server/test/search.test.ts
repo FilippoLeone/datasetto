@@ -226,7 +226,8 @@ describe('SearchService', () => {
     db.prepare("INSERT INTO channels (id, name, type, permissions, created_at, updated_at) VALUES ('ch', 'old', 'text', '{}', 1, 1)").run();
     db.prepare("INSERT INTO messages (id, channel_id, author_name, text, created_at) VALUES ('m-old', 'ch', 'Someone', 'ancient mammoth', 1)").run();
     expect(() => db.prepare("SELECT 1 FROM messages_fts").get()).toThrow();
-    expect(runMigrations(db)).toBe(1);
+    // Every migration after 8 runs here (later features add their own), the search one among them.
+    expect(runMigrations(db)).toBe(migrations.filter((entry) => entry.version > 8).length);
     expect(db.prepare("SELECT m.id FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid WHERE messages_fts MATCH '\"mammoth\"'").all()).toEqual([{ id: 'm-old' }]);
     db.close();
   });

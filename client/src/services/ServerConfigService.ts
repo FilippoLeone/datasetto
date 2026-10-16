@@ -22,6 +22,8 @@ export interface ServerConfig {
   urls: { rtmp: string | null; hls: string | null };
   ice: ServerIceConfig;
   limits: { maxMessageLength: number; passwordMinLength: number; chatHistoryLimit: number };
+  /** Web Push: off without VAPID keys on the server; `publicKey` is what browsers subscribe with. */
+  push: { enabled: boolean; publicKey: string | null };
 }
 
 const DEFAULT_STUN: RTCIceServer[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
@@ -119,6 +121,14 @@ class ServerConfigService {
     return this.current?.urls.rtmp ?? null;
   }
 
+  pushEnabled(): boolean {
+    return this.current?.push.enabled === true && typeof this.current.push.publicKey === 'string';
+  }
+
+  pushPublicKey(): string | null {
+    return this.pushEnabled() ? this.current!.push.publicKey : null;
+  }
+
   /** ICE servers to use right now. Triggers a background refresh when TURN credentials are stale. */
   iceServers(): RTCIceServer[] {
     const ice = this.current?.ice;
@@ -176,6 +186,10 @@ class ServerConfigService {
         maxMessageLength: typeof data.limits?.maxMessageLength === 'number' ? data.limits.maxMessageLength : 2000,
         passwordMinLength: typeof data.limits?.passwordMinLength === 'number' ? data.limits.passwordMinLength : 8,
         chatHistoryLimit: typeof data.limits?.chatHistoryLimit === 'number' ? data.limits.chatHistoryLimit : 100,
+      },
+      push: {
+        enabled: data.push?.enabled === true && typeof data.push.publicKey === 'string' && data.push.publicKey.length > 0,
+        publicKey: typeof data.push?.publicKey === 'string' && data.push.publicKey ? data.push.publicKey : null,
       },
     };
   }

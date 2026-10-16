@@ -6,6 +6,7 @@ import { micLevel, voiceStatus } from '@/state/voice';
 import { SCREEN_QUALITY_OPTIONS } from '@/services/screenCapture';
 import { audioSettings, updateAudioSettings } from '@/state/settings';
 import { closeModal, toast } from '@/state/ui';
+import { NotificationsSection } from '@/features/settings/NotificationsSection';
 import { voiceManager } from './voiceManager';
 import type { AudioSettings, DeviceInfo, ScreenQuality } from '@/types/protocol';
 
@@ -70,8 +71,8 @@ export const AudioSettingsModal = () => {
 
   return (
     <Modal
-      title="Voice & audio"
-      subtitle={voiceStatus.value === 'connected' ? 'Changes apply to your current call.' : undefined}
+      title="Settings"
+      subtitle={voiceStatus.value === 'connected' ? 'Voice changes apply to your current call.' : 'Voice, audio, screen share and notifications.'}
       onClose={closeModal}
       size="lg"
       footer={
@@ -150,6 +151,8 @@ export const AudioSettingsModal = () => {
             Applies to voice channels and screenshare rooms, also while you are sharing. Native presets keep your display's own resolution; 120 fps needs a 120 Hz display and a browser that allows it. Friends on a relayed (TURN) connection are limited to about 1.5 Mbit/s, so they get a softer picture at the higher presets.
           </p>
         </section>
+
+        <NotificationsSection />
       </div>
       <p className="mt-2 text-xs text-text-faint">Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings.</p>
     </Modal>
