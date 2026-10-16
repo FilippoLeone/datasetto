@@ -44,7 +44,7 @@ src/
 
 ## Sharing a game with sound
 
-Screen share works like Discord's Go Live, no OBS needed, in two places: a
+Screen share works like a go-live button, no OBS needed, in two places: a
 screenshare room (one presenter, chat on the side) and the "Share screen"
 button of a voice channel. Both capture through `services/screenCapture.ts`.
 
