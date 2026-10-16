@@ -139,9 +139,10 @@ const finish = (stream: MediaStream, source: ScreenCaptureResult['source'], qual
 const captureInDesktopShell = async (quality: unknown): Promise<ScreenCaptureResult | null> => {
   const bridge = window.desktopAPI;
   if (!bridge?.pickScreenshareSource) return null;
-  const picked = await bridge.pickScreenshareSource({ audio: true });
-  if (!picked?.success || !picked.source) throw notAllowed('Screen share was cancelled');
   const limits = screenQualityLimits(quality);
+  // The quality is only a hint for the picker's footer; the result object is unchanged.
+  const picked = await bridge.pickScreenshareSource({ audio: true, quality: { ...limits, label: screenQualityPreset(quality).label } });
+  if (!picked?.success || !picked.source) throw notAllowed('Screen share was cancelled');
   const video = {
     mandatory: {
       chromeMediaSource: 'desktop',

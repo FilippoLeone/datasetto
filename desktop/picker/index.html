@@ -2,40 +2,106 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Select a Source</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'" />
+    <title>Share your screen</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div class="picker">
+    <div class="picker" role="dialog" aria-labelledby="pickerTitle" aria-describedby="pickerSubtitle">
       <header class="picker__header">
-        <div>
-          <h1>Choose what to share</h1>
-          <p>Select a screen or individual application window.</p>
+        <div class="picker__heading">
+          <h1 id="pickerTitle">Share your screen</h1>
+          <p id="pickerSubtitle" class="picker__subtitle">Pick a screen or a window. Your friends see it live until you stop sharing.</p>
         </div>
-        <button id="closeBtn" class="icon-button" aria-label="Close">×</button>
+        <button id="closeBtn" class="icon-button" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
       </header>
 
-      <div class="picker__filters">
-        <button data-filter="all" class="filter active">All</button>
-        <button data-filter="screen" class="filter">Screens</button>
-        <button data-filter="window" class="filter">Applications</button>
+      <div class="tabs" role="tablist" aria-label="Source type">
+        <button id="tab-screen" class="tab" role="tab" type="button" data-tab="screen" aria-selected="true" aria-controls="sourcesGrid" tabindex="0">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect width="20" height="14" x="2" y="3" rx="2" />
+            <line x1="8" x2="16" y1="21" y2="21" />
+            <line x1="12" x2="12" y1="17" y2="21" />
+          </svg>
+          Entire screen
+          <span class="tab__count" data-count="screen">0</span>
+        </button>
+        <button id="tab-window" class="tab" role="tab" type="button" data-tab="window" aria-selected="false" aria-controls="sourcesGrid" tabindex="-1">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="M10 4v4" />
+            <path d="M2 8h20" />
+            <path d="M6 4v4" />
+          </svg>
+          Windows
+          <span class="tab__count" data-count="window">0</span>
+        </button>
       </div>
 
-      <div id="sourcesGrid" class="picker__grid" role="list"></div>
+      <div id="sourcesGrid" class="grid" role="listbox" aria-label="Sources" data-tab="screen"></div>
 
       <footer class="picker__footer">
-        <label class="audio-toggle">
-          <input type="checkbox" id="audioToggle" />
-          <span>Share system audio</span>
-        </label>
-        <div class="picker__actions">
-          <button id="cancelBtn" class="secondary">Cancel</button>
-          <button id="shareBtn" class="primary" disabled>Share</button>
+        <button id="audioRow" class="audio-row" type="button" role="switch" aria-checked="true" aria-describedby="audioHint">
+          <span class="switch" aria-hidden="true"></span>
+          <span class="audio-row__text">
+            <span class="audio-row__title">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6a1.4 1.4 0 0 1-1 .4H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z" />
+                <path d="M16 9a5 5 0 0 1 0 6" />
+                <path d="M19.4 18.4a9 9 0 0 0 0-12.8" />
+              </svg>
+              Share system audio
+            </span>
+            <span id="audioHint" class="audio-row__hint">Sends everything your computer plays (game sound, music), not just the picked window. Wear headphones so your friends are not echoed back.</span>
+          </span>
+        </button>
+        <div class="footer-bottom">
+          <div class="hints">
+            <span id="qualityHint">Quality follows the screen share preset in Voice &amp; audio settings.</span>
+            <span class="hints__keys"><kbd>←</kbd> <kbd>→</kbd> pick · <kbd>Enter</kbd> share · <kbd>Esc</kbd> cancel</span>
+          </div>
+          <div class="actions">
+            <button id="cancelBtn" class="btn btn--secondary" type="button">Cancel</button>
+            <button id="shareBtn" class="btn btn--primary" type="button" disabled>Share</button>
+          </div>
         </div>
       </footer>
     </div>
+
+    <template id="cardTemplate">
+      <button class="card" type="button" role="option" aria-selected="false" tabindex="-1">
+        <span class="card__thumb">
+          <img class="card__image is-hidden" alt="" draggable="false" />
+          <svg class="card__placeholder" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="M2 8h20" />
+          </svg>
+        </span>
+        <span class="card__badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        </span>
+        <span class="card__meta">
+          <img class="card__icon is-hidden" alt="" draggable="false" />
+          <svg class="card__icon card__icon--fallback" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect width="20" height="14" x="2" y="3" rx="2" />
+            <line x1="8" x2="16" y1="21" y2="21" />
+            <line x1="12" x2="12" y1="17" y2="21" />
+          </svg>
+          <span class="card__text">
+            <span class="card__title"></span>
+            <span class="card__subtitle"></span>
+          </span>
+        </span>
+      </button>
+    </template>
 
     <script src="renderer.js"></script>
   </body>

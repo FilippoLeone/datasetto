@@ -88,6 +88,7 @@ desktop/
 `preload.js` exposes two globals through `contextBridge`; the typed contract lives in `client/src/types/globals.d.ts` and must stay in sync with the preload:
 
 - `window.desktopAPI`: `getInfo`, `getRuntimeConfig`, `showNotification`, `checkNotificationPermission`, `updateVoiceActivity` (tray icon state), `pickScreenshareSource` (native picker, returns the chosen `desktopCapturer` source and whether to share system audio), `openExternal`, `getLogPath`, `openLogFile`, `log`.
+  The picker (`picker/`) is a modal window styled like the client (tokens copied from `client/src/styles/app.css`): tabs for entire screens and windows, thumbnails refreshed every two seconds while it is open, display size on screen cards, a "Share system audio" switch, and arrow/Enter/Escape keyboard control. The client may pass `{ audio, quality: { width, height, fps, label } }`; the quality is only shown as a hint in the footer and the result object is unchanged.
 - `window.datasettoDesktopConfig`: `{ serverUrl, apiBaseUrl, hlsBaseUrl, rtmpServerUrl }`, read by `client/src/lib/runtimeConfig.ts` before the build-time `VITE_*` fallbacks.
 
 The client uses these helpers from `client/src/services/native/desktop.ts` and `client/src/features/screenshare/screenshareService.ts`; every call is a no-op in a plain browser.
