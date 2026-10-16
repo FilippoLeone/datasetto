@@ -4,7 +4,7 @@ import { Storage } from '@/lib/storage';
 import type { AudioSettings, ScreenQuality } from '@/types/protocol';
 
 const SETTINGS_KEY = 'rtmpdisc.settings.v1';
-const SCREEN_QUALITIES: ScreenQuality[] = ['720p30', '1080p60'];
+const SCREEN_QUALITIES: ScreenQuality[] = ['720p30', '1080p60', 'native60', 'native120'];
 
 const num = (value: string | undefined, fallback: number, min: number, max: number): number => {
   const parsed = Number(value);
@@ -30,7 +30,7 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   dtx: bool(config.VOICE_DTX_ENABLED, true),
   latencyHint: 'interactive',
   vadThreshold: num(config.VOICE_VAD_THRESHOLD, 0.07, 0.01, 0.5),
-  screenQuality: '720p30',
+  screenQuality: '1080p60',
 };
 
 /** Merge stored settings over the defaults, dropping values this build does not know. */

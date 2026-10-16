@@ -218,8 +218,11 @@ export interface AudioSettings {
   screenQuality: ScreenQuality;
 }
 
-/** Screen share quality presets; see services/screenCapture.ts for the numbers. */
-export type ScreenQuality = '720p30' | '1080p60';
+/**
+ * Screen share quality presets; see services/screenCapture.ts for the numbers.
+ * The `native*` presets keep the captured display's own resolution.
+ */
+export type ScreenQuality = '720p30' | '1080p60' | 'native60' | 'native120';
 
 export interface DeviceInfo {
   deviceId: string;

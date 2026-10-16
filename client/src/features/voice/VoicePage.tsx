@@ -140,7 +140,7 @@ interface Tile {
  */
 const tileAudio = (tile: Tile) => {
   if (!tile.screen) return { muted: true, audioIndicator: false };
-  if (!tile.screen.remote || !tile.screen.peerId) return { muted: true, audioIndicator: true };
+  if (!tile.screen.remote || !tile.screen.peerId) return { muted: true, audioIndicator: true, stats: true };
   const peerId = tile.screen.peerId;
   const pref = voiceManager.peerVolume(peerId);
   const hostKey = screenHostKey(peerId, peerId) ?? 'peer:' + peerId;
@@ -150,6 +150,7 @@ const tileAudio = (tile: Tile) => {
     volume: streamAudio.volume * pref.volume * audioSettings.value.outputVol,
     sinkId: audioSettings.value.spkDeviceId,
     audioIndicator: true,
+    stats: true,
     audioControls: {
       muted: streamAudio.muted,
       volume: streamAudio.volume,
