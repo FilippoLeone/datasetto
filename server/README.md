@@ -8,6 +8,7 @@ logs. One process, one database file, no other services required.
 npm install
 cp .env.example .env
 npm run dev          # tsx watch, http://localhost:4000
+npm run typecheck    # tsc, no output
 npm test             # vitest (unit + HTTP + socket integration)
 npm run build        # tsc -> dist/
 npm start            # node dist/index.js
@@ -30,8 +31,11 @@ src/
     moderation.ts     bans (persistent) and voice timeouts (memory)
     presence.ts       everything live: connected users, rooms, streams, screenshares
     turn.ts           ephemeral TURN credentials (coturn use-auth-secret)
+    hlsTickets.ts     signed, short-lived viewer tickets for HLS (Caddy asks /internal/hls/auth)
+    streamWatchdog.ts polls nginx-rtmp /stat: bitrate cap, monthly egress budget
+    usage.ts          per-month HLS egress accounting in SQLite
     leaderboard.ts    minigame high scores
-  http/               Express app, origin checker, routes (health, config, stream callbacks, releases)
+  http/               Express app, origin checker, routes (health, config, stream callbacks, HLS tickets, releases)
   socket/             Socket.IO server, per-connection context, handlers per domain
   minigames/          game engine (plain JS, unchanged protocol)
   scripts/            backup.ts, import-legacy.ts
@@ -61,11 +65,14 @@ See [.env.example](.env.example). Notable settings:
 | `GET /api/stats` | channel, user and message counts |
 | `GET /api/config` | public runtime config: registration mode, URLs, ICE servers (ephemeral TURN credentials), limits |
 | `GET /api/stream/:channelName/status` | is a stream channel live |
+| `POST /api/stream/:channelName/ticket` | HLS viewer ticket for a signed-in account allowed to view the channel (10 minutes, the player renews it; refused over the egress budget) |
 | `GET /api/releases`, `/latest` | installers from the latest GitHub release of `RELEASES_GITHUB_REPO` (cached) for the landing and downloads pages |
+| `GET /internal/hls/auth` | Caddy `forward_auth` for `/hls/*`: checks the `X-Hls-Ticket` header or cookie against the channel in the URL |
 | `POST /internal/stream/publish` | nginx-rtmp `on_publish`: validates `key` for stream name `<channel>` (OBS key is `channel?key=token`) |
 | `POST /internal/stream/done` | nginx-rtmp `on_publish_done` |
 
-`/internal/*` must not be exposed publicly; Caddy only proxies `/api`, `/socket.io` and `/health`.
+`/internal/*` must not be exposed publicly: Caddy proxies only `/api`, `/socket.io`
+and `/health` to the app, and calls `/internal/hls/auth` itself before serving `/hls/*`.
 
 ## Socket protocol
 

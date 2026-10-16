@@ -1,3 +1,11 @@
-# Ensure shell scripts and Docker files always use LF line endings
+# LF in the repository, native line endings on checkout, except where a tool cares:
+# shell scripts and Dockerfiles run inside Linux containers and on the VPS, so they
+# must be LF everywhere; Windows batch files stay CRLF.
+* text=auto
 *.sh text eol=lf
+gradlew text eol=lf
 Dockerfile* text eol=lf
+*.bat text eol=crlf
+*.png binary
+*.ico binary
+*.jar binary

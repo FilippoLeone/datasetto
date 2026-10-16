@@ -1,9 +1,9 @@
 # Datasetto AI Coding Instructions
 
 ## Project Context
-Datasetto is a self-hosted voice, video, streaming and chat server for a small friend group: text chat, WebRTC voice/camera/screenshare, OBS streaming via RTMP to HLS, voice-channel minigames.
-- **Monorepo**: `client` (web app, also packaged by `desktop/` and `mobile/`), `server` (Node.js API), `ops` (Docker Compose + Google Cloud scripts).
-- **Deployment target**: one small VM (GCP e2-micro) running `ops/docker-compose.yml`. Keep resource use and egress low; this is a hobby project with a 10 to 15 EUR monthly budget.
+Datasetto is a self-hosted voice, video, streaming and chat server for a small friend group: text chat, WebRTC voice/camera/screenshare, OBS streaming via RTMP or RTMPS to HLS, voice-channel minigames.
+- **Monorepo**: `client` (web app, also packaged by `desktop/` and `mobile/`), `server` (Node.js API), `ops` (Docker Compose, the VPS installer, Google Cloud scripts), `.github/workflows` (container images, release installers).
+- **Deployment target**: one small VPS set up by `ops/vps/install.sh` (how datasetto.com runs) or, as the alternative, a GCP e2-micro; both run `ops/docker-compose.yml`. Keep resource use and egress low; this is a hobby project with a monthly budget under 15 EUR.
 
 ## Server (`server/`)
 - TypeScript, ESM (`NodeNext`), Node 22+. Build with `tsc`, run `dist/index.js`. Tests: `npm test` (vitest).
@@ -25,9 +25,14 @@ Datasetto is a self-hosted voice, video, streaming and chat server for a small f
 
 ## Ops (`ops/`)
 - `docker-compose.yml` is the single stack definition; `docker-compose.local.yml` only overrides ports/CORS for localhost. Images are published to GHCR by `.github/workflows/images.yml`.
-- Caddy (`ops/caddy`) terminates TLS and serves the built client; nginx-rtmp (`ops/rtmp`) validates publishes through the app's `/internal/stream/*` callbacks (OBS key `channel?key=token`, HLS under the channel name); coturn (`ops/turn`) uses `use-auth-secret` shared with the app via `TURN_SECRET`.
-- GCP scripts (`ops/gcp`) must stay idempotent and cheap: one VM, Standard network tier, no load balancers, no managed databases.
+- Caddy (`ops/caddy`) terminates TLS and serves the built client; nginx-rtmp (`ops/rtmp`) validates publishes through the app's `/internal/stream/*` callbacks (OBS key `channel?key=token`, HLS under the channel name) and adds RTMPS on 1936 with Caddy's certificate; coturn (`ops/turn`) uses `use-auth-secret` shared with the app via `TURN_SECRET`.
+- `ops/vps/install.sh` and the GCP scripts (`ops/gcp`) must stay idempotent and cheap: one VM, no load balancers, no managed databases. Shell scripts are LF-only (`.gitattributes`) and must pass `bash -n`; run `docker compose -f ops/docker-compose.yml config` after editing the stack.
+
+## Shells (`desktop/`, `mobile/`)
+- `desktop/preload.js` exposes `window.desktopAPI` and `window.datasettoDesktopConfig`; their types live in `client/src/types/globals.d.ts` and the two must change together.
+- Installers and the Android APK are built only by `.github/workflows/release.yml` from a GitHub release; there are no build helper scripts in the repository root. `client/.env.mobile` is a local, git-ignored build input for the mobile bundle.
 
 ## Conventions
 - Validate at the boundary (zod), keep services synchronous where SQLite allows it, prefer small focused modules.
 - Run `npm run typecheck` and `npm test` in `server/` before finishing a change (client checks are listed above).
+- Only the `.env.example` templates are committed; never add `.env*` files with real values.

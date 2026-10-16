@@ -10,7 +10,7 @@ Capacitor workspace that wraps the Datasetto web client (`client/`, Preact + Vit
    npm install
    ```
 
-2. Tell the build which server the app talks to. Unlike the web build, the app cannot rely on "same origin": inside the Capacitor WebView the page origin is `https://localhost`, so it needs an absolute server URL. Put it in `client/.env.mobile`:
+2. Tell the build which server the app talks to. Unlike the web build, the app cannot rely on "same origin": inside the Capacitor WebView the page origin is `https://localhost`, so it needs an absolute server URL. Create `client/.env.mobile` (git-ignored) with it:
 
    ```bash
    VITE_SERVER_URL=https://your-server.example
@@ -48,6 +48,10 @@ VITE_SERVER_URL=http://localhost:8080 npm run build:web
 ```
 
 (PowerShell: `$env:VITE_SERVER_URL = 'http://localhost:8080'; npm run build:web`.) A device or emulator cannot reach the host's `localhost`; use the machine's LAN address instead (plain `http` is allowed by the Android manifest's `usesCleartextTraffic`).
+
+## Release builds
+
+`.github/workflows/release.yml` builds a debug-signed APK for every GitHub release: `npm run build:web` with `https://datasetto.com` as the server, `npx cap sync android`, then `gradlew assembleRelease`, attached to the release as `datasetto-android-<tag>-debug.apk`. iOS is not built in CI (it needs an Apple developer account); build it from Xcode after `npm run open:ios`.
 
 ## Repository layout
 

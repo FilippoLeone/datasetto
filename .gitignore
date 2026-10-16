@@ -1,11 +1,12 @@
 # Dependencies
 node_modules/
 
-# Environment files
+# Environment files (only the .env.example templates are tracked)
 .env
 .env.local
 .env.production
 .env.*.local
+.env.mobile
 **/.env
 
 # Build outputs
@@ -48,9 +49,8 @@ secrets/
 logs/
 *.log
 
-# Temporary
+# Temporary and local data
 temp/
 tmp/
 /tmp/hls/
-ops/CLOUDFLARE_TUNNEL_SETUP.md
 ops/data
