@@ -8,8 +8,15 @@ interface ToggleProps {
   disabled?: boolean;
 }
 
+/** Switch with its label: the whole row toggles (a finger lands on the text as often as on the switch). */
 export const Toggle = ({ checked, onChange, label, description, disabled }: ToggleProps) => (
-  <label className={cn('flex cursor-pointer items-center justify-between gap-4 py-2', disabled && 'cursor-not-allowed opacity-50')}>
+  <label
+    className={cn('flex cursor-pointer items-center justify-between gap-4 py-2 select-none pointer-coarse:min-h-12 pointer-coarse:py-2.5', disabled && 'cursor-not-allowed opacity-50')}
+    onClick={(event) => {
+      event.preventDefault();
+      if (!disabled) onChange(!checked);
+    }}
+  >
     <span className="min-w-0">
       <span className="block text-sm font-medium text-text-bright">{label}</span>
       {description && <span className="block text-xs text-text-muted">{description}</span>}
@@ -17,8 +24,8 @@ export const Toggle = ({ checked, onChange, label, description, disabled }: Togg
     <span
       role="switch"
       aria-checked={checked}
+      aria-label={label}
       tabIndex={disabled ? -1 : 0}
-      onClick={() => !disabled && onChange(!checked)}
       onKeyDown={(event) => {
         if (disabled) return;
         if (event.key === ' ' || event.key === 'Enter') {

@@ -7,6 +7,7 @@ import { buildHlsUrlCandidates } from '@/lib/hlsUrls';
 import { runtimeUrls } from '@/lib/runtimeConfig';
 import { serverConfig } from '@/services/ServerConfigService';
 import { Storage } from '@/lib/storage';
+import { isTouchPrimary } from '@/lib/device';
 import { fetchHlsTicket, HlsTicketError } from './hlsTicket';
 
 type PlayerStatus = 'idle' | 'connecting' | 'playing' | 'buffering' | 'offline' | 'error' | 'denied';
@@ -36,6 +37,14 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(() => Storage.get<number>(VOLUME_KEY, 0.8));
   const [fullscreen, setFullscreen] = useState(false);
+  // Touch screens have no hover: a tap shows the control bar, which hides again after a few seconds.
+  const touch = isTouchPrimary();
+  const [controlsShown, setControlsShown] = useState(true);
+  const [controlsTick, setControlsTick] = useState(0);
+  const revealControls = () => {
+    setControlsShown(true);
+    setControlsTick((value) => value + 1);
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -177,6 +186,12 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
 
+  useEffect(() => {
+    if (!touch || !controlsShown || status !== 'playing') return;
+    const timer = window.setTimeout(() => setControlsShown(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [touch, controlsShown, controlsTick, status]);
+
   const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -227,13 +242,19 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
         }}
         onPause={() => setPaused(true)}
         onWaiting={() => setStatus('buffering')}
-        onClick={togglePlay}
+        onClick={() => (touch ? (controlsShown ? setControlsShown(false) : revealControls()) : togglePlay())}
       />
       {overlay && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 px-6 text-center text-sm font-medium text-white">{overlay}</div>
       )}
       {live && (
-        <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 pt-6 pb-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
+        <div
+          className={cn(
+            'absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 pt-6 pb-1 transition-opacity focus-within:opacity-100',
+            touch ? (controlsShown ? 'opacity-100' : 'pointer-events-none opacity-0') : 'opacity-0 group-hover:opacity-100',
+          )}
+          onPointerDown={() => touch && revealControls()}
+        >
           <IconButton label={paused ? 'Play' : 'Pause'} size="sm" className="text-white hover:bg-white/15" onClick={togglePlay}>
             {paused ? <Play size={18} /> : <Pause size={18} />}
           </IconButton>

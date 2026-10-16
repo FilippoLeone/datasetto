@@ -1,6 +1,7 @@
 import { Settings, Shield, Wifi, WifiOff } from 'lucide-preact';
 import { Avatar, IconButton, RoleBadge } from '@/components';
 import { ChannelList } from '@/features/channels/ChannelList';
+import { InstallHint } from '@/features/settings/InstallHint';
 import { VoiceDock } from '@/features/voice/VoiceDock';
 import { account, canManage, connectionStatus } from '@/state/session';
 import { openModal } from '@/state/ui';
@@ -51,6 +52,7 @@ export const Sidebar = () => (
     <div className="scrollbar-thin flex-1 overflow-y-auto px-2 py-3">
       <ChannelList />
     </div>
+    <InstallHint />
     <VoiceDock />
     <UserBar />
   </>

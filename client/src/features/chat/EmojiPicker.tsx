@@ -1,18 +1,29 @@
 import { useEffect, useRef } from 'preact/hooks';
+import { Sheet } from '@/components';
 import { cn } from '@/lib/cn';
+import { isTouchPrimary } from '@/lib/device';
 import { EMOJIS } from '@/lib/text';
 
 interface EmojiPickerProps {
   onPick: (emoji: string) => void;
   onClose: () => void;
-  /** Positioning classes; defaults to above-right of the parent. */
+  /** Positioning classes of the pop-up; defaults to above-right of the parent. Ignored on touch screens. */
   className?: string;
+  /** Heading of the touch sheet. */
+  title?: string;
 }
 
-/** The app's emoji set as a grid; closes on outside click or Escape. */
-export const EmojiPicker = ({ onPick, onClose, className }: EmojiPickerProps) => {
+/**
+ * The app's emoji set as a grid. A pop-up next to its button with a mouse
+ * (closes on outside click or Escape); on touch screens a bottom sheet with
+ * 48px cells, because the pop-up would be clipped by the message list and
+ * its cells are too small for a finger.
+ */
+export const EmojiPicker = ({ onPick, onClose, className, title = 'Pick an emoji' }: EmojiPickerProps) => {
   const ref = useRef<HTMLDivElement>(null);
+  const touch = isTouchPrimary();
   useEffect(() => {
+    if (touch) return;
     const onDown = (event: MouseEvent) => {
       if (!ref.current?.contains(event.target as Node)) onClose();
     };
@@ -28,7 +39,22 @@ export const EmojiPicker = ({ onPick, onClose, className }: EmojiPickerProps) =>
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey, true);
     };
-  }, [onClose]);
+  }, [onClose, touch]);
+
+  if (touch) {
+    return (
+      <Sheet title={title} onClose={onClose}>
+        <div className="grid grid-cols-6 gap-1 px-3 pb-2" role="listbox" aria-label={title}>
+          {EMOJIS.map((emoji) => (
+            <button key={emoji} type="button" role="option" aria-selected={false} className="h-12 rounded-md text-2xl active:bg-active" onClick={() => onPick(emoji)}>
+              {emoji}
+            </button>
+          ))}
+        </div>
+      </Sheet>
+    );
+  }
+
   return (
     <div
       ref={ref}

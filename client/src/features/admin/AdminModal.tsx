@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { Activity, Ban, Copy, Hash, KeyRound, Link2, Server, Ticket, Trash2, Users, X, XCircle } from 'lucide-preact';
 import { Button, Field, IconButton, Select, TextInput } from '@/components';
 import { cn } from '@/lib/cn';
+import { useBackClose } from '@/lib/backStack';
 import { formatFullDate } from '@/lib/format';
 import { inviteLinkFor } from '@/lib/inviteLink';
 import { api } from '@/services/socket/api';
@@ -321,19 +322,22 @@ interface SectionInfo {
  */
 export const AdminModal = ({ initialTab }: { initialTab: AdminSection }) => {
   const [tab, setTab] = useState<AdminSection>(initialTab);
+  // Android back / the browser's back button on touch screens leaves the admin area first.
+  useBackClose(true, closeModal);
 
   useEffect(() => {
     api.listAccounts();
     if (can('canBanUsers')) api.listBans();
     const previous = window.location.pathname + window.location.search + window.location.hash;
+    // Only the URL changes; the history state (the back stack's panel marker) stays.
     try {
-      window.history.replaceState(null, '', adminPath());
+      window.history.replaceState(window.history.state, '', adminPath());
     } catch {
       /* file:// in the shells */
     }
     return () => {
       try {
-        window.history.replaceState(null, '', openedOnAdminPath() ? appPath() : previous.replace(/\/admin\/?$/, '') || appPath());
+        window.history.replaceState(window.history.state, '', openedOnAdminPath() ? appPath() : previous.replace(/\/admin\/?$/, '') || appPath());
       } catch {
         /* ignore */
       }
@@ -376,7 +380,7 @@ export const AdminModal = ({ initialTab }: { initialTab: AdminSection }) => {
                 title={entry.hint}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex items-center gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors max-md:justify-center',
+                  'flex items-center gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors max-md:justify-center pointer-coarse:min-h-11',
                   active ? 'bg-active text-text-bright' : 'text-text-muted hover:bg-hover hover:text-text',
                 )}
               >

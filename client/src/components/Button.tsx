@@ -21,10 +21,11 @@ const VARIANTS: Record<Variant, string> = {
   ghost: 'bg-transparent text-text hover:bg-hover',
 };
 
+// Taller on touch screens so every text button is a 40px target.
 const SIZES: Record<Size, string> = {
-  sm: 'h-8 px-3 text-sm',
-  md: 'h-9 px-4 text-sm',
-  lg: 'h-11 px-5 text-base',
+  sm: 'h-8 px-3 text-sm pointer-coarse:h-10',
+  md: 'h-9 px-4 text-sm pointer-coarse:h-11',
+  lg: 'h-11 px-5 text-base pointer-coarse:h-12',
 };
 
 export const Button = ({ variant = 'primary', size = 'md', loading, block, className, children, disabled, type = 'button', ...rest }: ButtonProps) => (

@@ -58,7 +58,7 @@ const MemberRow = ({ user }: { user: User }) => {
   }
 
   return (
-    <Menu items={items} className="block w-full">
+    <Menu items={items} className="block w-full" title={user.displayName}>
       <div className="flex cursor-default items-center gap-2.5 rounded-sm px-2 py-1.5 transition-colors duration-150 hover:bg-hover">
         <Avatar seed={user.accountId} name={user.displayName} src={user.avatarUrl} size={32} status="online" />
         <span className="min-w-0 flex-1">

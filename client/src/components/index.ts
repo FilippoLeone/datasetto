@@ -11,3 +11,4 @@ export { Spinner } from './Spinner';
 export { Menu, type MenuItem } from './Menu';
 export { ToastHost } from './ToastHost';
 export { Field } from './Field';
+export { Sheet, SheetItem } from './Sheet';

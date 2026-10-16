@@ -92,7 +92,7 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
           type="button"
           onClick={onClick}
           title={channel.topic ? channel.name + ' — ' + channel.topic : undefined}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left pointer-coarse:py-2.5"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left pointer-coarse:py-3"
         >
           <Icon size={18} className={cn('shrink-0', inVoice && 'text-success')} />
           <span className={cn('truncate', unreadCount > 0 && 'font-semibold')}>{channel.name}</span>
@@ -110,8 +110,12 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
           <span className="text-[11px] text-text-faint tabular-nums" title="Watching">{channel.count}</span>
         )}
         {items.length > 0 && (
-          <Menu items={items} align="right">
-            <button type="button" aria-label="Channel options" className="rounded-sm p-0.5 text-text-faint opacity-0 group-hover:opacity-100 hover:text-text-bright focus:opacity-100 pointer-coarse:p-1.5 pointer-coarse:opacity-100">
+          <Menu items={items} align="right" title={'#' + channel.name}>
+            <button
+              type="button"
+              aria-label="Channel options"
+              className="rounded-sm p-0.5 text-text-faint opacity-0 group-hover:opacity-100 hover:text-text-bright focus:opacity-100 pointer-coarse:p-[13px] pointer-coarse:opacity-100"
+            >
               <ChevronDown size={14} />
             </button>
           </Menu>
@@ -135,7 +139,7 @@ const DmRow = ({ channel }: { channel: Channel }) => {
         onClick={() => selectChannel(channel.id)}
         title={peer?.peerUsername}
         className={cn(
-          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors pointer-coarse:py-2.5',
+          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors pointer-coarse:py-3',
           active ? 'bg-active text-text-bright' : 'text-text-muted hover:bg-hover hover:text-text',
           unreadCount > 0 && !active && 'text-text-bright',
         )}
@@ -155,7 +159,7 @@ const DmGroup = () => {
   return (
     <section className="mb-3">
       <div className="group flex items-center gap-1 px-1 text-[11px] font-semibold tracking-wide text-text-muted uppercase">
-        <button type="button" className="flex min-w-0 flex-1 items-center gap-1 py-1 hover:text-text-bright pointer-coarse:py-2" onClick={() => toggleGroup('dm')} aria-expanded={!collapsed}>
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-1 py-1 hover:text-text-bright pointer-coarse:py-3" onClick={() => toggleGroup('dm')} aria-expanded={!collapsed}>
           {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
           <span className="truncate">{GROUP_LABELS.dm}</span>
         </button>
@@ -178,7 +182,7 @@ const Group = ({ type }: { type: CreatableChannelType }) => {
   return (
     <section className="mb-3">
       <div className="group flex items-center gap-1 px-1 text-[11px] font-semibold tracking-wide text-text-muted uppercase">
-        <button type="button" className="flex min-w-0 flex-1 items-center gap-1 py-1 hover:text-text-bright pointer-coarse:py-2" onClick={() => toggleGroup(type)} aria-expanded={!collapsed}>
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-1 py-1 hover:text-text-bright pointer-coarse:py-3" onClick={() => toggleGroup(type)} aria-expanded={!collapsed}>
           {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
           <span className="truncate">{GROUP_LABELS[type]}</span>
         </button>
@@ -187,7 +191,7 @@ const Group = ({ type }: { type: CreatableChannelType }) => {
             type="button"
             aria-label={'Create ' + type + ' channel'}
             title={'Create ' + type + ' channel'}
-            className="rounded-sm p-0.5 opacity-0 group-hover:opacity-100 hover:text-text-bright focus:opacity-100 pointer-coarse:p-2 pointer-coarse:opacity-100"
+            className="rounded-sm p-0.5 opacity-0 group-hover:opacity-100 hover:text-text-bright focus:opacity-100 pointer-coarse:p-[13px] pointer-coarse:opacity-100"
             onClick={() => openModal({ type: 'createChannel', channelType: type })}
           >
             <Plus size={14} />
@@ -215,7 +219,7 @@ export const ChannelList = () => (
     <button
       type="button"
       onClick={() => openModal({ type: 'joinPrivateChannel' })}
-      className="mt-1 flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-left text-xs text-text-muted hover:bg-hover hover:text-text-bright pointer-coarse:py-2.5"
+      className="mt-1 flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-left text-xs text-text-muted hover:bg-hover hover:text-text-bright pointer-coarse:py-3"
     >
       <Lock size={12} /> Join a private channel…
     </button>

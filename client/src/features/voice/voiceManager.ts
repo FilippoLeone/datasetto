@@ -135,6 +135,12 @@ class VoiceManager {
     resetVoiceState();
   }
 
+  /** Android: the persistent notification names the channel and offers Leave (no-op elsewhere). */
+  private syncForegroundService(): void {
+    const channel = voiceChannelId.value ? channelsById.value.get(voiceChannelId.value) : null;
+    void ensureForegroundServiceForVoice({ channelName: channel?.name ?? 'Voice', onLeave: () => void this.leave() });
+  }
+
   private startJoinTimeout(channelId: string): void {
     this.clearJoinTimeout();
     this.joinTimer = window.setTimeout(() => {
@@ -482,12 +488,12 @@ class VoiceManager {
     const resumed = () => {
       this.appActive = true;
       if (voiceStatus.value === 'idle') return;
-      void ensureForegroundServiceForVoice();
+      this.syncForegroundService();
       this.scheduleMicRecovery();
     };
     const paused = () => {
       this.appActive = false;
-      if (voiceStatus.value !== 'idle') void ensureForegroundServiceForVoice();
+      if (voiceStatus.value !== 'idle') this.syncForegroundService();
     };
     document.addEventListener('visibilitychange', () => (document.visibilityState === 'visible' ? resumed() : paused()));
 
@@ -543,7 +549,7 @@ class VoiceManager {
     this.voice.startStatsMonitoring();
     await this.syncMicrophone();
     this.announceState();
-    void ensureForegroundServiceForVoice();
+    this.syncForegroundService();
 
     const settings = audioSettings.value;
     this.voice.setOutputVolume(settings.outputVol);
