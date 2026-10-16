@@ -33,6 +33,14 @@ export type AuthStatus = 'anonymous' | 'resuming' | 'pending' | 'authenticated';
 export const account = signal<Account | null>(persisted.account);
 export const sessionToken = signal<string | null>(persisted.token);
 export const connectionStatus = signal<ConnectionStatus>('connecting');
+/** Reconnect attempts since the connection was lost (0 while connected). */
+export const reconnectAttempt = signal(0);
+/** When the next reconnect attempt fires; null while none is scheduled. */
+export const reconnectNextAt = signal<number | null>(null);
+/** Why the client is waiting: the backoff timer, the server's announced restart, or no network. */
+export const reconnectWaitingFor = signal<'backoff' | 'server' | 'network' | null>(null);
+/** The server said it is restarting (a deploy) and roughly how long it needs; cleared on the next connect. */
+export const serverRestarting = signal<{ expectedWaitMs: number; at: number } | null>(null);
 export const authStatus = signal<AuthStatus>(persisted.token ? 'resuming' : 'anonymous');
 export const socketId = signal<string | null>(null);
 /** Last auth error shown in the auth dialog. */

@@ -186,6 +186,8 @@ export interface ChatMessage {
   edited?: boolean;
   deleted?: boolean;
   reactions?: ReactionSummary[];
+  /** Echo of the sender's queue id (only on the sender's own messages, never stored). */
+  clientId?: string | null;
 }
 
 /** `chat:history:before` answer: the page of history older than a known message. */
@@ -290,9 +292,46 @@ export interface DeviceInfo {
 
 export interface VoicePeerEvent {
   id: string;
+  /** Who is behind the socket; stable across their reconnects. */
+  accountId?: string;
   name: string;
   muted: boolean;
   deafened: boolean;
+  /** Their media session: unchanged while they keep their peer connections, new when they rebuilt. */
+  rtcSessionId?: string | null;
+  /** On a (re)join: the connections they still hold, so we know whether ours to them is still wanted. */
+  holding?: HeldPeerConnection[];
+}
+
+/** One peer connection a client still holds: who, and which media session of theirs. */
+export interface HeldPeerConnection {
+  accountId: string;
+  rtcSessionId: string | null;
+}
+
+export interface VoicePeerLeaveEvent {
+  id: string;
+  accountId?: string | null;
+  /** `replaced`: the same person took the seat over with a new socket (keep the media connection). */
+  reason?: 'left' | 'replaced';
+}
+
+/** Sent to every socket right before a graceful shutdown (a deploy). */
+export interface ServerRestartingEvent {
+  expectedWaitMs: number;
+  reason?: string;
+  at?: number;
+}
+
+/** Acknowledgement of a `chat` emit. */
+export interface ChatAck {
+  success: boolean;
+  messageId?: string;
+  channelId?: string;
+  clientId?: string | null;
+  ts?: number;
+  error?: string;
+  code?: string;
 }
 
 export interface VoiceJoinedEvent {

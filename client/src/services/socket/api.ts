@@ -1,6 +1,8 @@
 import { socketClient } from './client';
 import type {
+  ChatAck,
   ChannelPermissions,
+  HeldPeerConnection,
   CreateChannelInput,
   CreateInviteInput,
   LeaderboardEntry,
@@ -62,7 +64,13 @@ export const api = {
   regenerateStreamKey: (channelId: string) => emit('stream:key:regenerate', { channelId }),
 
   // chat
-  sendMessage: (text: string) => emit('chat', text),
+  /**
+   * Send one message and wait for the server's acknowledgement. The channel is named so a
+   * message queued while offline lands where it was typed; the client id comes back in the
+   * echoed `chat` event (features/chat/outbox.ts matches the pending copy with it).
+   */
+  sendMessage: (channelId: string, text: string, clientId: string) =>
+    socketClient.request<ChatAck>('chat', { text, channelId, clientId }, 10_000),
   deleteMessage: (channelId: string, messageId: string) => emit('chat:delete', { channelId, messageId }),
   addReaction: (channelId: string, messageId: string, emoji: string) => emit('chat:react', { channelId, messageId, emoji }),
   removeReaction: (channelId: string, messageId: string, emoji: string) => emit('chat:unreact', { channelId, messageId, emoji }),
@@ -73,7 +81,12 @@ export const api = {
   search: (params: SearchParams) => socketClient.request<SearchResponse>('search', params),
 
   // voice
-  joinVoice: (channelId: string) => emit('voice:join', channelId),
+  /**
+   * Join (or, after a reconnect, rejoin) a voice room. `rtcSessionId` tells peers whether our
+   * connections survived; `holding` lists the ones we still have, so a peer we lost offers afresh.
+   */
+  joinVoice: (channelId: string, rtcSessionId: string | null = null, holding: HeldPeerConnection[] = []) =>
+    emit('voice:join', rtcSessionId ? { channelId, rtcSessionId, holding } : channelId),
   leaveVoice: () => emit('voice:leave'),
   sendVoiceSignal: (to: string, data: unknown) => emit('voice:signal', { to, data }),
   sendStreamMetadata: (to: string, metadata: unknown) => emit('voice:stream-metadata', { to, metadata }),

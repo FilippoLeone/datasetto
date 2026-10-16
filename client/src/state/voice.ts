@@ -1,6 +1,7 @@
 import { computed, signal } from '@preact/signals';
 
-export type VoiceStatus = 'idle' | 'connecting' | 'connected';
+/** `reconnecting`: the socket is gone but the call is kept; it rejoins by itself when the socket is back. */
+export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting';
 export type ConnectionQuality = 'excellent' | 'good' | 'fair' | 'poor' | 'unknown';
 
 export interface VoicePeer {
@@ -12,6 +13,12 @@ export interface VoicePeer {
   camera: boolean;
   screen: boolean;
   quality: ConnectionQuality;
+  /** Who is behind the socket; stable across their reconnects. */
+  accountId?: string | null;
+  /** Their media session id (see features/voice/peerReconcile.ts). */
+  rtcSessionId?: string | null;
+  /** Not in the room according to the server since this time (they may be reconnecting); null when present. */
+  staleSince?: number | null;
 }
 
 export const voiceStatus = signal<VoiceStatus>('idle');
@@ -34,6 +41,8 @@ export const localScreenStream = signal<MediaStream | null>(null);
 export const remoteVideo = signal<Record<string, { camera?: MediaStream; screen?: MediaStream }>>({});
 
 export const voiceConnected = computed(() => voiceStatus.value === 'connected');
+/** In a call: connected, or holding the call together while the socket reconnects. */
+export const voiceInCall = computed(() => voiceStatus.value === 'connected' || voiceStatus.value === 'reconnecting');
 export const peerList = computed(() => Object.values(voicePeers.value));
 export const participantCount = computed(() => peerList.value.length + (voiceConnected.value ? 1 : 0));
 export const anyVideoActive = computed(
@@ -49,6 +58,7 @@ export const upsertPeer = (peer: Partial<VoicePeer> & { id: string }): void => {
     ...voicePeers.value,
     [peer.id]: {
       id: peer.id,
+      accountId: peer.accountId ?? existing?.accountId ?? null,
       name: peer.name ?? existing?.name ?? 'Unknown',
       muted: peer.muted ?? existing?.muted ?? false,
       deafened: peer.deafened ?? existing?.deafened ?? false,
@@ -56,8 +66,26 @@ export const upsertPeer = (peer: Partial<VoicePeer> & { id: string }): void => {
       camera: peer.camera ?? existing?.camera ?? false,
       screen: peer.screen ?? existing?.screen ?? false,
       quality: peer.quality ?? existing?.quality ?? 'unknown',
+      rtcSessionId: peer.rtcSessionId !== undefined ? peer.rtcSessionId : (existing?.rtcSessionId ?? null),
+      staleSince: peer.staleSince !== undefined ? peer.staleSince : (existing?.staleSince ?? null),
     },
   };
+};
+
+/** The same person came back on a new socket: move their entry (and video) to the new id. */
+export const rekeyPeer = (from: string, to: string, patch: Partial<VoicePeer> = {}): void => {
+  const existing = voicePeers.value[from];
+  if (!existing || from === to) return;
+  const next = { ...voicePeers.value };
+  delete next[from];
+  next[to] = { ...existing, ...patch, id: to, staleSince: null };
+  voicePeers.value = next;
+  if (remoteVideo.value[from]) {
+    const videos = { ...remoteVideo.value };
+    videos[to] = videos[from];
+    delete videos[from];
+    remoteVideo.value = videos;
+  }
 };
 
 export const removePeer = (peerId: string): void => {

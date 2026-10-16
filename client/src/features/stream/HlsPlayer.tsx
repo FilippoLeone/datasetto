@@ -7,6 +7,7 @@ import { buildHlsUrlCandidates } from '@/lib/hlsUrls';
 import { runtimeUrls } from '@/lib/runtimeConfig';
 import { serverConfig } from '@/services/ServerConfigService';
 import { Storage } from '@/lib/storage';
+import { connectionStatus } from '@/state/session';
 import { fetchHlsTicket, HlsTicketError } from './hlsTicket';
 
 type PlayerStatus = 'idle' | 'connecting' | 'playing' | 'buffering' | 'offline' | 'error' | 'denied';
@@ -30,6 +31,8 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
   const hlsRef = useRef<Hls | null>(null);
   const retryRef = useRef<number | null>(null);
   const ticketRef = useRef<string | null>(null);
+  /** Restarts playback (new ticket, reload); set by the player effect, used by the reconnect effect. */
+  const restartRef = useRef<(() => void) | null>(null);
   const [status, setStatus] = useState<PlayerStatus>('idle');
   const [deniedReason, setDeniedReason] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
@@ -152,9 +155,18 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
       if (await obtainTicket()) load(0);
     };
 
+    restartRef.current = () => {
+      if (disposed) return;
+      if (retryRef.current !== null) window.clearTimeout(retryRef.current);
+      retryRef.current = null;
+      destroy();
+      void start();
+    };
+
     void start();
     return () => {
       disposed = true;
+      restartRef.current = null;
       if (retryRef.current !== null) window.clearTimeout(retryRef.current);
       if (renewTimer !== null) window.clearTimeout(renewTimer);
       destroy();
@@ -162,6 +174,17 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
       video.load();
     };
   }, [channelName, live]);
+
+  // The socket came back after a deploy or a network blip: do not sit out the retry timer,
+  // ask for a fresh ticket and pick the live stream up again right away.
+  const connected = connectionStatus.value === 'connected';
+  useEffect(() => {
+    if (!connected || !live) return;
+    if (status === 'playing' || status === 'buffering' || status === 'idle') return;
+    restartRef.current?.();
+    // `status` is read on purpose only when the connection flips: a status change alone must not restart playback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, live]);
 
   useEffect(() => {
     const video = videoRef.current;

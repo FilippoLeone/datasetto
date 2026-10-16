@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { ArrowDown, Hash, MessageCircle, SmilePlus, Trash2 } from 'lucide-preact';
+import { AlertCircle, ArrowDown, Clock, Hash, MessageCircle, SmilePlus, Trash2 } from 'lucide-preact';
 import { Avatar, RoleBadge, Spinner } from '@/components';
 import { cn } from '@/lib/cn';
 import { isTouchPrimary } from '@/lib/device';
@@ -7,11 +7,13 @@ import { formatDayLabel, formatFullDate, formatMessageTime, sameDay } from '@/li
 import { prefersReducedMotion } from '@/lib/motion';
 import { serverConfig } from '@/services/ServerConfigService';
 import { api } from '@/services/socket/api';
-import { highlightedMessageId, historyExhausted, historyLoading, loadedChannels, messages, scrollTarget } from '@/state/chat';
+import { highlightedMessageId, historyExhausted, historyLoading, loadedChannels, messages, pendingMessages, scrollTarget } from '@/state/chat';
 import { account, can } from '@/state/session';
 import { EmojiPicker } from './EmojiPicker';
 import { flashMessage, loadOlderMessages } from './history';
 import { MessageBody } from './MessageBody';
+import { outbox } from './outboxService';
+import type { PendingMessage } from './outbox';
 import type { Channel, ChatMessage, ReactionSummary } from '@/types/protocol';
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -171,8 +173,46 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
   );
 };
 
+/**
+ * One of our own messages the server has not confirmed yet: "sending" (also while the
+ * socket is down: it goes out on reconnect) or, after 60 s or a refusal, "not sent" with
+ * a retry. Rendered after the confirmed history, in send order.
+ */
+const PendingRow = ({ entry }: { entry: PendingMessage }) => {
+  const me = account.value;
+  const failed = entry.status === 'failed';
+  return (
+    <div className={cn('message-row relative mt-3 flex gap-3 px-4 py-0.5', !failed && 'opacity-60')} data-pending={entry.status} aria-live="polite">
+      <div className="w-10 shrink-0">
+        <Avatar seed={me?.id ?? 'me'} name={me?.displayName ?? 'You'} src={me?.avatarUrl} size={40} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="font-semibold text-text-bright">{me?.displayName ?? 'You'}</span>
+          <span className={cn('flex items-center gap-1 text-xs', failed ? 'text-live' : 'text-text-faint')}>
+            {failed ? <AlertCircle size={12} /> : <Clock size={12} />}
+            {failed ? (entry.error ?? 'Not sent') : 'Sending…'}
+          </span>
+        </div>
+        <MessageBody text={entry.text} />
+        {failed && (
+          <div className="mt-1 flex gap-3 text-xs">
+            <button type="button" className="font-semibold text-link hover:underline" onClick={() => outbox.retry(entry.clientId)}>
+              Retry
+            </button>
+            <button type="button" className="text-text-muted hover:text-text-bright hover:underline" onClick={() => outbox.discard(entry.clientId)}>
+              Discard
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const MessageList = ({ channel, compact }: { channel: Channel; compact?: boolean }) => {
   const list = messages.value[channel.id] ?? [];
+  const pending = pendingMessages.value[channel.id] ?? [];
   const loaded = loadedChannels.value[channel.id] ?? false;
   const loadingOlder = historyLoading.value[channel.id] ?? false;
   // The channel's first message is on screen: nothing older exists, or the first page was not even full.
@@ -198,7 +238,8 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
   const [showJump, setShowJump] = useState(false);
   // Scroll position to restore after older messages are put in front of the list.
   const anchor = useRef<{ height: number; top: number } | null>(null);
-  const lastId = list[list.length - 1]?.id ?? null;
+  // A message we just sent counts as the newest thing on screen until the server echoes it.
+  const lastId = pending[pending.length - 1]?.clientId ?? list[list.length - 1]?.id ?? null;
 
   const scrollToBottom = (smooth = false) => {
     const node = scrollRef.current;
@@ -302,6 +343,9 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
             )}
             <MessageRow row={row} channelId={channel.id} />
           </div>
+        ))}
+        {pending.map((entry) => (
+          <PendingRow key={entry.clientId} entry={entry} />
         ))}
       </div>
       {showJump && (

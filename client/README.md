@@ -22,10 +22,11 @@ the web build served by Caddy needs none of them because everything is same-orig
 ```
 src/
   main.tsx                 bootstrap: runtime config -> socket -> render
-  app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts
+  app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts, connection banner
   state/                   signals: session, channels, chat, search, presence, voice, settings, notifications (push status), ui, screenAudio, misc (streams, screenshare, admin, minigame)
   services/
-    socket/                SocketClient (reconnecting socket.io), api (typed emits), bindings (server events -> state)
+    socket/                SocketClient (socket.io with our own reconnect pacing), backoff (exponential backoff + jitter scheduler),
+                           api (typed emits), bindings (server events -> state)
     voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate)
     native/                Electron bridge, Capacitor foreground service and audio routes
     screenCapture          getDisplayMedia / desktop picker capture with system audio, shared by rooms and voice channels
@@ -37,10 +38,12 @@ src/
   features/
     auth/                  sign-in / register gate, profile dialog
     channels/              channel list, create/delete, stream key dialog, confirm dialog
-    chat/                  message list, composer, message rendering (links, mentions), history paging and jump-to-message
+    chat/                  message list, composer, message rendering (links, mentions), history paging and jump-to-message,
+                           outbox (queue of unconfirmed messages: "sending", failed after 60 s, retry)
     search/                Ctrl+K message search: header box, results panel, debounced queries
     stream/                HLS player + live chat page
-    voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation), voice page, dock, audio settings,
+    voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation, rejoin after a reconnect), voice page, dock,
+                           audio settings, voiceRejoin (rejoin state machine), peerReconcile (keep / rekey / rebuild peer connections),
                            desktopVoice (system-wide push to talk + voice overlay through the Electron bridge), pushToTalkHold, voiceOverlayState
     screenshare/           presenter/viewer rooms over direct WebRTC
     minigames/             canvas engine (slither, pacman, fighter) + panel
@@ -139,6 +142,48 @@ debounced while you type; the last word matches as a prefix (`pine` finds
 - Empty, loading and error states have their own panel content, and the panel's
   enter/leave motion goes through `lib/motion.ts`, so it respects reduced motion
   like every other dialog.
+
+## Staying connected through a deploy or a flaky link
+
+A dropped socket is not an event for the person using the app. What happens
+(`services/socket/client.ts`, `services/socket/bindings.ts`):
+
+- **Reconnect pacing** is ours, not socket.io's: exponential backoff from 1 s,
+  doubling, capped at 30 s, with jitter (`services/socket/backoff.ts`). The
+  server's `server:restarting {expectedWaitMs}` notice (sent right before a
+  deploy stops it) replaces the first wait; the browser's `online` event, the
+  page becoming visible again and the banner's "Retry now" retry at once;
+  while the browser reports no network, attempts are held.
+- **The banner** (`app/ConnectionBanner.tsx`) is a thin strip at the top,
+  never a modal: "The server is restarting. Back in about 10 s", "Connection
+  lost. Attempt 3 in 4 s", "No internet connection", each with "Retry now".
+  The rest of the app stays usable.
+- **Resume** re-presents the stored session token on every connect. The server
+  treats it as the same login (nobody else is signed out), re-sends the
+  channel list, and the client reopens the channel it had open.
+- **Chat typed while offline** goes into the outbox (`features/chat/outbox.ts`)
+  and shows in the list right away as "Sending…"; it goes out in order on the
+  next sign-in, each message acknowledged by the server and swapped for the
+  echoed copy (matched by `clientId`). A message the server has not confirmed
+  after 60 s, or refused, turns into "Not sent" with Retry and Discard. The
+  composer never locks.
+- **Voice calls keep going.** The audio runs peer to peer, so the socket going
+  away changes nothing you can hear: the call shows "Reconnecting voice…",
+  keeps the microphone, mute, deafen and push-to-talk state, and on the next
+  sign-in `voiceManager` rejoins the room (`features/voice/voiceRejoin.ts`:
+  up to six attempts, giving up after 90 s away or on a permanent refusal).
+  The room's new socket ids are matched with the connections still held
+  (`features/voice/peerReconcile.ts`): the same person with the same media
+  session keeps their connection, moved to the new id, with an ICE restart
+  only if the transport broke; someone who rebuilt or who is new is
+  negotiated afresh. Friends the server no longer lists stay for up to a
+  minute while their audio still flows.
+- **Live streams** (`features/stream/HlsPlayer.tsx`) ask for a fresh ticket
+  and reload the playlist as soon as the socket is back, instead of waiting
+  for the retry timer.
+
+The backoff schedule, the outbox and the rejoin state machine are unit tested
+(`backoff.test.ts`, `outbox.test.ts`, `voiceRejoin.test.ts`, `peerReconcile.test.ts`).
 
 ## Push to talk and the voice overlay while gaming
 

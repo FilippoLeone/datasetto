@@ -265,7 +265,7 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
     <div className="flex min-h-0 flex-1 flex-col bg-base/40">
       <div className="flex items-center justify-between px-4 pt-3 text-xs text-text-muted">
         <span>
-          {voiceStatus.value === 'connected' ? 'Connected' : 'Connecting'} · {elapsed}
+          {voiceStatus.value === 'connected' ? 'Connected' : voiceStatus.value === 'reconnecting' ? 'Reconnecting (your call stays up)' : 'Connecting'} · {elapsed}
         </span>
         <button type="button" className={cn('flex items-center gap-1 rounded-sm px-2 py-1 hover:bg-hover hover:text-text-bright', gameOpen && 'text-warning')} onClick={() => setShowGame((value) => !value)}>
           <Gamepad2 size={14} /> Minigames
