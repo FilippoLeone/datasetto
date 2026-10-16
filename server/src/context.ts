@@ -8,6 +8,7 @@ import { LeaderboardService } from './services/leaderboard.js';
 import { MessageService } from './services/messages.js';
 import { ModerationService } from './services/moderation.js';
 import { PresenceService } from './services/presence.js';
+import { PushService, type PushServiceOptions } from './services/push.js';
 import { SessionService } from './services/sessions.js';
 import { SettingsService } from './services/settings.js';
 import { TurnService } from './services/turn.js';
@@ -41,6 +42,7 @@ export interface AppContext {
   messages: MessageService;
   moderation: ModerationService;
   presence: PresenceService;
+  push: PushService;
   turn: TurnService;
   leaderboard: LeaderboardService;
   hlsTickets: HlsTicketService;
@@ -58,7 +60,12 @@ const noopBroadcaster: Broadcaster = {
   toAccount: () => undefined,
 };
 
-export const createContext = (config: AppConfig, db: DB): AppContext => {
+export interface ContextOptions {
+  /** Test hook: capture push deliveries instead of calling the push services. */
+  push?: PushServiceOptions;
+}
+
+export const createContext = (config: AppConfig, db: DB, options: ContextOptions = {}): AppContext => {
   const channels = new ChannelService(db, config);
   channels.seedDefaults();
   const invites = new InviteService(db);
@@ -76,6 +83,7 @@ export const createContext = (config: AppConfig, db: DB): AppContext => {
     messages: new MessageService(db, config),
     moderation: new ModerationService(db),
     presence: new PresenceService(),
+    push: new PushService(db, config.push, logger, options.push),
     turn: new TurnService(config.turn),
     leaderboard: new LeaderboardService(db),
     hlsTickets: new HlsTicketService(config.streaming.ticketSecret),

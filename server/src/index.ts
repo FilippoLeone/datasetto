@@ -26,6 +26,8 @@ const main = async (): Promise<void> => {
     setInterval(() => {
       const purged = ctx.sessions.purgeExpired();
       if (purged > 0) logger.debug({ purged }, 'expired sessions purged');
+      const orphans = ctx.push.purgeOrphans();
+      if (orphans > 0) logger.debug({ orphans }, 'push subscriptions of ended logins purged');
     }, 60 * 60 * 1000),
     setInterval(() => ctx.moderation.purgeExpired(), 60 * 1000),
   ];
@@ -45,6 +47,7 @@ const main = async (): Promise<void> => {
       database: config.database.path,
       registration: config.registration.mode,
       turn: ctx.turn.isEnabled(),
+      push: ctx.push.isEnabled(),
       corsOrigins: config.cors.origins,
     },
     'datasetto server ready',

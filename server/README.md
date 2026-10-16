@@ -29,7 +29,9 @@ src/
     channels.ts       persistent channels, groups, permissions, stream keys
     messages.ts       chat history with retention and soft delete
     moderation.ts     bans (persistent) and voice timeouts (memory)
-    presence.ts       everything live: connected users, rooms, streams, screenshares
+    presence.ts       everything live: connected users (with page visibility), rooms, streams, screenshares
+    push.ts           Web Push subscriptions per account and delivery through web-push (VAPID)
+    messageNotifications.ts  who a message is for (DM peer, @mentions) and whether they are away
     turn.ts           ephemeral TURN credentials (coturn use-auth-secret)
     hlsTickets.ts     signed, short-lived viewer tickets for HLS (Caddy asks /internal/hls/auth)
     streamWatchdog.ts polls nginx-rtmp /stat: bitrate cap, monthly egress budget
@@ -58,6 +60,7 @@ See [.env.example](.env.example). Notable settings:
 | `DATABASE_PATH` | SQLite file; parent directory is created |
 | `DATA_DIR` | uploads (avatars under `DATA_DIR/avatars`); defaults to the database's directory, `/data` in Docker |
 | `TRUST_PROXY` | read client IPs from `X-Forwarded-For` (true behind Caddy) |
+| `PUSH_VAPID_PUBLIC_KEY`, `PUSH_VAPID_PRIVATE_KEY`, `PUSH_VAPID_SUBJECT` | Web Push (see below). Both keys empty = push off; set together (`npx web-push generate-vapid-keys`). The subject is a `mailto:` or `https:` contact for push services, defaulting to the first `ADMIN_EMAILS` address |
 
 ## HTTP API
 
@@ -65,7 +68,7 @@ See [.env.example](.env.example). Notable settings:
 | --- | --- |
 | `GET /health`, `GET /api/health` | liveness, version, uptime |
 | `GET /api/stats` | channel, user and message counts |
-| `GET /api/config` | public runtime config: registration mode, URLs, ICE servers (ephemeral TURN credentials), limits |
+| `GET /api/config` | public runtime config: registration mode, URLs, ICE servers (STUN only), limits, `push: {enabled, publicKey}` |
 | `GET /api/stream/:channelName/status` | is a stream channel live |
 | `POST /api/stream/:channelName/ticket` | HLS viewer ticket for a signed-in account allowed to view the channel (10 minutes, the player renews it; refused over the egress budget) |
 | `GET /api/releases`, `/latest` | installers from the latest GitHub release of `RELEASES_GITHUB_REPO` (cached) for the landing and downloads pages |
@@ -103,7 +106,8 @@ rate limits apply.
 | `admin:invites:list`, `admin:invites:create {maxUses?, expiresAt?, note?}`, `admin:invites:revoke/delete {inviteId}` | `admin:invites:list {invites[]}`, `admin:invites:created {invite}` |
 | `admin:settings:get`, `admin:settings:update {channelPermissionTemplates?: {text?, voice?, stream?, screenshare?}}` | `admin:settings {settings, saved?}` |
 | `admin:accounts:update {accountId, displayName}`, `admin:accounts:resetPassword {accountId, temporaryPassword}`, `admin:accounts:delete {accountId}`, `admin:accounts:sessions:list {accountId}`, `admin:accounts:sessions:revoke {accountId, sessionId?}` | `admin:accounts:updated/passwordReset/deleted {account}`, `admin:accounts:sessions {accountId, sessions[]}` |
-| `admin:usage:get` (admins), `admin:server:info` (superusers) | `admin:usage {currentMonth, months[], budgetBytes, online, liveStreams[]}`, `admin:server:info {version, registration, sessions, limits, streaming, turn, storage, counts, …}` (no secrets) |
+| `admin:usage:get` (admins), `admin:server:info` (superusers) | `admin:usage {currentMonth, months[], budgetBytes, online, liveStreams[]}`, `admin:server:info {version, registration, sessions, limits, streaming, turn, push, storage, counts, …}` (no secrets) |
+| `push:subscribe {endpoint, keys: {p256dh, auth}, userAgent?}`, `push:unsubscribe {endpoint}`, `push:list`, `push:test` (all answered through the acknowledgement: `{success, subscription?, subscriptions[], removed?, sent?}`), `presence:visibility {visible}` | `push:subscriptions` / `push:tested` when no acknowledgement was passed; errors on `push:error` (`PUSH_DISABLED`, `PUSH_INVALID`, `PUSH_NO_SUBSCRIPTIONS`) |
 | `voice:game:start/join/leave/input/end/leaderboard` | `voice:game:state/update/started/ended/leaderboard` |
 
 Presence is broadcast as `user:update users[]` to everyone whenever it changes.
@@ -203,6 +207,34 @@ join once with `channels:joinPrivate {name, password}` (rate limited with the
 auth bucket) and stay members; admins add and remove members with
 `admin:channels:members:*`. A removed member receives `channel:deleted {reason:
 "removed"}`. Making a channel public clears its password and member list.
+
+### Push notifications
+
+With `PUSH_VAPID_PUBLIC_KEY`, `PUSH_VAPID_PRIVATE_KEY` and a subject set, the
+server sends Web Push notifications (`web-push`, VAPID) for direct messages and
+for `@displayName` / `@username` mentions in text and stream channels, to the
+recipient's subscribed browsers, but only while the recipient is away: no
+authenticated socket at all, or every socket's page reports itself hidden. Pages
+send `presence:visibility {visible}` on every change and every 30 s while
+visible; a visible page silent for 90 s (`VISIBILITY_STALE_MS`, a frozen tab or a
+sleeping laptop) counts as hidden, and any other socket activity counts as a
+heartbeat. A mention is notified only when the recipient may `view` the channel
+(private membership and the permission lists apply, exactly as for reading it),
+never for the author, and never for disabled, deleted or banned accounts.
+Per recipient and conversation at most one notification goes out every 30 s.
+The payload (`{title, body, url, tag, channelId}`, body clipped to 180
+characters, at most 2 KB) opens `/app?channel=<id>`; the client's service worker
+shows it and focuses or opens the app at that conversation.
+
+Subscriptions live in `push_subscriptions` (migration 9), one row per browser
+endpoint, owned by an account and by the login (`session_hash`) that registered
+it: a signed-out or revoked login takes its subscriptions along (purged before
+each send and hourly), and the same browser signing in as someone else moves its
+endpoint over. At most 20 browsers per account are kept. Endpoints the push
+service reports gone (404, 410) are deleted; other delivery failures are logged
+and retried with the next message. `push:test` sends a notification to the
+caller's own devices right away. Without keys everything is a no-op and
+`/api/config` reports `push.enabled: false`.
 
 ## Maintenance
 

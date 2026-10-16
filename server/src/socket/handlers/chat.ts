@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { rolesHavePermission } from '../../core/roles.js';
 import { emojiSchema, idSchema } from '../../core/validation.js';
 import { AppError, forbidden, notFound } from '../../errors.js';
+import { notifyMessageRecipients } from '../../services/messageNotifications.js';
 import { handle, requireUser, type SocketContext } from '../context.js';
 
 const deleteSchema = z.object({ messageId: idSchema, channelId: idSchema });
@@ -27,6 +28,8 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
     app.channels.touchActivity(channel.id, message.ts);
     // Everyone who can see the channel gets the message so unread badges and mentions work across channels.
     app.broadcast.toChannelViewers(channel.id, 'chat', message);
+    // The other side of a DM and @-mentioned people who are not looking at the app get a push.
+    void notifyMessageRecipients(app, channel, message);
   });
 
   handle(sctx, 'chat:delete', { schema: deleteSchema, code: 'DELETE_FAILED' }, ({ messageId, channelId }) => {

@@ -30,6 +30,8 @@ export const configRouter = (ctx: AppContext): Router => {
         maxMessageLength: ctx.config.limits.maxMessageLength,
         passwordMinLength: ctx.config.security.passwordMinLength,
       },
+      // Web Push: off without VAPID keys; the public key is what browsers subscribe with.
+      push: { enabled: ctx.push.isEnabled(), publicKey: ctx.push.publicKey() },
     });
   });
 
