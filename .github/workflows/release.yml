@@ -39,6 +39,9 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The default package list still names the retired "tools" package, which sdkmanager rejects.
+          packages: platform-tools
 
       - name: Install dependencies
         run: |

@@ -229,8 +229,16 @@ export const applyScreenEncoding = (sender: RTCRtpSender, quality: unknown): voi
   });
 };
 
+const isFirefox = (): boolean => typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent);
+
 /** Shown to the host when the capture came back without an audio track. */
-export const missingAudioHint = (source: ScreenCaptureResult['source']): string =>
-  source === 'desktop'
-    ? 'Sharing without sound. Pick a screen and tick "Share system audio" in the picker to stream game audio. Use headphones so your friends do not hear themselves twice.'
-    : 'Sharing without sound. Choose "Entire screen" (or a browser tab) and tick "Share audio" in the picker to stream game audio. Use headphones so your friends do not hear themselves twice.';
+export const missingAudioHint = (source: ScreenCaptureResult['source']): string => {
+  if (source === 'desktop') {
+    return 'Sharing without sound. Pick a screen and tick "Share system audio" in the picker to stream game audio. Use headphones so your friends do not hear themselves twice.';
+  }
+  if (isFirefox()) {
+    // Firefox's screen picker has no audio option at all (no tab or system audio capture).
+    return 'Sharing without sound: Firefox cannot capture screen audio. To stream game sound, share from Chrome or Edge ("Entire screen" + "Share audio") or from the desktop app.';
+  }
+  return 'Sharing without sound. Choose "Entire screen" (or a browser tab) and tick "Share audio" in the picker to stream game audio. Use headphones so your friends do not hear themselves twice.';
+};

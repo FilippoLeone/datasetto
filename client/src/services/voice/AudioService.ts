@@ -7,7 +7,6 @@ import { fetchNativeAudioRoutes, isNativeAudioRoutingAvailable, selectNativeAudi
 
 const TARGET_SAMPLE_RATE = 48000;
 const MIN_ACCEPTABLE_SAMPLE_RATE = 32000;
-const FALLBACK_SAMPLE_RATE = 44100;
 const DEFAULT_NOISE_REDUCTION_LEVEL = 0.35;
 const NOISE_THRESHOLD_RANGE = { min: 0.008, max: 0.08 } as const;
 const NOISE_REDUCTION_RANGE = { min: 0.05, max: 0.5 } as const;
@@ -176,22 +175,30 @@ export class AudioService extends EventEmitter {
       return { ...this.lastSuccessfulConstraints };
     }
 
+    // Last attempt: any microphone with the browser's defaults. Some browsers reject
+    // perfectly ordinary range constraints ("Constraints could not be satisfied"),
+    // and a call that works beats a call with the ideal sample rate.
+    if (degraded && this.streamRetryAttempts >= MAX_STREAM_RETRY_ATTEMPTS - 1) {
+      return this.settings.micDeviceId ? { deviceId: { ideal: this.settings.micDeviceId } } : {};
+    }
+
     const constraints: MediaTrackConstraints = {
       echoCancellation: this.settings.echoCancel,
       noiseSuppression: this.settings.noiseSuppression,
       autoGainControl: this.settings.autoGain,
-      channelCount: degraded ? 1 : ({ ideal: 2, min: 1 } as ConstrainULongRange),
-      sampleRate: degraded 
-        ? ({ ideal: FALLBACK_SAMPLE_RATE } as ConstrainULongRange)
-        : ({ ideal: TARGET_SAMPLE_RATE, min: MIN_ACCEPTABLE_SAMPLE_RATE } as ConstrainULongRange),
-      sampleSize: { ideal: 16 } as ConstrainULongRange,
     };
 
-    if (this.settings.micDeviceId && !degraded) {
-      constraints.deviceId = { exact: this.settings.micDeviceId };
-    } else if (this.settings.micDeviceId && degraded) {
-      // In degraded mode, use preferred device but not exact
-      constraints.deviceId = { ideal: this.settings.micDeviceId };
+    if (!degraded) {
+      // Only ideals, never minimums: a minimum turns into a hard failure on browsers
+      // whose devices report different capabilities than expected.
+      constraints.channelCount = { ideal: 2 } as ConstrainULongRange;
+      constraints.sampleRate = { ideal: TARGET_SAMPLE_RATE } as ConstrainULongRange;
+      constraints.sampleSize = { ideal: 16 } as ConstrainULongRange;
+    }
+
+    if (this.settings.micDeviceId) {
+      // Prefer the chosen device, but fall back to the default rather than failing when it is gone.
+      constraints.deviceId = degraded ? { ideal: this.settings.micDeviceId } : { exact: this.settings.micDeviceId };
     }
 
     return constraints;
@@ -263,20 +270,14 @@ export class AudioService extends EventEmitter {
   }
 
   private isRetriableError(error: unknown): boolean {
-    if (!(error instanceof DOMException)) {
-      return false;
+    const name = (error as { name?: unknown } | null)?.name;
+    const message = error instanceof Error ? error.message : '';
+    // Constraint failures are reported with different classes and names across browsers
+    // (Firefox's OverconstrainedError is not a DOMException), so match on name and message.
+    if (typeof name === 'string' && ['OverconstrainedError', 'ConstraintNotSatisfiedError', 'NotReadableError', 'TrackStartError', 'AbortError'].includes(name)) {
+      return true;
     }
-    
-    // These errors might be recoverable with different constraints
-    const retriableErrors = [
-      'OverconstrainedError',
-      'ConstraintNotSatisfiedError',
-      'NotReadableError',
-      'TrackStartError',
-      'AbortError',
-    ];
-    
-    return retriableErrors.includes(error.name);
+    return /constraint/i.test(message);
   }
 
   private delay(ms: number): Promise<void> {
@@ -351,7 +352,8 @@ export class AudioService extends EventEmitter {
       return this.localStream;
     } catch (error) {
       console.error('Error getting local stream:', error);
-      throw this.mapGetUserMediaError(error);
+      // Rethrow the raw error: the retry loop decides whether to try again and maps it once.
+      throw error;
     }
   }
 
@@ -872,6 +874,14 @@ export class AudioService extends EventEmitter {
   }
 
   private mapGetUserMediaError(error: unknown): Error {
+    const name = (error as { name?: unknown } | null)?.name;
+    const message = error instanceof Error ? error.message : '';
+    if (message.startsWith('Failed to access microphone') || message === MICROPHONE_PERMISSION_HELP_TEXT) {
+      return error as Error;
+    }
+    if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError' || /constraints? could not be satisfied/i.test(message)) {
+      return new Error('The selected microphone is unavailable. Reset your input device in audio settings and retry.');
+    }
     if (error instanceof DOMException) {
       switch (error.name) {
         case 'NotAllowedError':
