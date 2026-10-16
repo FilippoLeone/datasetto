@@ -4,6 +4,7 @@ import { Avatar, Button, IconButton, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
 import { canCaptureScreen } from '@/lib/device';
 import { usersById, usersInVoice } from '@/state/presence';
+import { screenAudioPref, screenHostKey, setScreenAudioPref } from '@/state/screenAudio';
 import { account, can } from '@/state/session';
 import { audioSettings } from '@/state/settings';
 import { isMobile, openModal } from '@/state/ui';
@@ -122,15 +123,50 @@ const Toolbar = () => {
   );
 };
 
+interface Tile {
+  key: string;
+  stream: MediaStream;
+  label: string;
+  mirror?: boolean;
+  /** Remote screen shares play their sound through the tile; everything else stays muted. */
+  screen?: { remote: boolean; peerId?: string };
+}
+
+/**
+ * Sound settings for a tile: own and camera tiles are silent. A friend's screen has its own
+ * mute and volume (remembered per friend) on top of deafen, their per-peer mute and volume
+ * from the voice menu, the output volume and the output device.
+ */
+const tileAudio = (tile: Tile) => {
+  if (!tile.screen) return { muted: true, audioIndicator: false };
+  if (!tile.screen.remote || !tile.screen.peerId) return { muted: true, audioIndicator: true };
+  const peerId = tile.screen.peerId;
+  const pref = voiceManager.peerVolume(peerId);
+  const hostKey = screenHostKey(peerId, peerId) ?? 'peer:' + peerId;
+  const streamAudio = screenAudioPref(hostKey);
+  return {
+    muted: localDeafened.value || pref.muted || streamAudio.muted,
+    volume: streamAudio.volume * pref.volume * audioSettings.value.outputVol,
+    sinkId: audioSettings.value.spkDeviceId,
+    audioIndicator: true,
+    audioControls: {
+      muted: streamAudio.muted,
+      volume: streamAudio.volume,
+      onMutedChange: (muted: boolean) => setScreenAudioPref(hostKey, { muted }),
+      onVolumeChange: (volume: number) => setScreenAudioPref(hostKey, { volume }),
+    },
+  };
+};
+
 const VideoGrid = () => {
   const [focused, setFocused] = useState<string | null>(null);
   const me = account.value;
-  const tiles: Array<{ key: string; stream: MediaStream; label: string; mirror?: boolean }> = [];
-  if (localScreenStream.value) tiles.push({ key: 'me:screen', stream: localScreenStream.value, label: 'Your screen' });
+  const tiles: Tile[] = [];
+  if (localScreenStream.value) tiles.push({ key: 'me:screen', stream: localScreenStream.value, label: 'Your screen', screen: { remote: false } });
   if (localCameraStream.value) tiles.push({ key: 'me:camera', stream: localCameraStream.value, label: me?.displayName ?? 'You', mirror: true });
   for (const [peerId, streams] of Object.entries(remoteVideo.value)) {
     const name = usersById.value.get(peerId)?.displayName ?? 'Peer';
-    if (streams.screen) tiles.push({ key: peerId + ':screen', stream: streams.screen, label: name + "'s screen" });
+    if (streams.screen) tiles.push({ key: peerId + ':screen', stream: streams.screen, label: name + "'s screen", screen: { remote: true, peerId } });
     if (streams.camera) tiles.push({ key: peerId + ':camera', stream: streams.camera, label: name });
   }
   if (tiles.length === 0) return null;
@@ -139,11 +175,11 @@ const VideoGrid = () => {
     const others = tiles.filter((tile) => tile.key !== focusedTile.key);
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
-        <VideoTile stream={focusedTile.stream} label={focusedTile.label} mirror={focusedTile.mirror} className="min-h-0 flex-1" onClick={() => setFocused(null)} />
+        <VideoTile stream={focusedTile.stream} label={focusedTile.label} mirror={focusedTile.mirror} {...tileAudio(focusedTile)} className="min-h-0 flex-1" onClick={() => setFocused(null)} />
         {others.length > 0 && (
           <div className="flex h-24 gap-2 overflow-x-auto">
             {others.map((tile) => (
-              <VideoTile key={tile.key} stream={tile.stream} label={tile.label} mirror={tile.mirror} className="aspect-video h-full" onClick={() => setFocused(tile.key)} />
+              <VideoTile key={tile.key} stream={tile.stream} label={tile.label} mirror={tile.mirror} {...tileAudio(tile)} className="aspect-video h-full" onClick={() => setFocused(tile.key)} />
             ))}
           </div>
         )}
@@ -153,7 +189,7 @@ const VideoGrid = () => {
   return (
     <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-1 gap-2 p-3 sm:grid-cols-2">
       {tiles.map((tile) => (
-        <VideoTile key={tile.key} stream={tile.stream} label={tile.label} mirror={tile.mirror} className="min-h-40" onClick={() => setFocused(tile.key)} />
+        <VideoTile key={tile.key} stream={tile.stream} label={tile.label} mirror={tile.mirror} {...tileAudio(tile)} className="min-h-40" onClick={() => setFocused(tile.key)} />
       ))}
     </div>
   );

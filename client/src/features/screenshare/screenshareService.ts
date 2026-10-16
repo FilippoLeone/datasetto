@@ -1,25 +1,15 @@
-import { batch, signal } from '@preact/signals';
-import { config } from '@/config';
+import { batch, effect, signal } from '@preact/signals';
 import { api } from '@/services/socket/api';
 import { socketClient } from '@/services/socket/client';
 import { serverConfig } from '@/services/ServerConfigService';
+import { applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError, missingAudioHint } from '@/services/screenCapture';
 import { screenshareSessions, setScreenshareSession } from '@/state/misc';
 import { socketId } from '@/state/session';
+import { audioSettings } from '@/state/settings';
 import { toast } from '@/state/ui';
 import type { ScreenshareSessionEvent, ScreenshareSignalEvent } from '@/types/protocol';
 
 type Role = 'idle' | 'host' | 'viewer';
-
-const num = (value: string | undefined, fallback: number): number => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-const CAPTURE = {
-  idealFps: num(config.SCREENSHARE_IDEAL_FPS, 30),
-  maxFps: num(config.SCREENSHARE_MAX_FPS, 60),
-  maxBitrateBps: num(config.SCREENSHARE_MAX_BITRATE_KBPS, 8000) * 1000,
-};
 
 /** Local screenshare-room state. */
 export const screenshareRole = signal<Role>('idle');
@@ -50,6 +40,13 @@ class ScreenshareService {
     socketClient.on('connect', () => {
       if (screenshareStatus.value === 'Connection lost') screenshareStatus.value = '';
     });
+    // A preset change while hosting applies to the running capture and every viewer.
+    effect(() => {
+      const quality = audioSettings.value.screenQuality;
+      if (screenshareRole.value !== 'host' || !this.localStream) return;
+      applyScreenQualityToStream(this.localStream, quality);
+      for (const peer of this.peers.values()) this.applyEncoding(peer);
+    });
   }
 
   // ------------------------------------------------------------------ host
@@ -58,7 +55,8 @@ class ScreenshareService {
     if (screenshareRole.value === 'host') return;
     if (screenshareRole.value === 'viewer') this.stopViewing();
     try {
-      const stream = await this.captureScreen();
+      const capture = await captureScreen(audioSettings.value.screenQuality);
+      const stream = capture.stream;
       this.localStream = stream;
       stream.getVideoTracks()[0]?.addEventListener('ended', () => {
         if (screenshareRole.value === 'host') this.stopHosting();
@@ -67,12 +65,12 @@ class ScreenshareService {
         screenshareRole.value = 'host';
         screenshareChannel.value = channelId;
         screenshareStream.value = stream;
-        screenshareStatus.value = 'Sharing your screen';
+        screenshareStatus.value = capture.hasAudio ? 'Sharing your screen with sound' : 'Sharing your screen without sound';
       });
       api.startScreenshare(channelId);
+      if (!capture.hasAudio) toast.warning(missingAudioHint(capture.source), 9000);
     } catch (error) {
-      const name = (error as { name?: string })?.name;
-      if (name !== 'NotAllowedError') toast.error(error instanceof Error ? error.message : 'Could not capture the screen');
+      if (!isCancelError(error)) toast.error(error instanceof Error ? error.message : 'Could not capture the screen');
       this.localStream?.getTracks().forEach((track) => track.stop());
       this.localStream = null;
     }
@@ -83,32 +81,6 @@ class ScreenshareService {
     const channelId = screenshareChannel.value;
     if (channelId && socketClient.connected) api.stopScreenshare(channelId);
     this.teardown();
-  }
-
-  private async captureScreen(): Promise<MediaStream> {
-    const video: MediaTrackConstraints & { cursor?: string } = {
-      frameRate: { ideal: CAPTURE.idealFps, max: CAPTURE.maxFps },
-      cursor: 'always',
-    };
-    const bridge = window.desktopAPI;
-    if (bridge?.pickScreenshareSource) {
-      const picked = await bridge.pickScreenshareSource({ audio: true });
-      if (!picked.success || !picked.source) {
-        const error = new Error('Screen share was cancelled');
-        error.name = 'NotAllowedError';
-        throw error;
-      }
-      const chromeConstraints = {
-        mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: picked.source.id, maxFrameRate: CAPTURE.maxFps },
-      };
-      return navigator.mediaDevices.getUserMedia({
-        audio: picked.shareAudio ? ({ mandatory: { chromeMediaSource: 'desktop' } } as unknown as MediaTrackConstraints) : false,
-        video: chromeConstraints as unknown as MediaTrackConstraints,
-      });
-    }
-    const mediaDevices = navigator.mediaDevices as MediaDevices & { getDisplayMedia?: (c: MediaStreamConstraints) => Promise<MediaStream> };
-    if (!mediaDevices.getDisplayMedia) throw new Error('Screen sharing is not supported in this browser');
-    return mediaDevices.getDisplayMedia({ video, audio: true });
   }
 
   private async onViewerPending({ channelId, viewerId }: { channelId: string; viewerId: string; viewerName: string }): Promise<void> {
@@ -129,17 +101,8 @@ class ScreenshareService {
   }
 
   private applyEncoding(peer: RTCPeerConnection): void {
-    for (const sender of peer.getSenders()) {
-      if (sender.track?.kind !== 'video') continue;
-      const parameters = sender.getParameters();
-      if (!parameters.encodings || parameters.encodings.length === 0) parameters.encodings = [{}];
-      const encoding = parameters.encodings[0] as RTCRtpEncodingParameters & { priority?: string };
-      encoding.maxBitrate = CAPTURE.maxBitrateBps;
-      encoding.maxFramerate = CAPTURE.maxFps;
-      encoding.priority = 'high';
-      parameters.degradationPreference = 'maintain-framerate';
-      sender.setParameters(parameters).catch(() => undefined);
-    }
+    const quality = audioSettings.value.screenQuality;
+    for (const sender of peer.getSenders()) applyScreenEncoding(sender, quality);
   }
 
   // ---------------------------------------------------------------- viewer
@@ -207,6 +170,8 @@ class ScreenshareService {
         if (payload.data.sdp?.type === 'answer') {
           await peer.setRemoteDescription(new RTCSessionDescription(payload.data.sdp));
           this.flushCandidates(payload.from);
+          // Encodings set before negotiation do not always stick; apply them again now that they are negotiated.
+          this.applyEncoding(peer);
         } else if (payload.data.candidate) {
           this.queueOrAddCandidate(payload.from, payload.data.candidate);
         }

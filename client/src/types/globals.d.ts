@@ -47,6 +47,8 @@ interface DatasettoDesktopConfig {
 interface DesktopScreenshareSource {
   id: string;
   name: string;
+  type?: 'screen' | 'window';
+  display_id?: string;
 }
 
 /** Bridge exposed by desktop/preload.js through contextBridge. */

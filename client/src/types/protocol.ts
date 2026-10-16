@@ -134,7 +134,12 @@ export interface AudioSettings {
   dtx: boolean;
   latencyHint: 'interactive' | 'balanced' | 'playback';
   vadThreshold: number;
+  /** Screen share preset (resolution, frame rate, bitrate) for rooms and voice channels. */
+  screenQuality: ScreenQuality;
 }
+
+/** Screen share quality presets; see services/screenCapture.ts for the numbers. */
+export type ScreenQuality = '720p30' | '1080p60';
 
 export interface DeviceInfo {
   deviceId: string;
@@ -329,7 +334,7 @@ export type EventMap = {
   };
   'video:camera:started': { stream: MediaStream };
   'video:camera:stopped': void;
-  'video:screen:started': { stream: MediaStream };
+  'video:screen:started': { stream: MediaStream; hasAudio: boolean };
   'video:screen:stopped': void;
   'video:remote:track': { peerId: string; streamType: 'camera' | 'screen'; stream: MediaStream; track: MediaStreamTrack };
   'video:remote:track:removed': { peerId: string; streamType: 'camera' | 'screen' };
