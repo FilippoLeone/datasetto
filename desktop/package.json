@@ -4,8 +4,7 @@
   "description": "Electron-based desktop shell for the Datasetto web client.",
   "private": true,
   "author": {
-    "name": "Datasetto",
-    "email": "fleonen@gmail.com"
+    "name": "Datasetto"
   },
   "main": "main.js",
   "license": "AGPL-3.0",
