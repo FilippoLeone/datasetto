@@ -35,6 +35,20 @@ export interface AccountRecord {
   updatedAt: number;
   disabledAt: number | null;
   disabledReason: string | null;
+  /** Invite token that created the account, when one was used. */
+  inviteTokenId: string | null;
+}
+
+export interface InviteTokenRecord {
+  id: string;
+  token: string;
+  note: string | null;
+  maxUses: number;
+  uses: number;
+  createdBy: string | null;
+  createdAt: number;
+  expiresAt: number | null;
+  revokedAt: number | null;
 }
 
 /** Account as sent to clients (never includes the password hash). */

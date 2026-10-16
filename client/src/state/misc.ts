@@ -4,6 +4,7 @@ import type {
   BanRecord,
   ChannelMember,
   ChannelPermissions,
+  InviteToken,
   ScreenshareSessionEvent,
   StreamKeyResponse,
   VoiceMinigameState,
@@ -26,6 +27,9 @@ export const minigameState = signal<VoiceMinigameState | null>(null);
 
 export const adminAccounts = signal<Account[]>([]);
 export const adminBans = signal<BanRecord[]>([]);
+export const adminInvites = signal<InviteToken[]>([]);
+/** The invite the admin just created, so its link can be shown and copied right away. */
+export const lastCreatedInvite = signal<InviteToken | null>(null);
 export const channelPermissions = signal<Record<string, ChannelPermissions>>({});
 /** Members of private channels, keyed by channel id (admins only). */
 export const channelMembers = signal<Record<string, ChannelMember[]>>({});

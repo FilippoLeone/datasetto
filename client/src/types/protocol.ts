@@ -240,6 +240,31 @@ export interface BanRecord {
   expiresAt: number | null;
 }
 
+export type InviteStatus = 'active' | 'revoked' | 'expired' | 'exhausted';
+
+/** Invite token as listed to admins (`admin:invites:list`). */
+export interface InviteToken {
+  id: string;
+  token: string;
+  note: string | null;
+  maxUses: number;
+  uses: number;
+  createdBy: string | null;
+  createdByName: string | null;
+  createdAt: number;
+  expiresAt: number | null;
+  revokedAt: number | null;
+  status: InviteStatus;
+  redeemedBy: Array<{ accountId: string; username: string; displayName: string; createdAt: number }>;
+}
+
+/** `admin:invites:create` payload. */
+export interface CreateInviteInput {
+  maxUses?: number;
+  expiresAt?: number | null;
+  note?: string | null;
+}
+
 // ---------------------------------------------------------------- minigames
 
 export type VoiceMinigameStatus = 'running' | 'ended';

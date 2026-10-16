@@ -7,6 +7,7 @@ import { displayNameSchema, emailSchema, optionalTextSchema, optionalUrlSchema, 
 import { parseJson, type DB } from '../db/index.js';
 import { AppError, notFound } from '../errors.js';
 import type { AccountRecord, PublicAccount, RoleName } from '../types.js';
+import { looksLikeInviteToken, type InviteService } from './invites.js';
 
 const BCRYPT_ROUNDS = 10;
 // Valid bcrypt hash of a random string; used to equalise timing for unknown accounts.
@@ -27,6 +28,7 @@ interface AccountRow {
   updated_at: number;
   disabled_at: number | null;
   disabled_reason: string | null;
+  invite_token_id: string | null;
 }
 
 export interface RegisterInput {
@@ -59,12 +61,16 @@ const rowToRecord = (row: AccountRow): AccountRecord => ({
   updatedAt: row.updated_at,
   disabledAt: row.disabled_at,
   disabledReason: row.disabled_reason,
+  inviteTokenId: row.invite_token_id ?? null,
 });
 
 export const sanitizeAccount = (account: AccountRecord): PublicAccount => {
   const { passwordHash: _passwordHash, ...safe } = account;
   return { ...safe, roles: [...safe.roles], metadata: { ...safe.metadata } };
 };
+
+const inviteUsable = (invite: { revokedAt: number | null; expiresAt: number | null; uses: number; maxUses: number }, now = Date.now()): boolean =>
+  invite.revokedAt === null && (invite.expiresAt === null || invite.expiresAt > now) && invite.uses < invite.maxUses;
 
 const safeEqual = (a: string, b: string): boolean => {
   const bufA = Buffer.from(a);
@@ -84,8 +90,9 @@ export class AccountService {
   private readonly stmts;
 
   constructor(
-    db: DB,
+    private readonly db: DB,
     private readonly config: AppConfig,
+    private readonly invites: InviteService | null = null,
   ) {
     this.stmts = {
       count: db.prepare('SELECT COUNT(*) AS n FROM accounts'),
@@ -93,8 +100,8 @@ export class AccountService {
       byUsername: db.prepare('SELECT * FROM accounts WHERE username = ?'),
       list: db.prepare('SELECT * FROM accounts ORDER BY created_at ASC'),
       insert: db.prepare(`
-        INSERT INTO accounts (id, username, display_name, email, bio, avatar_url, roles, status, password_hash, metadata, created_at, updated_at)
-        VALUES (@id, @username, @display_name, @email, @bio, @avatar_url, @roles, 'active', @password_hash, @metadata, @created_at, @updated_at)
+        INSERT INTO accounts (id, username, display_name, email, bio, avatar_url, roles, status, password_hash, metadata, created_at, updated_at, invite_token_id)
+        VALUES (@id, @username, @display_name, @email, @bio, @avatar_url, @roles, 'active', @password_hash, @metadata, @created_at, @updated_at, @invite_token_id)
       `),
       updateProfile: db.prepare(`
         UPDATE accounts SET display_name = @display_name, email = @email, bio = @bio, avatar_url = @avatar_url,
@@ -148,17 +155,30 @@ export class AccountService {
     return normalizeRoles(Array.from(result));
   }
 
-  async register(input: RegisterInput): Promise<PublicAccount> {
+  /**
+   * Decide whether a registration may proceed and with which invite token.
+   * Returns the token to redeem (null for the env code or open registration).
+   */
+  private checkInvite(input: RegisterInput): string | null {
     const { mode, inviteCode } = this.config.registration;
+    const provided = typeof input.inviteCode === 'string' ? input.inviteCode.trim() : '';
     if (mode === 'closed') {
       throw new AppError('Registration is closed on this server', 'REGISTRATION_CLOSED', 403);
     }
+    const envCodeMatches = Boolean(inviteCode && provided && safeEqual(provided, inviteCode));
+    if (envCodeMatches) return null;
+    const token = this.invites && looksLikeInviteToken(provided) ? this.invites.getByToken(provided) : null;
+    const tokenValid = token !== null && inviteUsable(token);
     if (mode === 'invite') {
-      const provided = typeof input.inviteCode === 'string' ? input.inviteCode.trim() : '';
-      if (!inviteCode || !provided || !safeEqual(provided, inviteCode)) {
-        throw new AppError('Invalid invite code', 'INVITE_CODE_INVALID', 403);
-      }
+      if (!tokenValid) throw new AppError('Invalid invite code', 'INVITE_CODE_INVALID', 403);
+      return provided;
     }
+    // Open registration: a valid token is recorded, anything else is ignored.
+    return tokenValid ? provided : null;
+  }
+
+  async register(input: RegisterInput): Promise<PublicAccount> {
+    const inviteToken = this.checkInvite(input);
 
     const username = emailSchema.parse(input.username);
     const password = passwordSchema(this.config.security.passwordMinLength).parse(input.password);
@@ -187,21 +207,32 @@ export class AccountService {
       updatedAt: now,
       disabledAt: null,
       disabledReason: null,
+      inviteTokenId: null,
     };
 
-    this.stmts.insert.run({
-      id: record.id,
-      username: record.username,
-      display_name: record.displayName,
-      email: record.email,
-      bio: record.bio,
-      avatar_url: record.avatarUrl,
-      roles: JSON.stringify(record.roles),
-      password_hash: record.passwordHash,
-      metadata: JSON.stringify(record.metadata),
-      created_at: now,
-      updated_at: now,
-    });
+    // The token use and the account land in one transaction: a token is never
+    // spent without an account, and an account never points at an unspent token.
+    this.db.transaction(() => {
+      if (inviteToken && this.invites) {
+        const redeemed = this.invites.redeem(inviteToken, now);
+        if (!redeemed) throw new AppError('Invalid invite code', 'INVITE_CODE_INVALID', 403);
+        record.inviteTokenId = redeemed.id;
+      }
+      this.stmts.insert.run({
+        id: record.id,
+        username: record.username,
+        display_name: record.displayName,
+        email: record.email,
+        bio: record.bio,
+        avatar_url: record.avatarUrl,
+        roles: JSON.stringify(record.roles),
+        password_hash: record.passwordHash,
+        metadata: JSON.stringify(record.metadata),
+        created_at: now,
+        updated_at: now,
+        invite_token_id: record.inviteTokenId,
+      });
+    })();
 
     return sanitizeAccount(record);
   }

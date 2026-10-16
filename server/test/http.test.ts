@@ -19,7 +19,7 @@ describe('HTTP API', () => {
 
     const config = await request(server.url).get('/api/config').expect(200);
     expect(config.headers['cache-control']).toBe('no-store');
-    expect(config.body.registration).toEqual({ mode: 'open', requiresInvite: false });
+    expect(config.body.registration).toEqual({ mode: 'open', requiresInvite: false, acceptsInviteLinks: true });
     expect(config.body.urls.rtmp).toBe('rtmp://example.test/live');
     expect(Array.isArray(config.body.ice.servers)).toBe(true);
   });

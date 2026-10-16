@@ -10,6 +10,7 @@ import { PresenceService } from './services/presence.js';
 import { SessionService } from './services/sessions.js';
 import { TurnService } from './services/turn.js';
 import { HlsTicketService } from './services/hlsTickets.js';
+import { InviteService } from './services/invites.js';
 import { UsageService } from './services/usage.js';
 
 /** Fan-out helpers implemented by the socket layer once it exists. */
@@ -28,6 +29,7 @@ export interface AppContext {
   log: Logger;
   db: DB;
   accounts: AccountService;
+  invites: InviteService;
   sessions: SessionService;
   channels: ChannelService;
   messages: MessageService;
@@ -52,12 +54,14 @@ const noopBroadcaster: Broadcaster = {
 export const createContext = (config: AppConfig, db: DB): AppContext => {
   const channels = new ChannelService(db, config);
   channels.seedDefaults();
+  const invites = new InviteService(db);
 
   return {
     config,
     log: logger,
     db,
-    accounts: new AccountService(db, config),
+    accounts: new AccountService(db, config, invites),
+    invites,
     sessions: new SessionService(db, config.sessions.ttlMs),
     channels,
     messages: new MessageService(db, config),

@@ -20,7 +20,9 @@ import { closeModal, modal, toast } from '@/state/ui';
 import {
   adminAccounts,
   adminBans,
+  adminInvites,
   channelMembers,
+  lastCreatedInvite,
   channelPermissions,
   minigameState,
   setScreenshareSession,
@@ -38,6 +40,7 @@ import type {
   ChannelPermissions,
   ChatMessage,
   IceConfigPayload,
+  InviteToken,
   ScreenshareSessionEvent,
   ServerError,
   SessionInfo,
@@ -286,6 +289,13 @@ export const installSocketBindings = (): void => {
   });
   socketClient.on<{ bans: BanRecord[] }>('admin:bans:list', ({ bans }) => {
     adminBans.value = bans;
+  });
+  socketClient.on<{ invites: InviteToken[] }>('admin:invites:list', ({ invites }) => {
+    adminInvites.value = invites;
+  });
+  socketClient.on<{ invite: InviteToken }>('admin:invites:created', ({ invite }) => {
+    lastCreatedInvite.value = invite;
+    toast.success('Invite created');
   });
   socketClient.on<{ channelId: string; permissions: ChannelPermissions }>('admin:channels:permissions', (payload) => {
     channelPermissions.value = { ...channelPermissions.value, [payload.channelId]: payload.permissions };

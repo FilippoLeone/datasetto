@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { ROLES, highestRoleLevel, isRoleName, roleLevel } from '../../core/roles.js';
 import { idSchema, permissionsInputSchema } from '../../core/validation.js';
 import { AppError, notFound } from '../../errors.js';
+import { inviteStatus, MAX_INVITE_USES } from '../../services/invites.js';
+import type { InviteTokenRecord } from '../../types.js';
 import { handle, requirePermission, type SocketContext } from '../context.js';
 
 const rolesSchema = z.object({ accountId: idSchema, roles: z.array(z.string().max(32)).min(1).max(10) });
@@ -9,6 +11,13 @@ const accountSchema = z.object({ accountId: idSchema, reason: z.string().max(500
 const channelSchema = z.object({ channelId: idSchema });
 const channelPermissionsSchema = z.object({ channelId: idSchema, permissions: permissionsInputSchema.nullable().optional() });
 const channelMemberSchema = z.object({ channelId: idSchema, accountId: idSchema });
+const inviteCreateSchema = z.object({
+  maxUses: z.number().int().min(1).max(MAX_INVITE_USES).optional(),
+  /** Absolute expiry (ms since epoch); null or omitted for never. */
+  expiresAt: z.number().int().positive().nullable().optional(),
+  note: z.string().max(200).nullable().optional(),
+});
+const inviteIdSchema = z.object({ inviteId: idSchema });
 
 export const registerAdminHandlers = (sctx: SocketContext): void => {
   const { app, socket, io } = sctx;
@@ -185,6 +194,52 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
     app.broadcast.channels();
     app.broadcast.users();
     app.log.info({ channelId, accountId, by: actor.accountId }, 'channel member removed');
+  });
+
+  // --------------------------------------------------------------- invites
+
+  const inviteView = (invite: InviteTokenRecord) => {
+    const creator = invite.createdBy ? app.accounts.getById(invite.createdBy) : null;
+    return {
+      ...invite,
+      status: inviteStatus(invite),
+      createdByName: creator?.displayName ?? null,
+      redeemedBy: app.invites.redeemedBy(invite.id),
+    };
+  };
+
+  const emitInvites = () => socket.emit('admin:invites:list', { invites: app.invites.list().map(inviteView) });
+
+  handle(sctx, 'admin:invites:list', { errorEvent: ERR, code: 'INVITES_LIST_FAILED' }, () => {
+    requirePermission(sctx, 'canManageUsers', 'No permission to manage invites');
+    emitInvites();
+  });
+
+  handle(sctx, 'admin:invites:create', { schema: inviteCreateSchema, errorEvent: ERR, code: 'INVITE_CREATE_FAILED' }, (payload) => {
+    const actor = requirePermission(sctx, 'canManageUsers', 'No permission to create invites');
+    const invite = app.invites.create({
+      createdBy: actor.accountId,
+      note: payload.note ?? null,
+      maxUses: payload.maxUses ?? 1,
+      expiresAt: payload.expiresAt ?? null,
+    });
+    socket.emit('admin:invites:created', { invite: inviteView(invite) });
+    emitInvites();
+    app.log.info({ inviteId: invite.id, maxUses: invite.maxUses, expiresAt: invite.expiresAt, by: actor.accountId }, 'invite created');
+  });
+
+  handle(sctx, 'admin:invites:revoke', { schema: inviteIdSchema, errorEvent: ERR, code: 'INVITE_REVOKE_FAILED' }, ({ inviteId }) => {
+    const actor = requirePermission(sctx, 'canManageUsers', 'No permission to manage invites');
+    app.invites.revoke(inviteId);
+    emitInvites();
+    app.log.info({ inviteId, by: actor.accountId }, 'invite revoked');
+  });
+
+  handle(sctx, 'admin:invites:delete', { schema: inviteIdSchema, errorEvent: ERR, code: 'INVITE_DELETE_FAILED' }, ({ inviteId }) => {
+    const actor = requirePermission(sctx, 'canManageUsers', 'No permission to manage invites');
+    if (!app.invites.delete(inviteId)) throw notFound('Invite');
+    emitInvites();
+    app.log.info({ inviteId, by: actor.accountId }, 'invite deleted');
   });
 
   void ROLES;

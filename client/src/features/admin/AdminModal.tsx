@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Ban, KeyRound, ShieldCheck, Trash2, UserCheck, UserX } from 'lucide-preact';
-import { Avatar, Button, Modal, RoleBadge } from '@/components';
+import { Ban, Copy, KeyRound, Link2, ShieldCheck, Trash2, UserCheck, UserX, XCircle } from 'lucide-preact';
+import { Avatar, Button, Field, Modal, RoleBadge, Select, TextInput } from '@/components';
 import { cn } from '@/lib/cn';
 import { formatFullDate, ROLE_LABELS, ROLE_ORDER } from '@/lib/format';
+import { inviteLinkFor } from '@/lib/inviteLink';
 import { api } from '@/services/socket/api';
+import { serverConfig } from '@/services/ServerConfigService';
 import { channels } from '@/state/channels';
-import { adminAccounts, adminBans } from '@/state/misc';
+import { adminAccounts, adminBans, adminInvites, lastCreatedInvite } from '@/state/misc';
 import { account, can, isSuperuser } from '@/state/session';
-import { closeModal, openModal } from '@/state/ui';
+import { closeModal, openModal, toast } from '@/state/ui';
 import { CHANNEL_ICONS } from '@/app/layout/MainArea';
-import type { Account, RoleName } from '@/types/protocol';
+import type { Account, InviteToken, RoleName } from '@/types/protocol';
 
-type Tab = 'users' | 'channels' | 'bans';
+type Tab = 'users' | 'invites' | 'channels' | 'bans';
 
 const ASSIGNABLE: RoleName[] = ['admin', 'moderator', 'streamer', 'user'];
 
@@ -98,6 +100,147 @@ const UsersTab = () => (
   </ul>
 );
 
+const USES_OPTIONS = [
+  { value: '1', label: 'Single use' },
+  { value: '5', label: '5 uses' },
+  { value: '10', label: '10 uses' },
+  { value: '25', label: '25 uses' },
+  { value: '100', label: '100 uses' },
+];
+
+const EXPIRY_OPTIONS = [
+  { value: '0', label: 'Never expires' },
+  { value: '1', label: 'Expires in 1 day' },
+  { value: '7', label: 'Expires in 7 days' },
+  { value: '30', label: 'Expires in 30 days' },
+];
+
+const copyText = async (value: string, label: string) => {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.success(label + ' copied');
+  } catch {
+    toast.error('Clipboard unavailable, copy it manually');
+  }
+};
+
+const STATUS_STYLES: Record<InviteToken['status'], string> = {
+  active: 'bg-success/20 text-[#7be39b]',
+  revoked: 'bg-danger/20 text-[#fa777c]',
+  expired: 'bg-active text-text-muted',
+  exhausted: 'bg-warning/20 text-[#ffd38a]',
+};
+
+const InviteRow = ({ invite }: { invite: InviteToken }) => {
+  const link = inviteLinkFor(invite.token);
+  return (
+    <li className={cn('rounded-md bg-base/60 p-3', invite.status !== 'active' && 'opacity-75')}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn('rounded-sm px-1.5 py-px text-[10px] font-semibold tracking-wide uppercase', STATUS_STYLES[invite.status])}>{invite.status}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-bright">{invite.note ?? 'No note'}</span>
+        <span className="text-xs text-text-muted tabular-nums" title="Uses">
+          {invite.uses} / {invite.maxUses} used
+        </span>
+      </div>
+      <p className="mt-1 truncate font-mono text-xs text-text-muted" title={link}>
+        {link}
+      </p>
+      <p className="mt-1 text-xs text-text-faint">
+        Created {formatFullDate(invite.createdAt)}
+        {invite.createdByName ? ' by ' + invite.createdByName : ''}
+        {invite.expiresAt ? ' · expires ' + formatFullDate(invite.expiresAt) : ' · never expires'}
+        {invite.redeemedBy.length > 0 ? ' · joined: ' + invite.redeemedBy.map((entry) => entry.displayName).join(', ') : ''}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button size="sm" variant="secondary" onClick={() => void copyText(link, 'Invite link')}>
+          <Copy size={14} /> Copy link
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => void copyText(invite.token, 'Invite token')}>
+          Copy token
+        </Button>
+        {invite.status === 'active' && (
+          <Button size="sm" variant="ghost" onClick={() => api.revokeInvite(invite.id)}>
+            <XCircle size={14} /> Revoke
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={() => api.deleteInvite(invite.id)}>
+          <Trash2 size={14} /> Delete
+        </Button>
+      </div>
+    </li>
+  );
+};
+
+const InvitesTab = () => {
+  const [maxUses, setMaxUses] = useState('1');
+  const [expiry, setExpiry] = useState('0');
+  const [note, setNote] = useState('');
+  const mode = serverConfig.registrationMode();
+  const created = lastCreatedInvite.value;
+
+  useEffect(() => {
+    api.listInvites();
+    return () => {
+      lastCreatedInvite.value = null;
+    };
+  }, []);
+
+  const create = (event: Event) => {
+    event.preventDefault();
+    const days = Number(expiry);
+    api.createInvite({
+      maxUses: Number(maxUses),
+      expiresAt: days > 0 ? Date.now() + days * 86_400_000 : null,
+      note: note.trim() || null,
+    });
+    setNote('');
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs text-text-muted">
+        {mode === 'closed'
+          ? 'Registration is closed (REGISTRATION_MODE=closed), so invite links do not work until the mode is changed on the server.'
+          : mode === 'invite'
+            ? 'Registration needs the shared invite code or one of these links. Links work on their own and show who used them.'
+            : 'Registration is open; invite links still record who joined through them.'}
+      </p>
+      <form onSubmit={create} className="rounded-md bg-base/60 p-3">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-text-bright">
+          <Link2 size={14} /> New invite link
+        </p>
+        <div className="grid gap-x-3 sm:grid-cols-2">
+          <Select label="Uses" value={maxUses} options={USES_OPTIONS} onChange={setMaxUses} />
+          <Select label="Expiry" value={expiry} options={EXPIRY_OPTIONS} onChange={setExpiry} />
+        </div>
+        <Field label="Note" hint="Optional. Who it is for, so you recognise it later.">
+          <TextInput value={note} maxLength={200} onInput={(e) => setNote((e.target as HTMLInputElement).value)} placeholder="For Sam" />
+        </Field>
+        <div className="flex justify-end">
+          <Button type="submit" size="sm">
+            Create invite
+          </Button>
+        </div>
+      </form>
+      {created && (
+        <div className="rounded-md border border-success/40 bg-success/10 p-3">
+          <p className="text-sm font-semibold text-text-bright">Share this link</p>
+          <p className="mt-1 break-all font-mono text-xs text-text">{inviteLinkFor(created.token)}</p>
+          <Button size="sm" className="mt-2" onClick={() => void copyText(inviteLinkFor(created.token), 'Invite link')}>
+            <Copy size={14} /> Copy link
+          </Button>
+        </div>
+      )}
+      <ul className="flex flex-col gap-2">
+        {adminInvites.value.map((invite) => (
+          <InviteRow key={invite.id} invite={invite} />
+        ))}
+        {adminInvites.value.length === 0 && <p className="text-sm text-text-muted">No invite links yet.</p>}
+      </ul>
+    </div>
+  );
+};
+
 const ChannelsTab = () => (
   <ul className="flex flex-col gap-1">
     {channels.value.map((channel) => {
@@ -172,6 +315,7 @@ export const AdminModal = ({ initialTab }: { initialTab: Tab }) => {
 
   const tabs: Array<{ id: Tab; label: string; show: boolean }> = [
     { id: 'users', label: 'Members', show: can('canManageUsers') },
+    { id: 'invites', label: 'Invites', show: can('canManageUsers') },
     { id: 'channels', label: 'Channels', show: can('canManageChannelPermissions') || can('canDeleteChannels') },
     { id: 'bans', label: 'Bans', show: can('canBanUsers') },
   ];
@@ -195,6 +339,7 @@ export const AdminModal = ({ initialTab }: { initialTab: Tab }) => {
           ))}
       </div>
       {tab === 'users' && <UsersTab />}
+      {tab === 'invites' && <InvitesTab />}
       {tab === 'channels' && <ChannelsTab />}
       {tab === 'bans' && <BansTab />}
     </Modal>

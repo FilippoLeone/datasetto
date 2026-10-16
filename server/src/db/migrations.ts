@@ -123,6 +123,25 @@ export const migrations: Migration[] = [
       CREATE INDEX channel_members_account_idx ON channel_members(account_id);
     `,
   },
+  {
+    version: 4,
+    name: 'invite_tokens',
+    up: `
+      CREATE TABLE invite_tokens (
+        id TEXT PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        note TEXT,
+        max_uses INTEGER NOT NULL DEFAULT 1,
+        uses INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        revoked_at INTEGER
+      );
+      ALTER TABLE accounts ADD COLUMN invite_token_id TEXT REFERENCES invite_tokens(id) ON DELETE SET NULL;
+      CREATE INDEX accounts_invite_token_idx ON accounts(invite_token_id);
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

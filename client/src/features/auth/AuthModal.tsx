@@ -3,7 +3,7 @@ import { Button, Field, Modal, TextInput } from '@/components';
 import { cn } from '@/lib/cn';
 import { api } from '@/services/socket/api';
 import { serverConfig } from '@/services/ServerConfigService';
-import { authError, authStatus, connectionStatus } from '@/state/session';
+import { authError, authStatus, connectionStatus, pendingInvite } from '@/state/session';
 import { closeModal } from '@/state/ui';
 
 type Mode = 'login' | 'register';
@@ -16,15 +16,18 @@ interface AuthModalProps {
 }
 
 export const AuthModal = ({ initialMode, dismissable }: AuthModalProps) => {
-  const [mode, setMode] = useState<Mode>(initialMode);
+  // An invite link (/app?invite=TOKEN) opens the registration form with the token filled in.
+  const invited = pendingInvite.value;
+  const [mode, setMode] = useState<Mode>(invited ? 'register' : initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
+  const [inviteCode, setInviteCode] = useState(invited ?? '');
   const [localError, setLocalError] = useState<string | null>(null);
 
   const registration = serverConfig.registrationMode();
+  const showInviteField = registration === 'invite' || Boolean(inviteCode);
   const minPassword = serverConfig.get()?.limits.passwordMinLength ?? 8;
   const pending = authStatus.value === 'pending';
   const offline = connectionStatus.value !== 'connected';
@@ -85,9 +88,11 @@ export const AuthModal = ({ initialMode, dismissable }: AuthModalProps) => {
           ? 'Sign in with the email you registered with.'
           : registration === 'closed'
             ? 'Registration is closed. Ask the server owner for an account.'
-            : registration === 'invite'
-              ? 'You need an invite code from the server owner.'
-              : 'Pick an email and a password. The first account becomes admin.'
+            : invited
+              ? 'Your invite link is applied. Pick an email and a password.'
+              : registration === 'invite'
+                ? 'You need an invite code or link from the server owner.'
+                : 'Pick an email and a password. The first account becomes admin.'
       }
       onClose={dismissable ? closeModal : undefined}
       size="sm"
@@ -114,9 +119,9 @@ export const AuthModal = ({ initialMode, dismissable }: AuthModalProps) => {
             <Field label="Display name" hint="Shown in chat and voice. Defaults to your email prefix.">
               <TextInput type="text" maxLength={50} value={displayName} onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)} />
             </Field>
-            {registration === 'invite' && (
-              <Field label="Invite code">
-                <TextInput type="text" autoComplete="off" spellcheck={false} value={inviteCode} onInput={(e) => setInviteCode((e.target as HTMLInputElement).value)} required />
+            {showInviteField && (
+              <Field label="Invite code" hint={invited ? 'Filled in from your invite link.' : 'The shared code, or a token from an invite link.'}>
+                <TextInput type="text" autoComplete="off" spellcheck={false} value={inviteCode} onInput={(e) => setInviteCode((e.target as HTMLInputElement).value)} required={registration === 'invite'} />
               </Field>
             )}
           </>

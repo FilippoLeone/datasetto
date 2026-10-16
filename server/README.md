@@ -45,7 +45,7 @@ See [.env.example](.env.example). Notable settings:
 
 | Variable | Purpose |
 | --- | --- |
-| `REGISTRATION_MODE` | `open`, `invite` (needs `REGISTRATION_INVITE_CODE`) or `closed` |
+| `REGISTRATION_MODE` | `open`, `invite` (needs `REGISTRATION_INVITE_CODE`, or an admin-made invite token) or `closed` |
 | `ADMIN_EMAILS` | accounts that always receive the superuser role |
 | `CORS_ORIGINS` | browser origins allowed to connect; native shells are allowed by default |
 | `TURN_URLS`, `TURN_SECRET` | enable TURN; the server mints 12-hour HMAC credentials for clients |
@@ -88,11 +88,25 @@ rate limits apply.
 | `stream:key:request {channelId}`, `stream:key:regenerate {channelId}` | `stream:key:response {streamKey: "channel?key=token", ...}` |
 | `account:get`, `account:update {...}` | `account:data`, `account:updated`, `account:rolesUpdated` |
 | `admin:accounts:list/updateRoles/disable/enable/unban`, `admin:bans:list`, `admin:channels:getPermissions/updatePermissions`, `admin:channels:members:list/add/remove {channelId, accountId?}` | `admin:accounts:*`, `admin:bans:list`, `admin:channels:permissions`, `channels:permissionsUpdated`, `admin:channels:members {channelId, members[]}` |
+| `admin:invites:list`, `admin:invites:create {maxUses?, expiresAt?, note?}`, `admin:invites:revoke/delete {inviteId}` | `admin:invites:list {invites[]}`, `admin:invites:created {invite}` |
 | `voice:game:start/join/leave/input/end/leaderboard` | `voice:game:state/update/started/ended/leaderboard` |
 
 Presence is broadcast as `user:update users[]` to everyone whenever it changes.
 Stream keys are never included in channel lists; they are only returned by
 `stream:key:request` to users allowed to stream on that channel.
+
+### Invite tokens
+
+Admins (`canManageUsers`) create invite tokens from the admin panel: single-use
+or up to 1000 uses, optional expiry and note. Tokens look like `inv-…`, are
+stored in `invite_tokens` as issued (so the link can be copied again) and can be
+revoked or deleted. `auth:register` accepts either `REGISTRATION_INVITE_CODE`
+or a valid token in `inviteCode`; the account remembers the token in
+`accounts.invite_token_id`, and the token's use and the account are written in
+one transaction. In `open` mode a valid token is recorded and an invalid one is
+ignored; `closed` stays closed. Invite links are `https://host/app?invite=TOKEN`:
+the client moves the token into the registration form and drops it from the URL.
+`GET /api/config` reports `registration.acceptsInviteLinks`.
 
 ### Private channels
 
