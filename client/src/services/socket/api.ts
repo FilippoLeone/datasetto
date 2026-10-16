@@ -98,10 +98,12 @@ export const api = {
   banUser: (targetSocketId: string, targetName: string, reason?: string) =>
     emit('user:ban', { targetSocketId, targetName, reason }),
 
-  // screenshare rooms
-  startScreenshare: (channelId: string) => emit('screenshare:start', { channelId }),
+  // screenshare rooms (`rtcSessionId` and `holding`: see joinVoice)
+  startScreenshare: (channelId: string, rtcSessionId: string | null = null, holding: HeldPeerConnection[] = []) =>
+    emit('screenshare:start', { channelId, rtcSessionId, holding }),
   stopScreenshare: (channelId: string) => emit('screenshare:stop', { channelId }),
-  joinScreenshareViewer: (channelId: string) => emit('screenshare:viewer:join', { channelId }),
+  joinScreenshareViewer: (channelId: string, rtcSessionId: string | null = null, holding: HeldPeerConnection[] = []) =>
+    emit('screenshare:viewer:join', { channelId, rtcSessionId, holding }),
   leaveScreenshareViewer: (channelId: string) => emit('screenshare:viewer:leave', { channelId }),
   sendScreenshareSignal: (to: string, data: unknown, channelId: string | null) =>
     emit('screenshare:signal', { to, data, channelId }),

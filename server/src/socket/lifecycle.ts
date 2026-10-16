@@ -28,13 +28,16 @@ export const leaveScreenshares = (sctx: SocketContext): void => {
   const { app, socket } = sctx;
   const { hosting, viewing } = app.presence.screensharesInvolving(socket.id);
 
+  // While the process shuts down nothing is broadcast: the presenter and the viewers keep
+  // their media connections and put the room back together on the next process.
   for (const channelId of hosting) {
     app.presence.stopScreenshare(channelId);
-    app.broadcast.screenshare(channelId);
+    // The host's socket went away (maybe only for a moment): viewers keep the picture and wait a while.
+    if (!app.runtime.shuttingDown) app.broadcast.screenshare(channelId, null, { endedBy: 'disconnect' });
   }
   for (const channelId of viewing) {
     app.presence.removeScreenshareViewer(channelId, socket.id);
-    app.broadcast.screenshare(channelId);
+    if (!app.runtime.shuttingDown) app.broadcast.screenshare(channelId);
   }
   sctx.screenshareHosting = null;
   sctx.screenshareViewing = null;

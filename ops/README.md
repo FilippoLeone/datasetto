@@ -208,7 +208,9 @@ notice more than a thin banner for about ten seconds:
    server; after the rejoin each client matches the room's new socket ids
    with the connections it still holds (same person, same media session:
    keep it, with an ICE restart only if the transport broke; someone who
-   rebuilt or is new: negotiate afresh). An OBS stream keeps publishing to
+   rebuilt or is new: negotiate afresh). Screenshare rooms work the same way:
+   the presenter keeps capturing, viewers keep the picture, and the room is
+   announced again on the next sign-in. An OBS stream keeps publishing to
    nginx-rtmp; the watchdog registers it again on its first poll (15 s) and
    viewers' players pick the stream up by themselves once the socket is back.
 6. The reconnect wave appears in the log as one line per burst

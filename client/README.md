@@ -45,7 +45,7 @@ src/
     voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation, rejoin after a reconnect), voice page, dock,
                            audio settings, voiceRejoin (rejoin state machine), peerReconcile (keep / rekey / rebuild peer connections),
                            desktopVoice (system-wide push to talk + voice overlay through the Electron bridge), pushToTalkHold, voiceOverlayState
-    screenshare/           presenter/viewer rooms over direct WebRTC
+    screenshare/           presenter/viewer rooms over direct WebRTC, screenshareRejoin (room rejoin state machine)
     minigames/             canvas engine (slither, pacman, fighter) + panel
     admin/                 members, channel permissions, bans
     settings/              the Notifications section of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
@@ -181,9 +181,21 @@ A dropped socket is not an event for the person using the app. What happens
 - **Live streams** (`features/stream/HlsPlayer.tsx`) ask for a fresh ticket
   and reload the playlist as soon as the socket is back, instead of waiting
   for the retry timer.
+- **Screenshare rooms keep going too** (`features/screenshare/screenshareService.ts`,
+  state machine in `screenshareRejoin.ts`): the presenter keeps capturing and the
+  viewers keep their picture while the socket is down; on the next sign-in the
+  presenter starts hosting again with the same media session id and each viewer
+  joins again, telling the server what it still holds. The host matches every
+  `viewer:pending` with the connection it has to that person (same media session
+  and they still hold ours: kept, moved to the new socket id, ICE restart if it
+  broke; otherwise a fresh offer), and a viewer follows the presenter's new socket
+  id from the room event or its seat confirmation. A viewer whose presenter
+  vanished waits up to a minute with the last picture before giving up; a
+  different presenter in the room is watched instead.
 
-The backoff schedule, the outbox and the rejoin state machine are unit tested
-(`backoff.test.ts`, `outbox.test.ts`, `voiceRejoin.test.ts`, `peerReconcile.test.ts`).
+The backoff schedule, the outbox and the rejoin state machines are unit tested
+(`backoff.test.ts`, `outbox.test.ts`, `voiceRejoin.test.ts`, `peerReconcile.test.ts`,
+`screenshareRejoin.test.ts`).
 
 ## Push to talk and the voice overlay while gaming
 

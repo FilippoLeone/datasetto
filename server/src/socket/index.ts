@@ -76,8 +76,8 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
       }
     }),
     users: coalesce(() => io.emit('user:update', ctx.presence.exportUsers())),
-    screenshare: (channelId, targetSocketId = null) => {
-      const payload = ctx.presence.screenshareView(channelId);
+    screenshare: (channelId, targetSocketId = null, extra = {}) => {
+      const payload = { ...ctx.presence.screenshareView(channelId), ...extra };
       if (targetSocketId) io.to(targetSocketId).emit('screenshare:session', payload);
       else io.to(channelId).emit('screenshare:session', payload);
     },

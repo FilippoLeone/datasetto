@@ -37,7 +37,8 @@ export interface RuntimeState {
 export interface Broadcaster {
   channels(): void;
   users(): void;
-  screenshare(channelId: string, targetSocketId?: string | null): void;
+  /** `extra` rides along on the event (e.g. `endedBy` when a share ended, so viewers know whether to wait). */
+  screenshare(channelId: string, targetSocketId?: string | null, extra?: Record<string, unknown>): void;
   /** Toast for everyone currently in a channel. */
   notifyChannel(channelId: string, notification: { type: 'info' | 'success' | 'warning' | 'error'; message: string }): void;
   /** Emit to every authenticated socket allowed to view the channel (not only the ones currently in it). */

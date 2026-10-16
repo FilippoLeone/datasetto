@@ -350,15 +350,47 @@ export interface ScreenshareSessionEvent {
   channelId: string;
   active: boolean;
   hostId: string | null;
+  /** Who presents; stable across the host's reconnects while `hostId` changes. */
+  hostAccountId?: string | null;
   hostName: string | null;
+  /** The host's media session id: our connection to them is still good while it stays the same. */
+  rtcSessionId?: string | null;
   startedAt: number | null;
   viewerCount: number;
+  /** When `active` is false: a deliberate stop (`host`) or the host's socket going away (`disconnect`). */
+  endedBy?: 'host' | 'disconnect' | null;
 }
 
 export interface ScreenshareSignalEvent {
   from: string;
   data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
   channelId?: string | null;
+}
+
+/** To the host: a viewer took a seat (or is back on a new socket). */
+export interface ScreenshareViewerPendingEvent {
+  channelId: string;
+  viewerId: string;
+  viewerAccountId?: string;
+  viewerName: string;
+  rtcSessionId?: string | null;
+  holding?: HeldPeerConnection[];
+}
+
+/** To a viewer: its seat is confirmed, with the presenter's identity. */
+export interface ScreenshareViewerSeatedEvent {
+  channelId: string;
+  hostId: string;
+  hostAccountId: string | null;
+  hostName: string | null;
+  rtcSessionId: string | null;
+}
+
+/** To a socket whose host or viewer seat another socket of the same account took over. */
+export interface ScreenshareReplacedEvent {
+  channelId: string;
+  role: 'host' | 'viewer';
+  bySocketId: string;
 }
 
 export interface StreamKeyResponse {
