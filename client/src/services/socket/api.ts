@@ -62,8 +62,14 @@ export const api = {
   regenerateStreamKey: (channelId: string) => emit('stream:key:regenerate', { channelId }),
 
   // chat
-  sendMessage: (text: string) => emit('chat', text),
+  /** Text alone, or text (possibly empty) plus the ids of pictures uploaded through `services/uploads.ts`. */
+  sendMessage: (text: string, attachmentIds: string[] = []) =>
+    attachmentIds.length > 0 ? emit('chat', { text, attachmentIds }) : emit('chat', text),
   deleteMessage: (channelId: string, messageId: string) => emit('chat:delete', { channelId, messageId }),
+  /** Take the link card off a message (own messages, or any with the delete-any-message right). */
+  removePreview: (channelId: string, messageId: string) => emit('chat:preview:remove', { channelId, messageId }),
+  /** A fresh media ticket for picture URLs (answered through the acknowledgement). */
+  requestMediaTicket: () => socketClient.request<{ success: boolean; ticket?: string; expiresAt?: number; error?: string }>('media:ticket'),
   addReaction: (channelId: string, messageId: string, emoji: string) => emit('chat:react', { channelId, messageId, emoji }),
   removeReaction: (channelId: string, messageId: string, emoji: string) => emit('chat:unreact', { channelId, messageId, emoji }),
   /** The page of history older than `beforeMessageId` (oldest first) and whether more exists. */

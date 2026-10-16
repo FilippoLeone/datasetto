@@ -487,6 +487,25 @@
   pointer-events: none;
 }
 
+/* Picture viewer: the backdrop fades, the stage pops (features/chat/Lightbox.tsx). */
+.motion-lightbox[data-state='open'] {
+  animation: fade-in var(--motion-base) var(--ease-out) both;
+}
+
+.motion-lightbox[data-state='open'] > .lightbox-stage {
+  animation: pop var(--motion-base) var(--ease-out) both;
+}
+
+.motion-lightbox[data-state='closed'] {
+  animation: fade-out var(--motion-fast) var(--ease-in) both;
+  pointer-events: none;
+}
+
+/* The composer while pictures are dragged over the app. */
+.composer-dropzone.is-dragging {
+  box-shadow: 0 0 0 2px var(--color-brand);
+}
+
 /* Matched terms in search snippets. */
 .search-snippet mark {
   background: rgba(240, 178, 50, 0.3);
