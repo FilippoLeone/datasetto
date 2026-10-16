@@ -7,11 +7,12 @@ import { inviteLinkFor } from '@/lib/inviteLink';
 import { api } from '@/services/socket/api';
 import { serverConfig } from '@/services/ServerConfigService';
 import { channels } from '@/state/channels';
-import { adminAccounts, adminBans, adminInvites, lastCreatedInvite } from '@/state/misc';
+import { adminAccounts, adminBans, adminInvites, adminSettings, lastCreatedInvite } from '@/state/misc';
+import { EMPTY_PERMISSIONS, PermissionsEditor } from './PermissionsEditor';
 import { account, can, isSuperuser } from '@/state/session';
 import { closeModal, openModal, toast } from '@/state/ui';
 import { CHANNEL_ICONS } from '@/app/layout/MainArea';
-import type { Account, InviteToken, RoleName } from '@/types/protocol';
+import type { Account, ChannelPermissions, CreatableChannelType, InviteToken, RoleName } from '@/types/protocol';
 
 type Tab = 'users' | 'invites' | 'channels' | 'bans';
 
@@ -241,7 +242,83 @@ const InvitesTab = () => {
   );
 };
 
+const TEMPLATE_KINDS: Array<{ value: CreatableChannelType; label: string }> = [
+  { value: 'text', label: 'Text channels' },
+  { value: 'voice', label: 'Voice channels' },
+  { value: 'stream', label: 'Live streams' },
+  { value: 'screenshare', label: 'Screenshare rooms' },
+];
+
+/** Permissions new channels of a kind start with; edited and saved per kind. */
+const TemplatesSection = () => {
+  const [kind, setKind] = useState<CreatableChannelType>('text');
+  const [draft, setDraft] = useState<ChannelPermissions | null>(null);
+  const settings = adminSettings.value;
+  const stored = settings?.channelPermissionTemplates[kind] ?? null;
+  const value = draft ?? stored ?? EMPTY_PERMISSIONS;
+
+  useEffect(() => {
+    api.getSettings();
+  }, []);
+
+  return (
+    <section className="rounded-md bg-base/60 p-3">
+      <p className="text-sm font-semibold text-text-bright">Defaults for new channels</p>
+      <p className="mb-2 text-xs text-text-muted">
+        New channels copy these permissions when they are created (the creator can still change them afterwards). Kinds without a template use the server default:
+        everyone may see, chat, talk and stream; admins manage.
+      </p>
+      <Select
+        label="Channel kind"
+        value={kind}
+        options={TEMPLATE_KINDS.map((entry) => ({ value: entry.value, label: entry.label + (settings?.channelPermissionTemplates[entry.value] ? ' (custom)' : ' (server default)') }))}
+        onChange={(next) => {
+          setKind(next as CreatableChannelType);
+          setDraft(null);
+        }}
+      />
+      {settings ? (
+        <PermissionsEditor value={value} onChange={setDraft} channelType={kind} accounts={adminAccounts.value} previewTitle={'Who could do what in a new ' + kind + ' channel'} />
+      ) : (
+        <p className="text-sm text-text-muted">Loading settings…</p>
+      )}
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        {stored && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              api.updateSettings({ channelPermissionTemplates: { [kind]: null } });
+              setDraft(null);
+            }}
+          >
+            Reset to server default
+          </Button>
+        )}
+        <Button
+          size="sm"
+          disabled={!draft}
+          onClick={() => {
+            if (!draft) return;
+            api.updateSettings({ channelPermissionTemplates: { [kind]: draft } });
+            setDraft(null);
+          }}
+        >
+          Save template
+        </Button>
+      </div>
+    </section>
+  );
+};
+
 const ChannelsTab = () => (
+  <div className="flex flex-col gap-3">
+    {can('canManageChannelPermissions') && <TemplatesSection />}
+    <ChannelRows />
+  </div>
+);
+
+const ChannelRows = () => (
   <ul className="flex flex-col gap-1">
     {channels.value.filter((channel) => channel.type !== 'dm').map((channel) => {
       const Icon = CHANNEL_ICONS[channel.type];

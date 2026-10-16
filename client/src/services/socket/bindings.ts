@@ -21,6 +21,7 @@ import {
   adminAccounts,
   adminBans,
   adminInvites,
+  adminSettings,
   channelMembers,
   lastCreatedInvite,
   channelPermissions,
@@ -43,6 +44,7 @@ import type {
   InviteToken,
   ReactionEvent,
   ScreenshareSessionEvent,
+  ServerSettings,
   ServerError,
   SessionInfo,
   StreamKeyResponse,
@@ -300,6 +302,10 @@ export const installSocketBindings = (): void => {
   });
   socketClient.on<{ bans: BanRecord[] }>('admin:bans:list', ({ bans }) => {
     adminBans.value = bans;
+  });
+  socketClient.on<{ settings: ServerSettings; saved?: boolean }>('admin:settings', ({ settings, saved }) => {
+    adminSettings.value = settings;
+    if (saved) toast.success('Server settings saved');
   });
   socketClient.on<{ invites: InviteToken[] }>('admin:invites:list', ({ invites }) => {
     adminInvites.value = invites;

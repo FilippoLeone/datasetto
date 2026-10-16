@@ -283,6 +283,17 @@ export interface InviteToken {
   redeemedBy: Array<{ accountId: string; username: string; displayName: string; createdAt: number }>;
 }
 
+/** Admin-editable server settings (`admin:settings`). */
+export interface ServerSettings {
+  /** Permission template applied to new channels of each kind; absent kinds use the server default. */
+  channelPermissionTemplates: Partial<Record<CreatableChannelType, ChannelPermissions>>;
+}
+
+/** `admin:settings:update` payload; a template set to null clears it. */
+export interface ServerSettingsUpdate {
+  channelPermissionTemplates?: Partial<Record<CreatableChannelType, Partial<ChannelPermissions> | null>>;
+}
+
 /** `admin:invites:create` payload. */
 export interface CreateInviteInput {
   maxUses?: number;

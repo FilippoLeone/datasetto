@@ -1,5 +1,13 @@
 import { socketClient } from './client';
-import type { ChannelPermissions, CreateChannelInput, CreateInviteInput, LeaderboardEntry, MinigameType, UpdateChannelInput } from '@/types/protocol';
+import type {
+  ChannelPermissions,
+  CreateChannelInput,
+  CreateInviteInput,
+  LeaderboardEntry,
+  MinigameType,
+  ServerSettingsUpdate,
+  UpdateChannelInput,
+} from '@/types/protocol';
 
 const emit = (event: string, payload?: unknown): void => socketClient.emit(event, payload);
 
@@ -84,6 +92,8 @@ export const api = {
   getChannelPermissions: (channelId: string) => emit('admin:channels:getPermissions', { channelId }),
   updateChannelPermissions: (channelId: string, permissions: Partial<ChannelPermissions>) =>
     emit('admin:channels:updatePermissions', { channelId, permissions }),
+  getSettings: () => emit('admin:settings:get'),
+  updateSettings: (input: ServerSettingsUpdate) => emit('admin:settings:update', input),
   listInvites: () => emit('admin:invites:list'),
   createInvite: (input: CreateInviteInput) => emit('admin:invites:create', input),
   revokeInvite: (inviteId: string) => emit('admin:invites:revoke', { inviteId }),

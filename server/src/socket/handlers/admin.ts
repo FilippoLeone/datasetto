@@ -3,6 +3,7 @@ import { ROLES, highestRoleLevel, isRoleName, roleLevel } from '../../core/roles
 import { idSchema, permissionsInputSchema } from '../../core/validation.js';
 import { AppError, notFound } from '../../errors.js';
 import { inviteStatus, MAX_INVITE_USES } from '../../services/invites.js';
+import { settingsUpdateSchema } from '../../services/settings.js';
 import type { InviteTokenRecord } from '../../types.js';
 import { handle, requirePermission, type SocketContext } from '../context.js';
 
@@ -143,7 +144,8 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
       const actor = requirePermission(sctx, 'canManageChannelPermissions', 'No permission to modify channel permissions');
       requireRegularChannel(channelId);
       const updated = app.channels.updatePermissions(channelId, permissions ?? {});
-      io.emit('channels:permissionsUpdated', { channelId, permissions: updated });
+      // Only people who can see the channel learn about its permissions.
+      app.broadcast.toChannelViewers(channelId, 'channels:permissionsUpdated', { channelId, permissions: updated });
       socket.emit('admin:channels:permissionsUpdated', { channelId, permissions: updated });
       app.broadcast.channels();
       app.log.info({ channelId, by: actor.accountId }, 'channel permissions updated');
@@ -203,6 +205,20 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
     app.broadcast.channels();
     app.broadcast.users();
     app.log.info({ channelId, accountId, by: actor.accountId }, 'channel member removed');
+  });
+
+  // -------------------------------------------------------------- settings
+
+  handle(sctx, 'admin:settings:get', { errorEvent: ERR, code: 'SETTINGS_FAILED' }, () => {
+    requirePermission(sctx, 'canManageChannelPermissions', 'No permission to view server settings');
+    socket.emit('admin:settings', { settings: app.settings.all() });
+  });
+
+  handle(sctx, 'admin:settings:update', { schema: settingsUpdateSchema, errorEvent: ERR, code: 'SETTINGS_UPDATE_FAILED' }, (payload) => {
+    const actor = requirePermission(sctx, 'canManageChannelPermissions', 'No permission to change server settings');
+    const settings = app.settings.update(payload, actor.accountId);
+    socket.emit('admin:settings', { settings, saved: true });
+    app.log.info({ keys: Object.keys(payload), by: actor.accountId }, 'settings updated');
   });
 
   // --------------------------------------------------------------- invites

@@ -64,12 +64,14 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
       throw new AppError('Only private channels can have a join password', 'PASSWORD_ON_PUBLIC_CHANNEL', 400);
     }
     const joinPasswordHash = input.password ? await ChannelService.hashPassword(input.password) : null;
+    const type = (input.type ?? 'text') as CreatableChannelType;
 
     const channel = app.channels.create({
       name: input.name,
-      type: (input.type ?? 'text') as CreatableChannelType,
+      type,
       groupId: input.groupId ?? null,
-      permissions: input.permissions ?? null,
+      // Explicit permissions win; otherwise the admin-defined template for this kind, else the server default.
+      permissions: input.permissions && Object.keys(input.permissions).length > 0 ? input.permissions : app.settings.channelPermissionTemplate(type),
       topic: input.topic ?? null,
       visibility,
       joinPasswordHash,
@@ -191,6 +193,10 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
       }
       if (!channel.streamKey) throw new AppError('Stream key unavailable', 'STREAM_KEY_MISSING', 404);
 
+      // Seeing the channel is always required; the stream right can come from the channel or from a global role.
+      if (!app.channels.canAccess(channel, user, 'view')) {
+        throw new AppError('You do not have access to this stream key', 'STREAM_KEY_FORBIDDEN', 403);
+      }
       const globalAccess =
         user.isSuperuser || rolesHavePermission(user.roles, 'canViewAllKeys') || rolesHavePermission(user.roles, 'canStreamAnywhere');
       if (!globalAccess && !app.channels.canAccess(channel, user, 'stream')) {

@@ -93,11 +93,26 @@ rate limits apply.
 | `account:get`, `account:update {...}` | `account:data`, `account:updated`, `account:rolesUpdated` |
 | `admin:accounts:list/updateRoles/disable/enable/unban`, `admin:bans:list`, `admin:channels:getPermissions/updatePermissions`, `admin:channels:members:list/add/remove {channelId, accountId?}` | `admin:accounts:*`, `admin:bans:list`, `admin:channels:permissions`, `channels:permissionsUpdated`, `admin:channels:members {channelId, members[]}` |
 | `admin:invites:list`, `admin:invites:create {maxUses?, expiresAt?, note?}`, `admin:invites:revoke/delete {inviteId}` | `admin:invites:list {invites[]}`, `admin:invites:created {invite}` |
+| `admin:settings:get`, `admin:settings:update {channelPermissionTemplates?: {text?, voice?, stream?, screenshare?}}` | `admin:settings {settings, saved?}` |
 | `voice:game:start/join/leave/input/end/leaderboard` | `voice:game:state/update/started/ended/leaderboard` |
 
 Presence is broadcast as `user:update users[]` to everyone whenever it changes.
 Stream keys are never included in channel lists; they are only returned by
 `stream:key:request` to users allowed to stream on that channel.
+
+### Channel permissions
+
+Every channel stores five entries (`view`, `chat`, `voice`, `stream`, `manage`),
+each a list of roles (`*` = everyone) plus per-account overrides. `view` is the
+gate for everything: joining the channel and reading history, voice, hosting
+or watching a screenshare, HLS tickets, stream keys, reactions and deletion
+all require it before the action's own entry is checked
+(`ChannelService.requireAccess`). Permission changes are broadcast only to
+people who can see the channel, and the public stream status endpoint does
+not acknowledge private channels. Admins keep a template per channel kind in
+the `settings` table (`admin:settings:update {channelPermissionTemplates}`);
+`channels:create` without explicit permissions starts from that template, else
+from the server default (everyone may see, chat, talk and stream; admins manage).
 
 ### Direct messages
 

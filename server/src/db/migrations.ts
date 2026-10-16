@@ -166,6 +166,19 @@ export const migrations: Migration[] = [
       CREATE INDEX channels_type_idx ON channels(type);
     `,
   },
+  {
+    // Admin-editable server settings as JSON values (e.g. permission templates for new channels).
+    version: 7,
+    name: 'settings',
+    up: `
+      CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        updated_by TEXT
+      );
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

@@ -1,34 +1,14 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Lock, UserMinus, UserPlus } from 'lucide-preact';
 import { Avatar, Button, Field, Modal, Select, TextInput } from '@/components';
-import { formatFullDate, ROLE_LABELS } from '@/lib/format';
+import { formatFullDate } from '@/lib/format';
 import { api } from '@/services/socket/api';
 import { channelsById } from '@/state/channels';
 import { adminAccounts, channelMembers, channelPermissions } from '@/state/misc';
 import { can } from '@/state/session';
-import { closeModal } from '@/state/ui';
-import type { Channel, ChannelPermissionAction, ChannelPermissions, ChannelVisibility, RoleName } from '@/types/protocol';
-
-const ACTIONS: Array<{ id: ChannelPermissionAction; label: string; hint: string }> = [
-  { id: 'view', label: 'View', hint: 'See the channel and read messages' },
-  { id: 'chat', label: 'Chat', hint: 'Send messages' },
-  { id: 'voice', label: 'Voice', hint: 'Join the voice room' },
-  { id: 'stream', label: 'Stream', hint: 'Get the stream key and publish, or share a screen' },
-  { id: 'manage', label: 'Manage', hint: 'Edit channel settings' },
-];
-
-const ROLE_CHOICES: Array<{ id: string; label: string }> = [
-  { id: '*', label: 'Everyone' },
-  ...(['admin', 'moderator', 'streamer', 'user'] as RoleName[]).map((role) => ({ id: role, label: ROLE_LABELS[role] })),
-];
-
-const EMPTY: ChannelPermissions = {
-  view: { roles: ['*'], accounts: [] },
-  chat: { roles: ['*'], accounts: [] },
-  voice: { roles: ['*'], accounts: [] },
-  stream: { roles: ['*'], accounts: [] },
-  manage: { roles: ['admin'], accounts: [] },
-};
+import { closeModal, toast } from '@/state/ui';
+import { EMPTY_PERMISSIONS, PermissionsEditor } from './PermissionsEditor';
+import type { Channel, ChannelPermissions, ChannelVisibility, CreatableChannelType } from '@/types/protocol';
 
 /** Topic, visibility and join password. Saved separately from the permission matrix. */
 const ChannelSettings = ({ channel }: { channel: Channel }) => {
@@ -175,8 +155,9 @@ const MembersSection = ({ channel }: { channel: Channel }) => {
 export const ChannelPermissionsModal = ({ channelId }: { channelId: string }) => {
   const channel = channelsById.value.get(channelId);
   const loaded = channelPermissions.value[channelId];
-  const [draft, setDraft] = useState<ChannelPermissions>(loaded ?? EMPTY);
+  const [draft, setDraft] = useState<ChannelPermissions>(loaded ?? EMPTY_PERMISSIONS);
   const [touched, setTouched] = useState(false);
+  const members = channelMembers.value[channelId] ?? [];
 
   useEffect(() => {
     api.getChannelPermissions(channelId);
@@ -189,27 +170,9 @@ export const ChannelPermissionsModal = ({ channelId }: { channelId: string }) =>
 
   if (!channel) return null;
 
-  const toggleRole = (action: ChannelPermissionAction, role: string) => {
+  const change = (next: ChannelPermissions) => {
     setTouched(true);
-    setDraft((current) => {
-      const roles = current[action].roles;
-      let next: string[];
-      if (role === '*') next = roles.includes('*') ? [] : ['*'];
-      else {
-        const without = roles.filter((entry) => entry !== '*');
-        next = without.includes(role) ? without.filter((entry) => entry !== role) : [...without, role];
-      }
-      return { ...current, [action]: { ...current[action], roles: next } };
-    });
-  };
-
-  const toggleAccount = (action: ChannelPermissionAction, accountId: string) => {
-    setTouched(true);
-    setDraft((current) => {
-      const accounts = current[action].accounts;
-      const next = accounts.includes(accountId) ? accounts.filter((entry) => entry !== accountId) : [...accounts, accountId];
-      return { ...current, [action]: { ...current[action], accounts: next } };
-    });
+    setDraft(next);
   };
 
   const save = () => {
@@ -217,14 +180,26 @@ export const ChannelPermissionsModal = ({ channelId }: { channelId: string }) =>
     closeModal();
   };
 
+  const saveAsTemplate = () => {
+    if (channel.type === 'dm') return;
+    api.updateSettings({ channelPermissionTemplates: { [channel.type as CreatableChannelType]: draft } });
+    toast.info('New ' + channel.type + ' channels will start with these permissions');
+  };
+
   return (
     <Modal
       title={'Permissions for #' + channel.name}
-      subtitle="Superusers always have access. Pick roles, or grant individual members."
+      subtitle="Who can see, chat, talk, stream and manage. Superusers always have every right."
       onClose={closeModal}
       size="lg"
       footer={
         <>
+          {can('canManageChannelPermissions') && channel.type !== 'dm' && (
+            <Button variant="ghost" onClick={saveAsTemplate} title={'Use these permissions as the default for new ' + channel.type + ' channels'}>
+              Use as default for new {channel.type} channels
+            </Button>
+          )}
+          <span className="flex-1" />
           <Button variant="secondary" onClick={closeModal}>
             Cancel
           </Button>
@@ -237,42 +212,14 @@ export const ChannelPermissionsModal = ({ channelId }: { channelId: string }) =>
       <div className="flex flex-col gap-3">
         {can('canEditChannels') && <ChannelSettings key={channel.id + ':' + channel.visibility + ':' + channel.hasPassword + ':' + channel.topic} channel={channel} />}
         {channel.visibility === 'private' && <MembersSection channel={channel} />}
-        {ACTIONS.map((action) => {
-          const entry = draft[action.id];
-          const everyone = entry.roles.includes('*');
-          return (
-            <section key={action.id} className="rounded-md bg-base/60 p-3">
-              <p className="text-sm font-semibold text-text-bright">{action.label}</p>
-              <p className="mb-2 text-xs text-text-muted">{action.hint}</p>
-              <div className="flex flex-wrap gap-2">
-                {ROLE_CHOICES.map((choice) => (
-                  <label key={choice.id} className="flex items-center gap-1.5 rounded-sm bg-sidebar px-2 py-1 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={choice.id === '*' ? everyone : !everyone && entry.roles.includes(choice.id)}
-                      disabled={choice.id !== '*' && everyone}
-                      onChange={() => toggleRole(action.id, choice.id)}
-                    />
-                    {choice.label}
-                  </label>
-                ))}
-              </div>
-              {!everyone && adminAccounts.value.length > 0 && (
-                <details className="mt-2 text-sm">
-                  <summary className="cursor-pointer text-text-muted">Individual members ({entry.accounts.length})</summary>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {adminAccounts.value.map((user) => (
-                      <label key={user.id} className="flex items-center gap-1.5 rounded-sm bg-sidebar px-2 py-1">
-                        <input type="checkbox" checked={entry.accounts.includes(user.id)} onChange={() => toggleAccount(action.id, user.id)} />
-                        {user.displayName}
-                      </label>
-                    ))}
-                  </div>
-                </details>
-              )}
-            </section>
-          );
-        })}
+        <PermissionsEditor
+          value={draft}
+          onChange={change}
+          channelType={channel.type}
+          accounts={adminAccounts.value}
+          visibility={channel.visibility ?? 'public'}
+          memberIds={new Set(members.map((member) => member.accountId))}
+        />
       </div>
     </Modal>
   );

@@ -9,6 +9,7 @@ import { MessageService } from './services/messages.js';
 import { ModerationService } from './services/moderation.js';
 import { PresenceService } from './services/presence.js';
 import { SessionService } from './services/sessions.js';
+import { SettingsService } from './services/settings.js';
 import { TurnService } from './services/turn.js';
 import { HlsTicketService } from './services/hlsTickets.js';
 import { InviteService } from './services/invites.js';
@@ -35,6 +36,7 @@ export interface AppContext {
   avatars: AvatarService;
   invites: InviteService;
   sessions: SessionService;
+  settings: SettingsService;
   channels: ChannelService;
   messages: MessageService;
   moderation: ModerationService;
@@ -69,6 +71,7 @@ export const createContext = (config: AppConfig, db: DB): AppContext => {
     avatars: new AvatarService(config.storage.dataDir),
     invites,
     sessions: new SessionService(db, config.sessions.ttlMs),
+    settings: new SettingsService(db),
     channels,
     messages: new MessageService(db, config),
     moderation: new ModerationService(db),

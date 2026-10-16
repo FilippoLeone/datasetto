@@ -11,7 +11,7 @@ import {
   type PermissionsInput,
 } from '../core/validation.js';
 import { parseJson, type DB } from '../db/index.js';
-import { AppError, notFound } from '../errors.js';
+import { AppError, forbidden, notFound } from '../errors.js';
 import {
   PERMISSION_ACTIONS,
   type ChannelGroupRecord,
@@ -635,6 +635,12 @@ export class ChannelService {
   }
 
   // -------------------------------------------------------------- access
+
+  /** Like canAccess, but throws FORBIDDEN (view first, then the requested action). */
+  requireAccess(channel: ChannelRecord, subject: AccessSubject | null, action: PermissionAction, message?: string): void {
+    if (!this.canAccess(channel, subject, 'view')) throw forbidden(message ?? 'No permission to access this channel');
+    if (action !== 'view' && !this.canAccess(channel, subject, action)) throw forbidden(message ?? 'No permission for this action in this channel');
+  }
 
   /**
    * May `subject` perform `action` on the channel? Superusers always may.
