@@ -1,0 +1,127 @@
+# Datasetto production stack. The same file runs locally (with
+# docker-compose.local.yml layered on top) and on the GCP VM.
+#
+#   web   Caddy: TLS, static client, reverse proxy          ports 80/443
+#   app   Node.js API + Socket.IO + SQLite (volume app_data) internal :4000
+#   rtmp  nginx-rtmp: OBS ingest -> HLS                      ports 1935 (RTMP), 1936 (RTMPS), HLS on :8080 internal
+#   turn  coturn relay for WebRTC behind strict NATs         host network, profile "turn"
+#
+# Images are pulled from the registry in IMAGE_PREFIX; `docker compose build`
+# rebuilds them from source when you are hacking locally.
+name: datasetto
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  web:
+    image: ${IMAGE_PREFIX:-ghcr.io/filippoleone/datasetto}-web:${IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: ops/caddy/Dockerfile
+      args:
+        SITE_URL: ${SITE_URL:-}
+    restart: unless-stopped
+    depends_on:
+      - app
+      - rtmp
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    logging: *default-logging
+
+  app:
+    image: ${IMAGE_PREFIX:-ghcr.io/filippoleone/datasetto}-app:${IMAGE_TAG:-latest}
+    build:
+      context: ../server
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "4000"
+      TRUST_PROXY: "true"
+      # Streaming cost controls (ops/README.md, "Keeping the bill small")
+      RTMP_STAT_URL: http://rtmp:8080
+      STREAM_MAX_VIEWERS: ${STREAM_MAX_VIEWERS:-10}
+      STREAM_MAX_BITRATE_KBPS: ${STREAM_MAX_BITRATE_KBPS:-6000}
+      STREAM_MONTHLY_EGRESS_GB: ${STREAM_MONTHLY_EGRESS_GB:-150}
+      HLS_TICKET_SECRET: ${HLS_TICKET_SECRET:-}
+      DATABASE_PATH: /data/datasetto.db
+    volumes:
+      - app_data:/data
+    expose:
+      - "4000"
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+    logging: *default-logging
+
+  rtmp:
+    image: ${IMAGE_PREFIX:-ghcr.io/filippoleone/datasetto}-rtmp:${IMAGE_TAG:-latest}
+    build:
+      context: ./rtmp
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      # ops/rtmp/entrypoint.sh enables RTMPS on 1936 once Caddy holds a certificate for this host.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - "1935:1935"
+      - "1936:1936"
+    expose:
+      - "8080"
+    volumes:
+      # Read-only view of Caddy's certificates; the entrypoint copies the one for SITE_ADDRESS.
+      - caddy_data:/caddy:ro
+    tmpfs:
+      # HLS segments live in RAM: fast and never wears the disk.
+      - /tmp/hls:rw,size=256m,mode=1777
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+    logging: *default-logging
+
+  turn:
+    image: coturn/coturn:4.18-alpine3.24
+    profiles: ["turn"]
+    restart: unless-stopped
+    # Host networking avoids per-port NAT for the UDP relay range.
+    network_mode: host
+    environment:
+      TURN_REALM: ${TURN_REALM:-datasetto}
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-}
+      TURN_PORT: ${TURN_PORT:-3478}
+      TURN_MIN_PORT: ${TURN_MIN_PORT:-49152}
+      TURN_MAX_PORT: ${TURN_MAX_PORT:-49400}
+    volumes:
+      - ./turn/entrypoint.sh:/turn-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/turn-entrypoint.sh"]
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+    logging: *default-logging
+
+volumes:
+  app_data:
+  caddy_data:
+  caddy_config:

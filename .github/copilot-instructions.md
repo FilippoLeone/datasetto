@@ -1,59 +1,33 @@
 # Datasetto AI Coding Instructions
 
-## 🧠 Project Context
-Datasetto is a self-hosted streaming platform (Twitch-like) with RTMP streaming, WebRTC voice chat, and real-time text chat.
-- **Architecture**: Monorepo structure with `client` (Web/Mobile/Desktop), `server` (Node.js), and `ops` (Docker/Infra).
-- **Core Stack**: TypeScript (Client), Node.js/Express (Server), Nginx-RTMP (Streaming), Socket.IO (Real-time), WebRTC (Voice).
+## Project Context
+Datasetto is a self-hosted voice, video, streaming and chat server for a small friend group: text chat, WebRTC voice/camera/screenshare, OBS streaming via RTMP to HLS, voice-channel minigames.
+- **Monorepo**: `client` (web app, also packaged by `desktop/` and `mobile/`), `server` (Node.js API), `ops` (Docker Compose + Google Cloud scripts).
+- **Deployment target**: one small VM (GCP e2-micro) running `ops/docker-compose.yml`. Keep resource use and egress low; this is a hobby project with a 10 to 15 EUR monthly budget.
 
-## 🏗️ Codebase Architecture
+## Server (`server/`)
+- TypeScript, ESM (`NodeNext`), Node 22+. Build with `tsc`, run `dist/index.js`. Tests: `npm test` (vitest).
+- Layers: `config.ts` (zod env) -> `context.ts` (services) -> `http/` (Express 5) and `socket/` (Socket.IO 4).
+- Persistence is SQLite via `better-sqlite3` (`src/db`, migrations in `db/migrations.ts`; bump `user_version` with a new entry, never edit old ones). Live state belongs in `services/presence.ts`, not the database.
+- Every socket handler goes through `handle()` in `socket/context.ts`: zod schema, auth requirement, rate-limit bucket, error event. Throw `AppError(message, code, status)` for user-facing failures.
+- Keep the wire protocol compatible with the client (`client/src/types/protocol.ts`, documented in `server/README.md`). Add events; do not rename existing ones.
+- Never put stream keys in channel broadcasts; never log passwords, tokens or stream keys (pino redaction is configured for the common field names).
+- The minigame engine (`src/minigames/MinigameManager.js`) is plain JavaScript on purpose; adapt its dependencies through the small adapter in `socket/index.ts`.
 
-### Client (`client/`)
-- **Framework**: **Vanilla TypeScript** with direct DOM manipulation. **NO React, Vue, or Angular.**
-- **Pattern**: Controller-Service architecture.
-  - **Controllers** (`src/controllers/`): Handle UI logic and user interaction (e.g., `ChatController`, `VoiceController`).
-  - **Services** (`src/services/`): Handle business logic and external comms (e.g., `SocketService`, `AudioService`).
-  - **State**: Centralized `StateManager` for app-wide state.
-- **Entry Point**: `src/App.ts` initializes all controllers and services.
-- **UI**: TailwindCSS for styling. HTML templates in `index.html` and dynamically manipulated via TS.
+## Client (`client/`)
+- **Preact + TypeScript (TSX)** with `@preact/signals` for state and Tailwind v4 for styling. Lucide icons. No React, no router: a single page driven by signals.
+- Layers: `state/` (signals + mutation helpers) <- `services/socket/bindings.ts` (server events) and feature managers (`features/voice/voiceManager.ts`, `features/screenshare/screenshareService.ts`) <- components in `features/*` and `app/`.
+- All client-to-server messages go through `services/socket/api.ts`. Add new events there and handle replies in `bindings.ts`.
+- Media engines (`services/voice/VoiceService.ts`, `AudioService.ts`, the HLS player, screenshare peers) are framework-agnostic classes; components never touch RTCPeerConnection directly.
+- Runtime configuration comes from `GET /api/config` via `services/ServerConfigService.ts` (ICE servers with short-lived TURN credentials, registration mode, RTMP URL). Build-time `VITE_*` values are only fallbacks for the desktop/mobile shells. Do not hard-code credentials.
+- Keep production same-origin: relative URLs by default (Caddy serves the client and proxies `/api`, `/socket.io`, `/hls`).
+- Run `npm run typecheck`, `npm run lint` and `npm test` in `client/` before finishing a change.
 
-### Server (`server/`)
-- **Runtime**: Node.js with ES Modules (`import`/`export`).
-- **Entry**: `src/index.js` (Monolithic entry point, handles Express & Socket.IO).
-- **Logic**:
-  - **Managers** (`src/models/`): `ChannelManager`, `UserManager` handle in-memory state.
-  - **Socket.IO**: Primary communication layer for chat, signaling, and state updates.
-  - **API**: Minimal REST endpoints for stream auth and health checks.
+## Ops (`ops/`)
+- `docker-compose.yml` is the single stack definition; `docker-compose.local.yml` only overrides ports/CORS for localhost. Images are published to GHCR by `.github/workflows/images.yml`.
+- Caddy (`ops/caddy`) terminates TLS and serves the built client; nginx-rtmp (`ops/rtmp`) validates publishes through the app's `/internal/stream/*` callbacks (OBS key `channel?key=token`, HLS under the channel name); coturn (`ops/turn`) uses `use-auth-secret` shared with the app via `TURN_SECRET`.
+- GCP scripts (`ops/gcp`) must stay idempotent and cheap: one VM, Standard network tier, no load balancers, no managed databases.
 
-### Infrastructure (`ops/`)
-- **Docker**: `docker-compose.prod.yml` orchestrates `server`, `client` (nginx), `rtmp` (nginx-rtmp), `turn` (coturn), and `caddy` (proxy).
-- **Streaming**: OBS -> RTMP (Port 1935) -> Nginx-RTMP -> HLS -> Client Player (`hls.js`).
-
-## 💻 Development Workflows
-
-### Local Development
-- **Full Stack**: Run `docker compose up -d` in `ops/` to start everything.
-- **Client-only**: `cd client && npm run dev` (Vite).
-- **Server-only**: `cd server && npm run dev` (Nodemon).
-
-### Deployment
-- **Scripts**: Use `deploy-vps.sh` (Ubuntu/Debian) or `deploy-gcp.sh` (Google Cloud).
-- **Env**: Configuration via `.env` in `ops/` (copied from `.env.example`).
-
-## 🧩 Key Conventions & Patterns
-
-- **DOM Access**: Cache elements in `App.ts` or Controller constructors. Avoid `document.querySelector` in render loops.
-- **Socket Events**:
-  - Client: `this.socket.on('event', handler)` in `App.ts` or Controllers.
-  - Server: `socket.on('event', handler)` in `index.js`.
-- **Voice/WebRTC**:
-  - Signaling handled via Socket.IO (`voice:signal`, `voice:join`).
-  - Audio processing in `AudioService.ts` (Web Audio API).
-- **Mobile/Desktop**:
-  - `mobile/`: Capacitor project. Uses `client` build.
-  - `desktop/`: Electron project. Uses `client` build.
-  - **Responsive**: Logic often checks `window.matchMedia` or `isMobileLayout()` in `App.ts`.
-
-## ⚠️ Critical Implementation Details
-- **No Frameworks**: Do not suggest React hooks or Vue directives. Use `element.addEventListener` and `element.classList`.
-- **State Sync**: Server is the source of truth. Client updates UI based on `socket.on` events, not optimistic UI updates for critical state.
-- **Stream Auth**: RTMP authentication is handled via a callback to `server/api/stream/auth`.
+## Conventions
+- Validate at the boundary (zod), keep services synchronous where SQLite allows it, prefer small focused modules.
+- Run `npm run typecheck` and `npm test` in `server/` before finishing a change (client checks are listed above).

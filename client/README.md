@@ -1,327 +1,81 @@
-# Datasetto Client
+# Datasetto web client
 
-Modern, modular frontend for Datasetto - A self-hosted streaming and voice collaboration platform with RTMP streaming and WebRTC voice chat.
-
-## 🎯 Features
-
-- **Live Streaming**: Watch RTMP streams via HLS with minimal latency
-- **Voice Chat**: WebRTC-powered voice channels with:
-  - Push-to-talk or open mic
-  - Echo cancellation, noise suppression, auto-gain
-  - Individual user volume control
-  - Speaking indicators
-  - Mic gain and output volume controls
-- **Text Chat**: Real-time messaging per channel
-- **Channel Management**: Create and join multiple channels
-- **Responsive Design**: Works on desktop, tablet, and mobile
-- **Accessibility**: ARIA labels, keyboard navigation, screen reader support
-
-## 🏗️ Architecture
-
-### Project Structure
-
-```
-client/
-├── src/
-│   ├── components/          # UI components
-│   │   └── NotificationManager.ts
-│   ├── services/           # Core business logic
-│   │   ├── AudioService.ts    # Microphone & audio processing
-│   │   ├── PlayerService.ts   # HLS video player
-│   │   ├── SocketService.ts   # Socket.IO communication
-│   │   └── VoiceService.ts    # WebRTC voice chat
-│   ├── styles/            # CSS stylesheets
-│   │   └── main.css
-│   ├── types/             # TypeScript type definitions
-│   │   └── index.ts
-│   ├── utils/             # Utility functions
-│   │   ├── EventEmitter.ts
-│   │   ├── StateManager.ts
-│   │   └── helpers.ts
-│   ├── App.ts             # Main application controller
-│   ├── main.ts            # Application entry point
-│   └── vite-env.d.ts      # Vite environment types
-├── index.html             # HTML template
-├── vite.config.js         # Vite configuration
-├── tsconfig.json          # TypeScript configuration
-├── package.json
-└── .env.example           # Environment variables template
-```
-
-### Architecture Highlights
-
-- **Service-Oriented**: Separated concerns into specialized services
-- **Event-Driven**: Services communicate via EventEmitter pattern
-- **Type-Safe**: Full TypeScript with strict mode enabled
-- **Modular**: Easy to extend and maintain
-- **State Management**: Centralized state with persistence
-- **Error Handling**: Graceful error recovery with user notifications
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Node.js 18+ and npm/yarn
-- Running RTMP server (see `ops/` directory)
-- Running backend server (see `server/` directory)
-
-### Installation
+Preact + TypeScript single page app. Signals hold the application state, the
+media engines (WebRTC voice/video, HLS playback, screenshare) are plain
+services, and components only read signals and call actions.
 
 ```bash
-# Install dependencies
 npm install
-
-# Copy environment file
-cp .env.example .env
-
-# Edit .env with your configuration
-# VITE_SERVER_URL=http://localhost:4000
-# VITE_API_BASE_URL=http://localhost:4000
-# VITE_HLS_BASE_URL=http://localhost/hls
+npm run dev        # http://localhost:5173, proxies /api, /socket.io and /hls to the Docker stack on :8080
+npm run build      # type-check + production bundle in dist/
+npm run lint
+npm test           # vitest unit tests for lib/ and state/
 ```
 
-### Development
+Set `VITE_DEV_PROXY` to point the dev proxy somewhere else than `http://localhost:8080`.
 
-```bash
-# Start development server
-npm run dev
+## Layout
 
-# Type check
-npm run type-check
-
-# Format code
-npm run format
+```
+src/
+  main.tsx                 bootstrap: runtime config -> socket -> render
+  app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts
+  state/                   signals: session, channels, chat, presence, voice, settings, ui, misc (streams, screenshare, admin, minigame)
+  services/
+    socket/                SocketClient (reconnecting socket.io), api (typed emits), bindings (server events -> state)
+    voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate)
+    native/                Electron bridge, Capacitor foreground service and audio routes
+    ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs
+    sounds                 synthesised UI sounds
+  features/
+    auth/                  sign-in / register gate, profile dialog
+    channels/              channel list, create/delete, stream key dialog, confirm dialog
+    chat/                  message list, composer, message rendering (links, mentions)
+    stream/                HLS player + live chat page
+    voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation), voice page, dock, audio settings
+    screenshare/           presenter/viewer rooms over direct WebRTC
+    minigames/             canvas engine (slither, pacman, fighter) + panel
+    admin/                 members, channel permissions, bans
+  components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost
+  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime URLs
+  types/protocol.ts        wire types shared with the server
+  styles/app.css           Tailwind v4 theme tokens (dark palette) and the few custom classes
 ```
 
-The client will be available at `http://localhost:5173`
+## Sharing a game with sound
 
-### Production Build
+Screen share works like a go-live button, no OBS needed, in two places: a
+screenshare room (one presenter, chat on the side) and the "Share screen"
+button of a voice channel. Both capture through `services/screenCapture.ts`.
 
-```bash
-# Build for production
-npm run build
+- In Chrome or Edge pick **Entire screen** (or a browser tab) and tick **Share
+  audio** in the picker. A single window cannot carry sound on Windows and macOS,
+  so share the whole screen for games. In the desktop app tick **Share system
+  audio** in its picker.
+- The tile shows **Audio on** or **No audio** for the presenter and every viewer,
+  from the audio track of the stream itself. The presenter also gets a toast
+  with these steps when the picker returned no audio.
+- Wear headphones. Browsers that support it (Chromium 128+) are asked to leave
+  this page's own audio, the voice chat, out of the capture (`restrictOwnAudio`)
+  so friends are not echoed back; speakers still feed the microphone.
+- Quality presets live in Voice & audio settings and next to the share button:
+  **720p30** (default, about 3.5 Mbit/s) and **1080p60** (up to 8 Mbit/s, for
+  games). The choice is remembered and can be changed while sharing. The
+  presenter uploads one copy per viewer, so 1080p60 with three viewers needs
+  roughly 25 Mbit/s of upload.
 
-# Preview production build
-npm run preview
-```
+## Conventions
 
-## 🎮 Usage
+- State lives in `state/*` as signals; mutate through the exported helpers, never from components directly except trivial UI flags.
+- Everything that talks to the server goes through `services/socket/api.ts`; everything the server pushes is handled in `services/socket/bindings.ts` (or `voiceManager` / `screenshareService` for media signaling).
+- Components stay presentational; long-lived logic (timers, media, reconnection) belongs in services.
+- Keep the web build same-origin friendly: relative URLs by default, absolute ones only for the desktop/mobile shells.
+- The Electron (`desktop/`) and Capacitor (`mobile/`) shells load the production bundle unchanged.
 
-### Joining a Channel
+## Public pages and SEO
 
-1. Enter your display name
-2. Enter or select a channel name
-3. Click "Join"
-
-### Streaming (Broadcaster)
-
-Configure OBS with:
-- **Server**: `rtmp://your-domain/live` (or `rtmp://localhost:1935/live` when running everything locally)
-- **Stream Key**: Use the value shown in the app (e.g., `main-stream+ABC123...`)
-
-### Voice Chat
-
-1. Click "Join Voice" to connect your microphone
-2. Use "Mute" to toggle your microphone
-3. Use "Deafen" to mute all incoming audio
-4. Adjust settings in the sidebar:
-   - Mic gain, output volume
-   - Echo cancellation, noise suppression
-   - Push-to-talk mode
-
-### Text Chat
-
-Type messages in the chat input and press Enter or click Send.
-
-## 🛠️ Configuration
-
-### Environment Variables
-
-Create a `.env` file from `.env.example`:
-
-```bash
-# Backend WebSocket server URL
-VITE_SERVER_URL=http://localhost:4000
-
-# HLS streaming base URL (nginx-rtmp)
-VITE_HLS_BASE_URL=http://localhost/hls
-
-# Optional: override RTMP ingest URL (shown in the UI)
-VITE_RTMP_SERVER_URL=rtmp://your-domain:1935/live
-
-# Optional: override ICE servers (JSON array)
-# VITE_WEBRTC_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"}]'
-
-# Optional: shorthand TURN credentials (appended to defaults)
-#   - Multiple TURN URLs can be provided, separated by commas or whitespace
-#   - TCP fallbacks are added automatically when no transport is specified
-# VITE_TURN_URL=turn:turn.example.com:3478,turn:backup.example.com:3478
-# VITE_TURN_USERNAME=turnuser
-# VITE_TURN_CREDENTIAL=turnpass
-
-# Optional: fine-tune Opus audio encoding (defaults favor voice clarity)
-# VITE_VOICE_OPUS_BITRATE=64000
-# VITE_VOICE_DTX_ENABLED=true
-# VITE_VOICE_OPUS_STEREO=false
-# VITE_VOICE_OPUS_MIN_PTIME=10
-# VITE_VOICE_OPUS_MAX_PTIME=20
-# VITE_VOICE_OPUS_MAX_PLAYBACK_RATE=48000
-# VITE_VOICE_VAD_THRESHOLD=0.07
-#
-# Optional: screenshare capture/encoding tweaks
-# VITE_SCREENSHARE_IDEAL_WIDTH=1920
-# VITE_SCREENSHARE_IDEAL_HEIGHT=1080
-# VITE_SCREENSHARE_IDEAL_FPS=30
-# VITE_SCREENSHARE_MAX_FPS=60
-# VITE_SCREENSHARE_MAX_BITRATE_KBPS=8000
-```
-
-### Screenshare Quality
-
-Screenshares request 1080p video at 30fps (bursting up to 60fps) by default. Override the variables above to match your target devices or bandwidth budget:
-
-- `VITE_SCREENSHARE_IDEAL_WIDTH` / `VITE_SCREENSHARE_IDEAL_HEIGHT` set the preferred capture resolution passed into `getDisplayMedia`.
-- `VITE_SCREENSHARE_IDEAL_FPS` / `VITE_SCREENSHARE_MAX_FPS` control the requested frame rate as well as the sender-side cap.
-- `VITE_SCREENSHARE_MAX_BITRATE_KBPS` (optional) caps the outgoing WebRTC bitrate. Leave it blank to let the browser adapt automatically.
-
-These values are read at build-time, so rebuild the client after modifying them.
-
-> ℹ️ **Scope reminder:** The client always talks to the server defined by `VITE_SERVER_URL`.
-> If you leave it pointed at your production VPS while developing locally, every message you
-> send from `localhost` will appear in production. Set it to your local backend (or create
-> a dedicated staging server) to keep environments isolated.
-
-### Audio Settings
-
-All settings are persisted in browser localStorage:
-
-- **Echo Cancellation**: Reduces echo feedback
-- **Noise Suppression**: Filters background noise
-- **Auto Gain Control**: Normalizes mic volume
-- **Mic Gain**: Manual microphone amplification (0-3x)
-- **Output Volume**: Control remote audio volume
-- **Push-to-Talk**: Bind a key for mic activation
-
-## 🔧 Development
-
-### Code Style
-
-- Use Prettier for formatting: `npm run format`
-- Follow TypeScript strict mode guidelines
-- Write descriptive comments for complex logic
-- Use meaningful variable and function names
-
-### Adding Features
-
-1. **New Service**: Create in `src/services/`
-   - Extend `EventEmitter` for communication
-   - Export from `src/services/index.ts`
-
-2. **New Component**: Create in `src/components/`
-   - Keep components focused and reusable
-   - Use TypeScript interfaces for props
-
-3. **New Types**: Add to `src/types/index.ts`
-
-4. **State Changes**: Use `StateManager` in `App.ts`
-
-### Testing
-
-Connect multiple browser windows/tabs to test:
-- Multi-user voice chat
-- Text chat synchronization
-- Channel switching
-- Connection recovery
-
-## 📝 Key Classes
-
-### App
-Main application controller that:
-- Initializes all services
-- Manages application lifecycle
-- Handles UI events
-- Coordinates service communication
-
-### SocketService
-Manages Socket.IO connection:
-- Real-time messaging
-- Channel presence
-- WebRTC signaling relay
-
-### AudioService
-Handles microphone input:
-- Device enumeration
-- Audio constraints (echo cancel, etc.)
-- Mic gain and visualization
-- Stream management
-
-### VoiceService
-Manages WebRTC peer connections:
-- Peer connection lifecycle
-- Audio track management
-- Speaking detection
-- Output device selection
-
-### PlayerService
-HLS video player:
-- HLS.js integration
-- Error recovery
-- Playback management
-
-### StateManager
-Centralized state with:
-- LocalStorage persistence
-- Event-driven updates
-- Type-safe getters/setters
-
-## 🐛 Troubleshooting
-
-### Microphone Not Working
-
-1. Check browser permissions
-2. Ensure HTTPS or localhost
-3. Try different audio device
-4. Check browser console for errors
-
-### Video Not Playing
-
-1. Verify OBS is streaming to correct URL
-2. Check HLS_BASE_URL in .env
-3. Ensure nginx-rtmp is running
-4. Check browser console for HLS errors
-
-### Voice Chat Issues
-
-1. Check firewall/NAT settings
-2. Verify STUN servers are accessible
-3. Test with localhost first
-4. Configure TURN via `VITE_TURN_URL` when peers are behind symmetric NAT
-5. Inspect `chrome://webrtc-internals` (or `about:webrtc`) for ICE/debug stats
-
-### Connection Problems
-
-1. Verify backend server is running
-2. Check CORS settings
-3. Verify SERVER_URL in .env
-4. Check browser console for errors
-
-## 📚 Technologies
-
-- **Vite**: Fast build tool and dev server
-- **TypeScript**: Type-safe development
-- **HLS.js**: HTTP Live Streaming playback
-- **Socket.IO**: Real-time WebSocket communication
-- **WebRTC**: Peer-to-peer voice communication
-- **Web Audio API**: Audio processing and visualization
-
-## 🤝 Contributing
-
-1. Follow the existing code structure
-2. Use TypeScript with strict mode
-3. Format code with Prettier
-4. Test thoroughly before committing
-5. Document complex logic with comments
-
-## 📄 License
-
-See the main project README for license information.
+`public/landing.html` (served at `/`) and `public/downloads.html` are static pages with inline CSS; `public/robots.txt`,
+`public/sitemap.xml` and `public/site.webmanifest` go with them. They contain `__SITE_URL__` and `__BUILD_DATE__`
+placeholders that `vite.config.js` fills at build time from `VITE_SITE_URL` (the Caddy image passes `SITE_URL` from
+`ops/.env`); without a site URL the pages use relative canonical links and the sitemap line is left out of robots.txt.
+The app page (`/app`) is `noindex`. PNG icons and the Open Graph card are generated by `scripts/brand-assets.py`.

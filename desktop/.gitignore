@@ -2,3 +2,6 @@ node_modules/
 renderer/
 release/
 .DS_Store
+
+# local development override (see README, "Configure backend endpoints")
+runtime-config.json

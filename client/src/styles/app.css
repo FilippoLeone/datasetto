@@ -1,0 +1,292 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------ theme */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* Surfaces, darkest to lightest */
+  --color-base: #1e1f22;
+  --color-sidebar: #2b2d31;
+  --color-main: #313338;
+  --color-elevated: #383a40;
+  --color-hover: #35373c;
+  --color-active: #404249;
+  --color-input: #383a40;
+  --color-overlay: rgba(0, 0, 0, 0.72);
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-strong: rgba(255, 255, 255, 0.12);
+
+  /* Text */
+  --color-text: #dbdee1;
+  --color-text-muted: #949ba4;
+  --color-text-faint: #6d6f78;
+  --color-text-bright: #f2f3f5;
+  --color-link: #00a8fc;
+
+  /* Brand + status */
+  --color-brand: #5865f2;
+  --color-brand-hover: #4752c4;
+  --color-brand-soft: rgba(88, 101, 242, 0.16);
+  --color-success: #23a559;
+  --color-danger: #da373c;
+  --color-danger-hover: #a12828;
+  --color-warning: #f0b232;
+  --color-live: #ed4245;
+  --color-online: #23a559;
+  --color-idle: #f0b232;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-pop: 0 8px 16px rgba(0, 0, 0, 0.24);
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* ------------------------------------------------------------------- base */
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--color-base);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* No double-tap zoom delay on touch screens. */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role='button'] {
+    touch-action: manipulation;
+  }
+
+  a {
+    color: var(--color-link);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 1px;
+  }
+
+  ::selection {
+    background: rgba(88, 101, 242, 0.45);
+  }
+}
+
+/* -------------------------------------------------------------- utilities */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.45) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.45);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .safe-x {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  /* At least 1rem on every side, more where the device has a notch or home indicator. */
+  .p-safe {
+    padding: max(1rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) max(1rem, env(safe-area-inset-bottom, 0px))
+      max(1rem, env(safe-area-inset-left, 0px));
+  }
+
+  /* Room for the fixed phone toolbar (h-14) plus the home indicator. */
+  .pb-toolbar {
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .speaking-ring {
+    box-shadow: 0 0 0 2px var(--color-online);
+  }
+
+  .live-dot::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--color-live);
+    margin-right: 6px;
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 140ms ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slide-up 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .animate-pop {
+    animation: pop 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ------------------------------------------------------------ components */
+/* Message actions: hover reveals them with a mouse; on touch screens a tap on the
+   message toggles `is-active` (see MessageList), keyboard focus always shows them. */
+.message-actions {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.message-row:focus-within .message-actions,
+.message-row.is-active .message-actions {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .message-row:hover .message-actions {
+    opacity: 1;
+  }
+}
+
+.message-mention {
+  background: var(--color-brand-soft);
+  color: #c9cdfb;
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 500;
+}
+
+.range-input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--color-active);
+  outline: none;
+}
+
+.range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--color-text-bright);
+  border: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+.range-input::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--color-text-bright);
+  border: none;
+  cursor: pointer;
+}
+
+video.mirror {
+  transform: scaleX(-1);
+}
+
+/* ---------------------------------------------------------------- touch */
+/* Form controls render at 16px on touch devices so iOS does not zoom the page when
+   one is focused. Unlayered on purpose: it must beat Tailwind's text-* utilities. */
+@media (pointer: coarse) {
+  input:not([type='range']):not([type='checkbox']):not([type='radio']),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}

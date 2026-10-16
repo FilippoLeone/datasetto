@@ -311,6 +311,30 @@ if (!gotSingleInstanceLock) {
 const notificationQueue = [];
 let isProcessingNotifications = false;
 
+function isExternalUrl(url) {
+  return typeof url === 'string' && /^https?:///i.test(url);
+}
+
+/** The renderer itself: the bundled file:// page, or the ELECTRON_START_URL origin in development. */
+function isAppUrl(url) {
+  try {
+    const target = new URL(url);
+    if (target.protocol === 'file:') {
+      return true;
+    }
+    const startUrl = process.env.ELECTRON_START_URL;
+    return Boolean(startUrl) && target.origin === new URL(startUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(url) {
+  shell.openExternal(url).catch((error) => {
+    console.warn('[Desktop] Failed to open external URL:', error?.message ?? error);
+  });
+}
+
 function resolveRendererFile() {
   const indexHtml = path.join(__dirname, 'renderer', 'index.html');
   return indexHtml;
@@ -328,7 +352,7 @@ function loadTrayImages() {
     return;
   }
 
-  // Load microphone-based tray icons (Discord-style)
+  // Load the microphone-based tray icons (one per voice state)
   const states = ['idle', 'connected', 'speaking', 'muted'];
   
   for (const state of states) {
@@ -364,7 +388,7 @@ function updateTrayVoiceIndicator(partialState = {}) {
   trayVoiceState.speaking = typeof partialState.speaking === 'boolean' ? partialState.speaking : trayVoiceState.speaking;
   trayVoiceState.muted = typeof partialState.muted === 'boolean' ? partialState.muted : trayVoiceState.muted;
 
-  // Determine which icon state to show (Discord-style priority)
+  // Determine which icon state to show (muted wins over speaking wins over connected)
   let iconState = 'idle';
   let tooltipDetail = 'Click to reopen';
 
@@ -418,9 +442,9 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
   }
 
-  // Handle window.open() popouts (e.g., screenshare video popout)
+  // window.open(): keep in-app popouts (windows the client renders into itself),
+  // send every real URL to the system browser instead of a chromeless Electron window.
   mainWindow.webContents.setWindowOpenHandler(({ url, frameName, features }) => {
-    // Allow the video popout window with native look (no menu bar)
     if (frameName === 'datasetto-video-popout' || features?.includes('menubar=no')) {
       return {
         action: 'allow',
@@ -433,7 +457,10 @@ function createWindow() {
         }
       };
     }
-    // Default: allow other windows but also hide menu bar
+    if (isExternalUrl(url)) {
+      openExternalUrl(url);
+      return { action: 'deny' };
+    }
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
@@ -441,6 +468,18 @@ function createWindow() {
         menuBarVisible: false,
       }
     };
+  });
+
+  // Keep the main window on the app: a plain link or a redirect to another site
+  // opens in the system browser instead of replacing the client.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) {
+      return;
+    }
+    event.preventDefault();
+    if (isExternalUrl(url)) {
+      openExternalUrl(url);
+    }
   });
 
   const startUrl = process.env.ELECTRON_START_URL;

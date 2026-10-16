@@ -1,40 +1,7 @@
-# Dependencies - will be installed in container
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Environment files (use .env.example instead)
+node_modules
+dist
+coverage
 .env
-.env.local
-.env.*.local
-
-# Logs
-logs/
+.env.*
 *.log
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Git
-.git/
-.gitignore
-
-# Test coverage
-coverage/
-
-# Build artifacts (if any)
-dist/
-build/
-
-# Temp files
-tmp/
-temp/
+data

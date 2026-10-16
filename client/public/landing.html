@@ -1,50 +1,98 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Datasetto - Self-Hosted Streaming & Communication Platform</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Datasetto – Self-hosted voice, video and streaming for your friends</title>
+  <meta name="description" content="Datasetto is a free, open-source voice, video and chat server you host yourself: text channels, low-latency voice, camera and screen sharing, OBS live streams and minigames, all on one small server.">
+  <link rel="canonical" href="__SITE_URL__/">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="theme-color" content="#1e1f22">
+  <meta name="color-scheme" content="dark">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <meta name="description" content="Datasetto is a self-hosted streaming platform with RTMP streaming, WebRTC voice chat, and real-time text communication. Take control of your content.">
-  <meta name="theme-color" content="#0a0a0b">
-  
-  <!-- Open Graph -->
-  <meta property="og:title" content="Datasetto - Self-Hosted Streaming Platform">
-  <meta property="og:description" content="Stream, chat, and connect on your own terms. Self-hosted, open-source, and privacy-first.">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+
   <meta property="og:type" content="website">
-  
-  <!-- Structured Data (JSON-LD) for SEO -->
+  <meta property="og:site_name" content="Datasetto">
+  <meta property="og:title" content="Datasetto – Self-hosted voice, video and streaming for your friends">
+  <meta property="og:description" content="A free, open-source voice, video and chat server you host yourself. Text, voice, camera, screen sharing, live streams and minigames on one small server.">
+  <meta property="og:url" content="__SITE_URL__/">
+  <meta property="og:image" content="__SITE_URL__/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Datasetto logo with the words: self-hosted voice, video, streaming and chat for your friends">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Datasetto – Self-hosted voice, video and streaming for your friends">
+  <meta name="twitter:description" content="A free, open-source voice, video and chat server you host yourself. Text, voice, camera, screen sharing, live streams and minigames on one small server.">
+  <meta name="twitter:image" content="__SITE_URL__/og-image.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@graph": [
       {
-        "@type": "Organization",
-        "@id": "#organization",
+        "@type": "SoftwareApplication",
+        "@id": "__SITE_URL__/#app",
         "name": "Datasetto",
-        "url": "https://datasetto.com",
-        "logo": {
-          "@type": "ImageObject",
-          "url": "https://datasetto.com/favicon.svg"
-        }
+        "url": "__SITE_URL__/",
+        "image": "__SITE_URL__/og-image.png",
+        "description": "A free, open-source voice, video and chat server you host yourself: text channels, low-latency voice, camera and screen sharing, OBS live streams and minigames on one small server.",
+        "applicationCategory": "CommunicationApplication",
+        "operatingSystem": "Web, Windows, macOS, Linux, Android",
+        "downloadUrl": "__SITE_URL__/downloads.html",
+        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+        "featureList": [
+          "Text channels with mentions and unread badges",
+          "WebRTC voice with echo cancellation, noise suppression and push to talk",
+          "Camera and screen sharing with system audio",
+          "OBS live streaming with low-latency HLS playback",
+          "Voice-channel minigames with a persistent leaderboard",
+          "Roles, invite-only registration and per-channel permissions"
+        ]
       },
       {
         "@type": "WebSite",
-        "@id": "#website",
-        "url": "https://datasetto.com",
+        "@id": "__SITE_URL__/#website",
+        "url": "__SITE_URL__/",
         "name": "Datasetto",
-        "publisher": {
-          "@id": "#organization"
-        }
+        "inLanguage": "en"
       },
       {
-        "@type": "BreadcrumbList",
-        "itemListElement": [{
-          "@type": "ListItem",
-          "position": 1,
-          "name": "Home",
-          "item": "https://datasetto.com"
-        }]
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Is Datasetto free?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Yes. Datasetto is open source under the GNU AGPLv3. You only pay for the server you run it on, which can be a single small virtual machine." }
+          },
+          {
+            "@type": "Question",
+            "name": "Do I need OBS to stream?",
+            "acceptedAnswer": { "@type": "Answer", "text": "No. Share your screen with system audio straight from the app, like a go-live button. OBS is supported too for scene-based streams that viewers watch as low-latency HLS." }
+          },
+          {
+            "@type": "Question",
+            "name": "How many people can use it?",
+            "acceptedAnswer": { "@type": "Answer", "text": "It is built for a group of friends. Voice and screen sharing are peer to peer, so a room of five to ten people works well on a small server and ordinary home connections." }
+          },
+          {
+            "@type": "Question",
+            "name": "Does it work on phones?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Yes. The web app adapts to phones, and there is an Android app plus Electron desktop apps for Windows, macOS and Linux." }
+          },
+          {
+            "@type": "Question",
+            "name": "Where is my data stored?",
+            "acceptedAnswer": { "@type": "Answer", "text": "On your own server, in one SQLite file. Media never touches the server except RTMP ingest and the optional TURN relay. There is no tracking and no third party." }
+          }
+        ]
       }
     ]
   }
@@ -52,1151 +100,443 @@
 
   <style>
     :root {
-      --bg-primary: #0a0a0b;
-      --bg-secondary: #111113;
-      --bg-tertiary: #18181b;
-      --bg-elevated: #1f1f23;
-      --text-normal: #e4e4e7;
-      --text-muted: #71717a;
-      --text-subtle: #52525b;
-      --brand-primary: #3ed5d6;
-      --brand-secondary: #6366f1;
-      --brand-glow: rgba(62, 213, 214, 0.15);
-      --success: #10b981;
-      --gradient-brand: linear-gradient(135deg, #3ed5d6 0%, #6366f1 50%, #a855f7 100%);
+      --base: #1e1f22;
+      --sidebar: #2b2d31;
+      --main: #313338;
+      --elevated: #383a40;
+      --border: rgba(255, 255, 255, 0.06);
+      --border-strong: rgba(255, 255, 255, 0.12);
+      --text: #dbdee1;
+      --muted: #949ba4;
+      --faint: #6d6f78;
+      --bright: #f2f3f5;
+      --brand: #5865f2;
+      --brand-hover: #4752c4;
+      --teal: #0fa4a5;
+      --orange: #ff8a3d;
+      --success: #23a559;
+      --live: #ed4245;
+      --warning: #f0b232;
+      --radius: 16px;
+      --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     }
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    html {
-      scroll-behavior: smooth;
-    }
-
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .rise { animation: none !important; } }
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-normal);
+      margin: 0;
+      font-family: var(--font);
+      background: var(--base);
+      color: var(--text);
       line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
       overflow-x: hidden;
     }
+    a { color: inherit; text-decoration: none; }
+    a:focus-visible, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 6px; }
+    img, svg { display: block; }
+    .container { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    .eyebrow::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, var(--teal), var(--orange)); }
+    h1, h2, h3 { margin: 0; color: var(--bright); letter-spacing: -0.02em; line-height: 1.1; }
+    h2 { font-size: clamp(1.75rem, 3.6vw, 2.5rem); font-weight: 800; }
+    h3 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
+    p { margin: 0; }
+    .lead { font-size: clamp(1.05rem, 1.6vw, 1.2rem); color: var(--muted); max-width: 56ch; }
 
-    /* Animated gradient background */
-    .bg-gradient {
-      position: fixed;
-      inset: 0;
-      z-index: -1;
-      background: 
-        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(62, 213, 214, 0.15), transparent),
-        radial-gradient(ellipse 60% 40% at 80% 60%, rgba(99, 102, 241, 0.1), transparent),
-        radial-gradient(ellipse 50% 30% at 20% 80%, rgba(168, 85, 247, 0.08), transparent);
-      animation: gradientShift 20s ease infinite;
-    }
-
-    @keyframes gradientShift {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.8; }
-    }
-
-    /* Navigation */
-    nav {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 100;
-      padding: 1rem 2rem;
-      background: rgba(10, 10, 11, 0.8);
-      backdrop-filter: blur(20px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .nav-container {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .nav-logo {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      text-decoration: none;
-    }
-
-    .nav-logo-icon {
-      width: 36px;
-      height: 36px;
-      background: var(--gradient-brand);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .nav-logo-icon svg {
-      width: 20px;
-      height: 20px;
-      color: white;
-    }
-
-    .nav-logo-text {
-      font-size: 1.25rem;
-      font-weight: 700;
-      background: var(--gradient-brand);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 2rem;
-    }
-
-    .nav-links a {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 0.9rem;
-      font-weight: 500;
-      transition: color 0.2s;
-    }
-
-    .nav-links a:hover {
-      color: var(--text-normal);
-    }
-
-    .nav-cta {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-    }
-
+    /* Buttons */
     .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.625rem 1.25rem;
-      border-radius: 10px;
-      font-size: 0.9rem;
-      font-weight: 600;
-      text-decoration: none;
-      transition: all 0.2s;
-      cursor: pointer;
-      border: none;
-    }
-
-    .btn-ghost {
-      background: transparent;
-      color: var(--text-normal);
-    }
-
-    .btn-ghost:hover {
-      background: rgba(255, 255, 255, 0.05);
-    }
-
-    .btn-primary {
-      background: var(--gradient-brand);
-      color: white;
-      box-shadow: 0 4px 20px rgba(62, 213, 214, 0.3);
-    }
-
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 30px rgba(62, 213, 214, 0.4);
-    }
-
-    .btn-secondary {
-      background: var(--bg-elevated);
-      color: var(--text-normal);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .btn-secondary:hover {
-      background: var(--bg-tertiary);
-      border-color: rgba(255, 255, 255, 0.2);
-    }
-
-    .btn-lg {
-      padding: 0.875rem 1.75rem;
-      font-size: 1rem;
-    }
-
-    /* Hero Section */
-    .hero {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 8rem 2rem 4rem;
-      text-align: center;
-    }
-
-    .hero-content {
-      max-width: 800px;
-    }
-
-    .hero-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.5rem 1rem;
-      background: rgba(62, 213, 214, 0.1);
-      border: 1px solid rgba(62, 213, 214, 0.2);
-      border-radius: 50px;
-      font-size: 0.85rem;
-      color: var(--brand-primary);
-      margin-bottom: 2rem;
-    }
-
-    .hero-badge-dot {
-      width: 8px;
-      height: 8px;
-      background: var(--brand-primary);
-      border-radius: 50%;
-      animation: pulse 2s ease infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.5; transform: scale(0.9); }
-    }
-
-    .hero h1 {
-      font-size: clamp(2.5rem, 6vw, 4rem);
-      font-weight: 800;
-      line-height: 1.1;
-      margin-bottom: 1.5rem;
-      letter-spacing: -0.02em;
-    }
-
-    .hero h1 span {
-      background: var(--gradient-brand);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
-    .hero-description {
-      font-size: 1.25rem;
-      color: var(--text-muted);
-      max-width: 600px;
-      margin: 0 auto 2.5rem;
-      line-height: 1.7;
-    }
-
-    .hero-actions {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 1rem;
-      flex-wrap: wrap;
-    }
-
-    .hero-visual {
-      margin-top: 4rem;
-      position: relative;
-    }
-
-    .hero-mockup {
-      max-width: 900px;
-      width: 100%;
-      border-radius: 16px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 
-        0 0 0 1px rgba(255, 255, 255, 0.05),
-        0 20px 50px rgba(0, 0, 0, 0.5),
-        0 0 100px rgba(62, 213, 214, 0.1);
-      background: var(--bg-secondary);
-      overflow: hidden;
-    }
-
-    .mockup-header {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.75rem 1rem;
-      background: var(--bg-tertiary);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .mockup-dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: var(--bg-elevated);
-    }
-
-    .mockup-dot.red { background: #ff5f57; }
-    .mockup-dot.yellow { background: #ffbd2e; }
-    .mockup-dot.green { background: #28c840; }
-
-    .mockup-content {
-      display: grid;
-      grid-template-columns: 200px 1fr 240px;
-      height: 400px;
-    }
-
-    .mockup-sidebar {
-      background: var(--bg-secondary);
-      border-right: 1px solid rgba(255, 255, 255, 0.05);
-      padding: 1rem;
-    }
-
-    .mockup-channel {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.5rem;
-      border-radius: 6px;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-      margin-bottom: 0.25rem;
-    }
-
-    .mockup-channel.active {
-      background: rgba(62, 213, 214, 0.1);
-      color: var(--brand-primary);
-    }
-
-    .mockup-main {
-      background: var(--bg-primary);
-      display: flex;
-      flex-direction: column;
-    }
-
-    .mockup-stream {
-      flex: 1;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .mockup-play {
-      width: 60px;
-      height: 60px;
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .mockup-play svg {
-      width: 24px;
-      height: 24px;
-      color: white;
-      margin-left: 4px;
-    }
-
-    .mockup-chat-area {
-      height: 120px;
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
-      padding: 0.75rem;
-    }
-
-    .mockup-message {
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .mockup-avatar {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      background: var(--gradient-brand);
-    }
-
-    .mockup-msg-content {
-      flex: 1;
-    }
-
-    .mockup-msg-name {
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--brand-primary);
-    }
-
-    .mockup-msg-text {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-    }
-
-    .mockup-users {
-      background: var(--bg-secondary);
-      border-left: 1px solid rgba(255, 255, 255, 0.05);
-      padding: 1rem;
-    }
-
-    .mockup-user {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.375rem;
-      margin-bottom: 0.25rem;
-    }
-
-    .mockup-user-avatar {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: var(--bg-elevated);
-    }
-
-    .mockup-user-name {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-    }
-
-    .mockup-user-status {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--success);
-      margin-left: auto;
-    }
-
-    /* Features Section */
-    .features {
-      padding: 6rem 2rem;
-    }
-
-    .section-header {
-      text-align: center;
-      max-width: 600px;
-      margin: 0 auto 4rem;
-    }
-
-    .section-label {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--brand-primary);
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      margin-bottom: 1rem;
-    }
-
-    .section-title {
-      font-size: 2.5rem;
-      font-weight: 700;
-      margin-bottom: 1rem;
-    }
-
-    .section-description {
-      color: var(--text-muted);
-      font-size: 1.1rem;
-    }
-
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 1.5rem;
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-
-    .feature-card {
-      background: var(--bg-secondary);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 16px;
-      padding: 2rem;
-      transition: all 0.3s ease;
-    }
-
-    .feature-card:hover {
-      border-color: rgba(62, 213, 214, 0.2);
-      transform: translateY(-4px);
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-    }
-
-    .feature-icon {
-      width: 48px;
-      height: 48px;
-      background: var(--brand-glow);
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 1.5rem;
-    }
-
-    .feature-icon svg {
-      width: 24px;
-      height: 24px;
-      color: var(--brand-primary);
-    }
-
-    .feature-title {
-      font-size: 1.25rem;
-      font-weight: 600;
-      margin-bottom: 0.75rem;
-    }
-
-    .feature-description {
-      color: var(--text-muted);
-      font-size: 0.95rem;
-      line-height: 1.7;
-    }
-
-    /* Self-Hosted Section */
-    .self-hosted {
-      padding: 6rem 2rem;
-      background: linear-gradient(180deg, transparent 0%, rgba(62, 213, 214, 0.02) 50%, transparent 100%);
-    }
-
-    .self-hosted-container {
-      max-width: 1000px;
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 4rem;
-      align-items: center;
-    }
-
-    .self-hosted-content h2 {
-      font-size: 2.25rem;
-      font-weight: 700;
-      margin-bottom: 1.5rem;
-    }
-
-    .self-hosted-content p {
-      color: var(--text-muted);
-      font-size: 1.1rem;
-      margin-bottom: 2rem;
-      line-height: 1.7;
-    }
-
-    .benefits-list {
-      list-style: none;
-    }
-
-    .benefits-list li {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.75rem;
-      margin-bottom: 1rem;
-      color: var(--text-normal);
-    }
-
-    .benefits-list svg {
-      width: 20px;
-      height: 20px;
-      color: var(--brand-primary);
-      flex-shrink: 0;
-      margin-top: 2px;
-    }
-
-    .code-block {
-      background: var(--bg-secondary);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      overflow: hidden;
-    }
-
-    .code-header {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.75rem 1rem;
-      background: var(--bg-tertiary);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .code-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-    }
-
-    .code-content {
-      padding: 1.5rem;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 0.85rem;
-      line-height: 1.8;
-      overflow-x: auto;
-    }
-
-    .code-comment { color: var(--text-subtle); }
-    .code-command { color: var(--brand-primary); }
-    .code-flag { color: var(--brand-secondary); }
-
-    /* Downloads Section */
-    .downloads {
-      padding: 6rem 2rem;
-    }
-
-    .downloads-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.5rem;
-      max-width: 900px;
-      margin: 0 auto;
-    }
-
-    .download-card {
-      background: var(--bg-secondary);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 16px;
-      padding: 2rem;
-      text-align: center;
-      transition: all 0.3s ease;
-    }
-
-    .download-card:hover {
-      border-color: rgba(62, 213, 214, 0.3);
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-    }
-
-    .download-icon {
-      width: 64px;
-      height: 64px;
-      margin: 0 auto 1.5rem;
-      background: var(--brand-glow);
-      border-radius: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .download-icon svg {
-      width: 32px;
-      height: 32px;
-      color: var(--brand-primary);
-    }
-
-    .download-title {
-      font-size: 1.25rem;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-    }
-
-    .download-description {
-      color: var(--text-muted);
-      font-size: 0.9rem;
-      margin-bottom: 1.5rem;
-    }
-
-    /* Footer */
-    footer {
-      padding: 4rem 2rem;
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
-      text-align: center;
-    }
-
-    .footer-logo {
-      font-size: 1.5rem;
-      font-weight: 700;
-      background: var(--gradient-brand);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      margin-bottom: 1rem;
-    }
-
-    .footer-links {
-      display: flex;
-      justify-content: center;
-      gap: 2rem;
-      margin-bottom: 2rem;
-    }
-
-    .footer-links a {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 0.9rem;
-      transition: color 0.2s;
-    }
-
-    .footer-links a:hover {
-      color: var(--text-normal);
-    }
-
-    .footer-copyright {
-      color: var(--text-subtle);
-      font-size: 0.85rem;
-    }
-
-    /* Responsive */
-    @media (max-width: 1024px) {
-      .nav-links {
-        display: none;
-      }
-
-      .hero {
-        padding: 7rem 1.5rem 3rem;
-      }
-
-      .hero h1 {
-        font-size: 2rem;
-      }
-
-      .hero-description {
-        font-size: 1rem;
-      }
-
-      .hero-actions {
-        flex-direction: column;
-      }
-
-      .btn-lg {
-        width: 100%;
-        justify-content: center;
-      }
-
-      .mockup-content {
-        grid-template-columns: 1fr;
-        height: auto;
-      }
-
-      .mockup-sidebar,
-      .mockup-users {
-        display: none;
-      }
-
-      .self-hosted-container {
-        grid-template-columns: 1fr;
-        gap: 2rem;
-      }
-
-      .section-title {
-        font-size: 1.75rem;
-      }
-
-      .footer-links {
-        flex-direction: column;
-        gap: 1rem;
-      }
-    }
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 15px;
+      border: 1px solid transparent; transition: transform .15s ease, background .15s ease, border-color .15s ease;
+      cursor: pointer; white-space: nowrap;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary { background: var(--brand); color: #fff; box-shadow: 0 8px 24px rgba(88, 101, 242, .35); }
+    .btn-primary:hover { background: var(--brand-hover); }
+    .btn-ghost { background: rgba(255,255,255,.04); color: var(--bright); border-color: var(--border-strong); }
+    .btn-ghost:hover { background: rgba(255,255,255,.08); }
+    .btn svg { width: 18px; height: 18px; }
+
+    /* Header */
+    .site-header { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); background: rgba(30, 31, 34, .78); border-bottom: 1px solid var(--border); }
+    .nav { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 16px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--bright); letter-spacing: -0.01em; }
+    .brand img { width: 28px; height: 28px; border-radius: 7px; }
+    .nav-links { display: flex; align-items: center; gap: 24px; font-size: 14px; font-weight: 500; color: var(--muted); }
+    .nav-links a:hover { color: var(--bright); }
+    .nav .btn { padding: 9px 16px; font-size: 14px; }
+    @media (max-width: 760px) { .nav-links { display: none; } }
+
+    /* Hero */
+    .hero { position: relative; padding: clamp(56px, 9vw, 112px) 0 clamp(48px, 7vw, 80px); overflow: hidden; }
+    .hero::before {
+      content: ''; position: absolute; inset: -40% -20% auto; height: 120%; pointer-events: none; z-index: -1;
+      background:
+        radial-gradient(42% 50% at 22% 30%, rgba(88, 101, 242, .32), transparent 70%),
+        radial-gradient(38% 46% at 78% 20%, rgba(15, 164, 165, .22), transparent 70%),
+        radial-gradient(30% 40% at 60% 80%, rgba(255, 138, 61, .14), transparent 70%);
+      filter: blur(20px);
+    }
+    .hero-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: clamp(32px, 5vw, 64px); align-items: center; }
+    @media (max-width: 920px) { .hero-grid { grid-template-columns: 1fr; } }
+    .hero h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); font-weight: 800; margin: 18px 0 20px; }
+    .hero h1 .accent { background: linear-gradient(90deg, #8b94ff, var(--teal) 55%, var(--orange)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 30px 0 18px; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); }
+    .hero-meta span { display: inline-flex; align-items: center; gap: 6px; }
+    .hero-meta svg { width: 14px; height: 14px; color: var(--success); }
+
+    /* App mock */
+    .mock {
+      aspect-ratio: 16 / 10.5; width: 100%; border-radius: var(--radius); overflow: hidden;
+      background: var(--base); border: 1px solid var(--border-strong);
+      box-shadow: 0 30px 80px rgba(0, 0, 0, .5), 0 0 0 1px rgba(0,0,0,.4);
+      display: grid; grid-template-columns: 30% 1fr 24%; font-size: clamp(8px, 1.05vw, 11px); line-height: 1.35;
+      transform: perspective(1400px) rotateY(-5deg) rotateX(2deg);
+    }
+    @media (max-width: 920px) { .mock { transform: none; } }
+    .mock * { min-width: 0; }
+    .m-side { background: var(--sidebar); padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+    .m-side .h { font-size: .8em; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 8px 0 3px; }
+    .m-side .c { padding: 4px 6px; border-radius: 4px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
+    .m-side .c.on { background: rgba(255,255,255,.06); color: var(--bright); }
+    .m-side .c .badge { margin-left: auto; background: var(--live); color: #fff; font-size: .75em; font-weight: 700; padding: 0 5px; border-radius: 99px; }
+    .m-side .c .live { margin-left: auto; color: var(--live); font-size: .72em; font-weight: 800; letter-spacing: .04em; }
+    .m-side .sub { padding-left: 18px; color: var(--text); display: flex; align-items: center; gap: 5px; }
+    .av { width: 1.6em; height: 1.6em; border-radius: 50%; flex: none; display: inline-grid; place-items: center; font-weight: 700; font-size: .7em; color: #fff; }
+    .m-side .dock { margin-top: auto; background: var(--base); border-radius: 6px; padding: 6px 8px; }
+    .m-side .dock .t { color: var(--success); font-weight: 700; font-size: .8em; }
+    .m-side .dock .r { display: flex; gap: 6px; margin-top: 5px; }
+    .m-side .dock i { width: 1.9em; height: 1.9em; border-radius: 5px; background: var(--elevated); display: block; }
+    .m-side .dock i.red { background: var(--live); }
+    .m-main { background: var(--main); display: flex; flex-direction: column; }
+    .m-top { height: 2.8em; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 10px; gap: 6px; font-weight: 700; color: var(--bright); }
+    .m-msgs { padding: 10px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
+    .msg { display: grid; grid-template-columns: auto 1fr; gap: 7px; }
+    .msg .n { font-weight: 600; color: var(--bright); }
+    .msg .n small { color: var(--faint); font-weight: 400; margin-left: 5px; font-size: .8em; }
+    .msg .b { color: var(--text); }
+    .msg .b .mention { background: rgba(88,101,242,.3); color: #c9cdff; border-radius: 3px; padding: 0 3px; font-weight: 600; }
+    .msg .b .link { color: #00a8fc; }
+    .m-input { margin: 0 10px 10px; background: var(--elevated); border-radius: 6px; padding: 6px 8px; color: var(--faint); }
+    .m-members { background: var(--sidebar); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .m-members .h { font-size: .8em; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin-bottom: 2px; }
+    .m-members .u { display: flex; align-items: center; gap: 6px; color: var(--text); }
+    .m-members .u .role { font-size: .65em; font-weight: 800; padding: 0 4px; border-radius: 3px; background: var(--brand); color: #fff; }
+    .m-members .u .role.mod { background: var(--success); }
+    .m-members .u .s { color: var(--faint); font-size: .8em; }
+
+    /* Sections */
+    section { padding: clamp(56px, 8vw, 96px) 0; }
+    .section-head { max-width: 640px; margin-bottom: 40px; }
+    .section-head h2 { margin: 12px 0 14px; }
+    .grid { display: grid; gap: 18px; grid-template-columns: repeat(3, 1fr); }
+    @media (max-width: 920px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--sidebar); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px;
+      transition: transform .2s ease, border-color .2s ease;
+    }
+    .card:hover { transform: translateY(-3px); border-color: var(--border-strong); }
+    .card .icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 16px; background: rgba(88,101,242,.16); color: #a5adff; }
+    .card .icon svg { width: 22px; height: 22px; }
+    .card .icon.teal { background: rgba(15,164,165,.16); color: #4fd1d2; }
+    .card .icon.orange { background: rgba(255,138,61,.16); color: #ffb07a; }
+    .card .icon.green { background: rgba(35,165,89,.16); color: #5ad38a; }
+    .card .icon.red { background: rgba(237,66,69,.16); color: #ff8a8c; }
+    .card .icon.yellow { background: rgba(240,178,50,.16); color: #ffd277; }
+    .card h3 { margin-bottom: 8px; }
+    .card p { color: var(--muted); font-size: 15px; }
+
+    /* How it works */
+    .how { background: linear-gradient(180deg, rgba(43,45,49,.6), transparent); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .how-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+    @media (max-width: 920px) { .how-grid { grid-template-columns: 1fr; } }
+    .how-grid > div { min-width: 0; }
+    .steps { display: flex; flex-direction: column; gap: 18px; counter-reset: step; margin: 28px 0 0; padding: 0; list-style: none; }
+    .steps li { display: flex; gap: 14px; align-items: flex-start; }
+    .steps li::before { counter-increment: step; content: counter(step); flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; font-weight: 800; background: linear-gradient(135deg, var(--teal), var(--orange)); color: #0b0c10; }
+    .steps strong { display: block; color: var(--bright); margin-bottom: 2px; }
+    .steps span { color: var(--muted); font-size: 15px; }
+    pre {
+      margin: 0; background: #16171a; border: 1px solid var(--border-strong); border-radius: 12px; padding: 18px 20px; overflow-x: auto;
+      font: 13px/1.6 ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; color: #cdd1d6;
+    }
+    pre .c { color: var(--faint); }
+    pre .k { color: #8b94ff; }
+    .cost { margin-top: 18px; display: flex; gap: 14px; align-items: center; background: var(--sidebar); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+    .cost strong { color: var(--bright); font-size: 24px; letter-spacing: -0.02em; }
+    .cost span { color: var(--muted); font-size: 14px; }
+
+    /* Apps */
+    .apps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    @media (max-width: 760px) { .apps { grid-template-columns: 1fr; } }
+    .apps .card { display: flex; flex-direction: column; }
+    .apps .card p { flex: 1; margin-bottom: 18px; }
+    .apps .card .btn { align-self: flex-start; }
+
+    /* FAQ */
+    .faq { max-width: 760px; }
+    details { border-top: 1px solid var(--border); padding: 4px 0; }
+    details:last-of-type { border-bottom: 1px solid var(--border); }
+    summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 0; font-weight: 600; color: var(--bright); }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: '+'; font-size: 22px; color: var(--faint); transition: transform .2s ease; }
+    details[open] summary::after { transform: rotate(45deg); }
+    details p { color: var(--muted); padding: 0 0 18px; max-width: 64ch; }
+
+    /* CTA + footer */
+    .cta { text-align: center; }
+    .cta .panel { background: linear-gradient(135deg, rgba(88,101,242,.22), rgba(15,164,165,.14) 60%, rgba(255,138,61,.14)); border: 1px solid var(--border-strong); border-radius: 24px; padding: clamp(40px, 6vw, 72px) 24px; }
+    .cta h2 { margin-bottom: 12px; }
+    .cta .lead { margin: 0 auto 28px; }
+    .cta .hero-actions { justify-content: center; margin: 0; }
+    footer { border-top: 1px solid var(--border); padding: 32px 0 40px; color: var(--muted); font-size: 14px; }
+    .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px 24px; align-items: center; }
+    .foot nav { display: flex; flex-wrap: wrap; gap: 18px; }
+    .foot nav a:hover { color: var(--bright); }
+
+    .rise { animation: rise .7s cubic-bezier(.2,.7,.2,1) backwards; }
+    .rise.d1 { animation-delay: .08s; } .rise.d2 { animation-delay: .16s; } .rise.d3 { animation-delay: .24s; }
+    @keyframes rise { from { transform: translateY(14px); } to { transform: none; } }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   </style>
 </head>
 <body>
-  <div class="bg-gradient"></div>
-
-  <!-- Navigation -->
-  <nav>
-    <div class="nav-container">
-      <a href="/" class="nav-logo">
-        <div class="nav-logo-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="23 7 16 12 23 17 23 7"></polygon>
-            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-          </svg>
-        </div>
-        <span class="nav-logo-text">Datasetto</span>
+  <a class="sr-only" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/" aria-label="Datasetto home">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        Datasetto
       </a>
-
-      <div class="nav-links">
+      <nav class="nav-links" aria-label="Primary">
         <a href="#features">Features</a>
-        <a href="#self-hosted">Self-Hosted</a>
-        <a href="#downloads">Downloads</a>
-        <a href="https://github.com/FilippoLeone/datasetto" target="_blank">GitHub</a>
-      </div>
-
-      <div class="nav-cta">
-        <a href="/app" class="btn btn-primary">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
-            <polyline points="10 17 15 12 10 7"></polyline>
-            <line x1="15" y1="12" x2="3" y2="12"></line>
-          </svg>
-          Launch App
-        </a>
-      </div>
+        <a href="#how">Self-host</a>
+        <a href="#apps">Apps</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/FilippoLeone/datasetto" rel="noopener">GitHub</a>
+      </nav>
+      <a class="btn btn-primary" href="/app">Open the app</a>
     </div>
-  </nav>
+  </header>
 
-  <!-- Hero Section -->
-  <section class="hero">
-    <div class="hero-content">
-      <div class="hero-badge">
-        <span class="hero-badge-dot"></span>
-        Open Source & Self-Hosted
-      </div>
-
-      <h1>
-        Stream, Chat, and Connect<br>
-        <span>On Your Own Terms</span>
-      </h1>
-
-      <p class="hero-description">
-        Datasetto is a self-hosted streaming platform with live RTMP broadcasting, 
-        crystal-clear WebRTC voice chat, and real-time text communication. 
-        Your server, your rules, your data.
-      </p>
-
-      <div class="hero-actions">
-        <a href="/app" class="btn btn-primary btn-lg">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <polygon points="10 8 16 12 10 16 10 8"></polygon>
-          </svg>
-          Open Web App
-        </a>
-        <a href="#downloads" class="btn btn-secondary btn-lg">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          Download Apps
-        </a>
-      </div>
-
-      <div class="hero-visual">
-        <div class="hero-mockup">
-          <div class="mockup-header">
-            <div class="mockup-dot red"></div>
-            <div class="mockup-dot yellow"></div>
-            <div class="mockup-dot green"></div>
+  <main id="main">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div>
+          <span class="eyebrow rise">Self-hosted · Open source · AGPL</span>
+          <h1 class="rise d1">Your friends.<br>Your server.<br><span class="accent">No middleman.</span></h1>
+          <p class="lead rise d2">Datasetto is a private hangout server you run yourself: text channels, voice that feels close, camera and screen sharing with sound, OBS-quality live streams and a few minigames for the lobby. All of it on one small server, for about the price of a coffee a week.</p>
+          <div class="hero-actions rise d3">
+            <a class="btn btn-primary" href="/app">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              Open the app
+            </a>
+            <a class="btn btn-ghost" href="/downloads.html">Get the desktop app</a>
           </div>
-          <div class="mockup-content">
-            <div class="mockup-sidebar">
-              <div class="mockup-channel">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                general
-              </div>
-              <div class="mockup-channel active">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-                live-stream
-              </div>
-              <div class="mockup-channel">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path></svg>
-                voice-lobby
-              </div>
+          <div class="hero-meta rise d3">
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>Free, no accounts to buy</span>
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>No tracking, no ads</span>
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>Works in the browser</span>
+          </div>
+        </div>
+
+        <div class="mock rise d2" role="img" aria-label="Preview of the Datasetto app: channel list, a text chat and the member list">
+          <div class="m-side">
+            <div class="h">Text channels</div>
+            <div class="c on"># general</div>
+            <div class="c"># announcements <span class="badge">2</span></div>
+            <div class="c"># planning</div>
+            <div class="h">Voice channels</div>
+            <div class="c">🔊 lobby</div>
+            <div class="sub"><span class="av" style="background:#5865f2">A</span> alice</div>
+            <div class="sub"><span class="av" style="background:#23a559">C</span> carol</div>
+            <div class="c">🔊 room-1</div>
+            <div class="h">Live streams</div>
+            <div class="c">📡 main-stream <span class="live">LIVE</span></div>
+            <div class="dock">
+              <div class="t">Voice connected</div>
+              <div class="r"><i></i><i></i><i></i><i class="red"></i></div>
             </div>
-            <div class="mockup-main">
-              <div class="mockup-stream">
-                <div class="mockup-play">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                </div>
-              </div>
-              <div class="mockup-chat-area">
-                <div class="mockup-message">
-                  <div class="mockup-avatar"></div>
-                  <div class="mockup-msg-content">
-                    <div class="mockup-msg-name">Alex</div>
-                    <div class="mockup-msg-text">Great stream! The quality is amazing 🎉</div>
-                  </div>
-                </div>
-                <div class="mockup-message">
-                  <div class="mockup-avatar" style="background: linear-gradient(135deg, #a855f7, #6366f1);"></div>
-                  <div class="mockup-msg-content">
-                    <div class="mockup-msg-name" style="color: #a855f7;">Sarah</div>
-                    <div class="mockup-msg-text">Love the self-hosted setup!</div>
-                  </div>
-                </div>
-              </div>
+          </div>
+          <div class="m-main">
+            <div class="m-top"># general</div>
+            <div class="m-msgs">
+              <div class="msg"><span class="av" style="background:#5865f2">A</span><div><div class="n">alice <small>21:04</small></div><div class="b">lobby is open, who's in for a round of pacman?</div></div></div>
+              <div class="msg"><span class="av" style="background:#23a559">C</span><div><div class="n">carol <small>21:05</small></div><div class="b">in. <span class="mention">@bob</span> bring your A game</div></div></div>
+              <div class="msg"><span class="av" style="background:#ff8a3d">B</span><div><div class="n">bob <small>21:05</small></div><div class="b">streaming the finals at 9, <span class="link">watch in #main-stream</span></div></div></div>
+              <div class="msg"><span class="av" style="background:#0fa4a5">D</span><div><div class="n">dana <small>21:06</small></div><div class="b">🔥 joined voice</div></div></div>
             </div>
-            <div class="mockup-users">
-              <div class="mockup-user">
-                <div class="mockup-user-avatar" style="background: var(--gradient-brand);"></div>
-                <span class="mockup-user-name">StreamerPro</span>
-                <div class="mockup-user-status"></div>
-              </div>
-              <div class="mockup-user">
-                <div class="mockup-user-avatar"></div>
-                <span class="mockup-user-name">Viewer1</span>
-                <div class="mockup-user-status"></div>
-              </div>
-              <div class="mockup-user">
-                <div class="mockup-user-avatar"></div>
-                <span class="mockup-user-name">Viewer2</span>
-                <div class="mockup-user-status"></div>
-              </div>
-            </div>
+            <div class="m-input">Message #general</div>
+          </div>
+          <div class="m-members">
+            <div class="h">Online — 4</div>
+            <div class="u"><span class="av" style="background:#5865f2">A</span>alice <span class="role">ADMIN</span></div>
+            <div class="u"><span class="av" style="background:#23a559">C</span>carol <span class="role mod">MOD</span></div>
+            <div class="u"><span class="av" style="background:#ff8a3d">B</span>bob</div>
+            <div class="u"><span class="av" style="background:#0fa4a5">D</span>dana <span class="s">in lobby</span></div>
           </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Features Section -->
-  <section class="features" id="features">
-    <div class="section-header">
-      <div class="section-label">Features</div>
-      <h2 class="section-title">Everything you need to stream and connect</h2>
-      <p class="section-description">
-        A complete communication platform built for privacy, performance, and flexibility.
-      </p>
-    </div>
-
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="23 7 16 12 23 17 23 7"></polygon>
-            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-          </svg>
+    <section id="features">
+      <div class="container">
+        <div class="section-head">
+          <span class="eyebrow">Everything a group needs</span>
+          <h2>Familiar where it matters, lighter everywhere else</h2>
+          <p class="lead">The parts of a chat app your friends actually use, without the parts that sell them something.</p>
         </div>
-        <h3 class="feature-title">RTMP Live Streaming</h3>
-        <p class="feature-description">
-          Stream directly from OBS, Streamlabs, or any RTMP-compatible software. 
-          Low-latency HLS delivery ensures your audience stays engaged.
-        </p>
-      </div>
-
-      <div class="feature-card">
-        <div class="feature-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-            <line x1="12" y1="19" x2="12" y2="23"></line>
-            <line x1="8" y1="23" x2="16" y2="23"></line>
-          </svg>
-        </div>
-        <h3 class="feature-title">WebRTC Voice Chat</h3>
-        <p class="feature-description">
-          Crystal-clear voice communication powered by WebRTC. 
-          Join voice channels with push-to-talk or voice activation.
-        </p>
-      </div>
-
-      <div class="feature-card">
-        <div class="feature-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-          </svg>
-        </div>
-        <h3 class="feature-title">Real-Time Chat</h3>
-        <p class="feature-description">
-          Instant messaging with Socket.IO. Create text channels, 
-          share messages, and stay connected with your community.
-        </p>
-      </div>
-
-      <div class="feature-card">
-        <div class="feature-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-          </svg>
-        </div>
-        <h3 class="feature-title">Privacy First</h3>
-        <p class="feature-description">
-          Your data stays on your server. No tracking, no ads, 
-          no third-party access. Complete control over your content.
-        </p>
-      </div>
-
-      <div class="feature-card">
-        <div class="feature-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-            <line x1="8" y1="21" x2="16" y2="21"></line>
-            <line x1="12" y1="17" x2="12" y2="21"></line>
-          </svg>
-        </div>
-        <h3 class="feature-title">Cross-Platform</h3>
-        <p class="feature-description">
-          Access from anywhere. Native apps for Windows, macOS, Linux, 
-          Android, and iOS. Or use the web app directly.
-        </p>
-      </div>
-
-      <div class="feature-card">
-        <div class="feature-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-          </svg>
-        </div>
-        <h3 class="feature-title">Fully Customizable</h3>
-        <p class="feature-description">
-          Open source and extensible. Modify the code, add features, 
-          or integrate with your existing infrastructure.
-        </p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Self-Hosted Section -->
-  <section class="self-hosted" id="self-hosted">
-    <div class="self-hosted-container">
-      <div class="self-hosted-content">
-        <h2>Deploy in minutes,<br>own it forever</h2>
-        <p>
-          Datasetto runs on your hardware. A simple Docker setup means you can 
-          have your own streaming platform running in minutes, whether on a 
-          Raspberry Pi, VPS, or enterprise server.
-        </p>
-        <ul class="benefits-list">
-          <li>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            <span>Full control over your data and content</span>
-          </li>
-          <li>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            <span>No monthly fees or usage limits</span>
-          </li>
-          <li>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            <span>Automatic HTTPS with Caddy</span>
-          </li>
-          <li>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            <span>Redis-backed persistent storage</span>
-          </li>
-        </ul>
-      </div>
-
-      <div class="code-block">
-        <div class="code-header">
-          <div class="code-dot" style="background: #ff5f57;"></div>
-          <div class="code-dot" style="background: #ffbd2e;"></div>
-          <div class="code-dot" style="background: #28c840;"></div>
-        </div>
-        <div class="code-content">
-          <span class="code-comment"># Clone the repository</span><br>
-          <span class="code-command">git clone</span> https://github.com/FilippoLeone/datasetto<br><br>
-          <span class="code-comment"># Navigate to ops directory</span><br>
-          <span class="code-command">cd</span> datasetto/ops<br><br>
-          <span class="code-comment"># Configure environment</span><br>
-          <span class="code-command">cp</span> .env.example .env<br><br>
-          <span class="code-comment"># Launch with Docker</span><br>
-          <span class="code-command">docker compose</span> <span class="code-flag">-f</span> docker-compose.prod.yml <span class="code-flag">up -d</span>
+        <div class="grid">
+          <article class="card">
+            <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 12a7 7 0 0 1-14 0M12 19v3"/></svg></div>
+            <h3>Voice that feels close</h3>
+            <p>Peer-to-peer WebRTC with echo cancellation, noise suppression, a noise gate and push to talk. Per-person volume, camera tiles and keyboard shortcuts included.</p>
+          </article>
+          <article class="card">
+            <div class="icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/></svg></div>
+            <h3>Go live, with or without OBS</h3>
+            <p>Share a game with system audio straight from the app, or point OBS at your server and let everyone watch in a low-latency theater view with live chat.</p>
+          </article>
+          <article class="card">
+            <div class="icon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+            <h3>Screen sharing rooms</h3>
+            <p>One presenter, many viewers. Fullscreen playback, 60 fps when the connection allows it, and nothing leaves your server.</p>
+          </article>
+          <article class="card">
+            <div class="icon yellow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="11" rx="4"/><path d="M7 12h4M9 10v4M15 11h.01M17 13h.01"/></svg></div>
+            <h3>Minigames in voice</h3>
+            <p>Start Slither, Pacman or a side-view brawl right inside a voice channel while you talk. Scores are kept on a leaderboard, grudges are kept by you.</p>
+          </article>
+          <article class="card">
+            <div class="icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg></div>
+            <h3>Roles and invites</h3>
+            <p>Invite-only registration, admin, moderator and streamer roles, per-channel permissions, bans and voice timeouts. The first account becomes the owner.</p>
+          </article>
+          <article class="card">
+            <div class="icon orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></div>
+            <h3>Yours to run</h3>
+            <p>One Docker Compose file, one SQLite database, automatic HTTPS and nightly backups. Read the code, change it, keep it. GNU AGPLv3.</p>
+          </article>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Downloads Section -->
-  <section class="downloads" id="downloads">
-    <div class="section-header">
-      <div class="section-label">Downloads</div>
-      <h2 class="section-title">Get the native experience</h2>
-      <p class="section-description">
-        Download Datasetto for your platform and enjoy a seamless, native experience.
-      </p>
-    </div>
-
-    <div class="downloads-grid">
-      <div class="download-card">
-        <div class="download-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-            <line x1="8" y1="21" x2="16" y2="21"></line>
-            <line x1="12" y1="17" x2="12" y2="21"></line>
-          </svg>
+    <section id="how" class="how">
+      <div class="container how-grid">
+        <div>
+          <span class="eyebrow">Self-hosting</span>
+          <h2 style="margin:12px 0 14px">Online in an evening, not a weekend</h2>
+          <p class="lead">Datasetto is built for a single small machine. No Kubernetes, no managed database, no load balancer. A domain, a VM and Docker are all it takes.</p>
+          <ol class="steps">
+            <li><div><strong>Copy the example config</strong><span>Set your domain, an invite code and your admin email.</span></div></li>
+            <li><div><strong>Start the stack</strong><span>Caddy gets a certificate, the API starts, the RTMP server waits for OBS.</span></div></li>
+            <li><div><strong>Invite your friends</strong><span>Share the link and the invite code. The first account to register becomes the owner.</span></div></li>
+          </ol>
         </div>
-        <h3 class="download-title">Desktop</h3>
-        <p class="download-description">Windows, macOS, and Linux</p>
-        <a href="/downloads.html" class="btn btn-primary">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          Download
-        </a>
-      </div>
+        <div>
+<pre><span class="c"># clone, configure, run</span>
+<span class="k">git</span> clone https://github.com/FilippoLeone/datasetto
+<span class="k">cp</span> ops/.env.example ops/.env   <span class="c"># domain, invite code, admin</span>
+<span class="k">docker</span> compose -f ops/docker-compose.yml up -d
 
-      <div class="download-card">
-        <div class="download-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
-            <line x1="12" y1="18" x2="12.01" y2="18"></line>
-          </svg>
+<span class="c"># or let the script create the VM on Google Cloud</span>
+ops/gcp/create-vm.sh</pre>
+          <div class="cost">
+            <strong>≈ €13/month</strong>
+            <span>for the whole thing on one e2-micro VM, streaming included. Less in the US free-tier regions.</span>
+          </div>
         </div>
-        <h3 class="download-title">Mobile</h3>
-        <p class="download-description">Android APK available</p>
-        <a href="/downloads.html" class="btn btn-primary">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          Download
-        </a>
       </div>
+    </section>
 
-      <div class="download-card">
-        <div class="download-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="2" y1="12" x2="22" y2="12"></line>
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-          </svg>
+    <section id="apps">
+      <div class="container">
+        <div class="section-head">
+          <span class="eyebrow">Apps</span>
+          <h2>In the browser, on the desktop, in your pocket</h2>
+          <p class="lead">The web app is the full experience. The native shells add a tray icon, global push to talk and a proper screen picker.</p>
         </div>
-        <h3 class="download-title">Web App</h3>
-        <p class="download-description">Use directly in your browser</p>
-        <a href="/app" class="btn btn-secondary">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <polygon points="10 8 16 12 10 16 10 8"></polygon>
-          </svg>
-          Open App
-        </a>
+        <div class="apps">
+          <article class="card">
+            <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+            <h3>Web</h3>
+            <p>Nothing to install. Chrome, Edge, Firefox and Safari on any desktop, and a phone layout with drawers and a bottom bar.</p>
+            <a class="btn btn-primary" href="/app">Open the app</a>
+          </article>
+          <article class="card">
+            <div class="icon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+            <h3>Desktop</h3>
+            <p>Windows, macOS and Linux. Share any window or screen with system audio, mute from the tray, get notified when someone mentions you.</p>
+            <a class="btn btn-ghost" href="/downloads.html">Download</a>
+          </article>
+          <article class="card">
+            <div class="icon orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+            <h3>Android</h3>
+            <p>Voice stays connected in the background with a foreground service, and the camera flips between front and back.</p>
+            <a class="btn btn-ghost" href="/downloads.html#android">Get the APK</a>
+          </article>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Footer -->
+    <section id="faq">
+      <div class="container">
+        <div class="section-head">
+          <span class="eyebrow">FAQ</span>
+          <h2>Good questions</h2>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>Is Datasetto free?</summary>
+            <p>Yes. It is open source under the GNU AGPLv3. You only pay for the server you run it on, which can be a single small virtual machine.</p>
+          </details>
+          <details>
+            <summary>Do I need OBS to stream?</summary>
+            <p>No. Share your screen with system audio straight from the app, like a go-live button. OBS is supported too for scene-based streams: it publishes to your server and viewers watch as low-latency HLS with chat next to the video.</p>
+          </details>
+          <details>
+            <summary>How many people can use it?</summary>
+            <p>It is built for a group of friends. Voice and screen sharing are peer to peer, so a room of five to ten people works well on a small server and ordinary home connections.</p>
+          </details>
+          <details>
+            <summary>Does it work on phones?</summary>
+            <p>Yes. The web app adapts to phones, and there is an Android app plus Electron desktop apps for Windows, macOS and Linux.</p>
+          </details>
+          <details>
+            <summary>Where is my data stored?</summary>
+            <p>On your own server, in one SQLite file. Media never touches the server except RTMP ingest and the optional TURN relay. There is no tracking and no third party.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta">
+      <div class="container">
+        <div class="panel">
+          <h2>Bring the group over</h2>
+          <p class="lead">Spin up your own server tonight, or just open the app if a friend already runs one.</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="/app">Open the app</a>
+            <a class="btn btn-ghost" href="https://github.com/FilippoLeone/datasetto#quick-start-local" rel="noopener">Self-host it</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
   <footer>
-    <div class="footer-logo">Datasetto</div>
-    <div class="footer-links">
-      <a href="https://github.com/FilippoLeone/datasetto" target="_blank">GitHub</a>
-      <a href="/downloads.html">Downloads</a>
-      <a href="/app">Web App</a>
+    <div class="container foot">
+      <span>© Datasetto · GNU AGPLv3 · Built for a small group of friends, shared with everyone.</span>
+      <nav aria-label="Footer">
+        <a href="/downloads.html">Downloads</a>
+        <a href="https://github.com/FilippoLeone/datasetto" rel="noopener">Source code</a>
+        <a href="https://github.com/FilippoLeone/datasetto/blob/main/LICENSE.md" rel="noopener">License</a>
+        <a href="https://github.com/FilippoLeone/datasetto/issues" rel="noopener">Report a bug</a>
+      </nav>
     </div>
-    <p class="footer-copyright">
-      © 2025 Datasetto. Open source under GNU Affero General Public License v3.0 License.
-    </p>
   </footer>
-
-  <script>
-    // Check if user is logged in - redirect to app if they have a session
-    (function() {
-      try {
-        const authData = localStorage.getItem('rtmpdisc.auth.v1');
-        if (authData) {
-          const parsed = JSON.parse(authData);
-          if (parsed && parsed.session && parsed.session.token) {
-            // User has an active session, redirect to the app
-            window.location.replace('/app');
-            return;
-          }
-        }
-      } catch (e) {
-        // Ignore parse errors, just show landing page
-      }
-    })();
-
-    // Smooth scroll for anchor links
-    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-      anchor.addEventListener('click', function (e) {
-        e.preventDefault();
-        const target = document.querySelector(this.getAttribute('href'));
-        if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      });
-    });
-
-    // Navbar background on scroll
-    const nav = document.querySelector('nav');
-    window.addEventListener('scroll', () => {
-      if (window.scrollY > 50) {
-        nav.style.background = 'rgba(10, 10, 11, 0.95)';
-      } else {
-        nav.style.background = 'rgba(10, 10, 11, 0.8)';
-      }
-    });
-  </script>
 </body>
 </html>

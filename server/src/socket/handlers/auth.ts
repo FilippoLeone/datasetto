@@ -1,0 +1,196 @@
+import { z } from 'zod';
+import { RateLimiter } from '../../core/rateLimit.js';
+import { AppError } from '../../errors.js';
+import { sanitizeAccount } from '../../services/accounts.js';
+import { SessionService } from '../../services/sessions.js';
+import type { PublicAccount } from '../../types.js';
+import { handle, requireUser, type SocketContext } from '../context.js';
+import { teardownSocket } from '../lifecycle.js';
+import type { Minigames } from './minigame.js';
+import { channelsPayload } from '../payloads.js';
+
+// Shared across sockets: brute-force protection is per IP, not per connection.
+const registerLimiter = new RateLimiter(5, 60_000);
+const loginLimiter = new RateLimiter(10, 60_000);
+
+const registerSchema = z.object({
+  username: z.string().max(254),
+  password: z.string().max(128),
+  inviteCode: z.string().max(128).optional().nullable(),
+  profile: z
+    .object({
+      displayName: z.string().max(50).optional().nullable(),
+    })
+    .partial()
+    .optional(),
+});
+
+const loginSchema = z.object({
+  username: z.string().max(254),
+  password: z.string().max(128),
+});
+
+const sessionSchema = z.object({ token: z.string().min(1).max(256) });
+
+const accountUpdateSchema = z.object({
+  displayName: z.string().max(50).optional(),
+  email: z.string().max(254).nullable().optional(),
+  bio: z.string().max(500).nullable().optional(),
+  avatarUrl: z.string().max(2048).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  currentPassword: z.string().max(128).optional(),
+  newPassword: z.string().max(128).optional(),
+});
+
+const authSuccessPayload = (sctx: SocketContext, account: PublicAccount, isNewAccount: boolean, expiresAt: number) => ({
+  user: sctx.app.presence.exportUser(sctx.socket.id),
+  account,
+  session: { token: sctx.sessionToken, expiresAt },
+  // TURN credentials are only ever sent to signed-in users (relay traffic is paid egress).
+  ice: sctx.app.turn.iceConfig(),
+  ...channelsPayload(sctx.app, requireUser(sctx)),
+  isNewAccount,
+});
+
+export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames): void => {
+  const { app, socket } = sctx;
+
+  const assertNotBanned = (accountId: string) => {
+    const ban = app.moderation.getBan(accountId);
+    if (ban) {
+      throw new AppError(ban.reason || 'You are banned from this server', 'BANNED', 403);
+    }
+  };
+
+  const finalize = (account: PublicAccount, token: string, expiresAt: number, isNewAccount: boolean) => {
+    if (sctx.user) {
+      // Re-authenticating on a live socket: drop the previous identity first.
+      app.presence.removeUser(socket.id);
+    }
+    sctx.account = account;
+    sctx.sessionToken = token;
+    sctx.sessionTokenHash = SessionService.hashToken(token);
+    sctx.user = app.presence.addUser(socket.id, account);
+
+    socket.emit('auth:success', authSuccessPayload(sctx, account, isNewAccount, expiresAt));
+    app.broadcast.users();
+    app.broadcast.channels();
+    app.log.info({ socketId: socket.id, accountId: account.id, roles: account.roles, isNewAccount }, 'authenticated');
+  };
+
+  handle(
+    sctx,
+    'auth:register',
+    { schema: registerSchema, errorEvent: 'auth:error', code: 'REGISTRATION_FAILED', requireAuth: false, limiter: 'auth' },
+    async (payload) => {
+      if (sctx.user) throw new AppError('Already signed in', 'ALREADY_AUTHENTICATED', 409);
+      if (!registerLimiter.hit(sctx.ip).allowed) {
+        throw new AppError('Too many registration attempts. Please try again later.', 'RATE_LIMITED', 429);
+      }
+      const account = await app.accounts.register({
+        username: payload.username,
+        password: payload.password,
+        displayName: payload.profile?.displayName ?? null,
+        inviteCode: payload.inviteCode ?? null,
+      });
+      const session = app.sessions.create(account.id, { ip: sctx.ip, userAgent: sctx.userAgent });
+      finalize(account, session.token, session.expiresAt, true);
+    },
+  );
+
+  handle(
+    sctx,
+    'auth:login',
+    { schema: loginSchema, errorEvent: 'auth:error', code: 'LOGIN_FAILED', requireAuth: false, limiter: 'auth' },
+    async (payload) => {
+      if (sctx.user) throw new AppError('Already signed in', 'ALREADY_AUTHENTICATED', 409);
+      if (!loginLimiter.hit(sctx.ip).allowed) {
+        throw new AppError('Too many login attempts. Please try again later.', 'RATE_LIMITED', 429);
+      }
+      const account = await app.accounts.authenticate(payload.username, payload.password);
+      assertNotBanned(account.id);
+      const session = app.sessions.create(account.id, { ip: sctx.ip, userAgent: sctx.userAgent });
+      finalize(account, session.token, session.expiresAt, false);
+    },
+  );
+
+  handle(
+    sctx,
+    'auth:session',
+    { schema: sessionSchema, errorEvent: 'auth:error', code: 'SESSION_FAILED', requireAuth: false, limiter: 'auth' },
+    (payload) => {
+      const session = app.sessions.resume(payload.token);
+      if (!session) throw new AppError('Your session has expired. Please sign in again.', 'SESSION_FAILED', 401);
+
+      const record = app.accounts.getById(session.accountId);
+      if (!record || record.status !== 'active') {
+        app.sessions.revoke(payload.token);
+        throw new AppError('Account is no longer active', 'ACCOUNT_DISABLED', 403);
+      }
+      try {
+        assertNotBanned(record.id);
+      } catch (error) {
+        app.sessions.revoke(payload.token);
+        throw error;
+      }
+
+      const account = sanitizeAccount(record);
+      if (sctx.user && sctx.account?.id === account.id) {
+        // Same account re-sending its token after a reconnect: confirm without side effects.
+        sctx.sessionToken = payload.token;
+        sctx.sessionTokenHash = SessionService.hashToken(payload.token);
+        socket.emit('auth:success', authSuccessPayload(sctx, account, false, session.expiresAt));
+        return;
+      }
+      finalize(account, payload.token, session.expiresAt, false);
+    },
+  );
+
+  handle(sctx, 'turn:refresh', { code: 'TURN_REFRESH_FAILED', limiter: 'auth' }, () => {
+    socket.emit('turn:credentials', app.turn.iceConfig());
+  });
+
+  handle(sctx, 'auth:logout', { errorEvent: 'auth:error', code: 'LOGOUT_FAILED', requireAuth: false }, () => {
+    if (sctx.sessionToken) app.sessions.revoke(sctx.sessionToken);
+    teardownSocket(sctx, minigames);
+    socket.emit('auth:loggedOut');
+  });
+
+  handle(sctx, 'account:get', { errorEvent: 'account:error', code: 'ACCOUNT_FETCH_FAILED' }, () => {
+    const user = requireUser(sctx);
+    const record = app.accounts.getById(user.accountId);
+    if (!record) throw new AppError('Account not found', 'NOT_FOUND', 404);
+    sctx.account = sanitizeAccount(record);
+    socket.emit('account:data', { account: sctx.account, user: app.presence.exportUser(socket.id) });
+  });
+
+  handle(
+    sctx,
+    'account:update',
+    { schema: accountUpdateSchema, errorEvent: 'account:error', code: 'ACCOUNT_UPDATE_FAILED' },
+    async (payload) => {
+      const user = requireUser(sctx);
+
+      if (payload.newPassword) {
+        await app.accounts.changePassword(user.accountId, payload.currentPassword, payload.newPassword);
+        app.sessions.revokeAll(user.accountId, sctx.sessionTokenHash);
+      }
+
+      const updated = app.accounts.updateProfile(user.accountId, {
+        displayName: payload.displayName,
+        email: payload.email,
+        bio: payload.bio,
+        avatarUrl: payload.avatarUrl,
+        metadata: payload.metadata,
+      });
+
+      sctx.account = updated;
+      app.presence.syncAccount(updated);
+      sctx.user = app.presence.getUser(socket.id);
+
+      socket.emit('account:updated', { account: updated, user: app.presence.exportUser(socket.id) });
+      app.broadcast.users();
+      app.broadcast.channels();
+    },
+  );
+};
