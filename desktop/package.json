@@ -58,7 +58,8 @@
       "package.json",
       "renderer/**/*",
       "picker/**/*",
-      "overlay/**/*"
+      "overlay/**/*",
+      "games/**/*"
     ],
     "directories": {
       "output": "release",

@@ -104,6 +104,33 @@ interface DesktopAPI {
   configureVoiceOverlay?: (options: { enabled: boolean; corner: DesktopOverlayCorner }) => Promise<unknown>;
   /** What the overlay shows; `null` while not in voice (the window is hidden then). */
   updateVoiceOverlay?: (state: DesktopVoiceOverlayState | null) => void;
+
+  // Game activity ("Playing <game>"), also optional: see features/activity/desktopActivity.ts.
+
+  /**
+   * Apply the game activity settings. While `enabled`, the shell reads the names of the
+   * running programs every 20 s with the operating system's own tool and reports only
+   * the title matched in its catalogue or in `custom`. Resolves once a first scan ran.
+   */
+  configureGameActivity?: (options: DesktopGameActivityConfig) => Promise<DesktopGameActivityStatus>;
+  /** Lower-cased names of the running programs for the picker (no launchers, no system processes); never sent anywhere. */
+  listProcesses?: () => Promise<{ processes: string[]; error?: string }>;
+  /** The matched title changed (`null`: no listed game runs, or the feature is off). Returns an unsubscribe function. */
+  onGameActivity?: (handler: (event: { title: string | null }) => void) => () => void;
+}
+
+interface DesktopGameActivityConfig {
+  enabled: boolean;
+  /** The user's own entries: lower-cased executable name and the title to show. */
+  custom: Array<{ exe: string; title: string }>;
+}
+
+interface DesktopGameActivityStatus {
+  enabled: boolean;
+  /** Title found by the scan that ran on configure, or null. */
+  title: string | null;
+  /** Games in the shell's bundled catalogue. */
+  catalogueSize: number;
 }
 
 interface DesktopShortcutStatus {

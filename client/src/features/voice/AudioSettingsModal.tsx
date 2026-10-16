@@ -6,7 +6,9 @@ import { micLevel, voiceStatus } from '@/state/voice';
 import { SCREEN_QUALITY_OPTIONS } from '@/services/screenCapture';
 import { audioSettings, updateAudioSettings } from '@/state/settings';
 import { closeModal, toast } from '@/state/ui';
+import { GameActivitySection } from '@/features/settings/GameActivitySection';
 import { NotificationsSection } from '@/features/settings/NotificationsSection';
+import { supportsGameActivity } from '@/features/activity/desktopActivity';
 import { supportsVoiceOverlay } from './desktopVoice';
 import { ShortcutCapture } from './ShortcutCapture';
 import { DesktopUpdatesSection } from '@/features/settings/DesktopUpdatesSection';
@@ -67,7 +69,7 @@ export const AudioSettingsModal = () => {
   return (
     <Modal
       title="Settings"
-      subtitle={voiceStatus.value === 'connected' ? 'Voice changes apply to your current call.' : 'Voice, audio, screen share and notifications.'}
+      subtitle={voiceStatus.value === 'connected' ? 'Voice changes apply to your current call.' : 'Voice, audio, screen share, game activity and notifications.'}
       onClose={closeModal}
       size="lg"
       footer={
@@ -156,6 +158,7 @@ export const AudioSettingsModal = () => {
           )}
         </section>
 
+        {supportsGameActivity() && <GameActivitySection />}
         <NotificationsSection />
       </div>
       <DesktopUpdatesSection />

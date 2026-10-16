@@ -17,6 +17,9 @@ import type {
  */
 export const VISIBILITY_STALE_MS = 90_000;
 
+/** Longest game title accepted from `presence:activity`. */
+export const MAX_ACTIVITY_LENGTH = 64;
+
 export interface VoicePeer {
   id: string;
   name: string;
@@ -34,6 +37,8 @@ export interface PublicUser {
   isSuperuser: boolean;
   avatarUrl: string | null;
   voiceChannel: string | null;
+  /** "Playing <title>": the game the user's desktop app reports, or null. */
+  activity: string | null;
   currentChannel?: string | null;
   email?: string | null;
   bio?: string | null;
@@ -90,6 +95,7 @@ export class PresenceService {
       lastActivity: now,
       visible: true,
       visibleAt: now,
+      activity: null,
     };
     this.users.set(socketId, user);
     if (!this.socketsByAccount.has(account.id)) this.socketsByAccount.set(account.id, new Set());
@@ -160,6 +166,20 @@ export class PresenceService {
   }
 
   /**
+   * The game this socket's desktop app reports (`presence:activity`); null clears it.
+   * Returns whether anything changed, so callers broadcast only then. Nothing is
+   * persisted: the entry goes with the socket (removeUser).
+   */
+  setActivity(socketId: string, title: string | null): boolean {
+    const user = this.users.get(socketId);
+    if (!user) return false;
+    const next = title ? title.slice(0, MAX_ACTIVITY_LENGTH) : null;
+    if (user.activity === next) return false;
+    user.activity = next;
+    return true;
+  }
+
+  /**
    * Is the account looking at the app on any device? A socket counts when its page
    * says it is visible and either said so or did anything within `staleMs`: a tab
    * that stopped heartbeating (laptop asleep, frozen background tab) no longer counts.
@@ -190,6 +210,7 @@ export class PresenceService {
       bio: user.bio,
       currentChannel: user.currentChannel,
       voiceChannel: user.voiceChannel,
+      activity: user.activity,
     };
   }
 
@@ -205,6 +226,7 @@ export class PresenceService {
       isSuperuser: user.isSuperuser,
       avatarUrl: user.avatarUrl,
       voiceChannel: user.voiceChannel,
+      activity: user.activity,
     }));
   }
 

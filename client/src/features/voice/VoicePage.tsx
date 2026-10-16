@@ -7,7 +7,7 @@ import { MOTION, useListPresence, type PresenceState } from '@/lib/motion';
 import { useElementSize } from '@/lib/useElementSize';
 import { usersById, usersInVoice } from '@/state/presence';
 import { screenAudioPref, screenHostKey, setScreenAudioPref } from '@/state/screenAudio';
-import { account, can } from '@/state/session';
+import { account, can, socketId } from '@/state/session';
 import { audioSettings } from '@/state/settings';
 import { isMobile, openModal } from '@/state/ui';
 import { minigameState } from '@/state/misc';
@@ -34,8 +34,10 @@ import { MinigamePanel } from '@/features/minigames/MinigamePanel';
 import type { Channel } from '@/types/protocol';
 
 const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state?: PresenceState }) => {
-  const user = usersById.value.get(peer.id);
+  const user = usersById.value.get(isMe ? (socketId.value ?? '') : peer.id);
   const me = account.value;
+  // "Playing …" as the server broadcasts it (my own comes back the same way).
+  const activity = user?.activity ?? null;
   const speaking = isMe ? localSpeaking.value : peer.speaking;
   const muted = isMe ? localMuted.value || (audioSettings.value.pttEnable && !pttPressed.value) : peer.muted;
   const deafened = isMe ? localDeafened.value : peer.deafened;
@@ -82,6 +84,12 @@ const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state
       >
         <Avatar seed={user?.accountId ?? peer.id} name={peer.name} src={user?.avatarUrl} size={64} speaking={speaking} />
         <span className="w-full truncate text-center text-sm font-medium text-text-bright">{peer.name}{isMe ? ' (you)' : ''}</span>
+        {activity && (
+          <span className="flex w-full items-center justify-center gap-1 text-[11px] text-text-muted" title={'Playing ' + activity} data-activity>
+            <Gamepad2 size={12} className="shrink-0" />
+            <span className="truncate">Playing {activity}</span>
+          </span>
+        )}
         <span className="flex items-center gap-1.5 text-text-muted">
           {muted ? <MicOff size={14} className="text-live" /> : <Mic size={14} />}
           {deafened && <HeadphoneOff size={14} className="text-live" />}

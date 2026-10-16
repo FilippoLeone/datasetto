@@ -47,6 +47,16 @@ function defineGlobals() {
       };
       ipcRenderer.on('update:state', handler);
       return () => ipcRenderer.removeListener('update:state', handler);
+    },
+
+    // Game activity: the shell scans the process list while enabled and reports only
+    // the matched title (client feature-detects these too).
+    configureGameActivity: (options) => ipcRenderer.invoke('activity:configure', options),
+    listProcesses: () => ipcRenderer.invoke('activity:processes'),
+    onGameActivity: (handler) => {
+      const listener = (_event, payload) => handler(payload);
+      ipcRenderer.on('activity:detected', listener);
+      return () => ipcRenderer.removeListener('activity:detected', listener);
     }
   });
 

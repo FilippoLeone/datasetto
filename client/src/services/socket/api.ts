@@ -138,6 +138,8 @@ export const api = {
   sendPushTest: () => socketClient.request<PushAck<{ sent: number; failed: number; dropped: number }>>('push:test'),
   /** Visibility heartbeat: the server pushes only to people none of whose pages is visible. */
   reportVisibility: (visible: boolean) => emit('presence:visibility', { visible }),
+  /** "Playing <title>" for everyone's member list (desktop app); null when no listed game runs. One per 10 s. */
+  setActivity: (title: string | null) => emit('presence:activity', { title }),
 
   // minigames
   startGame: (type: MinigameType) => emit('voice:game:start', { type }),

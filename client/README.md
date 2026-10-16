@@ -23,7 +23,7 @@ the web build served by Caddy needs none of them because everything is same-orig
 src/
   main.tsx                 bootstrap: runtime config -> socket -> render
   app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts
-  state/                   signals: session, channels, chat, search, presence, voice, settings, notifications (push status), ui, screenAudio, misc (streams, screenshare, admin, minigame)
+  state/                   signals: session, channels, chat, search, presence, voice, settings, activity (game activity), notifications (push status), ui, screenAudio, misc (streams, screenshare, admin, minigame)
   services/
     socket/                SocketClient (reconnecting socket.io), api (typed emits), bindings (server events -> state)
     voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate)
@@ -48,7 +48,8 @@ src/
     screenshare/           presenter/viewer rooms over direct WebRTC
     minigames/             canvas engine (slither, pacman, fighter) + panel
     admin/                 members, channel permissions, bans
-    settings/              the Notifications and Desktop app (automatic updates) sections of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
+    activity/              "Playing <game>": own entries and report pacing (gameActivity), the Electron bridge wiring (desktopActivity), catalogue tests
+    settings/              the Notifications, Desktop app (automatic updates) and Game activity sections of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
   components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost, UpdateNotice
   lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs, shortcut (push-to-talk keys),
                            version comparison (version.ts) and the running version (appVersion.ts),
@@ -214,6 +215,26 @@ closed (`datasetto.updates.dismissed.v1`). It is never a dialog, so a call is no
   the `APP_VERSION` build argument).
 - `lib/version.ts` compares versions numerically (`0.1.10` > `0.1.9`, pre-release and `git describe`
   suffixes sort below the plain release); unit tests cover it and the notice state.
+
+## Game activity ("Playing <game>")
+
+Desktop app only, off by default. Settings > Game activity > "Show what I'm playing" asks the Electron shell to
+read the names of the running programs every 20 s (with the operating system's own process-list tool, nothing
+injected or hooked; `desktop/README.md` has the full account for the anti-cheat question) and to report the title
+it matches in its bundled catalogue or in your own entries. `features/activity/desktopActivity.ts` keeps the shell
+configured (`configureGameActivity`, sent at start-up and on every change), mirrors the detection into
+`state/activity.ts` (`detectedGame`) and sends it to the server as `presence:activity {title}` through
+`features/activity/gameActivity.ts`'s reporter: only changes, never more than one per 11 s (the server accepts one
+per 10 s), repeated after every `auth:success` because a new socket starts at null. What leaves the machine is that
+title and nothing else; the server broadcasts it as the `activity` field of `user:update`, and `MemberList` and the
+voice tiles show "Playing <title>" with a controller icon.
+
+The section explains all this in place, shows what is detected right now and keeps "Your own games": pick a program
+from the list the shell reads on your machine (shown only there; launchers and Windows system processes are left
+out) and give it a title. Own entries win over the catalogue, so a catalogue title can be renamed too. Settings
+live in `localStorage` (`datasetto.gameActivity.v1`); `gameActivity.ts` (normalisation, add/remove, the reporter)
+and `catalogue.test.ts` (the shell's matcher and catalogue, loaded from `desktop/games/`) are unit tested. In a
+browser, on a phone or with an older desktop shell the section is not shown and nothing is sent.
 
 ## Conventions
 
