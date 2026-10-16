@@ -63,11 +63,31 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
     }
   };
 
+  /**
+   * SINGLE_SESSION_PER_ACCOUNT: the newest connection wins. Older sockets of
+   * the same account are told why and dropped; their clients do not retry.
+   */
+  const disconnectOlderSockets = (accountId: string) => {
+    if (!app.config.sessions.singlePerAccount) return;
+    for (const socketId of app.presence.getSocketsByAccount(accountId)) {
+      if (socketId === socket.id) continue;
+      const older = sctx.io.sockets.sockets.get(socketId);
+      if (!older) continue;
+      older.emit('auth:error', {
+        message: 'You signed in somewhere else, so this device was signed out. Sign in again here to take over.',
+        code: 'SIGNED_IN_ELSEWHERE',
+      });
+      older.disconnect(true);
+      app.log.info({ accountId, olderSocketId: socketId, newerSocketId: socket.id }, 'older connection replaced');
+    }
+  };
+
   const finalize = (account: PublicAccount, token: string, expiresAt: number, isNewAccount: boolean) => {
     if (sctx.user) {
       // Re-authenticating on a live socket: drop the previous identity first.
       app.presence.removeUser(socket.id);
     }
+    disconnectOlderSockets(account.id);
     sctx.account = account;
     sctx.sessionToken = token;
     sctx.sessionTokenHash = SessionService.hashToken(token);

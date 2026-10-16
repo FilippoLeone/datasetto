@@ -47,6 +47,7 @@ See [.env.example](.env.example). Notable settings:
 | --- | --- |
 | `REGISTRATION_MODE` | `open`, `invite` (needs `REGISTRATION_INVITE_CODE`, or an admin-made invite token) or `closed` |
 | `ADMIN_EMAILS` | accounts that always receive the superuser role |
+| `SINGLE_SESSION_PER_ACCOUNT` | default `true`: a new sign-in (or a second tab) disconnects the account's older connection with `auth:error {code: "SIGNED_IN_ELSEWHERE"}`; that client stays signed out until the user signs in again there. `false` allows several connections per account |
 | `CORS_ORIGINS` | browser origins allowed to connect; native shells are allowed by default |
 | `TURN_URLS`, `TURN_SECRET` | enable TURN; the server mints 12-hour HMAC credentials for clients |
 | `PUBLIC_RTMP_URL` | shown in the OBS dialog: `rtmps://host:1936/live` on a deployed server (TLS through nginx, Caddy's certificate), `rtmp://host/live` for plain RTMP |

@@ -88,3 +88,15 @@ export const clearSession = (): void => {
   authStatus.value = 'anonymous';
   Storage.remove(AUTH_KEY);
 };
+
+/**
+ * Sign this tab out without touching the saved token: used when another
+ * device (or tab) took over the account. The token is still valid there, and
+ * in the same browser the other tab may just have saved a newer one. Without
+ * a token in memory the socket will not try to resume, so there is no loop.
+ */
+export const suspendSession = (): void => {
+  account.value = null;
+  sessionToken.value = null;
+  authStatus.value = 'anonymous';
+};

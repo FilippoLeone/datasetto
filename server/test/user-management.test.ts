@@ -76,7 +76,8 @@ describe('admin user management over the socket', () => {
   const sockets: Socket[] = [];
 
   beforeEach(async () => {
-    server = await startTestServer();
+    // This suite looks at several live sessions of one account, so the single-login rule is off here.
+    server = await startTestServer({ SINGLE_SESSION_PER_ACCOUNT: 'false' });
   });
 
   afterEach(async () => {

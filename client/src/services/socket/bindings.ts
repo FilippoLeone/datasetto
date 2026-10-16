@@ -4,7 +4,19 @@ import { api } from './api';
 import { selectChannel } from '@/features/channels/channelActions';
 import { sounds } from '@/services/sounds';
 import { notifyDesktop } from '@/services/native/desktop';
-import { account, authError, authStatus, clearSession, connectionStatus, isAuthenticated, sessionToken, setAuthenticated, socketId, updateAccount } from '@/state/session';
+import {
+  account,
+  authError,
+  authStatus,
+  clearSession,
+  connectionStatus,
+  isAuthenticated,
+  sessionToken,
+  setAuthenticated,
+  socketId,
+  suspendSession,
+  updateAccount,
+} from '@/state/session';
 import {
   channelsById,
   defaultChannelId,
@@ -128,6 +140,15 @@ export const installSocketBindings = (): void => {
 
   socketClient.on<ServerError>('auth:error', (payload) => {
     const code = payload.code ?? '';
+    if (code === 'SIGNED_IN_ELSEWHERE') {
+      // Another device took over. Stay signed out here (no automatic resume) but keep the saved token.
+      const message = payload.message || 'You signed in somewhere else, so this device was signed out.';
+      suspendSession();
+      authError.value = message;
+      toast.warning(message, 8000);
+      sounds.play('disconnect', 0.4);
+      return;
+    }
     if (SESSION_ENDING_CODES.has(code)) {
       const message = payload.message || 'Your session ended. Please sign in again.';
       clearSession();
