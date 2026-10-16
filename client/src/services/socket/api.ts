@@ -5,6 +5,9 @@ import type {
   CreateInviteInput,
   LeaderboardEntry,
   MinigameType,
+  PushAck,
+  PushSubscriptionInfo,
+  PushSubscriptionPayload,
   ServerSettingsUpdate,
   UpdateChannelInput,
 } from '@/types/protocol';
@@ -111,7 +114,16 @@ export const api = {
   removeChannelMember: (channelId: string, accountId: string) => emit('admin:channels:members:remove', { channelId, accountId }),
 
   /** Fresh TURN credentials for the signed-in user (answered with `turn:credentials`). */
-    refreshTurn: () => emit('turn:refresh'),
+  refreshTurn: () => emit('turn:refresh'),
+
+  // push notifications (answered through the acknowledgement) and presence
+  subscribePush: (subscription: PushSubscriptionPayload) =>
+    socketClient.request<PushAck<{ subscription: PushSubscriptionInfo; subscriptions: PushSubscriptionInfo[] }>>('push:subscribe', subscription),
+  unsubscribePush: (endpoint: string) => socketClient.request<PushAck<{ removed: boolean; subscriptions: PushSubscriptionInfo[] }>>('push:unsubscribe', { endpoint }),
+  listPushSubscriptions: () => socketClient.request<PushAck<{ enabled: boolean; subscriptions: PushSubscriptionInfo[] }>>('push:list'),
+  sendPushTest: () => socketClient.request<PushAck<{ sent: number; failed: number; dropped: number }>>('push:test'),
+  /** Visibility heartbeat: the server pushes only to people none of whose pages is visible. */
+  reportVisibility: (visible: boolean) => emit('presence:visibility', { visible }),
 
   // minigames
   startGame: (type: MinigameType) => emit('voice:game:start', { type }),

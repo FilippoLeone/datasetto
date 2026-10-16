@@ -8,13 +8,18 @@ import { socketClient } from '@/services/socket/client';
 import { voiceManager } from '@/features/voice/voiceManager';
 import { screenshareService } from '@/features/screenshare/screenshareService';
 import { installCapacitorAppHandlers } from '@/services/native/capacitorApp';
+import { installPushListeners, refreshPushStatus } from '@/services/pushNotifications';
+import { captureChannelFromUrl } from '@/state/channels';
 import { captureInviteFromUrl } from '@/state/session';
 
 const bootstrap = async (): Promise<void> => {
   captureInviteFromUrl();
-  // Runtime config (registration mode, ICE servers, public URLs). Non-fatal when unreachable.
+  captureChannelFromUrl();
+  // Runtime config (registration mode, ICE servers, public URLs, push). Non-fatal when unreachable.
   await serverConfig.load(runtimeUrls.apiBaseUrl);
   installSocketBindings();
+  installPushListeners();
+  void refreshPushStatus();
   voiceManager.init();
   screenshareService.init();
   void installCapacitorAppHandlers();

@@ -10,6 +10,22 @@ export const groups = signal<ChannelGroup[]>([]);
 export const selectedChannelId = signal<string | null>(Storage.get<string | null>(LAST_CHANNEL_KEY, null));
 /** Unread message counts per text channel. */
 export const unread = signal<Record<string, number>>({});
+/** A channel to open as soon as it is listed: from `/app?channel=<id>` (notification click) or the service worker. */
+export const pendingChannelId = signal<string | null>(null);
+
+/** Read `?channel=<id>` from the page URL once at boot and drop it from the address bar. */
+export const captureChannelFromUrl = (): void => {
+  try {
+    const url = new URL(window.location.href);
+    const channelId = url.searchParams.get('channel')?.trim();
+    if (!channelId) return;
+    pendingChannelId.value = channelId.slice(0, 128);
+    url.searchParams.delete('channel');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+  } catch {
+    /* non-standard location (file://) */
+  }
+};
 export const collapsedGroups = signal<Record<ChannelType, boolean>>({
   text: false,
   voice: false,
