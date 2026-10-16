@@ -1,6 +1,6 @@
 import { useEffect } from 'preact/hooks';
 import { MonitorUp, MonitorX } from 'lucide-preact';
-import { Button, Select } from '@/components';
+import { Button, Select, Spinner } from '@/components';
 import { cn } from '@/lib/cn';
 import { canCaptureScreen } from '@/lib/device';
 import { SCREEN_QUALITY_OPTIONS } from '@/services/screenCapture';
@@ -56,7 +56,7 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
           />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-            <MonitorUp size={40} className="text-text-faint" />
+            {someoneElseSharing ? <Spinner size={32} className="text-text-muted" /> : <MonitorUp size={40} className="text-text-faint" />}
             <p className="text-text-muted">
               {someoneElseSharing ? screenshareStatus.value || 'Connecting to ' + (session?.hostName ?? 'the presenter') + '…' : screenshareStatus.value || 'Nobody is sharing in #' + channel.name + '.'}
             </p>

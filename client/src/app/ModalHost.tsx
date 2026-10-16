@@ -1,4 +1,6 @@
-import { modal } from '@/state/ui';
+import { useRef } from 'preact/hooks';
+import { MOTION, usePresence } from '@/lib/motion';
+import { modal, type Modal as ModalState } from '@/state/ui';
 import { AuthModal } from '@/features/auth/AuthModal';
 import { ProfileModal } from '@/features/auth/ProfileModal';
 import { CreateChannelModal } from '@/features/channels/CreateChannelModal';
@@ -8,10 +10,7 @@ import { AudioSettingsModal } from '@/features/voice/AudioSettingsModal';
 import { AdminModal } from '@/features/admin/AdminModal';
 import { ChannelPermissionsModal } from '@/features/admin/ChannelPermissionsModal';
 
-/** Renders whichever dialog the UI store says is open. */
-export const ModalHost = () => {
-  const current = modal.value;
-  if (!current) return null;
+const renderModal = (current: ModalState) => {
   switch (current.type) {
     case 'auth':
       return <AuthModal initialMode={current.mode} dismissable />;
@@ -40,4 +39,18 @@ export const ModalHost = () => {
     default:
       return null;
   }
+};
+
+/**
+ * Renders whichever dialog the UI store says is open. The last dialog stays
+ * mounted for its leave animation (data-state="closed", see styles/app.css).
+ */
+export const ModalHost = () => {
+  const current = modal.value;
+  const last = useRef<ModalState | null>(null);
+  if (current) last.current = current;
+  const presence = usePresence(current !== null, MOTION.fast);
+  const shown = current ?? last.current;
+  if (!presence.mounted || !shown) return null;
+  return <div data-state={presence.state}>{renderModal(shown)}</div>;
 };

@@ -1,5 +1,6 @@
 import { useEffect } from 'preact/hooks';
 import { cn } from '@/lib/cn';
+import { MOTION, usePresence } from '@/lib/motion';
 import { ToastHost } from '@/components';
 import { authStatus, connectionStatus, isAuthenticated } from '@/state/session';
 import { closeDrawers, isMobile, isPhone, membersOpen, showMembers, sidebarOpen } from '@/state/ui';
@@ -28,7 +29,14 @@ export const App = () => {
     if (!isMobile.value) closeDrawers();
   }, [isMobile.value]);
 
-  if (!isAuthenticated.value) {
+  const authenticated = isAuthenticated.value;
+  const mobile = isMobile.value;
+  const phone = isPhone.value;
+  // The member drawer and the dimmed backdrop stay mounted for their leave animation (lib/motion.ts).
+  const memberDrawer = usePresence(authenticated && mobile && membersOpen.value, MOTION.slow);
+  const backdrop = usePresence(authenticated && ((phone && sidebarOpen.value) || (mobile && membersOpen.value)), MOTION.fast);
+
+  if (!authenticated) {
     return (
       <>
         <AuthScreen resuming={authStatus.value === 'resuming'} />
@@ -38,17 +46,13 @@ export const App = () => {
     );
   }
 
-  const mobile = isMobile.value;
-  const phone = isPhone.value;
-  const membersVisible = mobile ? membersOpen.value : showMembers.value;
-
   return (
     <div className={cn('flex h-full w-full overflow-hidden bg-main safe-top safe-x', !phone && 'safe-bottom')}>
       {/* Sidebar: static on desktop and tablets, drawer on phones */}
       <aside
         className={cn(
           'flex h-full w-60 shrink-0 flex-col bg-sidebar',
-          phone && 'fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs shadow-modal transition-transform duration-200 safe-top safe-bottom',
+          phone && 'fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs shadow-modal transition-transform duration-250 ease-out safe-top safe-bottom',
           phone && (sidebarOpen.value ? 'translate-x-0' : '-translate-x-full'),
         )}
         aria-label="Channels"
@@ -60,20 +64,24 @@ export const App = () => {
         <MainArea />
       </main>
 
-      {membersVisible && (
-        <aside
-          className={cn(
-            'flex h-full w-60 shrink-0 flex-col bg-sidebar',
-            mobile && 'fixed inset-y-0 right-0 z-40 w-[85vw] max-w-xs shadow-modal animate-fade-in safe-top safe-bottom',
+      {mobile
+        ? memberDrawer.mounted && (
+            <aside
+              data-state={memberDrawer.state}
+              className="motion-drawer-right fixed inset-y-0 right-0 z-40 flex h-full w-[85vw] max-w-xs shrink-0 flex-col bg-sidebar shadow-modal safe-top safe-bottom"
+              aria-label="Members"
+            >
+              <MemberList />
+            </aside>
+          )
+        : showMembers.value && (
+            <aside className="flex h-full w-60 shrink-0 flex-col bg-sidebar animate-view-in" aria-label="Members">
+              <MemberList />
+            </aside>
           )}
-          aria-label="Members"
-        >
-          <MemberList />
-        </aside>
-      )}
 
-      {((phone && sidebarOpen.value) || (mobile && membersOpen.value)) && (
-        <button type="button" aria-label="Close panels" className="fixed inset-0 z-30 bg-overlay animate-fade-in" onClick={closeDrawers} />
+      {backdrop.mounted && (
+        <button type="button" aria-label="Close panels" data-state={backdrop.state} className="motion-fade fixed inset-0 z-30 bg-overlay" onClick={closeDrawers} />
       )}
 
       {phone && <MobileToolbar />}

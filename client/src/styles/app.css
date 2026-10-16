@@ -42,6 +42,25 @@
 
   --shadow-pop: 0 8px 16px rgba(0, 0, 0, 0.24);
   --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.5);
+
+  /* Motion. Short and ease-out; the durations are mirrored in lib/motion.ts (MOTION)
+     for the hooks that keep elements mounted during their leave animation. */
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 250ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  /* One-shot enter animations (animate-* utilities). Leave animations live in the
+     components layer below and are driven by data-state="closed". */
+  --animate-fade-in: fade-in var(--motion-fast) var(--ease-out) both;
+  --animate-slide-up: slide-up var(--motion-base) var(--ease-out) both;
+  --animate-pop: pop var(--motion-fast) var(--ease-out) both;
+  --animate-view-in: view-in var(--motion-base) var(--ease-out) both;
+  --animate-message-in: message-in var(--motion-base) var(--ease-out) both;
+  --animate-badge-pop: badge-pop var(--motion-slow) var(--ease-spring) both;
+  --animate-icon-swap: icon-swap var(--motion-base) var(--ease-spring) both;
 }
 
 /* ------------------------------------------------------------------- base */
@@ -149,8 +168,18 @@
     padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
   }
 
+  /* Green ring around whoever is talking; the pulse is non-essential motion. */
   .speaking-ring {
     box-shadow: 0 0 0 2px var(--color-online);
+    animation: speaking-pulse 1.2s ease-in-out infinite;
+  }
+
+  /* Placeholder block while content loads. */
+  .skeleton {
+    border-radius: var(--radius-sm);
+    background: linear-gradient(90deg, var(--color-hover) 25%, var(--color-active) 50%, var(--color-hover) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
   }
 
   .live-dot::before {
@@ -164,17 +193,6 @@
     animation: pulse-dot 1.4s ease-in-out infinite;
   }
 
-  .animate-fade-in {
-    animation: fade-in 140ms ease-out;
-  }
-
-  .animate-slide-up {
-    animation: slide-up 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-
-  .animate-pop {
-    animation: pop 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
 }
 
 @keyframes pulse-dot {
@@ -218,7 +236,254 @@
   }
 }
 
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dialog-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@keyframes drawer-right-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes drawer-right-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes tile-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes badge-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes icon-swap {
+  from {
+    opacity: 0;
+    transform: scale(0.6) rotate(-20deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dock-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+@keyframes speaking-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px var(--color-online);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(35, 165, 89, 0.55);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 /* ------------------------------------------------------------ components */
+/* Enter/leave motion. An element rendered through usePresence/useListPresence
+   (lib/motion.ts) carries data-state="open" while shown and "closed" for the
+   leave duration; a closed element ignores the pointer so a dying dialog or
+   toast cannot be clicked. */
+.motion-fade[data-state='open'] {
+  animation: fade-in var(--motion-fast) var(--ease-out) both;
+}
+
+.motion-fade[data-state='closed'] {
+  animation: fade-out var(--motion-fast) var(--ease-in) both;
+  pointer-events: none;
+}
+
+.motion-toast[data-state='open'] {
+  animation: toast-in var(--motion-base) var(--ease-out) both;
+}
+
+.motion-toast[data-state='closed'] {
+  animation: toast-out var(--motion-fast) var(--ease-in) both;
+  pointer-events: none;
+}
+
+.motion-drawer-right[data-state='open'] {
+  animation: drawer-right-in var(--motion-slow) var(--ease-out) both;
+}
+
+.motion-drawer-right[data-state='closed'] {
+  animation: drawer-right-out var(--motion-base) var(--ease-in) both;
+  pointer-events: none;
+}
+
+.motion-tile[data-state='open'] {
+  animation: tile-in var(--motion-slow) var(--ease-spring) both;
+}
+
+.motion-tile[data-state='closed'] {
+  animation: tile-out var(--motion-base) var(--ease-in) both;
+  pointer-events: none;
+}
+
+.motion-dock[data-state='open'] {
+  animation: dock-in var(--motion-slow) var(--ease-out) both;
+}
+
+.motion-dock[data-state='closed'] {
+  animation: dock-out var(--motion-base) var(--ease-in) both;
+  pointer-events: none;
+}
+
+/* Dialogs: the overlay fades, the card rises. ModalHost wraps the open dialog in a
+   data-state element; a dialog rendered on its own (the sign-in screen) only enters. */
+.dialog-overlay {
+  animation: fade-in var(--motion-base) var(--ease-out) both;
+}
+
+.dialog-card {
+  animation: dialog-in var(--motion-base) var(--ease-out) both;
+}
+
+[data-state='closed'] > .dialog-overlay {
+  animation: fade-out var(--motion-fast) var(--ease-in) both;
+  pointer-events: none;
+}
+
+[data-state='closed'] > .dialog-overlay > .dialog-card {
+  animation: dialog-out var(--motion-fast) var(--ease-in) both;
+}
+
 /* Message actions: hover reveals them with a mouse; on touch screens a tap on the
    message toggles `is-active` (see MessageList), keyboard focus always shows them. */
 .message-actions {
@@ -278,6 +543,21 @@
 
 video.mirror {
   transform: scaleX(-1);
+}
+
+/* -------------------------------------------------------- reduced motion */
+/* Non-essential motion is switched off when the OS asks for it: enter/leave
+   animations, pulses and shimmers end at once (lib/motion.ts also unmounts
+   leaving elements immediately). Spinners keep turning (.motion-essential). */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.motion-essential),
+  *:not(.motion-essential)::before,
+  *:not(.motion-essential)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ---------------------------------------------------------------- touch */

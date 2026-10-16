@@ -31,7 +31,7 @@ export const Modal = ({ title, subtitle, onClose, size = 'md', footer, children 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-safe animate-fade-in"
+      className="dialog-overlay fixed inset-0 z-50 flex items-center justify-center bg-overlay p-safe"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && onClose) onClose();
       }}
@@ -42,7 +42,7 @@ export const Modal = ({ title, subtitle, onClose, size = 'md', footer, children 
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={cn('flex max-h-[90vh] w-full flex-col overflow-hidden rounded-lg bg-sidebar shadow-modal animate-pop supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]', SIZES[size])}
+        className={cn('dialog-card flex max-h-[90vh] w-full flex-col overflow-hidden rounded-lg bg-sidebar shadow-modal supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]', SIZES[size])}
       >
         <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3">
           <div className="min-w-0">

@@ -26,7 +26,7 @@ export const IconButton = ({ label, size = 'md', tone = 'default', active, class
     title={label}
     aria-pressed={active}
     className={cn(
-      'inline-flex shrink-0 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+      'inline-flex shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 ease-out enabled:active:scale-95 motion-reduce:enabled:active:scale-100 disabled:cursor-not-allowed disabled:opacity-40',
       SIZES[size],
       TONES[tone],
       active && tone === 'default' && 'bg-active text-text-bright',

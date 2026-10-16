@@ -3,6 +3,7 @@ import { Headphones, HeadphoneOff, Mic, MicOff, MonitorUp, PhoneOff, Signal, Vid
 import { IconButton } from '@/components';
 import { cn } from '@/lib/cn';
 import { formatDuration } from '@/lib/format';
+import { MOTION, usePresence } from '@/lib/motion';
 import { channelsById } from '@/state/channels';
 import {
   localCameraStream,
@@ -42,14 +43,16 @@ export const useVoiceTimer = (): string => {
 export const VoiceDock = () => {
   const status = voiceStatus.value;
   const elapsed = useVoiceTimer();
-  if (status === 'idle') return null;
+  // Slides up when a call starts and back down when it ends (lib/motion.ts).
+  const presence = usePresence(status !== 'idle', MOTION.base);
+  if (!presence.mounted) return null;
   const channel = voiceChannelId.value ? channelsById.value.get(voiceChannelId.value) : null;
   const muted = localMuted.value || (audioSettings.value.pttEnable && !pttPressed.value);
   const cameraOn = localCameraStream.value !== null;
   const screenOn = localScreenStream.value !== null;
 
   return (
-    <div className="border-t border-border bg-base/40 px-2 py-2">
+    <div data-state={presence.state} className="motion-dock border-t border-border bg-base/40 px-2 py-2">
       <button
         type="button"
         className="flex w-full items-center gap-2 rounded-sm px-1 py-1 text-left hover:bg-hover"
@@ -67,13 +70,19 @@ export const VoiceDock = () => {
       </button>
       <div className="mt-1 flex items-center justify-between gap-1">
         <IconButton label={muted ? 'Unmute' : 'Mute'} size="sm" tone={localMuted.value ? 'danger' : 'default'} onClick={() => void voiceManager.toggleMute()}>
-          {muted ? <MicOff size={18} /> : <Mic size={18} />}
+          <span key={muted ? 'muted' : 'live'} className="inline-flex animate-icon-swap">
+            {muted ? <MicOff size={18} /> : <Mic size={18} />}
+          </span>
         </IconButton>
         <IconButton label={localDeafened.value ? 'Undeafen' : 'Deafen'} size="sm" tone={localDeafened.value ? 'danger' : 'default'} onClick={() => void voiceManager.toggleDeafen()}>
-          {localDeafened.value ? <HeadphoneOff size={18} /> : <Headphones size={18} />}
+          <span key={localDeafened.value ? 'deaf' : 'hearing'} className="inline-flex animate-icon-swap">
+            {localDeafened.value ? <HeadphoneOff size={18} /> : <Headphones size={18} />}
+          </span>
         </IconButton>
         <IconButton label={cameraOn ? 'Turn camera off' : 'Turn camera on'} size="sm" active={cameraOn} onClick={() => void voiceManager.toggleCamera()}>
-          {cameraOn ? <Video size={18} /> : <VideoOff size={18} />}
+          <span key={cameraOn ? 'on' : 'off'} className="inline-flex animate-icon-swap">
+            {cameraOn ? <Video size={18} /> : <VideoOff size={18} />}
+          </span>
         </IconButton>
         <IconButton label={screenOn ? 'Stop sharing screen' : 'Share screen'} size="sm" active={screenOn} onClick={() => void voiceManager.toggleScreenShare()}>
           <MonitorUp size={18} />

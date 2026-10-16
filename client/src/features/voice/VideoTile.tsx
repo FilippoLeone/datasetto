@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Volume2, VolumeX } from 'lucide-preact';
 import { cn } from '@/lib/cn';
+import type { PresenceState } from '@/lib/motion';
 
 /** Viewer-side mute and volume for a shared screen's sound (the values shown on the tile). */
 export interface TileAudioControls {
@@ -26,6 +27,8 @@ interface VideoTileProps {
   audioControls?: TileAudioControls;
   className?: string;
   onClick?: () => void;
+  /** From useListPresence: scales the tile in on mount and out while it leaves. */
+  state?: PresenceState;
 }
 
 /** True while the stream has an audio track that is still playing. */
@@ -64,7 +67,7 @@ const useStreamHasAudio = (stream: MediaStream, enabled: boolean): boolean => {
 const stop = (event: Event) => event.stopPropagation();
 
 /** Plays a MediaStream in a <video>, re-attaching when the stream changes. */
-export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId, audioIndicator, audioControls, className, onClick }: VideoTileProps) => {
+export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId, audioIndicator, audioControls, className, onClick, state }: VideoTileProps) => {
   const ref = useRef<HTMLVideoElement>(null);
   const hasAudio = useStreamHasAudio(stream, Boolean(audioIndicator || audioControls));
 
@@ -99,52 +102,56 @@ export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId,
   const percent = controls ? Math.round(controls.volume * 100) : 0;
 
   return (
-    <div className={cn('relative overflow-hidden rounded-lg bg-black', onClick && 'cursor-pointer', className)} onClick={onClick}>
+    <div data-state={state} className={cn('motion-tile @container relative overflow-hidden rounded-lg bg-black', onClick && 'cursor-pointer', className)} onClick={onClick}>
       <video ref={ref} autoPlay playsInline className={cn('h-full w-full object-contain', mirror && 'mirror')} />
-      <span className="absolute bottom-2 left-2 rounded-sm bg-black/60 px-1.5 py-0.5 text-xs font-medium text-white">{label}</span>
-      {controls ? (
-        <div
-          className="absolute right-2 bottom-2 flex cursor-default items-center gap-1.5 rounded-sm bg-black/60 px-1.5 py-1 text-white"
-          data-audio="on"
-          data-audio-controls
-          onClick={stop}
-          onDblClick={stop}
-        >
-          <button
-            type="button"
-            aria-label={controls.muted ? 'Unmute stream' : 'Mute stream'}
-            title={controls.muted ? 'Unmute this stream' : 'Mute this stream'}
-            aria-pressed={controls.muted}
-            onClick={() => controls.onMutedChange(!controls.muted)}
-            className={cn('rounded-sm p-0.5 hover:text-success', controls.muted && 'text-live')}
+      {/* Bottom bar: the label truncates, the sound controls keep their place; on small tiles
+          (container queries) the slider and the percentage make way. */}
+      <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-end justify-between gap-2">
+        <span className="min-w-0 truncate rounded-sm bg-black/60 px-1.5 py-0.5 text-xs font-medium text-white">{label}</span>
+        {controls ? (
+          <div
+            className="pointer-events-auto flex shrink-0 cursor-default items-center gap-1.5 rounded-sm bg-black/60 px-1.5 py-1 text-white"
+            data-audio="on"
+            data-audio-controls
+            onClick={stop}
+            onDblClick={stop}
           >
-            {controls.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-          </button>
-          <input
-            type="range"
-            aria-label="Stream volume"
-            title="Stream volume"
-            className="range-input w-20"
-            min={0}
-            max={100}
-            step={5}
-            value={percent}
-            onInput={(event) => controls.onVolumeChange(Number((event.target as HTMLInputElement).value) / 100)}
-          />
-          <span className="w-8 text-right text-[10px] tabular-nums">{percent}%</span>
-        </div>
-      ) : (
-        audioIndicator && (
-          <span
-            className={cn('absolute right-2 bottom-2 flex items-center gap-1 rounded-sm bg-black/60 px-1.5 py-0.5 text-xs font-medium', hasAudio ? 'text-success' : 'text-text-muted')}
-            title={hasAudio ? 'This share includes sound' : 'This share has no sound'}
-            data-audio={hasAudio ? 'on' : 'off'}
-          >
-            {hasAudio ? <Volume2 size={12} /> : <VolumeX size={12} />}
-            {hasAudio ? 'Audio on' : 'No audio'}
-          </span>
-        )
-      )}
+            <button
+              type="button"
+              aria-label={controls.muted ? 'Unmute stream' : 'Mute stream'}
+              title={controls.muted ? 'Unmute this stream' : 'Mute this stream'}
+              aria-pressed={controls.muted}
+              onClick={() => controls.onMutedChange(!controls.muted)}
+              className={cn('rounded-sm p-0.5 transition-colors duration-150 hover:text-success', controls.muted && 'text-live')}
+            >
+              {controls.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+            </button>
+            <input
+              type="range"
+              aria-label="Stream volume"
+              title="Stream volume"
+              className="range-input hidden w-16 @min-[240px]:block @min-[360px]:w-20"
+              min={0}
+              max={100}
+              step={5}
+              value={percent}
+              onInput={(event) => controls.onVolumeChange(Number((event.target as HTMLInputElement).value) / 100)}
+            />
+            <span className="hidden w-8 text-right text-[10px] tabular-nums @min-[320px]:inline">{percent}%</span>
+          </div>
+        ) : (
+          audioIndicator && (
+            <span
+              className={cn('flex shrink-0 items-center gap-1 rounded-sm bg-black/60 px-1.5 py-0.5 text-xs font-medium', hasAudio ? 'text-success' : 'text-text-muted')}
+              title={hasAudio ? 'This share includes sound' : 'This share has no sound'}
+              data-audio={hasAudio ? 'on' : 'off'}
+            >
+              {hasAudio ? <Volume2 size={12} /> : <VolumeX size={12} />}
+              <span className="hidden @min-[200px]:inline">{hasAudio ? 'Audio on' : 'No audio'}</span>
+            </span>
+          )
+        )}
+      </div>
     </div>
   );
 };
