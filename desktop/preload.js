@@ -24,7 +24,19 @@ function defineGlobals() {
     openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
     getLogPath: () => ipcRenderer.invoke('app:get-log-path'),
     openLogFile: () => ipcRenderer.invoke('app:open-log-file'),
-    log: (level, ...args) => ipcRenderer.send('renderer:log', { level, args })
+    log: (level, ...args) => ipcRenderer.send('renderer:log', { level, args }),
+    // Automatic updates (desktop/updater.js); the state shape is DesktopUpdateState in globals.d.ts.
+    getUpdateState: () => ipcRenderer.invoke('update:get-state'),
+    setAutoUpdate: (enabled) => ipcRenderer.invoke('update:set-auto', Boolean(enabled)),
+    checkForUpdates: () => ipcRenderer.invoke('update:check'),
+    installUpdate: () => ipcRenderer.invoke('update:install'),
+    onUpdateState: (listener) => {
+      const handler = (_event, state) => {
+        if (typeof listener === 'function') listener(state);
+      };
+      ipcRenderer.on('update:state', handler);
+      return () => ipcRenderer.removeListener('update:state', handler);
+    }
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);

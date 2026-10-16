@@ -1,6 +1,6 @@
 # Datasetto Desktop
 
-Electron shell around the Datasetto web client (`client/`, Preact + Vite). It loads the production bundle from `renderer/` and adds what a browser tab cannot do: a native screen picker with system audio, a tray icon that mirrors your voice state, native notifications, and links that open in the system browser.
+Electron shell around the Datasetto web client (`client/`, Preact + Vite). It loads the production bundle from `renderer/` and adds what a browser tab cannot do: a native screen picker with system audio, a tray icon that mirrors your voice state, native notifications, links that open in the system browser, and automatic updates from GitHub Releases.
 
 ## Prerequisites
 
@@ -57,13 +57,26 @@ npm run build
 
 During packaging the build script also regenerates the desktop icon (PNG + ICO) from a simple Datasetto monogram and clears old release artifacts. The outputs appear in `desktop/release/`, named after the version in `package.json` (`Datasetto-<version>-<os>-<arch>.<ext>`):
 
-- Windows: `Datasetto-<version>-win-x64.exe` and `win-unpacked/`
+- Windows: `Datasetto-<version>-win-x64.exe` (installer), `Datasetto-Portable-<version>-win-x64.exe` and `win-unpacked/`
 - Linux: `Datasetto-<version>-linux-x86_64.AppImage` and `Datasetto-<version>-linux-amd64.deb`
 - macOS: `Datasetto-<version>-mac-arm64.dmg`
+- The updater metadata next to them: `latest.yml` (Windows), `latest-mac.yml`, `latest-linux.yml` and one `.blockmap` per installer. electron-builder writes them because `build.publish` names the GitHub repository; `--publish never` in the build script keeps it from uploading anything itself.
 
 > **Tip:** `npm run build` already chains `build:renderer`, `prepare:renderer`, icon generation, and a cleanup step before calling `electron-builder`, so you can run it directly when you want a packaged `.exe`/`.dmg`/AppImage. `npm run release` (or `release:win`, `release:linux`, `release:mac`) wraps the same steps for multi-platform builds.
 
-The published installers come from `.github/workflows/release.yml`: on every GitHub release it runs these same steps on Windows, Linux and macOS runners, sets the package version from the release tag (`v0.1.9` → `0.1.9`) and attaches the files to the release.
+The published installers come from `.github/workflows/release.yml`: on every GitHub release it runs these same steps on Windows, Linux and macOS runners, sets the package version from the release tag (`v0.1.9` → `0.1.9`) and attaches the installers together with the `latest*.yml` and `.blockmap` files to the release. The metadata must sit next to the installers in the release, that is what installed apps read.
+
+## Automatic updates
+
+The packaged app keeps itself current through [electron-updater](https://www.electron.build/auto-update) and the releases of `FilippoLeone/datasetto` (`updater.js`):
+
+- It checks 20 seconds after launch and every 4 hours. On Windows (installed) and Linux (AppImage, deb) the new installer downloads in the background and a small card in the app says "Version x is ready, restart to update" with a restart button. Nothing is installed while the app runs and no dialog interrupts a call: the update is applied on that restart, or silently on the next quit.
+- macOS builds are not code signed, so they cannot replace themselves; the portable Windows executable cannot either. Those builds only read the release metadata and show "Version x is available" with a button that opens the release page.
+- **Settings > Desktop app** has the **Automatic updates** switch (on by default; stored in `desktop-settings.json` in the user-data folder), the running version, the updater status and a **Check now** button that works with the switch off too.
+- Everything the updater does is in the desktop log with the `[Updater]` prefix (`Ctrl+Shift+L` reveals the file).
+- `DATASETTO_UPDATE_REPO=owner/repo` points the updater at another GitHub repository (a fork, or a test repository with a release of a higher version). Unpackaged runs (`npm start`, `npm run dev`) never check.
+
+The feed is the public GitHub provider: electron-updater reads the repository's releases feed, downloads `latest.yml` (or `latest-mac.yml` / `latest-linux.yml`) from the newest release and then the installer named in it. Draft releases are not visible to it and pre-releases are skipped. A release without the metadata files is reported as an error in the log and ignored.
 
 To tweak the icon artwork, edit `scripts/generate-icon.mjs` (it uses `pngjs` to draw a gradient monogram) and rerun `npm run generate:icon`.
 
@@ -75,6 +88,7 @@ If you’re on Windows and had the app running from a previous build, the cleanu
 desktop/
 ├─ main.js              # Electron main process: window, tray, notifications, screen picker, IPC
 ├─ preload.js           # contextBridge: window.desktopAPI + window.datasettoDesktopConfig
+├─ updater.js           # electron-updater wiring: GitHub feed, background download, notices, the on/off setting
 ├─ picker/              # Screen/window picker window (HTML + preload)
 ├─ renderer/            # Copied Vite build output (generated, git-ignored)
 ├─ resources/           # App and tray icons (generated) and the bundled runtime-config.json
@@ -90,7 +104,7 @@ desktop/
 
 `preload.js` exposes two globals through `contextBridge`; the typed contract lives in `client/src/types/globals.d.ts` and must stay in sync with the preload:
 
-- `window.desktopAPI`: `getInfo`, `getRuntimeConfig`, `showNotification`, `checkNotificationPermission`, `updateVoiceActivity` (tray icon state), `pickScreenshareSource` (native picker, returns the chosen `desktopCapturer` source and whether to share system audio), `openExternal`, `getLogPath`, `openLogFile`, `log`.
+- `window.desktopAPI`: `getInfo`, `getRuntimeConfig`, `showNotification`, `checkNotificationPermission`, `updateVoiceActivity` (tray icon state), `pickScreenshareSource` (native picker, returns the chosen `desktopCapturer` source and whether to share system audio), `openExternal`, `getLogPath`, `openLogFile`, `log`, and the updater: `getUpdateState`, `setAutoUpdate`, `checkForUpdates`, `installUpdate`, `onUpdateState` (the state shape is `DesktopUpdateState` in `globals.d.ts`; the client feature-detects these, so older shells simply show no update section).
   The picker (`picker/`) is a modal window styled like the client (tokens copied from `client/src/styles/app.css`): tabs for entire screens and windows, thumbnails refreshed every two seconds while it is open, display size on screen cards, a "Share system audio" switch, and arrow/Enter/Escape keyboard control. The client may pass `{ audio, quality: { width, height, fps, label } }`; the quality is only shown as a hint in the footer and the result object is unchanged.
 - `window.datasettoDesktopConfig`: `{ serverUrl, apiBaseUrl, hlsBaseUrl, rtmpServerUrl }`, read by `client/src/lib/runtimeConfig.ts` before the build-time `VITE_*` fallbacks.
 
@@ -101,12 +115,13 @@ The client uses these helpers from `client/src/services/native/desktop.ts` and `
 - `ELECTRON_START_URL` makes the shell load a URL instead of `renderer/index.html` (used by `npm run dev`) and opens DevTools detached.
 - `F12` / `Ctrl+Shift+I` toggles DevTools in any build; `Ctrl+Shift+L` reveals the log file (`datasetto.log` next to a portable executable, otherwise in the user-data folder).
 - `renderer/`, `release/` and a local `desktop/runtime-config.json` are git-ignored.
+- `DATASETTO_UPDATE_REPO` (`owner/repo`) changes where the packaged app looks for updates; see [Automatic updates](#automatic-updates).
 - The icons in `resources/` (`icon.png`, `icon.ico`, `icon-speaking.*`, `tray-*.*`) are all drawn by `scripts/generate-icon.mjs`; change the artwork there rather than editing the files.
 - Adjust the `build` section in `package.json` if you need different packaging targets or signing options.
 - Packaging tweaks already enabled:
   - Relative asset paths when `VITE_BUILD_TARGET=desktop`, so the portable build resolves bundled files correctly.
   - `npmRebuild` disabled during packaging (faster builds when no native modules are used).
-  - Both NSIS installer and portable executables are produced for Windows.
+  - Both NSIS installer and portable executables are produced for Windows, with different names (`build.portable.artifactName`): with the shared name the portable file used to overwrite the installer, so the published exe was the portable build and never matched the installer's checksum in `latest.yml`. Only the installer updates itself.
 
 ## Configure backend endpoints
 

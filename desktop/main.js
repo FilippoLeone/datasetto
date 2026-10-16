@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const { createUpdater } = require('./updater');
 
 // Force GPU Acceleration for NVENC/Hardware Encoding
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -196,6 +197,8 @@ const trayVoiceState = {
 };
 let lastSingleInstanceWarningAt = 0;
 let activePickerWindow = null;
+// Automatic updates (desktop/updater.js): created once the app is ready, state pushed to the renderer.
+let updater = null;
 // Screen share picker (desktop/picker). Thumbnails are refreshed while it is open so
 // the cards show what each screen and window is doing right now.
 const PICKER_THUMBNAIL_SIZE = { width: 480, height: 270 };
@@ -776,6 +779,23 @@ app.whenReady().then(() => {
   // Test notification support on startup
   console.log('[Desktop] Notification supported:', Notification.isSupported());
 
+  try {
+    updater = createUpdater({
+      onState: (state) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('update:state', state);
+        }
+      },
+      // The tray guard turns a window close into "hide"; installing must really quit.
+      beforeInstall: () => {
+        isQuitting = true;
+      },
+    });
+    updater.start();
+  } catch (error) {
+    console.error('[Desktop] Updater failed to start:', error);
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -794,8 +814,20 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  if (updater) {
+    updater.stop();
+  }
   closeLogging();
 });
+
+// Automatic updates: state for the settings dialog and the banner, the switch, a manual check, restart.
+ipcMain.handle('update:get-state', () => (updater ? updater.getState() : null));
+
+ipcMain.handle('update:set-auto', (_event, enabled) => (updater ? updater.setAutoUpdate(Boolean(enabled)) : null));
+
+ipcMain.handle('update:check', async () => (updater ? updater.checkNow() : null));
+
+ipcMain.handle('update:install', () => Boolean(updater && updater.install()));
 
 ipcMain.handle('app:get-info', () => ({
   name: app.getName(),
