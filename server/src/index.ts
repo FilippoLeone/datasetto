@@ -22,12 +22,26 @@ const main = async (): Promise<void> => {
   });
   watchdog.start();
 
+  // Uploads never sent and files whose message is gone (channel deleted, retention) are removed.
+  const sweepUploads = () => {
+    try {
+      const swept = ctx.uploads.sweep();
+      if (swept.pending > 0 || swept.orphans > 0) logger.debug(swept, 'upload files swept');
+    } catch (error) {
+      logger.warn({ err: error }, 'upload sweep failed');
+    }
+  };
+  sweepUploads();
+
   const timers = [
     setInterval(() => {
       const purged = ctx.sessions.purgeExpired();
       if (purged > 0) logger.debug({ purged }, 'expired sessions purged');
       const orphans = ctx.push.purgeOrphans();
       if (orphans > 0) logger.debug({ orphans }, 'push subscriptions of ended logins purged');
+      sweepUploads();
+      const previews = ctx.linkPreviews.purgeStale();
+      if (previews > 0) logger.debug({ previews }, 'unused link previews purged');
     }, 60 * 60 * 1000),
     setInterval(() => ctx.moderation.purgeExpired(), 60 * 1000),
   ];

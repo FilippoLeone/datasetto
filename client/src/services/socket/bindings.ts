@@ -29,7 +29,8 @@ import {
   selectedChannelId,
   setChannels,
 } from '@/state/channels';
-import { appendMessage, removeMessage, setHistory, setReactions } from '@/state/chat';
+import { appendMessage, removeMessage, setHistory, setReactions, updateMessage } from '@/state/chat';
+import { mediaTicket, mediaTicketStale, setMediaTicket, TICKET_RENEW_MARGIN_MS } from '@/lib/media';
 import { users } from '@/state/presence';
 import { closeModal, modal, toast } from '@/state/ui';
 import {
@@ -62,6 +63,8 @@ import type {
   ChatMessage,
   IceConfigPayload,
   InviteToken,
+  MediaTicket,
+  MessageUpdatedEvent,
   ReactionEvent,
   ScreenshareSessionEvent,
   ServerInfo,
@@ -75,6 +78,7 @@ import type {
 
 interface AuthSuccess {
   ice?: IceConfigPayload;
+  media?: MediaTicket;
   user: User;
   account: Account;
   session: SessionInfo;
@@ -82,6 +86,30 @@ interface AuthSuccess {
   groups?: ChannelGroup[];
   isNewAccount?: boolean;
 }
+
+let ticketTimer: number | null = null;
+
+/** Ask for a new media ticket shortly before the current one expires (picture URLs change with it). */
+const scheduleTicketRenewal = (): void => {
+  if (ticketTimer !== null) window.clearTimeout(ticketTimer);
+  ticketTimer = null;
+  const current = mediaTicket.value;
+  if (!current) return;
+  const delay = Math.max(60_000, current.expiresAt - Date.now() - TICKET_RENEW_MARGIN_MS);
+  ticketTimer = window.setTimeout(() => {
+    ticketTimer = null;
+    if (!socketClient.connected || !isAuthenticated.value || !mediaTicketStale()) return;
+    api
+      .requestMediaTicket()
+      .then((answer) => {
+        if (answer.success && answer.ticket && answer.expiresAt) {
+          setMediaTicket({ ticket: answer.ticket, expiresAt: answer.expiresAt });
+          scheduleTicketRenewal();
+        }
+      })
+      .catch(() => undefined);
+  }, Math.min(delay, 2 ** 31 - 1));
+};
 
 const SESSION_ENDING_CODES = new Set(['SESSION_FAILED', 'ACCOUNT_DISABLED', 'ACCOUNT_DELETED', 'BANNED', 'PASSWORD_RESET', 'SESSION_REVOKED']);
 
@@ -138,8 +166,10 @@ export const installSocketBindings = (): void => {
       setAuthenticated(payload.account, payload.session.token);
       setChannels(payload.channels, payload.groups);
       serverConfig.applyIce(payload.ice);
+      if (payload.media) setMediaTicket(payload.media);
       if (modal.value?.type === 'auth') closeModal();
     });
+    scheduleTicketRenewal();
 
     // Every (re)connect starts as "visible" on the server: say what this page really is.
     heartbeat.pulse();
@@ -199,6 +229,7 @@ export const installSocketBindings = (): void => {
 
   socketClient.on('auth:loggedOut', () => {
     clearSession();
+    setMediaTicket(null);
     toast.info('Signed out');
   });
 
@@ -278,13 +309,15 @@ export const installSocketBindings = (): void => {
     sounds.play('message', viewing ? 0.25 : 0.4);
     const me = account.value;
     const channel = channelsById.value.get(message.channelId);
+    const pictures = message.attachments?.length ?? 0;
+    const body = message.text || (pictures === 1 ? 'Sent a picture' : pictures > 1 ? 'Sent ' + pictures + ' pictures' : '');
     if (channel?.type === 'dm') {
       // Every direct message counts as a mention of its recipient.
-      if (!viewing) void notifyDesktop('Message from ' + message.from, message.text);
+      if (!viewing) void notifyDesktop('Message from ' + message.from, body);
       return;
     }
     if (me && containsMention(message.text, [me.displayName, me.username])) {
-      void notifyDesktop(message.from + ' in #' + (channel?.name ?? 'chat'), message.text);
+      void notifyDesktop(message.from + ' in #' + (channel?.name ?? 'chat'), body);
     }
   });
 
@@ -299,6 +332,16 @@ export const installSocketBindings = (): void => {
 
   socketClient.on<ReactionEvent>('chat:reaction', (event) => {
     setReactions(event.channelId, event.messageId, event.reactions);
+  });
+
+  // A link card was fetched for a message, or its author took it off.
+  socketClient.on<MessageUpdatedEvent>('chat:messageUpdated', (event) => {
+    if (event.preview !== undefined) updateMessage(event.channelId, event.messageId, { preview: event.preview });
+  });
+
+  socketClient.on<MediaTicket>('media:ticket', (ticket) => {
+    setMediaTicket(ticket);
+    scheduleTicketRenewal();
   });
 
   // ------------------------------------------------------------- presence

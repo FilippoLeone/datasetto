@@ -30,6 +30,7 @@ src/
     native/                Electron bridge, Capacitor foreground service and audio routes
     screenCapture          getDisplayMedia / desktop picker capture with system audio, shared by rooms and voice channels
     pushNotifications      Web Push opt-in per browser: permission, service worker, subscription, sync after sign-in
+    uploads                POST /api/uploads over XMLHttpRequest (progress) for pictures in chat
     visibilityHeartbeat    tells the server whether this page is visible (push goes out only when no page is)
     ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs, push
     updates                update notices: the desktop updater's state, or a daily GET /api/releases on the web and Android
@@ -38,7 +39,8 @@ src/
   features/
     auth/                  sign-in / register gate, profile dialog
     channels/              channel list, create/delete, stream key dialog, confirm dialog
-    chat/                  message list, composer, message rendering (links, mentions), history paging and jump-to-message
+    chat/                  message list, composer (with the picture strip: paste, drop, picker), message rendering (links, mentions),
+                           AttachmentGrid + Lightbox (pictures), LinkPreviewCard, history paging and jump-to-message
     search/                Ctrl+K message search: header box, results panel, debounced queries
     stream/                HLS player + live chat page
     voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation), voice page, dock, audio settings,
@@ -49,7 +51,8 @@ src/
     settings/              the Notifications and Desktop app (automatic updates) sections of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
   components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost, UpdateNotice
   lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs, shortcut (push-to-talk keys),
-                           version comparison (version.ts) and the running version (appVersion.ts)
+                           version comparison (version.ts) and the running version (appVersion.ts),
+                           attachments (composer picture drafts), media (picture URLs with the viewer's ticket)
   types/                   protocol.ts (wire types shared with the server), globals.d.ts (desktop and Capacitor globals)
   styles/app.css           Tailwind v4 theme tokens (dark palette) and the few custom classes
   test/setup.ts            vitest environment (jsdom)
@@ -141,6 +144,34 @@ debounced while you type; the last word matches as a prefix (`pine` finds
 - Empty, loading and error states have their own panel content, and the panel's
   enter/leave motion goes through `lib/motion.ts`, so it respects reduced motion
   like every other dialog.
+
+## Sharing pictures and link previews
+
+- **Attach pictures** by pasting them into the message box, dropping files anywhere
+  in the app, or with the picture button next to the box (on phones the file input
+  offers the camera and the gallery). PNG, JPEG, WebP and GIF up to the server's
+  `UPLOAD_MAX_MB` (10 MB by default), at most 10 per message; anything else is
+  explained in a toast. Each picture appears in a strip above the box with its
+  upload progress, a remove button and a retry on failure (`lib/attachments.ts`
+  holds the strip's state, `services/uploads.ts` the upload). The message goes out
+  once every picture is stored, with or without text.
+- **In the list** a single picture keeps its shape (bounded to 420 × 340), several
+  form a two-column grid of square tiles; the space is reserved from the known
+  size so nothing jumps. The server's resized preview is shown (the original for
+  GIFs so they animate). Clicking opens the **lightbox**: Escape closes, arrow keys
+  step through the message's pictures, Home/End jump, the backdrop closes, "Open
+  original" opens the full file, and focus returns to the thumbnail afterwards.
+  Its enter/leave motion goes through `lib/motion.ts` like every dialog, so it is
+  instant under reduced motion.
+- **Picture URLs** are server-relative and need the viewer's media ticket: it
+  arrives with `auth:success`, `lib/media.ts` appends it (`?t=`) and the socket
+  bindings renew it an hour before it expires. Only people who can read the channel
+  get the bytes, so private channels and direct messages stay private.
+- **Link previews**: the first link of a message gets a compact card (site, title,
+  description, thumbnail) when the server has fetched it; it arrives a moment after
+  the message (`chat:messageUpdated`) or at once for a link seen recently. The
+  author (or a moderator) can remove the card with its × ; admins switch previews
+  off per channel in the channel's permissions dialog ("Link previews").
 
 ## Push to talk and the voice overlay while gaming
 

@@ -9,8 +9,10 @@ import { serverConfig } from '@/services/ServerConfigService';
 import { api } from '@/services/socket/api';
 import { highlightedMessageId, historyExhausted, historyLoading, loadedChannels, messages, scrollTarget } from '@/state/chat';
 import { account, can } from '@/state/session';
+import { AttachmentGrid } from './AttachmentGrid';
 import { EmojiPicker } from './EmojiPicker';
 import { flashMessage, loadOlderMessages } from './history';
+import { LinkPreviewCard } from './LinkPreviewCard';
 import { MessageBody } from './MessageBody';
 import type { Channel, ChatMessage, ReactionSummary } from '@/types/protocol';
 
@@ -135,7 +137,9 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
             </time>
           </div>
         )}
-        <MessageBody text={message.text} />
+        {message.text && <MessageBody text={message.text} />}
+        <AttachmentGrid attachments={message.attachments} />
+        <LinkPreviewCard preview={message.preview} canRemove={deletable} onRemove={() => api.removePreview(channelId, message.id)} />
         <Reactions message={message} channelId={channelId} onAdd={() => setPickerOpen(true)} />
       </div>
       <div className="message-actions absolute top-0 right-4 flex -translate-y-1/2 rounded-sm bg-elevated shadow-pop">

@@ -114,6 +114,8 @@ export interface Channel {
   /** Members of a private channel (0 for public ones). */
   memberCount?: number;
   lastMessageAt?: number | null;
+  /** Preview cards for links posted here (on unless an admin switched it off). */
+  linkPreviews?: boolean;
   /** For `dm` channels: the other participant. */
   dm?: { peerId: string; peerName: string; peerUsername: string; peerAvatarUrl: string | null } | null;
   count: number;
@@ -153,6 +155,7 @@ export interface UpdateChannelInput {
   topic?: string | null;
   visibility?: ChannelVisibility;
   password?: string | null;
+  linkPreviews?: boolean;
 }
 
 /** One member of a private channel, as listed to admins. */
@@ -173,6 +176,30 @@ export interface ReactionSummary {
   names: string[];
 }
 
+/** A picture on a message. URLs are server-relative and need the media ticket (`lib/media.ts`). */
+export interface Attachment {
+  id: string;
+  kind: 'image';
+  fileName: string;
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  url: string;
+  previewUrl: string;
+  previewWidth: number | null;
+  previewHeight: number | null;
+}
+
+/** The card for the first link of a message. */
+export interface LinkPreview {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  siteName: string | null;
+}
+
 export interface ChatMessage {
   id: string;
   channelId: string;
@@ -186,6 +213,21 @@ export interface ChatMessage {
   edited?: boolean;
   deleted?: boolean;
   reactions?: ReactionSummary[];
+  attachments?: Attachment[];
+  preview?: LinkPreview | null;
+}
+
+/** `chat:messageUpdated`: a preview card arrived for, or was removed from, a message. */
+export interface MessageUpdatedEvent {
+  channelId: string;
+  messageId: string;
+  preview?: LinkPreview | null;
+}
+
+/** Signed viewer ticket for pictures (`auth:success` `media`, `media:ticket`). */
+export interface MediaTicket {
+  ticket: string;
+  expiresAt: number;
 }
 
 /** `chat:history:before` answer: the page of history older than a known message. */

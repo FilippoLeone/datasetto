@@ -9,6 +9,7 @@ import { MainArea } from './layout/MainArea';
 import { MemberList } from './layout/MemberList';
 import { MobileToolbar } from './layout/MobileToolbar';
 import { ModalHost } from './ModalHost';
+import { LightboxHost } from '@/features/chat/Lightbox';
 import { AuthScreen } from '@/features/auth/AuthScreen';
 import { PasswordChangeScreen } from '@/features/auth/PasswordChangeScreen';
 import { openedOnAdminPath } from '@/features/admin/AdminModal';
@@ -106,6 +107,7 @@ export const App = () => {
 
       {phone && <MobileToolbar />}
       <ModalHost />
+      <LightboxHost />
       <ConnectionBanner />
       <ToastHost />
       <UpdateNotice />

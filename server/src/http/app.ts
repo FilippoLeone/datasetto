@@ -11,6 +11,7 @@ import { releasesRouter } from './routes/releases.js';
 import { streamRouter } from './routes/stream.js';
 import { hlsRouter } from './routes/hls.js';
 import { avatarsRouter } from './routes/avatars.js';
+import { uploadsRouter } from './routes/uploads.js';
 import { RateLimiter } from '../core/rateLimit.js';
 
 export const createHttpApp = (ctx: AppContext): express.Express => {
@@ -60,6 +61,7 @@ export const createHttpApp = (ctx: AppContext): express.Express => {
   app.use(streamRouter(ctx));
   app.use(hlsRouter(ctx));
   app.use(avatarsRouter(ctx));
+  app.use(uploadsRouter(ctx));
   app.use('/api/releases', releasesRouter(ctx));
 
   app.use((_req, res) => {

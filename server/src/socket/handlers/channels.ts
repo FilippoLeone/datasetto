@@ -36,6 +36,7 @@ const updateChannelSchema = z.object({
   visibility: channelVisibilitySchema.optional(),
   /** New password, `null` to remove it, omit to keep the current one. */
   password: z.string().max(128).nullable().optional(),
+  linkPreviews: z.boolean().optional(),
 });
 
 const streamKeyRequestSchema = z
@@ -94,7 +95,7 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
     }
     const joinPasswordHash =
       payload.password === undefined ? undefined : payload.password === null ? null : await ChannelService.hashPassword(payload.password);
-    const updated = app.channels.update(channel.id, { topic: payload.topic, visibility, joinPasswordHash });
+    const updated = app.channels.update(channel.id, { topic: payload.topic, visibility, joinPasswordHash, linkPreviews: payload.linkPreviews });
     if (updated.visibility === 'private' && channel.visibility === 'public') {
       // Whoever locks a channel keeps access to it.
       app.channels.addMember(updated.id, user.accountId, user.accountId);
@@ -122,6 +123,8 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
     sctx.io.to(channel.id).emit('channel:deleted', { channelId: channel.id });
     sctx.io.in(channel.id).socketsLeave(channel.id);
     app.presence.forgetChannel(channel.id);
+    // Rows cascade with the channel; the pictures on disk go with them.
+    app.uploads.deleteForChannel(channel.id);
     app.channels.delete(channel.id);
     app.broadcast.channels();
     app.broadcast.users();

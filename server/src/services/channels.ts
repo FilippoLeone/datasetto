@@ -66,6 +66,8 @@ export interface UpdateChannelInput {
   visibility?: ChannelVisibility;
   /** `null` removes the password; omit to keep it. */
   joinPasswordHash?: string | null;
+  /** Fetch preview cards for links posted here. */
+  linkPreviews?: boolean;
 }
 
 interface ChannelRow {
@@ -82,6 +84,7 @@ interface ChannelRow {
   created_at: number;
   updated_at: number;
   last_message_at: number | null;
+  link_previews: number;
 }
 
 interface GroupRow {
@@ -179,6 +182,7 @@ const rowToChannel = (row: ChannelRow): ChannelRecord => ({
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   lastMessageAt: row.last_message_at ?? null,
+  linkPreviews: row.link_previews !== 0,
 });
 
 const rowToGroup = (row: GroupRow): ChannelGroupRecord => ({
@@ -227,7 +231,7 @@ export class ChannelService {
       deleteChannel: db.prepare('DELETE FROM channels WHERE id = ?'),
       updatePermissions: db.prepare('UPDATE channels SET permissions = ?, updated_at = ? WHERE id = ?'),
       updateStreamKey: db.prepare('UPDATE channels SET stream_key = ?, updated_at = ? WHERE id = ?'),
-      updateMeta: db.prepare('UPDATE channels SET topic = ?, visibility = ?, join_password_hash = ?, updated_at = ? WHERE id = ?'),
+      updateMeta: db.prepare('UPDATE channels SET topic = ?, visibility = ?, join_password_hash = ?, link_previews = ?, updated_at = ? WHERE id = ?'),
       touchActivity: db.prepare('UPDATE channels SET last_message_at = ? WHERE id = ?'),
       insertMember: db.prepare(`
         INSERT INTO channel_members (channel_id, account_id, added_by, joined_at) VALUES (?, ?, ?, ?)
@@ -404,6 +408,7 @@ export class ChannelService {
       createdAt: now,
       updatedAt: now,
       lastMessageAt: null,
+      linkPreviews: true,
     };
 
     this.db.transaction(() => {
@@ -465,6 +470,7 @@ export class ChannelService {
       createdAt: now,
       updatedAt: now,
       lastMessageAt: null,
+      linkPreviews: true,
     };
     this.db.transaction(() => {
       this.stmts.insertChannel.run({
@@ -507,11 +513,12 @@ export class ChannelService {
     const topic = input.topic === undefined ? channel.topic : channelTopicSchema.parse(input.topic);
     let passwordHash = input.joinPasswordHash === undefined ? channel.joinPasswordHash : input.joinPasswordHash;
     if (visibility === 'public') passwordHash = null;
+    const linkPreviews = typeof input.linkPreviews === 'boolean' ? input.linkPreviews : channel.linkPreviews;
 
     const now = Date.now();
-    const next: ChannelRecord = { ...channel, topic, visibility, joinPasswordHash: passwordHash, updatedAt: now };
+    const next: ChannelRecord = { ...channel, topic, visibility, joinPasswordHash: passwordHash, linkPreviews, updatedAt: now };
     this.db.transaction(() => {
-      this.stmts.updateMeta.run(topic, visibility, passwordHash, now, id);
+      this.stmts.updateMeta.run(topic, visibility, passwordHash, linkPreviews ? 1 : 0, now, id);
       if (visibility === 'public' && channel.visibility === 'private') {
         for (const accountId of this.listMemberIds(id)) this.stmts.deleteMember.run(id, accountId);
         this.members.delete(id);

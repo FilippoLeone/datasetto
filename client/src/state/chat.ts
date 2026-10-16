@@ -67,6 +67,16 @@ export const setReactions = (channelId: string, messageId: string, reactions: Re
   };
 };
 
+/** Merge fields into one loaded message (a preview card arrived or was removed). */
+export const updateMessage = (channelId: string, messageId: string, patch: Partial<ChatMessage>): void => {
+  const existing = messages.value[channelId];
+  if (!existing?.some((entry) => entry.id === messageId)) return;
+  messages.value = {
+    ...messages.value,
+    [channelId]: existing.map((entry) => (entry.id === messageId ? { ...entry, ...patch } : entry)),
+  };
+};
+
 export const removeMessage = (channelId: string, messageId: string): void => {
   const existing = messages.value[channelId];
   if (!existing) return;

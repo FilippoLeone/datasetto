@@ -30,9 +30,18 @@ export const mentionedAccounts = (text: string, accounts: readonly AccountRecord
 /** Where a notification takes the user: the app with the conversation selected. */
 export const channelUrl = (channelId: string): string => '/app?channel=' + encodeURIComponent(channelId);
 
+/** The text of a notification: the message, or what it carries when it has no text. */
+export const notificationBody = (message: MessageRecord): string => {
+  if (message.text) return message.text;
+  const count = message.attachments?.length ?? 0;
+  if (count === 1) return 'Sent a picture';
+  if (count > 1) return 'Sent ' + count + ' pictures';
+  return '';
+};
+
 export const buildNotification = (channel: ChannelRecord, message: MessageRecord, reason: NotificationReason): PushNotification => ({
   title: reason === 'dm' ? message.from : message.from + ' in #' + channel.name,
-  body: message.text,
+  body: notificationBody(message),
   url: channelUrl(channel.id),
   tag: 'channel:' + channel.id,
   channelId: channel.id,

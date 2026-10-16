@@ -15,6 +15,8 @@ import { SettingsService } from './services/settings.js';
 import { TurnService } from './services/turn.js';
 import { HlsTicketService } from './services/hlsTickets.js';
 import { InviteService } from './services/invites.js';
+import { LinkPreviewService, type LinkPreviewOptions } from './services/linkPreviews.js';
+import { UploadService } from './services/uploads.js';
 import { UsageService } from './services/usage.js';
 
 /** Fan-out helpers implemented by the socket layer once it exists. */
@@ -41,6 +43,8 @@ export interface AppContext {
   settings: SettingsService;
   channels: ChannelService;
   messages: MessageService;
+  uploads: UploadService;
+  linkPreviews: LinkPreviewService;
   search: SearchService;
   moderation: ModerationService;
   presence: PresenceService;
@@ -65,12 +69,20 @@ const noopBroadcaster: Broadcaster = {
 export interface ContextOptions {
   /** Test hook: capture push deliveries instead of calling the push services. */
   push?: PushServiceOptions;
+  /** Test hook: fake DNS or transport for link previews. */
+  linkPreviews?: LinkPreviewOptions;
 }
 
 export const createContext = (config: AppConfig, db: DB, options: ContextOptions = {}): AppContext => {
   const channels = new ChannelService(db, config);
   channels.seedDefaults();
   const invites = new InviteService(db);
+  const settings = new SettingsService(db);
+  const uploads = new UploadService(
+    db,
+    { dataDir: config.storage.dataDir, maxBytes: config.uploads.maxBytes, previewMaxPx: config.uploads.previewMaxPx },
+    settings.secret('mediaTicketSecret'),
+  );
 
   return {
     config,
@@ -80,9 +92,11 @@ export const createContext = (config: AppConfig, db: DB, options: ContextOptions
     avatars: new AvatarService(config.storage.dataDir),
     invites,
     sessions: new SessionService(db, config.sessions.ttlMs),
-    settings: new SettingsService(db),
+    settings,
     channels,
-    messages: new MessageService(db, config),
+    messages: new MessageService(db, config, uploads),
+    uploads,
+    linkPreviews: new LinkPreviewService(db, options.linkPreviews),
     search: new SearchService(db),
     moderation: new ModerationService(db),
     presence: new PresenceService(),
