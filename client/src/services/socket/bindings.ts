@@ -142,9 +142,9 @@ export const installSocketBindings = (): void => {
     toast.info('Signed out');
   });
 
-  socketClient.on<{ account: Account }>('account:updated', ({ account: next }) => {
+  socketClient.on<{ account: Account; source?: string }>('account:updated', ({ account: next, source }) => {
     updateAccount(next);
-    toast.success('Profile updated');
+    if (source !== 'avatar') toast.success('Profile updated');
   });
   socketClient.on<{ account: Account }>('account:data', ({ account: next }) => updateAccount(next));
   socketClient.on<{ account: Account }>('account:rolesUpdated', ({ account: next }) => {

@@ -1,6 +1,7 @@
 import { useMemo } from 'preact/hooks';
 import { cn } from '@/lib/cn';
 import { generateIdenticonDataUri } from '@/lib/avatar';
+import { resolveAvatarUrl } from '@/lib/avatarUrl';
 
 interface AvatarProps {
   /** Stable seed for the generated avatar (account id). */
@@ -19,7 +20,7 @@ export const Avatar = ({ seed, name, src, size = 32, status = null, speaking, cl
   return (
     <span className={cn('relative inline-block shrink-0', className)} style={{ width: size, height: size }}>
       <img
-        src={src || fallback}
+        src={resolveAvatarUrl(src) || fallback}
         alt=""
         width={size}
         height={size}

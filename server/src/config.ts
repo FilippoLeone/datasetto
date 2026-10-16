@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
 
@@ -37,6 +38,8 @@ const envSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   TRUST_PROXY: boolFromEnv(false),
   DATABASE_PATH: z.string().default('./data/datasetto.db'),
+  // Uploads (avatars) live here; defaults to the database's directory, /data in Docker.
+  DATA_DIR: optionalString,
 
   CORS_ORIGINS: listFromEnv(['http://localhost:5173', 'http://localhost:8080']),
   ALLOW_NATIVE_ORIGINS: boolFromEnv(true),
@@ -86,6 +89,7 @@ export interface AppConfig {
   version: string;
   server: { port: number; host: string; trustProxy: boolean };
   database: { path: string };
+  storage: { dataDir: string };
   cors: { origins: string[]; allowNativeOrigins: boolean };
   publicUrls: { rtmp: string | null; hls: string | null };
   registration: { mode: Env['REGISTRATION_MODE']; inviteCode: string | null; adminEmails: string[] };
@@ -133,6 +137,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
     version: readVersion(),
     server: { port: env.PORT, host: env.HOST, trustProxy: env.TRUST_PROXY },
     database: { path: env.DATABASE_PATH },
+    storage: { dataDir: env.DATA_DIR ?? (env.DATABASE_PATH === ':memory:' ? './data' : dirname(env.DATABASE_PATH)) },
     cors: { origins: env.CORS_ORIGINS, allowNativeOrigins: env.ALLOW_NATIVE_ORIGINS },
     publicUrls: { rtmp: env.PUBLIC_RTMP_URL, hls: env.PUBLIC_HLS_URL },
     streaming: {

@@ -51,6 +51,7 @@ See [.env.example](.env.example). Notable settings:
 | `TURN_URLS`, `TURN_SECRET` | enable TURN; the server mints 12-hour HMAC credentials for clients |
 | `PUBLIC_RTMP_URL` | shown in the OBS dialog: `rtmps://host:1936/live` on a deployed server (TLS through nginx, Caddy's certificate), `rtmp://host/live` for plain RTMP |
 | `DATABASE_PATH` | SQLite file; parent directory is created |
+| `DATA_DIR` | uploads (avatars under `DATA_DIR/avatars`); defaults to the database's directory, `/data` in Docker |
 | `TRUST_PROXY` | read client IPs from `X-Forwarded-For` (true behind Caddy) |
 
 ## HTTP API
@@ -62,6 +63,9 @@ See [.env.example](.env.example). Notable settings:
 | `GET /api/config` | public runtime config: registration mode, URLs, ICE servers (ephemeral TURN credentials), limits |
 | `GET /api/stream/:channelName/status` | is a stream channel live |
 | `GET /api/releases`, `/latest` | installers from the latest GitHub release of `RELEASES_GITHUB_REPO` (cached) for the landing and downloads pages |
+| `POST /api/avatars` | Bearer session token, body = raw PNG or WebP bytes (1 MB max, signature-checked): stores `DATA_DIR/avatars/<accountId>.<ext>` and sets `avatarUrl` to `/api/avatars/<accountId>.<ext>?v=<time>` |
+| `DELETE /api/avatars` | removes the uploaded picture (generated avatar again) |
+| `GET /api/avatars/:file` | serves uploaded pictures with `Cache-Control: public, max-age=31536000, immutable` (Caddy already proxies `/api/*`) |
 | `POST /internal/stream/publish` | nginx-rtmp `on_publish`: validates `key` for stream name `<channel>` (OBS key is `channel?key=token`) |
 | `POST /internal/stream/done` | nginx-rtmp `on_publish_done` |
 

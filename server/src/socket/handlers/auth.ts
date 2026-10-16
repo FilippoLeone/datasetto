@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { RateLimiter } from '../../core/rateLimit.js';
 import { AppError } from '../../errors.js';
 import { sanitizeAccount } from '../../services/accounts.js';
+import { AvatarService } from '../../services/avatars.js';
 import { SessionService } from '../../services/sessions.js';
 import type { PublicAccount } from '../../types.js';
 import { handle, requireUser, type SocketContext } from '../context.js';
@@ -175,6 +176,9 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
         await app.accounts.changePassword(user.accountId, payload.currentPassword, payload.newPassword);
         app.sessions.revokeAll(user.accountId, sctx.sessionTokenHash);
       }
+
+      // Switching to an external avatar URL (or none) discards the uploaded file.
+      if (payload.avatarUrl !== undefined && !AvatarService.isLocalUrl(payload.avatarUrl)) app.avatars.remove(user.accountId);
 
       const updated = app.accounts.updateProfile(user.accountId, {
         displayName: payload.displayName,

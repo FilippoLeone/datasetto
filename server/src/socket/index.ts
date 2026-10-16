@@ -92,6 +92,20 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
         socket.emit(event, payload);
       }
     },
+    toAccount: (accountId, event, payload) => {
+      for (const socketId of ctx.presence.getSocketsByAccount(accountId)) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (!socket) continue;
+        const sctx = socket.data.ctx as SocketContext | undefined;
+        if (sctx && event === 'account:updated' && payload && typeof payload === 'object' && 'account' in payload) {
+          sctx.account = (payload as { account: SocketContext['account'] }).account;
+          sctx.user = ctx.presence.getUser(socketId);
+          socket.emit(event, { ...(payload as object), user: ctx.presence.exportUser(socketId) });
+          continue;
+        }
+        socket.emit(event, payload);
+      }
+    },
   };
   ctx.broadcast = broadcaster;
 
