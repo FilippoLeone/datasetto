@@ -125,6 +125,18 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
   `setParameters` and asked of the other side through `maxaveragebitrate` in
   the SDP.
 
+## Direct messages
+
+Click a member ("Message …" in their menu) to open a conversation; it sits under
+"Direct messages" in the sidebar, latest first, with the other person's avatar
+and name. The × on a row (on hover; always shown on touch) or "Close
+conversation" in the row's options menu (a bottom sheet on phones) takes the
+conversation out of the sidebar without deleting anything: the server keeps the
+history, and the conversation comes back when a message arrives in it, when you
+open it again from the member list, or when you open one of its messages from a
+search result. Closing the conversation that is on screen takes you back to the
+channel you were in before it.
+
 ## Searching messages
 
 The search box in the header (Ctrl+K, Cmd+K on a Mac; a magnifier button that
@@ -245,7 +257,7 @@ The backoff schedule, the outbox and the rejoin state machines are unit tested
   OS key repeats stop (about 150 ms after a long hold, up to 1.2 s after a short tap).
 - The desktop overlay (Voice & audio settings > Voice overlay: toggle and corner) is fed from the voice signals by
   `voiceOverlayState.ts`: you first, then friends by name, speaking ring, mute/deafen, your Muted / Deafened /
-  Hold to talk / Live state, at most eight rows plus a "+N more" line. It is hidden outside voice and in the browser.
+  Hold to talk / Voice on / Live state, at most eight rows plus a "+N more" line. It is hidden outside voice and in the browser.
   Both the shortcut helpers and the overlay state are unit tested; everything feature-detects the bridge so a
   browser, a phone or an older desktop shell keeps working.
 
@@ -267,11 +279,13 @@ closed (`datasetto.updates.dismissed.v1`). It is never a dialog, so a call is no
   on Android it links to the APK. Without a build version (a local `npm run dev` or `npm run build`) no
   check runs.
 - `VITE_APP_VERSION` is set by the release workflow from the tag for the desktop and Android bundles, and
-  by the image workflow for the web image (the release tag, or `git describe` for a branch build, which
-  sorts below the next release). Set it yourself for a custom deployment (`ops/caddy/Dockerfile` takes it as
+  by the image workflow for the web image (the release tag, or `git describe` for a branch build, for
+  example `0.1.12-2-gabc123`). Set it yourself for a custom deployment (`ops/caddy/Dockerfile` takes it as
   the `APP_VERSION` build argument).
-- `lib/version.ts` compares versions numerically (`0.1.10` > `0.1.9`, pre-release and `git describe`
-  suffixes sort below the plain release); unit tests cover it and the notice state.
+- `lib/version.ts` compares versions numerically (`0.1.10` > `0.1.9`). A pre-release suffix (`0.2.0-beta.1`)
+  sorts below its plain release. A `git describe` suffix is read as "that release plus N commits", so a web
+  bundle built from a commit after the latest release (`0.1.12-2-gabc123` with release `0.1.12`) counts as
+  current and shows no notice until `0.1.13` exists. Unit tests cover it and the notice state.
 
 ## Game activity ("Playing <game>")
 

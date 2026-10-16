@@ -93,6 +93,25 @@ const waitForHistory = (channelId: string, previousVersion: number): Promise<voi
     if (done) stop();
   });
 
+/** Resolves true once the channel is in our list, false after a timeout. */
+const waitForChannel = (channelId: string, timeoutMs = 3000): Promise<boolean> =>
+  new Promise((resolve) => {
+    let done = false;
+    let stop: (() => void) | null = null;
+    const finish = (listed: boolean) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      stop?.();
+      resolve(listed);
+    };
+    const timer = window.setTimeout(() => finish(false), timeoutMs);
+    stop = effect(() => {
+      if (channelsById.value.has(channelId)) finish(true);
+    });
+    if (done) stop();
+  });
+
 let jumpCounter = 0;
 
 /**
@@ -104,8 +123,13 @@ let jumpCounter = 0;
 export const jumpToMessage = async (channelId: string, messageId: string): Promise<void> => {
   const token = (jumpCounter += 1);
   if (!channelsById.value.has(channelId)) {
-    toast.error('That channel is not available any more');
-    return;
+    // A conversation we closed is still searchable: joining it reopens it on the server and the refreshed list follows.
+    api.joinChannel(channelId);
+    if (!(await waitForChannel(channelId))) {
+      toast.error('That channel is not available any more');
+      return;
+    }
+    if (token !== jumpCounter) return;
   }
   scrollTarget.value = null;
   if (selectedChannelId.value !== channelId) {

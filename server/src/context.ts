@@ -38,6 +38,8 @@ export interface RuntimeState {
 /** Fan-out helpers implemented by the socket layer once it exists. */
 export interface Broadcaster {
   channels(): void;
+  /** Re-send the channel list to every socket of one account (a change only they see, such as a closed conversation). */
+  channelsTo(accountId: string): void;
   users(): void;
   /** `extra` rides along on the event (e.g. `endedBy` when a share ended, so viewers know whether to wait). */
   screenshare(channelId: string, targetSocketId?: string | null, extra?: Record<string, unknown>): void;
@@ -77,6 +79,7 @@ export interface AppContext {
 
 const noopBroadcaster: Broadcaster = {
   channels: () => undefined,
+  channelsTo: () => undefined,
   users: () => undefined,
   screenshare: () => undefined,
   notifyChannel: () => undefined,

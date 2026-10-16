@@ -1,24 +1,35 @@
 /**
  * Release version comparison for the update notices. Versions look like
- * `0.1.12`, `v0.1.12`, `1.2.0-beta.1` or `0.1.11-3-gabc123` (git describe);
- * anything after the numeric part lowers the version below the plain release.
+ * `0.1.12`, `v0.1.12`, `1.2.0-beta.1` or `0.1.12-2-gabc123` (git describe).
+ *
+ * A pre-release suffix (`-beta.1`) sorts below the plain release. A git describe
+ * suffix (`-2-gabc123`: two commits after the tag) means "that release plus N
+ * commits", so `0.1.12-2-gabc123` is newer than `0.1.12` and older than `0.1.13`;
+ * a web bundle built from a commit after the latest release is then current.
  */
 export interface ParsedVersion {
   /** `[major, minor, patch, ...]`, missing parts are 0. */
   numbers: number[];
   /** `beta.1` in `1.2.0-beta.1`; empty for a plain release. */
   prerelease: string;
+  /** Commits after the tag in a git describe version (`2` in `0.1.12-2-gabc123`); 0 for a release. */
+  commits: number;
 }
 
 const NUMBERS = /^v?(\d+(?:\.\d+)*)(?:[-+](.*))?$/i;
+/** The `-<commits>-g<hash>` tail `git describe` adds when the commit is past the tag. */
+const DESCRIBE = /^(.+)-(\d+)-g[0-9a-f]{4,}$/i;
 
 export const parseVersion = (value: string | null | undefined): ParsedVersion | null => {
   if (typeof value !== 'string') return null;
-  const match = NUMBERS.exec(value.trim());
+  const trimmed = value.trim();
+  const described = DESCRIBE.exec(trimmed);
+  const match = NUMBERS.exec(described ? described[1] : trimmed);
   if (!match) return null;
   return {
     numbers: match[1].split('.').map((part) => Number(part)),
     prerelease: (match[2] ?? '').trim(),
+    commits: described ? Number(described[2]) : 0,
   };
 };
 
@@ -60,7 +71,11 @@ export const compareVersions = (a: string | null | undefined, b: string | null |
     const diff = (left.numbers[index] ?? 0) - (right.numbers[index] ?? 0);
     if (diff !== 0) return diff < 0 ? -1 : 1;
   }
-  return comparePrerelease(left.prerelease, right.prerelease);
+  const prerelease = comparePrerelease(left.prerelease, right.prerelease);
+  if (prerelease !== 0) return prerelease;
+  // Same tag: the build with more commits after it is the newer one.
+  if (left.commits !== right.commits) return left.commits < right.commits ? -1 : 1;
+  return 0;
 };
 
 /** True when `candidate` is a valid version strictly newer than the (valid) `current` one. */

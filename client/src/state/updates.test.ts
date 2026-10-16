@@ -78,6 +78,22 @@ describe('update notices', () => {
     expect(visibleUpdateNotice.value).toBeNull();
   });
 
+  it('treats a web bundle built after the latest release as current', () => {
+    // The image workflow names a branch build `<latest tag>-<commits>-g<hash>`: nothing to announce.
+    expect(applyReleaseCheck({ latest: '0.1.12', current: '0.1.12-2-gabc123', url: '/downloads.html', reload: true })).toBeNull();
+    expect(visibleUpdateNotice.value).toBeNull();
+    // Until the next release exists.
+    expect(applyReleaseCheck({ latest: '0.1.13', current: '0.1.12-2-gabc123', url: '/downloads.html', reload: true })).toEqual({
+      kind: 'available',
+      version: '0.1.13',
+      url: '/downloads.html',
+      reload: true,
+    });
+    expect(visibleUpdateNotice.value?.version).toBe('0.1.13');
+    // A pre-release build is still told about its plain release.
+    expect(applyReleaseCheck({ latest: '0.2.0', current: '0.2.0-beta.1', url: null, reload: true })?.version).toBe('0.2.0');
+  });
+
   it('hides a dismissed version until a newer one appears, across reloads', () => {
     applyReleaseCheck({ latest: '0.1.12', current: '0.1.11', url: null, reload: true });
     dismissUpdateNotice();

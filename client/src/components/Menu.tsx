@@ -57,7 +57,17 @@ export const Menu = ({ items, children, align = 'left', className, title }: Menu
   return (
     <div ref={ref} className={cn('relative inline-block', className)}>
       <div
+        role="button"
+        tabIndex={0}
+        aria-haspopup="menu"
+        aria-expanded={open}
         onClick={(event) => {
+          event.stopPropagation();
+          setOpen((value) => !value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
           event.stopPropagation();
           setOpen((value) => !value);
         }}
@@ -91,6 +101,7 @@ export const Menu = ({ items, children, align = 'left', className, title }: Menu
                   key={item.label}
                   role="menuitem"
                   type="button"
+                  aria-label={item.label}
                   disabled={item.disabled}
                   onClick={(event) => {
                     event.stopPropagation();

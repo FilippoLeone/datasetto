@@ -40,10 +40,11 @@
     } else if (state.pushToTalk) {
       text = state.transmitting ? 'Live' : 'Hold to talk';
       tone = state.transmitting ? 'live' : 'ptt';
-    }
-    if (!text) {
-      statusEl.hidden = true;
-      return;
+    } else {
+      // Voice activity: say so, and light up while you are being heard.
+      const self = (state.participants || []).find((participant) => participant.self);
+      text = self && self.speaking ? 'Live' : 'Voice on';
+      tone = self && self.speaking ? 'live' : 'on';
     }
     if (statusEl.textContent !== text) {
       statusEl.textContent = text;

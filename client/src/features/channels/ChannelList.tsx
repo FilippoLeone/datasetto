@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Gamepad2, Key, Lock, MessageCircle, Plus, Trash2, Volume2 } from 'lucide-preact';
+import { ChevronDown, ChevronRight, Gamepad2, Key, Lock, MessageCircle, Plus, Trash2, Volume2, X } from 'lucide-preact';
 import { Avatar, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
 import { CHANNEL_ICONS } from '@/app/layout/MainArea';
@@ -9,7 +9,7 @@ import { can } from '@/state/session';
 import { localSpeaking, voiceChannelId, voicePeers } from '@/state/voice';
 import { account } from '@/state/session';
 import { openModal } from '@/state/ui';
-import { selectChannel } from './channelActions';
+import { closeConversation, selectChannel } from './channelActions';
 import { voiceManager } from '@/features/voice/voiceManager';
 import type { Channel, ChannelType, CreatableChannelType } from '@/types/protocol';
 
@@ -111,11 +111,7 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
         )}
         {items.length > 0 && (
           <Menu items={items} align="right" title={'#' + channel.name}>
-            <button
-              type="button"
-              aria-label="Channel options"
-              className="rounded-sm p-0.5 text-text-faint opacity-0 group-hover:opacity-100 hover:text-text-bright focus:opacity-100 pointer-coarse:p-[13px] pointer-coarse:opacity-100"
-            >
+            <button type="button" aria-label="Channel options" className={ROW_CONTROL}>
               <ChevronDown size={14} />
             </button>
           </Menu>
@@ -126,28 +122,53 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
   );
 };
 
-/** One-to-one conversations: the other person's avatar and name, unread badge, latest first. */
+/** Hover-only control on a sidebar row (always shown on touch screens, at a 40 px target). */
+const ROW_CONTROL = 'rounded-sm p-0.5 text-text-faint opacity-0 group-hover:opacity-100 hover:text-text-bright focus:opacity-100 pointer-coarse:p-[13px] pointer-coarse:opacity-100';
+
+/**
+ * One-to-one conversations: the other person's avatar and name, unread badge, latest
+ * first. The × (or "Close conversation" in the row's menu, a sheet on phones) hides the
+ * conversation until a message arrives in it or it is opened again from the member list.
+ */
 const DmRow = ({ channel }: { channel: Channel }) => {
   const active = selectedChannelId.value === channel.id;
   const unreadCount = unread.value[channel.id] ?? 0;
   const peer = channel.dm;
   const name = peer?.peerName ?? 'Direct message';
+  const close = () => closeConversation(channel.id);
+  const items: MenuItem[] = [{ label: 'Close conversation', icon: <X size={14} />, onSelect: close }];
   return (
     <li>
-      <button
-        type="button"
-        onClick={() => selectChannel(channel.id)}
-        title={peer?.peerUsername}
+      <div
         className={cn(
-          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors pointer-coarse:py-3',
+          'group flex items-center gap-1 rounded-sm px-2 text-sm transition-colors duration-150 active:bg-active',
           active ? 'bg-active text-text-bright' : 'text-text-muted hover:bg-hover hover:text-text',
           unreadCount > 0 && !active && 'text-text-bright',
         )}
       >
-        <Avatar seed={peer?.peerId ?? channel.id} name={name} src={peer?.peerAvatarUrl} size={24} />
-        <span className={cn('min-w-0 flex-1 truncate', unreadCount > 0 && 'font-semibold')}>{name}</span>
-        {unreadCount > 0 && !active && <span className="rounded-full bg-live px-1.5 text-[10px] font-bold text-white">{unreadCount}</span>}
-      </button>
+        <button
+          type="button"
+          onClick={() => selectChannel(channel.id)}
+          title={peer?.peerUsername}
+          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left pointer-coarse:py-3"
+        >
+          <Avatar seed={peer?.peerId ?? channel.id} name={name} src={peer?.peerAvatarUrl} size={24} />
+          <span className={cn('min-w-0 flex-1 truncate', unreadCount > 0 && 'font-semibold')}>{name}</span>
+        </button>
+        {unreadCount > 0 && !active && (
+          <span key={unreadCount} className="rounded-full bg-live px-1.5 text-[10px] font-bold text-white animate-badge-pop">
+            {unreadCount}
+          </span>
+        )}
+        <button type="button" aria-label={'Close conversation with ' + name} title="Close conversation" className={ROW_CONTROL} onClick={close}>
+          <X size={14} />
+        </button>
+        <Menu items={items} align="right" title={name}>
+          <button type="button" aria-label="Conversation options" className={ROW_CONTROL}>
+            <ChevronDown size={14} />
+          </button>
+        </Menu>
+      </div>
     </li>
   );
 };

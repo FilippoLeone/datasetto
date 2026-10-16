@@ -1,6 +1,6 @@
 import { api } from '@/services/socket/api';
 import { sounds } from '@/services/sounds';
-import { channelsById, markRead, pendingChannelId, rememberSelection, selectedChannelId } from '@/state/channels';
+import { channelsById, defaultChannelId, markRead, pendingChannelId, previousChannelId, rememberSelection, selectedChannelId } from '@/state/channels';
 import { isAuthenticated } from '@/state/session';
 import { closeDrawers } from '@/state/ui';
 
@@ -14,6 +14,22 @@ export const selectChannel = (channelId: string): void => {
   closeDrawers();
   api.joinChannel(channelId);
   if (changed) sounds.play('click', 0.2);
+};
+
+/**
+ * Take a conversation out of the sidebar. The server keeps its history and brings it
+ * back when a message arrives in it or we open it again. When it is the channel on
+ * screen, go back to the one open before it first (else the default), so the main
+ * area never shows a channel that is about to leave the list.
+ */
+export const closeConversation = (channelId: string): void => {
+  if (selectedChannelId.value === channelId) {
+    const previous = previousChannelId.value;
+    const next = previous && previous !== channelId && channelsById.value.has(previous) ? previous : defaultChannelId(channelId);
+    if (next) selectChannel(next);
+    else rememberSelection(null);
+  }
+  api.closeDm(channelId);
 };
 
 /**
