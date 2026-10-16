@@ -64,15 +64,23 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
   };
 
   /**
-   * SINGLE_SESSION_PER_ACCOUNT: the newest connection wins. Older sockets of
-   * the same account are told why and dropped; their clients do not retry.
+   * SINGLE_SESSION_PER_ACCOUNT: one login at a time. A sign-in with a different
+   * session token ends the account's other logins: their tokens are revoked, so
+   * a device that was offline (or a stale tab that reconnects by itself) cannot
+   * take the account back without the password, and their live sockets are
+   * told why and dropped. Sockets that carry the same token (another tab of
+   * the same browser, a reload racing its old connection) are the same login
+   * and stay connected.
    */
-  const disconnectOlderSockets = (accountId: string) => {
+  const endOtherLogins = (accountId: string, tokenHash: string) => {
     if (!app.config.sessions.singlePerAccount) return;
+    app.sessions.revokeAll(accountId, tokenHash);
     for (const socketId of app.presence.getSocketsByAccount(accountId)) {
       if (socketId === socket.id) continue;
       const older = sctx.io.sockets.sockets.get(socketId);
       if (!older) continue;
+      const otherContext = older.data.ctx as SocketContext | undefined;
+      if (otherContext?.sessionTokenHash === tokenHash) continue;
       older.emit('auth:error', {
         message: 'You signed in somewhere else, so this device was signed out. Sign in again here to take over.',
         code: 'SIGNED_IN_ELSEWHERE',
@@ -87,10 +95,11 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
       // Re-authenticating on a live socket: drop the previous identity first.
       app.presence.removeUser(socket.id);
     }
-    disconnectOlderSockets(account.id);
+    const tokenHash = SessionService.hashToken(token);
+    endOtherLogins(account.id, tokenHash);
     sctx.account = account;
     sctx.sessionToken = token;
-    sctx.sessionTokenHash = SessionService.hashToken(token);
+    sctx.sessionTokenHash = tokenHash;
     sctx.user = app.presence.addUser(socket.id, account);
     app.accounts.touchLastSeen(account.id);
 

@@ -56,14 +56,16 @@ describe('one active login per account', () => {
     expect(first.connected).toBe(false);
     expect(second.connected).toBe(true);
 
-    // The first token stays valid: resuming it elsewhere (a reload) takes the account back.
+    // The first token is revoked: a stale client resuming it is refused instead of taking the account back.
     const third = await open();
-    const secondReplaced = once<{ code: string }>(second, 'auth:error');
-    const thirdAuth = once(third, 'auth:success');
+    const stillSecond = once(second, 'auth:error', 300);
+    const refused = once<{ code: string }>(third, 'auth:error');
     third.emit('auth:session', { token: session.token });
-    await thirdAuth;
-    expect((await secondReplaced).code).toBe('SIGNED_IN_ELSEWHERE');
+    expect((await refused).code).toBe('SESSION_FAILED');
+    await expect(stillSecond).rejects.toThrow('timeout');
+    expect(second.connected).toBe(true);
     expect(third.connected).toBe(true);
+    expect(server.ctx.sessions.countForAccount(server.ctx.accounts.getByUsername('alice@example.com')!.id)).toBe(1);
 
     // Other accounts are untouched.
     const bob = await open();
@@ -72,6 +74,44 @@ describe('one active login per account', () => {
     await bobAuth;
     expect(third.connected).toBe(true);
     expect(server.ctx.presence.onlineCount()).toBe(2);
+  });
+
+  it('keeps connections that resume the same token (tabs of one browser, a reload)', async () => {
+    server = await startTestServer();
+    const first = await open();
+    const firstAuth = once<{ session: { token: string } }>(first, 'auth:success');
+    first.emit('auth:register', { username: 'alice@example.com', password: 'password123' });
+    const { session } = await firstAuth;
+
+    // A second tab of the same browser resumes the stored token: both stay.
+    const tab = await open();
+    const stillThere = once(first, 'auth:error', 300);
+    const tabAuth = once(tab, 'auth:success');
+    tab.emit('auth:session', { token: session.token });
+    await tabAuth;
+    await expect(stillThere).rejects.toThrow('timeout');
+    expect(first.connected).toBe(true);
+    expect(tab.connected).toBe(true);
+    const accountId = server.ctx.accounts.getByUsername('alice@example.com')!.id;
+    expect(server.ctx.presence.getSocketsByAccount(accountId).sort()).toEqual([first.id, tab.id].sort());
+
+    // A password sign-in (new token) is another login: both tabs are dropped.
+    const phone = await open();
+    const firstGone = once<{ code: string }>(first, 'auth:error');
+    const tabGone = once<{ code: string }>(tab, 'auth:error');
+    const phoneAuth = once(phone, 'auth:success');
+    phone.emit('auth:login', { username: 'alice@example.com', password: 'password123' });
+    await phoneAuth;
+    expect((await firstGone).code).toBe('SIGNED_IN_ELSEWHERE');
+    expect((await tabGone).code).toBe('SIGNED_IN_ELSEWHERE');
+    expect(server.ctx.presence.getSocketsByAccount(accountId)).toEqual([phone.id]);
+
+    // The browser's token is gone too: reloading those tabs lands on the sign-in form.
+    const reload = await open();
+    const refused = once<{ code: string }>(reload, 'auth:error');
+    reload.emit('auth:session', { token: session.token });
+    expect((await refused).code).toBe('SESSION_FAILED');
+    expect(server.ctx.sessions.countForAccount(accountId)).toBe(1);
   });
 
   it('allows several connections when SINGLE_SESSION_PER_ACCOUNT=false', async () => {
