@@ -147,7 +147,7 @@ export const AudioSettingsModal = () => {
           <h3 className="mt-3 mb-1 text-xs font-semibold tracking-wide text-text-muted uppercase">Screen share</h3>
           <Select label="Quality" value={draft.screenQuality} options={SCREEN_QUALITY_OPTIONS} onChange={(value) => patch({ screenQuality: value as ScreenQuality })} />
           <p className="text-xs text-text-muted">
-            Applies to voice channels and screenshare rooms, also while you are sharing. Native presets keep your display's own resolution; 120 fps needs a 120 Hz display and a browser that allows it. Friends on a relayed (TURN) connection are limited to about 1.5 Mbit/s, so they get a softer picture at the higher presets.
+            Applies to voice channels and screenshare rooms, also while you are sharing. Native presets keep your display's own resolution; 120 fps needs a 120 Hz display and a browser that allows it. Friends who need the server's relay (TURN) are bound by its bandwidth cap, which can soften the native presets unless the server runs without one.
           </p>
         </section>
       </div>

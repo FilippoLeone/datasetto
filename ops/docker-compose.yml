@@ -112,6 +112,11 @@ services:
       TURN_PORT: ${TURN_PORT:-3478}
       TURN_MIN_PORT: ${TURN_MIN_PORT:-49152}
       TURN_MAX_PORT: ${TURN_MAX_PORT:-49400}
+      # Relay caps (0 = unlimited bandwidth); see .env.example, "TURN".
+      TURN_MAX_BPS: ${TURN_MAX_BPS:-1500000}
+      TURN_BPS_CAPACITY: ${TURN_BPS_CAPACITY:-20000000}
+      TURN_USER_QUOTA: ${TURN_USER_QUOTA:-6}
+      TURN_TOTAL_QUOTA: ${TURN_TOTAL_QUOTA:-40}
     volumes:
       - ./turn/entrypoint.sh:/turn-entrypoint.sh:ro
     entrypoint: ["/bin/sh", "/turn-entrypoint.sh"]

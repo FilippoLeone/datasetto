@@ -73,6 +73,51 @@ describe('Stream watchdog', () => {
   });
 });
 
+describe('limits switched off with 0', () => {
+  it('never drops a publisher and never runs out of budget', async () => {
+    const ctx = makeContext({ STREAM_MAX_VIEWERS: '0', STREAM_MAX_BITRATE_KBPS: '0', STREAM_MONTHLY_EGRESS_GB: '0' });
+    expect(ctx.config.streaming).toMatchObject({ maxViewers: 0, maxBitrateKbps: 0, monthlyEgressBytes: 0 });
+    ctx.usage.addEgress(9e12, 60, Date.UTC(2026, 9, 16));
+    const calls: string[] = [];
+    const fetchImpl = (async (url: string | URL | Request) => {
+      calls.push(String(url));
+      return new Response(STAT_XML, { status: 200 });
+    }) as typeof fetch;
+    const watchdog = new StreamWatchdog(ctx, { statUrl: 'http://rtmp:8080', intervalMs: 15_000, maxBitrateKbps: 0, monthlyEgressBytes: 0, fetchImpl });
+    expect(watchdog.overBudget(Date.UTC(2026, 9, 16))).toBe(false);
+    await watchdog.tick(Date.UTC(2026, 9, 16));
+    await watchdog.tick(Date.UTC(2026, 9, 16));
+    await watchdog.tick(Date.UTC(2026, 9, 16));
+    // 7200 kbps is well above the old 6000 kbps default; nothing is dropped.
+    expect(calls.filter((c) => c.includes('/control/'))).toHaveLength(0);
+    ctx.db.close();
+  });
+
+  it('issues tickets and lets publishes through regardless of viewers and usage', async () => {
+    const server = await startTestServer({ STREAM_MAX_VIEWERS: '0', STREAM_MONTHLY_EGRESS_GB: '0' });
+    try {
+      const api = request(server.url);
+      const account = await server.ctx.accounts.register({ username: 'alice@example.com', password: 'password123', displayName: 'Alice', inviteCode: null });
+      const session = server.ctx.sessions.create(account.id);
+      const auth = { Authorization: 'Bearer ' + session.token };
+      const channel = server.ctx.channels.getByName('main-stream')!;
+      for (let i = 0; i < 25; i += 1) {
+        server.ctx.presence.addUser('s' + i, account);
+        server.ctx.presence.joinChannel('s' + i, channel.id);
+      }
+      server.ctx.usage.addEgress(9e12, 1);
+      const issued = await api.post('/api/stream/main-stream/ticket').set(auth).expect(200);
+      await api.get('/internal/hls/auth').set('X-Forwarded-Uri', '/hls/main-stream/index.m3u8').set('X-Hls-Ticket', issued.body.ticket).expect(200);
+      const publish = await api.post('/internal/stream/publish').type('form').send({ name: 'main-stream', addr: '127.0.0.1', token: 'not-a-key' });
+      // The key check still applies; only the budget gate is gone.
+      expect(publish.status).toBe(403);
+      expect(publish.body.code).toBe('STREAM_KEY_INVALID');
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe('HLS access over HTTP', () => {
   let server: TestServer;
   beforeEach(async () => {

@@ -70,9 +70,10 @@ const envSchema = z.object({
 
   // Streaming cost controls (see ops/README.md, "Keeping the bill small").
   HLS_TICKET_SECRET: optionalString,
-  STREAM_MAX_VIEWERS: intFromEnv(10, 1, 500),
-  STREAM_MAX_BITRATE_KBPS: intFromEnv(6000, 500, 50000),
-  STREAM_MONTHLY_EGRESS_GB: intFromEnv(150, 1, 100000),
+  // 0 switches a limit off (unmetered hosts); the defaults suit a metered cloud VM.
+  STREAM_MAX_VIEWERS: intFromEnv(10, 0, 500),
+  STREAM_MAX_BITRATE_KBPS: intFromEnv(6000, 0, 50000),
+  STREAM_MONTHLY_EGRESS_GB: intFromEnv(150, 0, 100000),
   RTMP_STAT_URL: optionalString,
   // GitHub repository whose latest release feeds the downloads page.
   RELEASES_GITHUB_REPO: z
