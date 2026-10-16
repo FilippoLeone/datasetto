@@ -71,6 +71,7 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
 - Components stay presentational; long-lived logic (timers, media, reconnection) belongs in services.
 - Keep the web build same-origin friendly: relative URLs by default, absolute ones only for the desktop/mobile shells.
 - The Electron (`desktop/`) and Capacitor (`mobile/`) shells load the production bundle unchanged.
+- Camera capture goes through `services/voice/cameraCapture.ts`: ideal-only constraints, a retry ladder down to a bare request, a fallback to the machine's other cameras, and error text that tells "in use or blocked" from "constraints refused" from "no camera".
 
 ## Public pages and SEO
 

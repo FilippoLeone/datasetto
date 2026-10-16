@@ -7,6 +7,7 @@ import { sounds } from '@/services/sounds';
 import { updateDesktopVoiceActivity } from '@/services/native/desktop';
 import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '@/services/native/ForegroundServiceManager';
 import { isCancelError, missingAudioHint } from '@/services/screenCapture';
+import { CameraError } from '@/services/voice/cameraCapture';
 import { isDesktopApp } from '@/services/native/desktop';
 import { channelsById } from '@/state/channels';
 import { displayNameFor } from '@/state/presence';
@@ -555,6 +556,8 @@ class VoiceManager {
 }
 
 const describeMediaError = (error: unknown, device: 'microphone' | 'camera' | 'screen'): string => {
+  // The camera path already distinguishes "in use or blocked", "constraints refused" and "no camera".
+  if (error instanceof CameraError) return error.message;
   const name = (error as { name?: string })?.name;
   if (name === 'NotAllowedError' || name === 'SecurityError') return 'Permission to use the ' + device + ' was denied.';
   if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No ' + device + ' was found.';

@@ -9,6 +9,7 @@ import { isElectron, isCapacitor } from '@/lib/device';
 import { config } from '@/config';
 import { serverConfig } from '@/services/ServerConfigService';
 import { DEFAULT_SCREEN_QUALITY, applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError } from '@/services/screenCapture';
+import { captureCamera } from './cameraCapture';
 
 const parseNumberEnv = (
   value: string | undefined,
@@ -1477,19 +1478,9 @@ export class VoiceService extends EventEmitter<EventMap> {
       return this.startCamera(deviceId);
     }
 
-    const constraints: MediaStreamConstraints = {
-      video: {
-        width: { ideal: 1280, max: 1920 },
-        height: { ideal: 720, max: 1080 },
-        frameRate: { ideal: 30, max: 60 },
-        facingMode: 'user',
-        deviceId: { exact: deviceId },
-      },
-      audio: false,
-    };
-
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      // The new camera is opened before the old one is stopped so a failed flip keeps the picture.
+      const newStream = await captureCamera({ deviceId });
       const newTrack = newStream.getVideoTracks()[0];
 
       if (!newTrack) {
@@ -1527,26 +1518,16 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   /**
-   * Start camera and add video track to all peers
+   * Start camera and add video track to all peers. Constraints, retries and the
+   * user-facing error text live in cameraCapture.ts (throws a CameraError).
    */
   async startCamera(deviceId?: string): Promise<MediaStream> {
     if (this.localVideoStream) {
       return this.localVideoStream;
     }
 
-    const constraints: MediaStreamConstraints = {
-      video: {
-        width: { ideal: 1280, max: 1920 },
-        height: { ideal: 720, max: 1080 },
-        frameRate: { ideal: 30, max: 60 },
-        facingMode: 'user',
-        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-      },
-      audio: false,
-    };
-
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const stream = await captureCamera({ deviceId });
       this.localVideoStream = stream;
 
       const track = stream.getVideoTracks()[0];
