@@ -1,6 +1,7 @@
 import { batch, effect } from '@preact/signals';
 import { socketClient } from './client';
 import { api } from './api';
+import { resyncGameActivity } from '@/features/activity/desktopActivity';
 import { selectChannel } from '@/features/channels/channelActions';
 import { sounds } from '@/services/sounds';
 import { notifyDesktop } from '@/services/native/desktop';
@@ -143,6 +144,8 @@ export const installSocketBindings = (): void => {
 
     // Every (re)connect starts as "visible" on the server: say what this page really is.
     heartbeat.pulse();
+    // ... and with no game activity: repeat the title the desktop app detects (no-op elsewhere).
+    resyncGameActivity();
     // This browser's push subscription follows the login (no-op unless notifications are on here).
     void syncPushSubscription();
 

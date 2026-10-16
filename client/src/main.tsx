@@ -7,6 +7,7 @@ import { installSocketBindings } from '@/services/socket/bindings';
 import { socketClient } from '@/services/socket/client';
 import { voiceManager } from '@/features/voice/voiceManager';
 import { installDesktopVoice } from '@/features/voice/desktopVoice';
+import { installDesktopActivity } from '@/features/activity/desktopActivity';
 import { screenshareService } from '@/features/screenshare/screenshareService';
 import { installCapacitorAppHandlers } from '@/services/native/capacitorApp';
 import { installPushListeners, refreshPushStatus } from '@/services/pushNotifications';
@@ -23,6 +24,7 @@ const bootstrap = async (): Promise<void> => {
   void refreshPushStatus();
   voiceManager.init();
   installDesktopVoice();
+  installDesktopActivity();
   screenshareService.init();
   void installCapacitorAppHandlers();
   socketClient.connect(runtimeUrls.serverUrl);

@@ -75,6 +75,8 @@ export interface User {
   avatarUrl?: string | null;
   voiceChannel?: string | null;
   currentChannel?: string | null;
+  /** "Playing <title>": the game their desktop app reports (`presence:activity`), or null. */
+  activity?: string | null;
 }
 
 /** Channel kinds users create; `dm` channels are one-to-one conversations made by the server. */

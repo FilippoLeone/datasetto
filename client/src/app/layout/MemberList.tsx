@@ -1,4 +1,4 @@
-import { Ban, Headphones, MessageCircle, MicOff, Radio, ShieldCheck, Volume2 } from 'lucide-preact';
+import { Ban, Gamepad2, Headphones, MessageCircle, MicOff, Radio, ShieldCheck, Volume2 } from 'lucide-preact';
 import { Avatar, Menu, RoleBadge, type MenuItem } from '@/components';
 import { channelsById } from '@/state/channels';
 import { onlineCount, sortedUsers } from '@/state/presence';
@@ -9,6 +9,8 @@ import { primaryRole, ROLE_ORDER } from '@/lib/format';
 import type { User } from '@/types/protocol';
 
 const statusFor = (user: User): { text: string; icon: typeof Volume2 | null } => {
+  // "Playing …" comes from their desktop app (presence:activity) and wins over the channel status.
+  if (user.activity) return { text: 'Playing ' + user.activity, icon: Gamepad2 };
   if (user.voiceChannel) {
     const name = channelsById.value.get(user.voiceChannel)?.name ?? 'voice';
     return { text: 'In ' + name, icon: Volume2 };
@@ -66,8 +68,8 @@ const MemberRow = ({ user }: { user: User }) => {
             <span className="truncate text-sm font-medium text-text">{user.displayName}</span>
             <RoleBadge roles={user.roles} />
           </span>
-          <span className="flex items-center gap-1 text-xs text-text-muted">
-            {Icon && <Icon size={12} />}
+          <span className="flex items-center gap-1 text-xs text-text-muted" title={status.text} data-status={user.activity ? 'playing' : undefined}>
+            {Icon && <Icon size={12} className="shrink-0" />}
             <span className="truncate">{status.text}</span>
           </span>
         </span>
