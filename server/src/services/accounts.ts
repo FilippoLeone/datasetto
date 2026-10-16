@@ -29,6 +29,9 @@ interface AccountRow {
   disabled_at: number | null;
   disabled_reason: string | null;
   invite_token_id: string | null;
+  must_change_password: number;
+  last_seen_at: number | null;
+  deleted_at: number | null;
 }
 
 export interface RegisterInput {
@@ -54,7 +57,7 @@ const rowToRecord = (row: AccountRow): AccountRecord => ({
   bio: row.bio,
   avatarUrl: row.avatar_url,
   roles: normalizeRoles(parseJson<string[]>(row.roles, ['user'])),
-  status: row.status === 'disabled' ? 'disabled' : 'active',
+  status: row.status === 'disabled' ? 'disabled' : row.status === 'deleted' ? 'deleted' : 'active',
   passwordHash: row.password_hash,
   metadata: parseJson<Record<string, unknown>>(row.metadata, {}),
   createdAt: row.created_at,
@@ -62,7 +65,15 @@ const rowToRecord = (row: AccountRow): AccountRecord => ({
   disabledAt: row.disabled_at,
   disabledReason: row.disabled_reason,
   inviteTokenId: row.invite_token_id ?? null,
+  mustChangePassword: Boolean(row.must_change_password),
+  lastSeenAt: row.last_seen_at ?? null,
+  deletedAt: row.deleted_at ?? null,
 });
+
+/** Username a deleted account keeps so the real one becomes free again. */
+export const tombstoneUsername = (id: string): string => 'deleted-' + id + '@deleted.invalid';
+
+const LAST_SEEN_WRITE_INTERVAL_MS = 60_000;
 
 export const sanitizeAccount = (account: AccountRecord): PublicAccount => {
   const { passwordHash: _passwordHash, ...safe } = account;
@@ -107,7 +118,13 @@ export class AccountService {
         UPDATE accounts SET display_name = @display_name, email = @email, bio = @bio, avatar_url = @avatar_url,
           metadata = @metadata, updated_at = @updated_at WHERE id = @id
       `),
-      updatePassword: db.prepare('UPDATE accounts SET password_hash = ?, updated_at = ? WHERE id = ?'),
+      updatePassword: db.prepare('UPDATE accounts SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?'),
+      resetPassword: db.prepare('UPDATE accounts SET password_hash = ?, must_change_password = 1, updated_at = ? WHERE id = ?'),
+      touchSeen: db.prepare('UPDATE accounts SET last_seen_at = ? WHERE id = ?'),
+      softDelete: db.prepare(`
+        UPDATE accounts SET status = 'deleted', deleted_at = @now, username = @username, display_name = 'Deleted user', email = NULL,
+          bio = NULL, avatar_url = NULL, roles = '["user"]', metadata = @metadata, must_change_password = 0, updated_at = @now WHERE id = @id
+      `),
       updateRoles: db.prepare('UPDATE accounts SET roles = ?, updated_at = ? WHERE id = ?'),
       setStatus: db.prepare(`
         UPDATE accounts SET status = @status, disabled_at = @disabled_at, disabled_reason = @disabled_reason,
@@ -177,6 +194,16 @@ export class AccountService {
     return tokenValid ? provided : null;
   }
 
+  private readonly lastSeenWritten = new Map<string, number>();
+
+  /** Record activity, writing at most once a minute per account. */
+  touchLastSeen(id: string, now = Date.now()): void {
+    const previous = this.lastSeenWritten.get(id);
+    if (previous !== undefined && now - previous < LAST_SEEN_WRITE_INTERVAL_MS) return;
+    this.lastSeenWritten.set(id, now);
+    this.stmts.touchSeen.run(now, id);
+  }
+
   async register(input: RegisterInput): Promise<PublicAccount> {
     const inviteToken = this.checkInvite(input);
 
@@ -208,6 +235,9 @@ export class AccountService {
       disabledAt: null,
       disabledReason: null,
       inviteTokenId: null,
+      mustChangePassword: false,
+      lastSeenAt: null,
+      deletedAt: null,
     };
 
     // The token use and the account land in one transaction: a token is never
@@ -245,7 +275,7 @@ export class AccountService {
     }
 
     const account = this.getByUsername(username);
-    if (!account) {
+    if (!account || account.status === 'deleted') {
       await bcrypt.compare(password, DUMMY_HASH);
       throw invalid();
     }
@@ -311,6 +341,44 @@ export class AccountService {
     }
     const hash = await bcrypt.hash(next, BCRYPT_ROUNDS);
     this.stmts.updatePassword.run(hash, Date.now(), id);
+  }
+
+  /** Admin: set a temporary password; the user must pick a new one on the next sign-in. */
+  async resetPassword(id: string, temporaryPassword: unknown): Promise<PublicAccount> {
+    const account = this.requireById(id);
+    if (account.status === 'deleted') throw new AppError('This account was deleted', 'ACCOUNT_DELETED', 410);
+    const next = passwordSchema(this.config.security.passwordMinLength).parse(temporaryPassword);
+    const hash = await bcrypt.hash(next, BCRYPT_ROUNDS);
+    const now = Date.now();
+    this.stmts.resetPassword.run(hash, now, id);
+    return sanitizeAccount({ ...account, passwordHash: hash, mustChangePassword: true, updatedAt: now });
+  }
+
+  /**
+   * Soft delete: the row stays (messages keep their author id) but the account
+   * can no longer sign in, its profile is blanked and its email becomes free.
+   */
+  softDelete(id: string): PublicAccount {
+    const account = this.requireById(id);
+    if (account.status === 'deleted') return sanitizeAccount(account);
+    const now = Date.now();
+    const username = tombstoneUsername(id);
+    const metadata = { deletedUsername: account.username, deletedDisplayName: account.displayName };
+    this.stmts.softDelete.run({ id, now, username, metadata: JSON.stringify(metadata) });
+    return sanitizeAccount({
+      ...account,
+      status: 'deleted',
+      deletedAt: now,
+      username,
+      displayName: 'Deleted user',
+      email: null,
+      bio: null,
+      avatarUrl: null,
+      roles: ['user'],
+      metadata,
+      mustChangePassword: false,
+      updatedAt: now,
+    });
   }
 
   assignRoles(id: string, roles: unknown): PublicAccount {

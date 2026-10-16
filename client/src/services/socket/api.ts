@@ -85,6 +85,12 @@ export const api = {
   // admin
   listAccounts: () => emit('admin:accounts:list'),
   updateRoles: (accountId: string, roles: string[]) => emit('admin:accounts:updateRoles', { accountId, roles }),
+  adminUpdateAccount: (accountId: string, displayName: string) => emit('admin:accounts:update', { accountId, displayName }),
+  resetAccountPassword: (accountId: string, temporaryPassword: string) => emit('admin:accounts:resetPassword', { accountId, temporaryPassword }),
+  deleteAccount: (accountId: string) => emit('admin:accounts:delete', { accountId }),
+  listAccountSessions: (accountId: string) => emit('admin:accounts:sessions:list', { accountId }),
+  /** Revoke one session (by id) or, without an id, every session of the account. */
+  revokeAccountSessions: (accountId: string, sessionId?: string) => emit('admin:accounts:sessions:revoke', { accountId, sessionId: sessionId ?? null }),
   disableAccount: (accountId: string, reason?: string) => emit('admin:accounts:disable', { accountId, reason }),
   enableAccount: (accountId: string) => emit('admin:accounts:enable', { accountId }),
   unbanAccount: (accountId: string) => emit('admin:accounts:unban', { accountId }),

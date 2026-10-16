@@ -609,6 +609,8 @@ export class ChannelService {
   removeMemberEverywhere(accountId: string): number {
     let removed = 0;
     for (const channelId of Array.from(this.members.keys())) {
+      // Conversations keep their (now deleted) participant so the other side can still read them.
+      if (this.channels.get(channelId)?.type === 'dm') continue;
       if (this.removeMember(channelId, accountId)) removed += 1;
     }
     return removed;

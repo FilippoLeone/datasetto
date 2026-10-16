@@ -72,6 +72,7 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
     sctx.sessionToken = token;
     sctx.sessionTokenHash = SessionService.hashToken(token);
     sctx.user = app.presence.addUser(socket.id, account);
+    app.accounts.touchLastSeen(account.id);
 
     socket.emit('auth:success', authSuccessPayload(sctx, account, isNewAccount, expiresAt));
     app.broadcast.users();
@@ -175,6 +176,7 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
       if (payload.newPassword) {
         await app.accounts.changePassword(user.accountId, payload.currentPassword, payload.newPassword);
         app.sessions.revokeAll(user.accountId, sctx.sessionTokenHash);
+        app.log.info({ accountId: user.accountId, forced: Boolean(sctx.account?.mustChangePassword) }, 'password changed');
       }
 
       // Switching to an external avatar URL (or none) discards the uploaded file.

@@ -1,105 +1,22 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Ban, Copy, KeyRound, Link2, ShieldCheck, Trash2, UserCheck, UserX, XCircle } from 'lucide-preact';
-import { Avatar, Button, Field, Modal, RoleBadge, Select, TextInput } from '@/components';
+import { Ban, Copy, KeyRound, Link2, Trash2, XCircle } from 'lucide-preact';
+import { Button, Field, Modal, Select, TextInput } from '@/components';
 import { cn } from '@/lib/cn';
-import { formatFullDate, ROLE_LABELS, ROLE_ORDER } from '@/lib/format';
+import { formatFullDate } from '@/lib/format';
 import { inviteLinkFor } from '@/lib/inviteLink';
 import { api } from '@/services/socket/api';
 import { serverConfig } from '@/services/ServerConfigService';
 import { channels } from '@/state/channels';
 import { adminAccounts, adminBans, adminInvites, adminSettings, lastCreatedInvite } from '@/state/misc';
 import { EMPTY_PERMISSIONS, PermissionsEditor } from './PermissionsEditor';
-import { account, can, isSuperuser } from '@/state/session';
+import { MembersTab } from './MembersTab';
+import { can } from '@/state/session';
 import { closeModal, openModal, toast } from '@/state/ui';
 import { CHANNEL_ICONS } from '@/app/layout/MainArea';
-import type { Account, ChannelPermissions, CreatableChannelType, InviteToken, RoleName } from '@/types/protocol';
+import type { ChannelPermissions, CreatableChannelType, InviteToken } from '@/types/protocol';
 
 type Tab = 'users' | 'invites' | 'channels' | 'bans';
 
-const ASSIGNABLE: RoleName[] = ['admin', 'moderator', 'streamer', 'user'];
-
-const UserRow = ({ user }: { user: Account }) => {
-  const [editing, setEditing] = useState(false);
-  const [roles, setRoles] = useState<RoleName[]>(user.roles);
-  const me = account.value;
-  const isMe = user.id === me?.id;
-  const disabled = user.status === 'disabled';
-  const assignable = isSuperuser.value ? ['superuser', ...ASSIGNABLE] : ASSIGNABLE;
-
-  const toggleRole = (role: RoleName) => {
-    setRoles((current) => (current.includes(role) ? current.filter((entry) => entry !== role) : [...current, role]));
-  };
-
-  return (
-    <li className={cn('rounded-md bg-base/60 p-3', disabled && 'opacity-60')}>
-      <div className="flex items-center gap-3">
-        <Avatar seed={user.id} name={user.displayName} src={user.avatarUrl} size={36} />
-        <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 truncate text-sm font-semibold text-text-bright">
-            {user.displayName}
-            {isMe && <span className="text-xs font-normal text-text-muted">(you)</span>}
-            {disabled && <span className="rounded-sm bg-danger/20 px-1.5 text-[10px] font-bold text-[#fa777c] uppercase">Disabled</span>}
-          </p>
-          <p className="truncate text-xs text-text-muted">{user.username}</p>
-        </div>
-        <div className="flex flex-wrap justify-end gap-1">
-          {user.roles.map((role) => (
-            <RoleBadge key={role} roles={[role]} hideMember={false} />
-          ))}
-        </div>
-      </div>
-      {!isMe && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {can('canAssignRoles') && (
-            <Button size="sm" variant="secondary" onClick={() => setEditing((value) => !value)}>
-              <ShieldCheck size={14} /> Roles
-            </Button>
-          )}
-          {can('canDisableAccounts') &&
-            (disabled ? (
-              <Button size="sm" variant="secondary" onClick={() => api.enableAccount(user.id)}>
-                <UserCheck size={14} /> Enable
-              </Button>
-            ) : (
-              <Button size="sm" variant="danger" onClick={() => api.disableAccount(user.id, 'Disabled by ' + (me?.displayName ?? 'admin'))}>
-                <UserX size={14} /> Disable
-              </Button>
-            ))}
-        </div>
-      )}
-      {editing && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-sm bg-sidebar p-2">
-          {assignable.map((role) => (
-            <label key={role} className="flex items-center gap-1.5 text-sm">
-              <input type="checkbox" checked={roles.includes(role as RoleName)} onChange={() => toggleRole(role as RoleName)} />
-              {ROLE_LABELS[role as RoleName]}
-            </label>
-          ))}
-          <span className="flex-1" />
-          <Button
-            size="sm"
-            disabled={roles.length === 0}
-            onClick={() => {
-              api.updateRoles(user.id, ROLE_ORDER.filter((role) => roles.includes(role)));
-              setEditing(false);
-            }}
-          >
-            Save
-          </Button>
-        </div>
-      )}
-    </li>
-  );
-};
-
-const UsersTab = () => (
-  <ul className="flex flex-col gap-2">
-    {adminAccounts.value.map((user) => (
-      <UserRow key={user.id} user={user} />
-    ))}
-    {adminAccounts.value.length === 0 && <p className="text-sm text-text-muted">Loading accounts…</p>}
-  </ul>
-);
 
 const USES_OPTIONS = [
   { value: '1', label: 'Single use' },
@@ -415,7 +332,7 @@ export const AdminModal = ({ initialTab }: { initialTab: Tab }) => {
             </button>
           ))}
       </div>
-      {tab === 'users' && <UsersTab />}
+      {tab === 'users' && <MembersTab />}
       {tab === 'invites' && <InvitesTab />}
       {tab === 'channels' && <ChannelsTab />}
       {tab === 'bans' && <BansTab />}

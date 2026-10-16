@@ -70,6 +70,9 @@ export interface HandlerOptions<T> {
 
 export type Ack = (response: unknown) => void;
 
+/** The only events a user with a temporary password may use until they set a new one. */
+const PASSWORD_CHANGE_EXEMPT = new Set(['account:update', 'account:get', 'auth:logout', 'auth:session', 'auth:login', 'auth:register', 'turn:refresh']);
+
 export const requireUser = (sctx: SocketContext): ConnectedUser => {
   if (!sctx.user) throw notAuthenticated();
   return sctx.user;
@@ -124,6 +127,9 @@ export const handle = <T = unknown>(
     try {
       if (options.requireAuth !== false && !sctx.user) {
         throw notAuthenticated();
+      }
+      if (sctx.account?.mustChangePassword && !PASSWORD_CHANGE_EXEMPT.has(event)) {
+        throw new AppError('Set a new password before continuing', 'PASSWORD_CHANGE_REQUIRED', 403);
       }
       const payload = options.schema ? options.schema.parse(raw) : (raw as T);
       app.presence.touch(socket.id);

@@ -94,11 +94,30 @@ rate limits apply.
 | `admin:accounts:list/updateRoles/disable/enable/unban`, `admin:bans:list`, `admin:channels:getPermissions/updatePermissions`, `admin:channels:members:list/add/remove {channelId, accountId?}` | `admin:accounts:*`, `admin:bans:list`, `admin:channels:permissions`, `channels:permissionsUpdated`, `admin:channels:members {channelId, members[]}` |
 | `admin:invites:list`, `admin:invites:create {maxUses?, expiresAt?, note?}`, `admin:invites:revoke/delete {inviteId}` | `admin:invites:list {invites[]}`, `admin:invites:created {invite}` |
 | `admin:settings:get`, `admin:settings:update {channelPermissionTemplates?: {text?, voice?, stream?, screenshare?}}` | `admin:settings {settings, saved?}` |
+| `admin:accounts:update {accountId, displayName}`, `admin:accounts:resetPassword {accountId, temporaryPassword}`, `admin:accounts:delete {accountId}`, `admin:accounts:sessions:list {accountId}`, `admin:accounts:sessions:revoke {accountId, sessionId?}` | `admin:accounts:updated/passwordReset/deleted {account}`, `admin:accounts:sessions {accountId, sessions[]}` |
 | `voice:game:start/join/leave/input/end/leaderboard` | `voice:game:state/update/started/ended/leaderboard` |
 
 Presence is broadcast as `user:update users[]` to everyone whenever it changes.
 Stream keys are never included in channel lists; they are only returned by
 `stream:key:request` to users allowed to stream on that channel.
+
+### User management
+
+Admins (`canManageUsers`, deletion needs `canDisableAccounts`) see every
+account with status, roles, `lastSeenAt` (written on sign-in and disconnect,
+at most once a minute) and creation date. They can rename accounts, set a
+temporary password (`admin:accounts:resetPassword`: all sessions are revoked,
+`mustChangePassword` is set and the socket layer refuses everything except
+`account:update`, `account:get` and `auth:logout` with
+`PASSWORD_CHANGE_REQUIRED` until the user saves a new password), list and
+revoke sessions (`admin:accounts:sessions:*`, each session addressed by a
+16-character prefix of its hash; a revoked session's socket receives
+`auth:error {code: "SESSION_REVOKED"}`), disable and enable, and soft delete
+(`admin:accounts:delete`: status `deleted`, profile blanked, username replaced
+by `deleted-<id>@deleted.invalid` so the email is free again, sessions revoked,
+avatar file removed, private memberships dropped; messages keep their author).
+Deleted accounts cannot be edited, enabled or signed into. Admins can never act
+on themselves or on accounts with equal or higher privileges (superusers can).
 
 ### Channel permissions
 

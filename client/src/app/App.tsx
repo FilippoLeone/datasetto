@@ -1,7 +1,7 @@
 import { useEffect } from 'preact/hooks';
 import { cn } from '@/lib/cn';
 import { ToastHost } from '@/components';
-import { authStatus, connectionStatus, isAuthenticated } from '@/state/session';
+import { account, authStatus, connectionStatus, isAuthenticated } from '@/state/session';
 import { closeDrawers, isMobile, isPhone, membersOpen, showMembers, sidebarOpen } from '@/state/ui';
 import { Sidebar } from './layout/Sidebar';
 import { MainArea } from './layout/MainArea';
@@ -9,6 +9,7 @@ import { MemberList } from './layout/MemberList';
 import { MobileToolbar } from './layout/MobileToolbar';
 import { ModalHost } from './ModalHost';
 import { AuthScreen } from '@/features/auth/AuthScreen';
+import { PasswordChangeScreen } from '@/features/auth/PasswordChangeScreen';
 import { useGlobalShortcuts } from './useGlobalShortcuts';
 
 const ConnectionBanner = () => {
@@ -32,6 +33,16 @@ export const App = () => {
     return (
       <>
         <AuthScreen resuming={authStatus.value === 'resuming'} />
+        <ConnectionBanner />
+        <ToastHost />
+      </>
+    );
+  }
+
+  if (account.value?.mustChangePassword) {
+    return (
+      <>
+        <PasswordChangeScreen />
         <ConnectionBanner />
         <ToastHost />
       </>

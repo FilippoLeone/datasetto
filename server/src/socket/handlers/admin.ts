@@ -19,6 +19,9 @@ const inviteCreateSchema = z.object({
   note: z.string().max(200).nullable().optional(),
 });
 const inviteIdSchema = z.object({ inviteId: idSchema });
+const accountUpdateSchema = z.object({ accountId: idSchema, displayName: z.string().max(50) });
+const passwordResetSchema = z.object({ accountId: idSchema, temporaryPassword: z.string().max(128) });
+const sessionRevokeSchema = z.object({ accountId: idSchema, sessionId: z.string().max(64).optional().nullable() });
 
 export const registerAdminHandlers = (sctx: SocketContext): void => {
   const { app, socket, io } = sctx;
@@ -30,9 +33,137 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
     }
   };
 
+  /** Disconnect every socket of an account with a reason the client treats as "sign in again". */
+  const disconnectAccount = (accountId: string, code: string, message: string) => {
+    for (const socketId of app.presence.getSocketsByAccount(accountId)) {
+      const targetSocket = io.sockets.sockets.get(socketId);
+      if (!targetSocket) continue;
+      targetSocket.emit('auth:error', { message, code });
+      targetSocket.disconnect(true);
+    }
+  };
+
+  /** Shared guard for actions on another account: exists, not deleted, not me, not above me. */
+  const requireManageableTarget = (actor: { accountId: string; roles: readonly string[]; isSuperuser: boolean }, accountId: string, what: string) => {
+    const target = app.accounts.getById(accountId);
+    if (!target) throw notFound('Account');
+    if (target.status === 'deleted') throw new AppError('This account was deleted', 'ACCOUNT_DELETED', 410);
+    if (target.id === actor.accountId) throw new AppError('You cannot ' + what + ' your own account', 'FORBIDDEN', 403);
+    if (!actor.isSuperuser && highestRoleLevel(target.roles) >= highestRoleLevel(actor.roles)) {
+      throw new AppError('You cannot ' + what + ' an account with equal or higher privileges', 'FORBIDDEN', 403);
+    }
+    return target;
+  };
+
   handle(sctx, 'admin:accounts:list', { errorEvent: ERR, code: 'ACCOUNTS_LIST_FAILED' }, () => {
     requirePermission(sctx, 'canManageUsers', 'No permission to view accounts');
     socket.emit('admin:accounts:list', { accounts: app.accounts.listPublic() });
+  });
+
+  handle(sctx, 'admin:accounts:update', { schema: accountUpdateSchema, errorEvent: ERR, code: 'ACCOUNTS_UPDATE_FAILED' }, ({ accountId, displayName }) => {
+    const actor = requirePermission(sctx, 'canManageUsers', 'No permission to edit accounts');
+    const target = app.accounts.getById(accountId);
+    if (!target) throw notFound('Account');
+    if (target.status === 'deleted') throw new AppError('This account was deleted', 'ACCOUNT_DELETED', 410);
+    if (target.id !== actor.accountId && !actor.isSuperuser && highestRoleLevel(target.roles) > highestRoleLevel(actor.roles)) {
+      throw new AppError('You cannot edit an account with higher privileges than yours', 'FORBIDDEN', 403);
+    }
+    const updated = app.accounts.updateProfile(accountId, { displayName });
+    app.presence.syncAccount(updated);
+    if (sctx.account?.id === accountId) {
+      sctx.account = updated;
+      sctx.user = app.presence.getUser(socket.id);
+    }
+    notifyAccountSockets(accountId, 'account:updated', (socketId) => ({ account: updated, user: app.presence.exportUser(socketId), source: 'admin' }));
+    socket.emit('admin:accounts:updated', { account: updated });
+    app.broadcast.users();
+    app.log.info({ accountId, by: actor.accountId }, 'account renamed by admin');
+  });
+
+  handle(sctx, 'admin:accounts:resetPassword', { schema: passwordResetSchema, errorEvent: ERR, code: 'PASSWORD_RESET_FAILED' }, async ({ accountId, temporaryPassword }) => {
+    const actor = requirePermission(sctx, 'canManageUsers', 'No permission to reset passwords');
+    requireManageableTarget(actor, accountId, 'reset the password of');
+    const updated = await app.accounts.resetPassword(accountId, temporaryPassword);
+    app.sessions.revokeAll(accountId);
+    disconnectAccount(accountId, 'PASSWORD_RESET', 'An administrator reset your password. Sign in with the temporary password you were given.');
+    socket.emit('admin:accounts:passwordReset', { account: updated });
+    app.broadcast.users();
+    app.log.warn({ accountId, by: actor.accountId }, 'password reset by admin');
+  });
+
+  handle(sctx, 'admin:accounts:delete', { schema: accountSchema, errorEvent: ERR, code: 'ACCOUNTS_DELETE_FAILED' }, ({ accountId }) => {
+    const actor = requirePermission(sctx, 'canDisableAccounts', 'No permission to delete accounts');
+    const target = requireManageableTarget(actor, accountId, 'delete');
+    if ((target.roles.includes('admin') || target.roles.includes('superuser')) && app.accounts.countActiveAdmins(accountId) === 0) {
+      throw new AppError('Cannot delete the last admin account', 'LAST_ADMIN', 409);
+    }
+    const deleted = app.accounts.softDelete(accountId);
+    app.sessions.revokeAll(accountId);
+    app.avatars.remove(accountId);
+    app.channels.removeMemberEverywhere(accountId);
+    app.moderation.unban(accountId);
+    disconnectAccount(accountId, 'ACCOUNT_DELETED', 'This account was deleted by an administrator');
+    socket.emit('admin:accounts:deleted', { account: deleted });
+    app.broadcast.users();
+    app.broadcast.channels();
+    app.log.warn({ accountId, by: actor.accountId }, 'account deleted (soft)');
+  });
+
+  // ------------------------------------------------------------- sessions
+
+  const sessionsPayload = (accountId: string) => {
+    const online = new Set<string>();
+    for (const socketId of app.presence.getSocketsByAccount(accountId)) {
+      const hash = (io.sockets.sockets.get(socketId)?.data.ctx as SocketContext | undefined)?.sessionTokenHash;
+      if (hash) online.add(hash);
+    }
+    return {
+      accountId,
+      sessions: app.sessions.listForAccount(accountId).map((session) => ({
+        // The hash itself never leaves the server; a prefix is enough to address a session.
+        id: session.tokenHash.slice(0, 16),
+        createdAt: session.createdAt,
+        lastSeenAt: session.lastSeenAt,
+        expiresAt: session.expiresAt,
+        userAgent: session.userAgent,
+        ip: session.ip,
+        online: online.has(session.tokenHash),
+        current: session.tokenHash === sctx.sessionTokenHash,
+      })),
+    };
+  };
+
+  handle(sctx, 'admin:accounts:sessions:list', { schema: accountSchema, errorEvent: ERR, code: 'SESSIONS_LIST_FAILED' }, ({ accountId }) => {
+    requirePermission(sctx, 'canManageUsers', 'No permission to view sessions');
+    app.accounts.requireById(accountId);
+    socket.emit('admin:accounts:sessions', sessionsPayload(accountId));
+  });
+
+  handle(sctx, 'admin:accounts:sessions:revoke', { schema: sessionRevokeSchema, errorEvent: ERR, code: 'SESSIONS_REVOKE_FAILED' }, ({ accountId, sessionId }) => {
+    const actor = requirePermission(sctx, 'canManageUsers', 'No permission to revoke sessions');
+    const target = app.accounts.getById(accountId);
+    if (!target) throw notFound('Account');
+    if (target.id !== actor.accountId && !actor.isSuperuser && highestRoleLevel(target.roles) >= highestRoleLevel(actor.roles)) {
+      throw new AppError('You cannot sign out an account with equal or higher privileges', 'FORBIDDEN', 403);
+    }
+    const hashes = app.sessions
+      .listForAccount(accountId)
+      .map((session) => session.tokenHash)
+      .filter((hash) => !sessionId || hash.startsWith(sessionId));
+    if (sessionId && hashes.length === 0) throw notFound('Session');
+    for (const hash of hashes) {
+      if (hash === sctx.sessionTokenHash) continue; // never cut the branch you sit on
+      app.sessions.revokeByHash(hash);
+      for (const socketId of app.presence.getSocketsByAccount(accountId)) {
+        const targetSocket = io.sockets.sockets.get(socketId);
+        const targetCtx = targetSocket?.data.ctx as SocketContext | undefined;
+        if (!targetSocket || targetCtx?.sessionTokenHash !== hash) continue;
+        targetSocket.emit('auth:error', { message: 'This session was signed out by an administrator', code: 'SESSION_REVOKED' });
+        targetSocket.disconnect(true);
+      }
+    }
+    socket.emit('admin:accounts:sessions', sessionsPayload(accountId));
+    app.log.info({ accountId, revoked: hashes.length, by: actor.accountId }, 'sessions revoked by admin');
   });
 
   handle(sctx, 'admin:accounts:updateRoles', { schema: rolesSchema, errorEvent: ERR, code: 'ACCOUNTS_UPDATE_FAILED' }, ({ accountId, roles }) => {
@@ -42,6 +173,7 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
 
     const target = app.accounts.getById(accountId);
     if (!target) throw notFound('Account');
+    if (target.status === 'deleted') throw new AppError('This account was deleted', 'ACCOUNT_DELETED', 410);
 
     if (!actor.isSuperuser) {
       const actorLevel = highestRoleLevel(actor.roles);
@@ -79,24 +211,14 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
 
   handle(sctx, 'admin:accounts:disable', { schema: accountSchema, errorEvent: ERR, code: 'ACCOUNTS_DISABLE_FAILED' }, ({ accountId, reason }) => {
     const actor = requirePermission(sctx, 'canDisableAccounts', 'No permission to disable accounts');
-    const target = app.accounts.getById(accountId);
-    if (!target) throw notFound('Account');
-    if (target.id === actor.accountId) throw new AppError('You cannot disable your own account', 'FORBIDDEN', 403);
-    if (!actor.isSuperuser && highestRoleLevel(target.roles) >= highestRoleLevel(actor.roles)) {
-      throw new AppError('You cannot disable an account with equal or higher privileges', 'FORBIDDEN', 403);
-    }
+    const target = requireManageableTarget(actor, accountId, 'disable');
     if ((target.roles.includes('admin') || target.roles.includes('superuser')) && app.accounts.countActiveAdmins(accountId) === 0) {
       throw new AppError('Cannot disable the last admin account', 'LAST_ADMIN', 409);
     }
 
     const disabled = app.accounts.disable(accountId, reason ?? null);
     app.sessions.revokeAll(accountId);
-    for (const socketId of app.presence.getSocketsByAccount(accountId)) {
-      const targetSocket = io.sockets.sockets.get(socketId);
-      if (!targetSocket) continue;
-      targetSocket.emit('auth:error', { message: 'Account disabled by administrator', code: 'ACCOUNT_DISABLED' });
-      targetSocket.disconnect(true);
-    }
+    disconnectAccount(accountId, 'ACCOUNT_DISABLED', 'Account disabled by administrator');
 
     socket.emit('admin:accounts:disabled', { account: disabled });
     app.broadcast.users();
@@ -106,6 +228,7 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
 
   handle(sctx, 'admin:accounts:enable', { schema: accountSchema, errorEvent: ERR, code: 'ACCOUNTS_ENABLE_FAILED' }, ({ accountId }) => {
     const actor = requirePermission(sctx, 'canDisableAccounts', 'No permission to enable accounts');
+    if (app.accounts.getById(accountId)?.status === 'deleted') throw new AppError('This account was deleted', 'ACCOUNT_DELETED', 410);
     const enabled = app.accounts.enable(accountId);
     socket.emit('admin:accounts:enabled', { account: enabled });
     app.log.info({ accountId, by: actor.accountId }, 'account enabled');

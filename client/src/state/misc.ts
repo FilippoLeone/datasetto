@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals';
 import type {
   Account,
+  AdminSession,
   BanRecord,
   ChannelMember,
   ChannelPermissions,
@@ -30,6 +31,8 @@ export const adminAccounts = signal<Account[]>([]);
 export const adminBans = signal<BanRecord[]>([]);
 export const adminInvites = signal<InviteToken[]>([]);
 export const adminSettings = signal<ServerSettings | null>(null);
+/** Sessions per account, loaded on demand in the admin panel. */
+export const adminSessions = signal<Record<string, { accountId: string; sessions: AdminSession[] }>>({});
 /** The invite the admin just created, so its link can be shown and copied right away. */
 export const lastCreatedInvite = signal<InviteToken | null>(null);
 export const channelPermissions = signal<Record<string, ChannelPermissions>>({});

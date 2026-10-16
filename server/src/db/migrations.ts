@@ -179,6 +179,16 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    // Admin user management: temporary passwords that must be changed, last activity, soft deletion.
+    version: 8,
+    name: 'account_management',
+    up: `
+      ALTER TABLE accounts ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE accounts ADD COLUMN last_seen_at INTEGER;
+      ALTER TABLE accounts ADD COLUMN deleted_at INTEGER;
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

@@ -26,7 +26,7 @@ export interface SessionInfo {
   expiresAt?: number | null;
 }
 
-export type AccountStatus = 'active' | 'disabled';
+export type AccountStatus = 'active' | 'disabled' | 'deleted';
 
 export interface Account {
   id: string;
@@ -42,6 +42,25 @@ export interface Account {
   updatedAt?: number;
   disabledAt?: number | null;
   disabledReason?: string | null;
+  /** Set by an admin password reset: a new password must be chosen before anything else. */
+  mustChangePassword?: boolean;
+  lastSeenAt?: number | null;
+  deletedAt?: number | null;
+}
+
+/** One live session of an account, as listed to admins (`admin:accounts:sessions`). */
+export interface AdminSession {
+  /** Prefix of the session's hash; addresses the session when revoking. */
+  id: string;
+  createdAt: number;
+  lastSeenAt: number;
+  expiresAt: number;
+  userAgent: string | null;
+  ip: string | null;
+  /** A socket is currently connected with this session. */
+  online: boolean;
+  /** This is the admin's own session (cannot be revoked here). */
+  current: boolean;
 }
 
 /** A connected user (one per socket). `id` is the socket id. */

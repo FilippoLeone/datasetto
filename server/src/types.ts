@@ -20,7 +20,7 @@ export interface PermissionEntry {
 
 export type ChannelPermissions = Record<PermissionAction, PermissionEntry>;
 
-export type AccountStatus = 'active' | 'disabled';
+export type AccountStatus = 'active' | 'disabled' | 'deleted';
 
 export interface AccountRecord {
   id: string;
@@ -39,6 +39,11 @@ export interface AccountRecord {
   disabledReason: string | null;
   /** Invite token that created the account, when one was used. */
   inviteTokenId: string | null;
+  /** Set by an admin password reset: the next sign-in must set a new password first. */
+  mustChangePassword: boolean;
+  /** Last authenticated activity (sign-in, reconnect, disconnect). */
+  lastSeenAt: number | null;
+  deletedAt: number | null;
 }
 
 export interface InviteTokenRecord {

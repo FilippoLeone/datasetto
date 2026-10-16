@@ -21,6 +21,7 @@ import {
   adminAccounts,
   adminBans,
   adminInvites,
+  adminSessions,
   adminSettings,
   channelMembers,
   lastCreatedInvite,
@@ -34,6 +35,7 @@ import { containsMention } from '@/lib/text';
 import { serverConfig } from '@/services/ServerConfigService';
 import type {
   Account,
+  AdminSession,
   BanRecord,
   Channel,
   ChannelGroup,
@@ -62,7 +64,7 @@ interface AuthSuccess {
   isNewAccount?: boolean;
 }
 
-const SESSION_ENDING_CODES = new Set(['SESSION_FAILED', 'ACCOUNT_DISABLED', 'BANNED']);
+const SESSION_ENDING_CODES = new Set(['SESSION_FAILED', 'ACCOUNT_DISABLED', 'ACCOUNT_DELETED', 'BANNED', 'PASSWORD_RESET', 'SESSION_REVOKED']);
 
 let installed = false;
 
@@ -105,8 +107,9 @@ export const installSocketBindings = (): void => {
     });
 
     // (Re)join the channel the UI is showing so the server sends history and counts us.
+    // Not while a temporary password is in force: the server refuses everything but the password change.
     const target = selectedChannelId.value && channelsById.value.has(selectedChannelId.value) ? selectedChannelId.value : defaultChannelId();
-    if (target) {
+    if (target && !payload.account.mustChangePassword) {
       rememberSelection(target);
       api.joinChannel(target);
     }
@@ -253,6 +256,8 @@ export const installSocketBindings = (): void => {
 
   socketClient.on<ServerError | undefined>('error', (payload) => {
     if (!payload || payload.code === 'NOT_AUTHENTICATED') return;
+    // The password screen already explains this one.
+    if (payload.code === 'PASSWORD_CHANGE_REQUIRED') return;
     toast.error(payload.message || 'Request failed');
   });
 
@@ -287,6 +292,21 @@ export const installSocketBindings = (): void => {
   socketClient.on<{ account: Account }>('admin:accounts:rolesUpdated', ({ account: next }) => {
     upsertAdminAccount(next);
     toast.success('Roles updated for ' + next.displayName);
+  });
+  socketClient.on<{ account: Account }>('admin:accounts:updated', ({ account: next }) => {
+    upsertAdminAccount(next);
+    toast.success('Renamed to ' + next.displayName);
+  });
+  socketClient.on<{ account: Account }>('admin:accounts:passwordReset', ({ account: next }) => {
+    upsertAdminAccount(next);
+    toast.success('Temporary password set for ' + next.displayName + '; they must change it at the next sign-in');
+  });
+  socketClient.on<{ account: Account }>('admin:accounts:deleted', ({ account: next }) => {
+    upsertAdminAccount(next);
+    toast.success('Account deleted');
+  });
+  socketClient.on<{ accountId: string; sessions: AdminSession[] }>('admin:accounts:sessions', (payload) => {
+    adminSessions.value = { ...adminSessions.value, [payload.accountId]: payload };
   });
   socketClient.on<{ account: Account }>('admin:accounts:disabled', ({ account: next }) => {
     upsertAdminAccount(next);
