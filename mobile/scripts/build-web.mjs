@@ -70,6 +70,10 @@ const resolvedRtmpUrl = resolveValue(
     : undefined
 );
 
+// The release version baked into the bundle (the update notice compares it with the
+// latest GitHub release); the release workflow sets it from the tag.
+const resolvedAppVersion = resolveValue(process.env.VITE_APP_VERSION, clientMobileEnv.VITE_APP_VERSION, clientProdEnv.VITE_APP_VERSION);
+
 const requiredValues = {
   VITE_SERVER_URL: resolvedServerUrl,
   VITE_API_BASE_URL: resolvedApiBaseUrl,
@@ -94,6 +98,9 @@ for (const [key, value] of Object.entries(requiredValues)) {
     process.env[key] = value;
   }
 }
+if (resolvedAppVersion) {
+  process.env.VITE_APP_VERSION = resolvedAppVersion;
+}
 process.env.NODE_ENV = 'production';
 process.env.VITE_BUILD_TARGET = 'mobile';
 
@@ -101,6 +108,7 @@ console.log('ℹ️  Building Datasetto web assets for mobile with the following
 for (const [key, value] of Object.entries(requiredValues)) {
   console.log(`   ${key} = ${value ?? '<not set>'}`);
 }
+console.log(`   VITE_APP_VERSION = ${resolvedAppVersion ?? '<not set: no update notice in this build>'}`);
 
 const build = spawn('npm', ['run', 'build', '--prefix', '../client'], {
   stdio: 'inherit',

@@ -35,7 +35,19 @@ function defineGlobals() {
       return () => ipcRenderer.removeListener('ptt:pressed', listener);
     },
     configureVoiceOverlay: (options) => ipcRenderer.invoke('overlay:configure', options),
-    updateVoiceOverlay: (state) => ipcRenderer.send('overlay:state', state)
+    updateVoiceOverlay: (state) => ipcRenderer.send('overlay:state', state),
+    // Automatic updates (desktop/updater.js); the state shape is DesktopUpdateState in globals.d.ts.
+    getUpdateState: () => ipcRenderer.invoke('update:get-state'),
+    setAutoUpdate: (enabled) => ipcRenderer.invoke('update:set-auto', Boolean(enabled)),
+    checkForUpdates: () => ipcRenderer.invoke('update:check'),
+    installUpdate: () => ipcRenderer.invoke('update:install'),
+    onUpdateState: (listener) => {
+      const handler = (_event, state) => {
+        if (typeof listener === 'function') listener(state);
+      };
+      ipcRenderer.on('update:state', handler);
+      return () => ipcRenderer.removeListener('update:state', handler);
+    }
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);

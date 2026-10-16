@@ -19,7 +19,7 @@
     "dev:electron": "wait-on tcp:5173 && cross-env ELECTRON_START_URL=http://localhost:5173 electron .",
     "start": "cross-env NODE_ENV=production electron .",
     "start:local": "cross-env NODE_ENV=production DATASETTO_SERVER_URL=http://localhost:8080 electron .",
-    "build": "npm run build:renderer && npm run prepare:renderer && node ./scripts/generate-icon.mjs && node ./scripts/clean-release.mjs && electron-builder",
+    "build": "npm run build:renderer && npm run prepare:renderer && node ./scripts/generate-icon.mjs && node ./scripts/clean-release.mjs && electron-builder --publish never",
     "build:renderer": "cross-env VITE_BUILD_TARGET=desktop npm run build --prefix ../client",
     "prepare:renderer": "node ./scripts/copy-dist.mjs",
     "generate:icon": "node ./scripts/generate-icon.mjs",
@@ -45,10 +45,16 @@
     "artifactName": "Datasetto-${version}-${os}-${arch}.${ext}",
     "compression": "normal",
     "npmRebuild": false,
-    "publish": null,
+    "publish": {
+      "provider": "github",
+      "owner": "FilippoLeone",
+      "repo": "datasetto",
+      "releaseType": "release"
+    },
     "files": [
       "main.js",
       "preload.js",
+      "updater.js",
       "package.json",
       "renderer/**/*",
       "picker/**/*",
@@ -93,6 +99,9 @@
       ],
       "icon": "resources/icon.ico"
     },
+    "portable": {
+      "artifactName": "Datasetto-Portable-${version}-${os}-${arch}.${ext}"
+    },
     "linux": {
       "target": [
         "AppImage",
@@ -100,5 +109,8 @@
       ],
       "category": "Network"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

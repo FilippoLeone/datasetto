@@ -11,6 +11,7 @@ import { screenshareService } from '@/features/screenshare/screenshareService';
 import { installCapacitorAppHandlers } from '@/services/native/capacitorApp';
 import { installPushListeners, refreshPushStatus } from '@/services/pushNotifications';
 import { captureChannelFromUrl } from '@/state/channels';
+import { installUpdateNotices } from '@/services/updates';
 import { captureInviteFromUrl } from '@/state/session';
 
 const bootstrap = async (): Promise<void> => {
@@ -25,6 +26,7 @@ const bootstrap = async (): Promise<void> => {
   installDesktopVoice();
   screenshareService.init();
   void installCapacitorAppHandlers();
+  installUpdateNotices();
   socketClient.connect(runtimeUrls.serverUrl);
   render(<App />, document.getElementById('app') as HTMLElement);
 };

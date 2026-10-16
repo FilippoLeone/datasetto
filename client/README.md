@@ -32,6 +32,7 @@ src/
     pushNotifications      Web Push opt-in per browser: permission, service worker, subscription, sync after sign-in
     visibilityHeartbeat    tells the server whether this page is visible (push goes out only when no page is)
     ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs, push
+    updates                update notices: the desktop updater's state, or a daily GET /api/releases on the web and Android
     sounds, AudioNotificationService   synthesised UI sounds
   audio/worklets/          AudioWorklet processors (noise gate)
   features/
@@ -45,9 +46,10 @@ src/
     screenshare/           presenter/viewer rooms over direct WebRTC
     minigames/             canvas engine (slither, pacman, fighter) + panel
     admin/                 members, channel permissions, bans
-    settings/              the Notifications section of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
-  components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost
-  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs, shortcut (push-to-talk keys)
+    settings/              the Notifications and Desktop app (automatic updates) sections of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
+  components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost, UpdateNotice
+  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs, shortcut (push-to-talk keys),
+                           version comparison (version.ts) and the running version (appVersion.ts)
   types/                   protocol.ts (wire types shared with the server), globals.d.ts (desktop and Capacitor globals)
   styles/app.css           Tailwind v4 theme tokens (dark palette) and the few custom classes
   test/setup.ts            vitest environment (jsdom)
@@ -157,6 +159,30 @@ debounced while you type; the last word matches as a prefix (`pine` finds
   Hold to talk / Live state, at most eight rows plus a "+N more" line. It is hidden outside voice and in the browser.
   Both the shortcut helpers and the overlay state are unit tested; everything feature-detects the bridge so a
   browser, a phone or an older desktop shell keeps working.
+
+## Update notices
+
+`services/updates.ts` runs at boot and `components/UpdateNotice.tsx` shows a small card in the bottom
+corner when a newer version exists; it can be closed and comes back only for a newer version than the one
+closed (`datasetto.updates.dismissed.v1`). It is never a dialog, so a call is not interrupted.
+
+- **Desktop app**: the Electron shell checks GitHub Releases itself (`desktop/updater.js`) and pushes its
+  state over `window.desktopAPI.onUpdateState`; `state/updates.ts` keeps it for the card ("Version x is
+  ready, restart to update" with a restart button, or "Version x is available" with a download button on
+  builds that cannot install themselves) and for **Settings > Desktop app** (`features/settings/`), which
+  has the automatic-updates switch and a **Check now** button.
+- **Web and Android**: once a day (`isReleaseCheckDue`, remembered in `datasetto.updates.checkedAt.v1`)
+  the client fetches `GET /api/releases` from the server, which caches the latest GitHub release, and
+  compares `version` with the version this build was made from (`lib/appVersion.ts`: `VITE_APP_VERSION`,
+  on Android the app's versionName). On the web the card offers a reload and a link to the downloads page;
+  on Android it links to the APK. Without a build version (a local `npm run dev` or `npm run build`) no
+  check runs.
+- `VITE_APP_VERSION` is set by the release workflow from the tag for the desktop and Android bundles, and
+  by the image workflow for the web image (the release tag, or `git describe` for a branch build, which
+  sorts below the next release). Set it yourself for a custom deployment (`ops/caddy/Dockerfile` takes it as
+  the `APP_VERSION` build argument).
+- `lib/version.ts` compares versions numerically (`0.1.10` > `0.1.9`, pre-release and `git describe`
+  suffixes sort below the plain release); unit tests cover it and the notice state.
 
 ## Conventions
 

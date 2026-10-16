@@ -1,7 +1,7 @@
 import { useEffect } from 'preact/hooks';
 import { cn } from '@/lib/cn';
 import { MOTION, usePresence } from '@/lib/motion';
-import { ToastHost } from '@/components';
+import { ToastHost, UpdateNotice } from '@/components';
 import { account, authStatus, canManage, connectionStatus, isAuthenticated } from '@/state/session';
 import { closeDrawers, isMobile, isPhone, membersOpen, modal, openModal, showMembers, sidebarOpen } from '@/state/ui';
 import { Sidebar } from './layout/Sidebar';
@@ -50,6 +50,7 @@ export const App = () => {
         <AuthScreen resuming={authStatus.value === 'resuming'} />
         <ConnectionBanner />
         <ToastHost />
+        <UpdateNotice />
       </>
     );
   }
@@ -60,6 +61,7 @@ export const App = () => {
         <PasswordChangeScreen />
         <ConnectionBanner />
         <ToastHost />
+        <UpdateNotice />
       </>
     );
   }
@@ -106,6 +108,7 @@ export const App = () => {
       <ModalHost />
       <ConnectionBanner />
       <ToastHost />
+      <UpdateNotice />
     </div>
   );
 };

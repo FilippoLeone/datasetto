@@ -9,6 +9,7 @@ import { closeModal, toast } from '@/state/ui';
 import { NotificationsSection } from '@/features/settings/NotificationsSection';
 import { supportsVoiceOverlay } from './desktopVoice';
 import { ShortcutCapture } from './ShortcutCapture';
+import { DesktopUpdatesSection } from '@/features/settings/DesktopUpdatesSection';
 import { voiceManager } from './voiceManager';
 import type { OverlayCorner } from './voiceOverlayState';
 import type { AudioSettings, DeviceInfo, ScreenQuality } from '@/types/protocol';
@@ -157,6 +158,7 @@ export const AudioSettingsModal = () => {
 
         <NotificationsSection />
       </div>
+      <DesktopUpdatesSection />
       <p className="mt-2 text-xs text-text-faint">Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings.</p>
     </Modal>
   );
