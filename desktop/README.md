@@ -1,12 +1,13 @@
 # Datasetto Desktop
 
-Electron wrapper around the existing Datasetto web client. This workspace launches the Vite-powered UI inside a desktop shell and packages platform installers.
+Electron shell around the Datasetto web client (`client/`, Preact + Vite). It loads the production bundle from `renderer/` and adds what a browser tab cannot do: a native screen picker with system audio, a tray icon that mirrors your voice state, native notifications, and links that open in the system browser.
 
 ## Prerequisites
 
-- Node.js 18+
-- npm 9+
-- The web client dependencies installed (`npm install` inside `client/`)
+- Node.js 20+ and npm 10+
+- The web client dependencies installed (`npm install` inside `client/`); the renderer is built from there
+- For local testing, the Docker stack on <http://localhost:8080>, started from the repo root with
+  `docker compose -f ops/docker-compose.yml -f ops/docker-compose.local.yml up -d`
 
 ## Install dependencies
 
@@ -16,24 +17,36 @@ npm install
 
 Run this command from inside the `desktop/` directory.
 
-## Development workflow
+## Run the shell against a server
 
-1. Start the desktop dev environment (runs Vite dev server plus Electron):
+The shell talks to whichever server its runtime configuration names (see [Configure backend endpoints](#configure-backend-endpoints)). To run the bundled renderer against the local Docker stack:
+
+```bash
+npm run build:renderer
+npm run prepare:renderer
+npm run start:local
+```
+
+`start:local` is `npm start` with `DATASETTO_SERVER_URL=http://localhost:8080`; the API, HLS and RTMP URLs are derived from it. Plain `npm start` uses the production defaults from `resources/runtime-config.json`.
+
+## Development workflow (Vite dev server)
 
 ```bash
 npm run dev
 ```
 
-2. Electron waits for `http://localhost:5173` and opens it once the Vite dev server from `client/` is ready.
+This starts the Vite dev server in `client/` and opens Electron on `http://localhost:5173` once it is ready (`ELECTRON_START_URL`). The dev server proxies `/api`, `/socket.io`, `/hls` and `/health` to the local Docker stack (`VITE_DEV_PROXY`, default `http://localhost:8080`). When the renderer is loaded over http and no backend is configured, the shell leaves the backend URLs empty and the client uses the page origin, exactly like the web build, so the proxy does the rest. Set `DATASETTO_SERVER_URL` if the dev shell should talk to another server instead.
 
 ## Production build & packaging
 
-1. Build the web client assets and copy them into the desktop bundle:
+1. Build the web client with relative asset paths and copy it into the desktop bundle:
 
 ```bash
 npm run build:renderer
 npm run prepare:renderer
 ```
+
+`build:renderer` runs the client's `npm run build` (TypeScript check + Vite) with `VITE_BUILD_TARGET=desktop`, which sets Vite's `base` to `./` so that `renderer/index.html` resolves its assets from `file://`. The shell opens `renderer/index.html` directly; that file is the app itself. The `/` → `landing.html` and `/app` → `index.html` rewrites exist only in the web Caddy and are not needed here.
 
 2. Package installers for the current platform:
 
@@ -47,7 +60,7 @@ During packaging the build script also regenerates the desktop icon (PNG + ICO) 
 - `Datasetto-<version>-win-x64.exe` (portable build – no installer)
 - `win-unpacked/` (unzipped application directory)
 
-> **Tip:** `npm run build` already chains `build:renderer`, `prepare:renderer`, icon generation, and a cleanup step before calling `electron-builder`, so you can run it directly when you want a packaged `.exe`/`.dmg`/AppImage.
+> **Tip:** `npm run build` already chains `build:renderer`, `prepare:renderer`, icon generation, and a cleanup step before calling `electron-builder`, so you can run it directly when you want a packaged `.exe`/`.dmg`/AppImage. `npm run release` (or `release:win`, `release:linux`, `release:mac`) wraps the same steps for multi-platform builds.
 
 To tweak the icon artwork, edit `scripts/generate-icon.mjs` (it uses `pngjs` to draw a gradient monogram) and rerun `npm run generate:icon`.
 
@@ -57,19 +70,33 @@ If you’re on Windows and had the app running from a previous build, the cleanu
 
 ```
 desktop/
-├─ main.js          # Electron main-process entry
-├─ preload.js       # Secure preload bridge exposed to the renderer
-├─ renderer/        # Copied Vite build output (generated)
+├─ main.js              # Electron main process: window, tray, notifications, screen picker, IPC
+├─ preload.js           # contextBridge: window.desktopAPI + window.datasettoDesktopConfig
+├─ picker/              # Screen/window picker window (HTML + preload)
+├─ renderer/            # Copied Vite build output (generated, git-ignored)
+├─ resources/           # Icons and the bundled runtime-config.json
 ├─ scripts/
-│  └─ copy-dist.mjs # Copies client/dist into renderer/
-├─ resources/       # Place platform icons or extra assets here
-└─ package.json     # Desktop-specific dependencies & scripts
+│  ├─ copy-dist.mjs     # Copies client/dist into renderer/
+│  ├─ generate-icon.mjs # Draws the app icon
+│  ├─ clean-release.mjs # Clears release/ before packaging
+│  └─ build-release.mjs # Multi-platform packaging helper
+└─ package.json         # Desktop-specific dependencies & scripts
 ```
+
+## How the shell and the client talk
+
+`preload.js` exposes two globals through `contextBridge`; the typed contract lives in `client/src/types/globals.d.ts` and must stay in sync with the preload:
+
+- `window.desktopAPI`: `getInfo`, `getRuntimeConfig`, `showNotification`, `checkNotificationPermission`, `updateVoiceActivity` (tray icon state), `pickScreenshareSource` (native picker, returns the chosen `desktopCapturer` source and whether to share system audio), `openExternal`, `getLogPath`, `openLogFile`, `log`.
+- `window.datasettoDesktopConfig`: `{ serverUrl, apiBaseUrl, hlsBaseUrl, rtmpServerUrl }`, read by `client/src/lib/runtimeConfig.ts` before the build-time `VITE_*` fallbacks.
+
+The client uses these helpers from `client/src/services/native/desktop.ts` and `client/src/features/screenshare/screenshareService.ts`; every call is a no-op in a plain browser.
 
 ## Configuration notes
 
-- `ELECTRON_START_URL` is used during development to load the Vite dev server;
-  production builds fall back to the static files under `renderer/`.
+- `ELECTRON_START_URL` makes the shell load a URL instead of `renderer/index.html` (used by `npm run dev`) and opens DevTools detached.
+- `F12` / `Ctrl+Shift+I` toggles DevTools in any build; `Ctrl+Shift+L` reveals the log file (`datasetto.log` next to a portable executable, otherwise in the user-data folder).
+- `renderer/`, `release/` and a local `desktop/runtime-config.json` are git-ignored.
 - Update the icons inside `resources/` (`icon.icns`, `icon.ico`, `icon.png`) before shipping to match your branding.
 - Adjust the `build` section in `package.json` if you need different packaging targets or signing options.
 - Packaging tweaks already enabled:
@@ -79,31 +106,32 @@ desktop/
 
 ## Configure backend endpoints
 
-The desktop shell ships with production defaults pointed at `https://datasetto.com` (see `resources/runtime-config.json`).
-
-If you need to override them for staging or self-hosted environments, use one of the following:
+The desktop shell ships with production defaults pointed at `https://datasetto.com` (see `resources/runtime-config.json`). Override them with one of the following, highest priority first:
 
 1. **Environment variables** (set before launching Electron or the packaged executable):
 
-  - `DATASETTO_SERVER_URL`
-  - `DATASETTO_API_BASE_URL`
-  - `DATASETTO_HLS_BASE_URL`
-  - `DATASETTO_RTMP_SERVER_URL`
+   - `DATASETTO_SERVER_URL`
+   - `DATASETTO_API_BASE_URL`
+   - `DATASETTO_HLS_BASE_URL`
+   - `DATASETTO_RTMP_SERVER_URL`
 
-2. **Runtime config file** – drop a `runtime-config.json` next to the build artifacts:
+2. **Runtime config file**, the first one found of:
 
-  - During development: place it in `desktop/runtime-config.json`.
-  - For packaged builds: customise `desktop/resources/runtime-config.json` before running `npm run build`. The file will be bundled into `resources/runtime-config.json` inside the app.
+   - the file named by `DATASETTO_RUNTIME_CONFIG_PATH`
+   - `resources/runtime-config.json` inside a packaged build (customise `desktop/resources/runtime-config.json` before running `npm run build`)
+   - `desktop/runtime-config.json` during development
 
-  Example:
+   Example:
 
-  ```json
-  {
-    "serverUrl": "https://staging.datasetto.com",
-    "apiBaseUrl": "https://staging.datasetto.com",
-    "hlsBaseUrl": "https://staging.datasetto.com/hls",
-    "rtmpServerUrl": "rtmp://staging.datasetto.com/live"
-  }
-  ```
+   ```json
+   {
+     "serverUrl": "https://staging.datasetto.com",
+     "apiBaseUrl": "https://staging.datasetto.com",
+     "hlsBaseUrl": "https://staging.datasetto.com/hls",
+     "rtmpServerUrl": "rtmp://staging.datasetto.com/live"
+   }
+   ```
 
-Resolution order now prefers environment variables, then `runtime-config.json`, and finally the built-in `https://datasetto.com` defaults. Localhost fallbacks are only used when all other sources are absent.
+3. The built-in default, `https://datasetto.com`.
+
+Whichever source provides `serverUrl` wins, and any URL it leaves out is derived from that server (`<server>` for the API, `<server>/hls`, `rtmp://<host>/live`) rather than mixed with a lower-priority source. A single `DATASETTO_SERVER_URL` is therefore enough to point the app at another server. When the renderer is loaded from a web server (`ELECTRON_START_URL`) and nothing is configured, all four values are empty and the client uses the page origin.

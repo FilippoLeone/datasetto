@@ -1,53 +1,77 @@
 # Datasetto Mobile
 
-Capacitor workspace that wraps the existing Datasetto web client for iOS and Android.
+Capacitor workspace that wraps the Datasetto web client (`client/`, Preact + Vite) for Android and iOS. The native projects in `android/` and `ios/` are committed; `npx cap sync` copies the web build into them.
 
 ## Quick start
 
-1. Install dependencies:
+1. Install dependencies (from inside `mobile/`):
 
    ```bash
    npm install
    ```
 
-2. Build the web client and sync native projects:
+2. Tell the build which server the app talks to. Unlike the web build, the app cannot rely on "same origin": inside the Capacitor WebView the page origin is `https://localhost`, so it needs an absolute server URL. Put it in `client/.env.mobile`:
+
+   ```bash
+   VITE_SERVER_URL=https://your-server.example
+   ```
+
+   `VITE_API_BASE_URL`, `VITE_HLS_BASE_URL` and `VITE_RTMP_SERVER_URL` are optional and derived from `VITE_SERVER_URL` when unset. The build script resolves each value from, in order: the shell environment, `client/.env.mobile`, `client/.env.production`, `ops/.env`. If nothing is set, the app falls back at runtime to the client's built-in default (`VITE_MOBILE_DEFAULT_SERVER_URL`, `https://datasetto.com`).
+
+3. Build the web client and sync the native projects:
 
    ```bash
    npm run sync
    ```
 
-   This command builds `../client` for production and copies the assets into the native shells.
+   This runs `scripts/build-web.mjs` (the client's `npm run build` with `VITE_BUILD_TARGET=mobile` and the resolved `VITE_*` values), then `npx cap sync` for every platform, then `scripts/configure-android-foreground-service.mjs`, which keeps the permissions, the foreground service and the notification icon that voice chat needs in the Android manifest.
 
-3. Open the platform projects:
+   On Windows and Linux the iOS part of `cap sync` fails because it needs CocoaPods. Sync Android only:
 
-   - **Android:**
+   ```bash
+   npm run build:web
+   npx cap sync android
+   node ./scripts/configure-android-foreground-service.mjs
+   ```
 
-     ```bash
-     npm run open:android
-     ```
+4. Open the platform projects:
 
-   - **iOS:**
+   - **Android:** `npm run open:android`
+   - **iOS:** `npm run open:ios` (macOS with Xcode and CocoaPods)
 
-     ```bash
-     npm run open:ios
-     ```
+## Testing against the local Docker stack
 
-   Capacitor will generate the `android/` and `ios/` folders on first run.
+Start the stack from the repo root (`docker compose -f ops/docker-compose.yml -f ops/docker-compose.local.yml up -d`) and build with it as the server:
+
+```bash
+VITE_SERVER_URL=http://localhost:8080 npm run build:web
+```
+
+(PowerShell: `$env:VITE_SERVER_URL = 'http://localhost:8080'; npm run build:web`.) A device or emulator cannot reach the host's `localhost`; use the machine's LAN address instead (plain `http` is allowed by the Android manifest's `usesCleartextTraffic`).
 
 ## Repository layout
 
 ```
 mobile/
-├─ capacitor.config.ts   # Capacitor configuration (points to ../client/dist)
+├─ capacitor.config.ts   # webDir ../client/dist, https scheme, allowed navigation hosts
 ├─ package.json          # Mobile-specific dependencies & scripts
-├─ android/              # Generated Android project (created via `npx cap add android`)
-└─ ios/                  # Generated iOS project (created via `npx cap add ios`)
+├─ scripts/
+│  ├─ build-web.mjs      # Resolves VITE_* and builds the client for mobile
+│  └─ configure-android-foreground-service.mjs
+├─ android/              # Android project (app/src/main/assets/public is generated and git-ignored)
+└─ ios/                  # iOS project
 ```
 
-The `android/` and `ios/` directories are initially empty; run `npm run sync` to create them.
+## How the client behaves inside Capacitor
+
+- `window.Capacitor.isNativePlatform()` switches on the native code paths (`client/src/lib/device.ts`, `client/src/lib/runtimeConfig.ts`). In a browser, and in the Electron shell, the same code is a no-op.
+- Voice chat keeps an Android foreground service alive while the app is in the background (`@capawesome-team/capacitor-android-foreground-service`, `client/src/services/native/ForegroundServiceManager.ts`). It is skipped on iOS and on the web.
+- Audio output routing (speaker, earpiece, Bluetooth, wired) uses the `AudioRoute` plugin implemented in `android/app/src/main/java/com/datasetto/mobile/AudioRoutePlugin.java` (`client/src/services/native/NativeAudioRouteService.ts`). Where the plugin is missing, the client shows a speakerphone-only fallback.
+- Screen sharing in Capacitor uses the browser `getDisplayMedia` path when the WebView supports it; there is no native picker.
+- `server.allowNavigation` in `capacitor.config.ts` lists the hosts the WebView may navigate to; add your own server when self-hosting.
 
 ## Notes
 
-- Ensure the `../client` build succeeds before syncing; otherwise Capacitor will copy stale assets.
-- For local development, you can run the Vite dev server (`npm run dev --prefix ../client`) and configure Live Reload in `capacitor.config.ts` if desired.
-- Add any additional plugins with `npx cap install <plugin>`.
+- Make sure the `../client` build succeeds before syncing; otherwise Capacitor copies stale assets.
+- For live reload, run the Vite dev server (`npm run dev --prefix ../client`) and point `server.url` in `capacitor.config.ts` at it.
+- Add additional plugins with `npx cap install <plugin>`.

@@ -83,14 +83,19 @@ const missingEntries = Object.entries(requiredValues)
 
 if (missingEntries.length > 0) {
   console.warn(
-    `⚠️  Missing configuration for ${missingEntries.join(', ')}. The mobile build will fall back to localhost if these remain unset.`
+    `⚠️  Missing configuration for ${missingEntries.join(', ')}. The app will fall back to the built-in server (VITE_MOBILE_DEFAULT_SERVER_URL, https://datasetto.com) at runtime.`
   );
 }
 
-Object.assign(process.env, requiredValues, {
-  NODE_ENV: 'production',
-  VITE_BUILD_TARGET: 'mobile',
-});
+// Only export resolved values: assigning undefined to process.env would hand the
+// build the literal string "undefined" as a URL.
+for (const [key, value] of Object.entries(requiredValues)) {
+  if (value) {
+    process.env[key] = value;
+  }
+}
+process.env.NODE_ENV = 'production';
+process.env.VITE_BUILD_TARGET = 'mobile';
 
 console.log('ℹ️  Building Datasetto web assets for mobile with the following endpoints:');
 for (const [key, value] of Object.entries(requiredValues)) {
