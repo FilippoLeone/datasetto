@@ -80,19 +80,34 @@ rate limits apply.
 
 | Client emits | Server emits |
 | --- | --- |
-| `channel:join id`, `channels:list`, `channels:create {name,type,groupId?}`, `channels:delete idOrName` | `channel:joined`, `chat:history`, `channels:update {channels, groups}`, `channel:deleted` |
+| `channel:join id`, `channels:list`, `channels:create {name,type,groupId?,topic?,visibility?,password?}`, `channels:update {channelId,topic?,visibility?,password?}`, `channels:joinPrivate {name,password}`, `channels:delete idOrName` | `channel:joined`, `chat:history`, `channels:update {channels, groups}`, `channels:created`, `channels:updated`, `channels:privateJoined {channelId}`, `channel:deleted {channelId, reason?}` |
 | `chat text`, `chat:delete {messageId, channelId}` | `chat message`, `chat:messageDeleted` |
 | `voice:join id`, `voice:leave`, `voice:signal {to,data}`, `voice:stream-metadata`, `voice:state {muted,deafened}`, `voice:video:state` | `voice:joined {peers,startedAt,sessionId}`, `voice:peer-join`, `voice:peer-leave`, `voice:signal`, `voice:state`, `voice:video:state` |
 | `voice:kick`, `voice:timeout`, `user:ban {targetSocketId,...}` | `voice:kicked`, `voice:timeout`, `user:banned`, `moderation:success` |
 | `screenshare:start/stop/viewer:join/viewer:leave {channelId}`, `screenshare:signal` | `screenshare:session`, `screenshare:viewer:pending`, `screenshare:signal` |
 | `stream:key:request {channelId}`, `stream:key:regenerate {channelId}` | `stream:key:response {streamKey: "channel?key=token", ...}` |
 | `account:get`, `account:update {...}` | `account:data`, `account:updated`, `account:rolesUpdated` |
-| `admin:accounts:list/updateRoles/disable/enable/unban`, `admin:bans:list`, `admin:channels:getPermissions/updatePermissions` | `admin:accounts:*`, `admin:bans:list`, `admin:channels:permissions`, `channels:permissionsUpdated` |
+| `admin:accounts:list/updateRoles/disable/enable/unban`, `admin:bans:list`, `admin:channels:getPermissions/updatePermissions`, `admin:channels:members:list/add/remove {channelId, accountId?}` | `admin:accounts:*`, `admin:bans:list`, `admin:channels:permissions`, `channels:permissionsUpdated`, `admin:channels:members {channelId, members[]}` |
 | `voice:game:start/join/leave/input/end/leaderboard` | `voice:game:state/update/started/ended/leaderboard` |
 
 Presence is broadcast as `user:update users[]` to everyone whenever it changes.
 Stream keys are never included in channel lists; they are only returned by
 `stream:key:request` to users allowed to stream on that channel.
+
+### Private channels
+
+A channel has `visibility: public | private`, an optional `topic` and, when
+private, an optional join password (bcrypt hash in `channels.join_password_hash`,
+never sent to clients; `hasPassword` is). Private channels are listed only for
+their members (`channel_members`, one row per account) and for admins who hold
+`canManageChannelPermissions`; superusers see everything. Every permission check
+(`view`, `chat`, `voice`, `stream`, `manage`) first requires membership on a
+private channel, so chat history, HLS tickets, voice and screenshare all follow
+the same rule. Whoever creates a private channel is its first member. Members
+join once with `channels:joinPrivate {name, password}` (rate limited with the
+auth bucket) and stay members; admins add and remove members with
+`admin:channels:members:*`. A removed member receives `channel:deleted {reason:
+"removed"}`. Making a channel public clears its password and member list.
 
 ## Maintenance
 

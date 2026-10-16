@@ -393,7 +393,7 @@ export class PresenceService {
 
   // ----------------------------------------------------------------- view
 
-  channelView(channel: ChannelRecord): ChannelView {
+  channelView(channel: ChannelRecord, memberCount = 0): ChannelView {
     const stream = this.liveStreams.get(channel.id);
     const room = this.voiceRooms.get(channel.id);
     const share = this.screenshares.get(channel.id);
@@ -404,6 +404,10 @@ export class PresenceService {
       name: channel.name,
       type: channel.type,
       groupId: channel.groupId,
+      topic: channel.topic,
+      visibility: channel.visibility,
+      hasPassword: channel.joinPasswordHash !== null,
+      memberCount,
       count: channel.type === 'voice' ? (room?.participants.size ?? 0) : this.channelMemberCount(channel.id),
       isLive: Boolean(stream),
       liveStartedAt: stream?.startedAt ?? null,

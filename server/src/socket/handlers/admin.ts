@@ -8,6 +8,7 @@ const rolesSchema = z.object({ accountId: idSchema, roles: z.array(z.string().ma
 const accountSchema = z.object({ accountId: idSchema, reason: z.string().max(500).optional().nullable() });
 const channelSchema = z.object({ channelId: idSchema });
 const channelPermissionsSchema = z.object({ channelId: idSchema, permissions: permissionsInputSchema.nullable().optional() });
+const channelMemberSchema = z.object({ channelId: idSchema, accountId: idSchema });
 
 export const registerAdminHandlers = (sctx: SocketContext): void => {
   const { app, socket, io } = sctx;
@@ -130,6 +131,61 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
       app.log.info({ channelId, by: actor.accountId }, 'channel permissions updated');
     },
   );
+
+  // ------------------------------------------------- private channel members
+
+  const membersPayload = (channelId: string) => ({
+    channelId,
+    members: app.channels.listMembers(channelId).map((member) => {
+      const account = app.accounts.getById(member.accountId);
+      return {
+        accountId: member.accountId,
+        username: account?.username ?? null,
+        displayName: account?.displayName ?? member.accountId,
+        avatarUrl: account?.avatarUrl ?? null,
+        addedBy: member.addedBy,
+        joinedAt: member.joinedAt,
+      };
+    }),
+  });
+
+  handle(sctx, 'admin:channels:members:list', { schema: channelSchema, errorEvent: ERR, code: 'CHANNEL_MEMBERS_FAILED' }, ({ channelId }) => {
+    requirePermission(sctx, 'canManageChannelPermissions', 'No permission to view channel members');
+    app.channels.require(channelId);
+    socket.emit('admin:channels:members', membersPayload(channelId));
+  });
+
+  handle(sctx, 'admin:channels:members:add', { schema: channelMemberSchema, errorEvent: ERR, code: 'CHANNEL_MEMBERS_FAILED' }, ({ channelId, accountId }) => {
+    const actor = requirePermission(sctx, 'canManageChannelPermissions', 'No permission to manage channel members');
+    const target = app.accounts.getById(accountId);
+    if (!target) throw notFound('Account');
+    app.channels.addMember(channelId, accountId, actor.accountId);
+    socket.emit('admin:channels:members', membersPayload(channelId));
+    app.broadcast.channels();
+    app.log.info({ channelId, accountId, by: actor.accountId }, 'channel member added');
+  });
+
+  handle(sctx, 'admin:channels:members:remove', { schema: channelMemberSchema, errorEvent: ERR, code: 'CHANNEL_MEMBERS_FAILED' }, ({ channelId, accountId }) => {
+    const actor = requirePermission(sctx, 'canManageChannelPermissions', 'No permission to manage channel members');
+    const channel = app.channels.require(channelId);
+    app.channels.removeMember(channelId, accountId);
+    // A removed member who had the channel open is moved out of it.
+    for (const socketId of app.presence.getSocketsByAccount(accountId)) {
+      const targetSocket = io.sockets.sockets.get(socketId);
+      const targetCtx = targetSocket?.data.ctx as SocketContext | undefined;
+      if (!targetSocket || !targetCtx?.user || app.channels.canAccess(channel, targetCtx.user, 'view')) continue;
+      targetSocket.emit('channel:deleted', { channelId: channel.id, reason: 'removed' });
+      if (targetCtx.currentChannel === channel.id) {
+        app.presence.leaveChannel(socketId, channel.id);
+        targetCtx.currentChannel = null;
+        if (targetCtx.voiceChannel !== channel.id) void targetSocket.leave(channel.id);
+      }
+    }
+    socket.emit('admin:channels:members', membersPayload(channelId));
+    app.broadcast.channels();
+    app.broadcast.users();
+    app.log.info({ channelId, accountId, by: actor.accountId }, 'channel member removed');
+  });
 
   void ROLES;
 };

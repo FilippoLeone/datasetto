@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Gamepad2, Key, Plus, Trash2, Volume2 } from 'lucide-preact';
+import { ChevronDown, ChevronRight, Gamepad2, Key, Lock, Plus, Trash2, Volume2 } from 'lucide-preact';
 import { Avatar, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
 import { CHANNEL_ICONS } from '@/app/layout/MainArea';
@@ -87,9 +87,15 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
           (unreadCount > 0 || inVoice) && !active && 'text-text-bright',
         )}
       >
-        <button type="button" onClick={onClick} className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left pointer-coarse:py-2.5">
+        <button
+          type="button"
+          onClick={onClick}
+          title={channel.topic ? channel.name + ' — ' + channel.topic : undefined}
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left pointer-coarse:py-2.5"
+        >
           <Icon size={18} className={cn('shrink-0', inVoice && 'text-success')} />
           <span className={cn('truncate', unreadCount > 0 && 'font-semibold')}>{channel.name}</span>
+          {channel.visibility === 'private' && <Lock size={12} className="shrink-0 text-text-faint" aria-label="Private channel" />}
           {channel.type === 'stream' && channel.isLive && <span className="live-dot ml-1 text-[10px] font-bold text-live uppercase">Live</span>}
           {channel.type === 'voice' && channel.currentMinigame && <Gamepad2 size={14} className="ml-1 shrink-0 text-warning" />}
           {channel.type === 'screenshare' && channel.screenshareHostName && <span className="ml-1 text-[10px] font-bold text-success uppercase">Sharing</span>}
@@ -151,6 +157,13 @@ export const ChannelList = () => (
     {ORDER.map((type) => (
       <Group key={type} type={type} />
     ))}
+    <button
+      type="button"
+      onClick={() => openModal({ type: 'joinPrivateChannel' })}
+      className="mt-1 flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-left text-xs text-text-muted hover:bg-hover hover:text-text-bright pointer-coarse:py-2.5"
+    >
+      <Lock size={12} /> Join a private channel…
+    </button>
     <p className="mt-2 flex items-center gap-1 px-2 text-[11px] text-text-faint">
       <Volume2 size={11} /> Click a voice channel to join it.
     </p>

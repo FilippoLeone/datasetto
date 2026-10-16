@@ -1,19 +1,31 @@
+import bcrypt from 'bcryptjs';
 import type { AppConfig } from '../config.js';
 import { extractStreamKeyToken, generateStreamKeyToken, newId } from '../core/ids.js';
-import { channelNameSchema, channelTypeSchema, type PermissionsInput } from '../core/validation.js';
+import { rolesHavePermission } from '../core/roles.js';
+import {
+  channelNameSchema,
+  channelPasswordSchema,
+  channelTopicSchema,
+  channelTypeSchema,
+  channelVisibilitySchema,
+  type PermissionsInput,
+} from '../core/validation.js';
 import { parseJson, type DB } from '../db/index.js';
 import { AppError, notFound } from '../errors.js';
 import {
   PERMISSION_ACTIONS,
   type ChannelGroupRecord,
+  type ChannelMemberRecord,
   type ChannelPermissions,
   type ChannelRecord,
   type ChannelType,
+  type ChannelVisibility,
   type PermissionAction,
   type PermissionEntry,
 } from '../types.js';
 
 const ALL_ROLES = '*';
+const PASSWORD_ROUNDS = 10;
 
 export const DEFAULT_GROUPS: Record<ChannelType, string> = {
   text: 'Text Channels',
@@ -40,6 +52,19 @@ export interface CreateChannelInput {
   type: ChannelType;
   groupId?: string | null;
   permissions?: PermissionsInput | null;
+  topic?: string | null;
+  visibility?: ChannelVisibility | null;
+  /** Already hashed with {@link ChannelService.hashPassword}. */
+  joinPasswordHash?: string | null;
+  /** Account that becomes the first member of a private channel. */
+  creatorAccountId?: string | null;
+}
+
+export interface UpdateChannelInput {
+  topic?: string | null;
+  visibility?: ChannelVisibility;
+  /** `null` removes the password; omit to keep it. */
+  joinPasswordHash?: string | null;
 }
 
 interface ChannelRow {
@@ -47,6 +72,9 @@ interface ChannelRow {
   name: string;
   type: string;
   group_id: string | null;
+  topic: string | null;
+  visibility: string;
+  join_password_hash: string | null;
   stream_key: string | null;
   permissions: string;
   position: number;
@@ -61,6 +89,13 @@ interface GroupRow {
   collapsed: number;
   position: number;
   created_at: number;
+}
+
+interface MemberRow {
+  channel_id: string;
+  account_id: string;
+  added_by: string | null;
+  joined_at: number;
 }
 
 export const createDefaultPermissions = (): ChannelPermissions => ({
@@ -133,6 +168,9 @@ const rowToChannel = (row: ChannelRow): ChannelRecord => ({
   name: row.name,
   type: row.type as ChannelType,
   groupId: row.group_id,
+  topic: row.topic,
+  visibility: row.visibility === 'private' ? 'private' : 'public',
+  joinPasswordHash: row.join_password_hash,
   streamKey: row.stream_key,
   permissions: clonePermissions(parseJson<Partial<ChannelPermissions>>(row.permissions, {})),
   position: row.position,
@@ -149,6 +187,13 @@ const rowToGroup = (row: GroupRow): ChannelGroupRecord => ({
   createdAt: row.created_at,
 });
 
+const rowToMember = (row: MemberRow): ChannelMemberRecord => ({
+  channelId: row.channel_id,
+  accountId: row.account_id,
+  addedBy: row.added_by,
+  joinedAt: row.joined_at,
+});
+
 /**
  * Persistent channel catalogue. Everything is cached in memory and written
  * through to SQLite, so reads are synchronous and cheap.
@@ -156,6 +201,8 @@ const rowToGroup = (row: GroupRow): ChannelGroupRecord => ({
 export class ChannelService {
   private readonly channels = new Map<string, ChannelRecord>();
   private readonly groups = new Map<string, ChannelGroupRecord>();
+  /** Members of private channels, keyed by channel id then account id. */
+  private readonly members = new Map<string, Map<string, ChannelMemberRecord>>();
   private readonly stmts;
 
   constructor(
@@ -165,9 +212,10 @@ export class ChannelService {
     this.stmts = {
       allChannels: db.prepare('SELECT * FROM channels ORDER BY position ASC, created_at ASC'),
       allGroups: db.prepare('SELECT * FROM channel_groups ORDER BY position ASC, created_at ASC'),
+      allMembers: db.prepare('SELECT * FROM channel_members ORDER BY joined_at ASC'),
       insertChannel: db.prepare(`
-        INSERT INTO channels (id, name, type, group_id, stream_key, permissions, position, created_at, updated_at)
-        VALUES (@id, @name, @type, @group_id, @stream_key, @permissions, @position, @created_at, @updated_at)
+        INSERT INTO channels (id, name, type, group_id, topic, visibility, join_password_hash, stream_key, permissions, position, created_at, updated_at)
+        VALUES (@id, @name, @type, @group_id, @topic, @visibility, @join_password_hash, @stream_key, @permissions, @position, @created_at, @updated_at)
       `),
       insertGroup: db.prepare(`
         INSERT INTO channel_groups (id, name, type, collapsed, position, created_at)
@@ -176,6 +224,12 @@ export class ChannelService {
       deleteChannel: db.prepare('DELETE FROM channels WHERE id = ?'),
       updatePermissions: db.prepare('UPDATE channels SET permissions = ?, updated_at = ? WHERE id = ?'),
       updateStreamKey: db.prepare('UPDATE channels SET stream_key = ?, updated_at = ? WHERE id = ?'),
+      updateMeta: db.prepare('UPDATE channels SET topic = ?, visibility = ?, join_password_hash = ?, updated_at = ? WHERE id = ?'),
+      insertMember: db.prepare(`
+        INSERT INTO channel_members (channel_id, account_id, added_by, joined_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(channel_id, account_id) DO NOTHING
+      `),
+      deleteMember: db.prepare('DELETE FROM channel_members WHERE channel_id = ? AND account_id = ?'),
     };
     this.load();
   }
@@ -183,6 +237,7 @@ export class ChannelService {
   private load(): void {
     this.channels.clear();
     this.groups.clear();
+    this.members.clear();
     for (const row of this.stmts.allGroups.all() as GroupRow[]) {
       const group = rowToGroup(row);
       this.groups.set(group.id, group);
@@ -191,6 +246,26 @@ export class ChannelService {
       const channel = rowToChannel(row);
       this.channels.set(channel.id, channel);
     }
+    for (const row of this.stmts.allMembers.all() as MemberRow[]) {
+      const member = rowToMember(row);
+      if (!this.channels.has(member.channelId)) continue;
+      this.membersOf(member.channelId).set(member.accountId, member);
+    }
+  }
+
+  private membersOf(channelId: string): Map<string, ChannelMemberRecord> {
+    let map = this.members.get(channelId);
+    if (!map) {
+      map = new Map();
+      this.members.set(channelId, map);
+    }
+    return map;
+  }
+
+  /** Hash a join password for storage; compare with {@link verifyPassword}. */
+  static async hashPassword(password: unknown): Promise<string> {
+    const parsed = channelPasswordSchema.parse(password);
+    return bcrypt.hash(parsed, PASSWORD_ROUNDS);
   }
 
   /** Create the default groups and channels when the catalogue is empty. */
@@ -289,12 +364,17 @@ export class ChannelService {
   create(input: CreateChannelInput): ChannelRecord {
     const name = channelNameSchema.parse(input.name);
     const type = channelTypeSchema.parse(input.type) as ChannelType;
+    const visibility = (input.visibility ? channelVisibilitySchema.parse(input.visibility) : 'public') as ChannelVisibility;
+    const topic = channelTopicSchema.parse(input.topic ?? null);
 
     if (this.channels.size >= this.config.limits.maxChannels) {
       throw new AppError('Maximum number of channels (' + this.config.limits.maxChannels + ') reached', 'CHANNEL_LIMIT', 409);
     }
     if (this.getByName(name)) {
       throw new AppError('A channel named "' + name + '" already exists', 'CHANNEL_EXISTS', 409);
+    }
+    if (visibility === 'public' && input.joinPasswordHash) {
+      throw new AppError('Only private channels can have a join password', 'PASSWORD_ON_PUBLIC_CHANNEL', 400);
     }
 
     const group = this.getGroup(input.groupId) ?? this.getOrCreateGroupForType(type);
@@ -304,6 +384,9 @@ export class ChannelService {
       name,
       type,
       groupId: group.id,
+      topic,
+      visibility,
+      joinPasswordHash: visibility === 'private' ? (input.joinPasswordHash ?? null) : null,
       streamKey: type === 'stream' ? generateStreamKeyToken() : null,
       permissions: normalizePermissions(input.permissions ?? null),
       position: this.channels.size,
@@ -311,25 +394,55 @@ export class ChannelService {
       updatedAt: now,
     };
 
-    this.stmts.insertChannel.run({
-      id: channel.id,
-      name: channel.name,
-      type: channel.type,
-      group_id: channel.groupId,
-      stream_key: channel.streamKey,
-      permissions: JSON.stringify(channel.permissions),
-      position: channel.position,
-      created_at: now,
-      updated_at: now,
-    });
-    this.channels.set(channel.id, channel);
+    this.db.transaction(() => {
+      this.stmts.insertChannel.run({
+        id: channel.id,
+        name: channel.name,
+        type: channel.type,
+        group_id: channel.groupId,
+        topic: channel.topic,
+        visibility: channel.visibility,
+        join_password_hash: channel.joinPasswordHash,
+        stream_key: channel.streamKey,
+        permissions: JSON.stringify(channel.permissions),
+        position: channel.position,
+        created_at: now,
+        updated_at: now,
+      });
+      this.channels.set(channel.id, channel);
+      if (channel.visibility === 'private' && input.creatorAccountId) {
+        this.addMember(channel.id, input.creatorAccountId, input.creatorAccountId);
+      }
+    })();
     return channel;
+  }
+
+  /** Change topic, visibility or the join password. Making a channel public clears the password and members. */
+  update(id: string, input: UpdateChannelInput): ChannelRecord {
+    const channel = this.require(id);
+    const visibility = (input.visibility ? channelVisibilitySchema.parse(input.visibility) : channel.visibility) as ChannelVisibility;
+    const topic = input.topic === undefined ? channel.topic : channelTopicSchema.parse(input.topic);
+    let passwordHash = input.joinPasswordHash === undefined ? channel.joinPasswordHash : input.joinPasswordHash;
+    if (visibility === 'public') passwordHash = null;
+
+    const now = Date.now();
+    const next: ChannelRecord = { ...channel, topic, visibility, joinPasswordHash: passwordHash, updatedAt: now };
+    this.db.transaction(() => {
+      this.stmts.updateMeta.run(topic, visibility, passwordHash, now, id);
+      if (visibility === 'public' && channel.visibility === 'private') {
+        for (const accountId of this.listMemberIds(id)) this.stmts.deleteMember.run(id, accountId);
+        this.members.delete(id);
+      }
+      this.channels.set(id, next);
+    })();
+    return next;
   }
 
   delete(id: string): ChannelRecord {
     const channel = this.require(id);
     this.stmts.deleteChannel.run(id);
     this.channels.delete(id);
+    this.members.delete(id);
     return channel;
   }
 
@@ -358,10 +471,102 @@ export class ChannelService {
     return token;
   }
 
+  // ------------------------------------------------------------- members
+
+  isMember(channelId: string, accountId: string | null | undefined): boolean {
+    if (!accountId) return false;
+    return this.members.get(channelId)?.has(accountId) ?? false;
+  }
+
+  listMembers(channelId: string): ChannelMemberRecord[] {
+    return Array.from(this.members.get(channelId)?.values() ?? []).sort((a, b) => a.joinedAt - b.joinedAt);
+  }
+
+  listMemberIds(channelId: string): string[] {
+    return Array.from(this.members.get(channelId)?.keys() ?? []);
+  }
+
+  memberCount(channelId: string): number {
+    return this.members.get(channelId)?.size ?? 0;
+  }
+
+  /** Channels an account belongs to (private memberships). */
+  channelsOfMember(accountId: string): ChannelRecord[] {
+    const result: ChannelRecord[] = [];
+    for (const [channelId, map] of this.members) {
+      if (!map.has(accountId)) continue;
+      const channel = this.channels.get(channelId);
+      if (channel) result.push(channel);
+    }
+    return result;
+  }
+
+  addMember(channelId: string, accountId: string, addedBy: string | null = null): ChannelMemberRecord {
+    const channel = this.require(channelId);
+    if (channel.visibility !== 'private') {
+      throw new AppError('Only private channels have a member list', 'CHANNEL_NOT_PRIVATE', 400);
+    }
+    const existing = this.members.get(channelId)?.get(accountId);
+    if (existing) return existing;
+    const record: ChannelMemberRecord = { channelId, accountId, addedBy, joinedAt: Date.now() };
+    this.stmts.insertMember.run(channelId, accountId, addedBy, record.joinedAt);
+    this.membersOf(channelId).set(accountId, record);
+    return record;
+  }
+
+  removeMember(channelId: string, accountId: string): boolean {
+    this.require(channelId);
+    const removed = this.stmts.deleteMember.run(channelId, accountId).changes > 0;
+    this.members.get(channelId)?.delete(accountId);
+    return removed;
+  }
+
+  /** Remove an account from every private channel (account deleted). */
+  removeMemberEverywhere(accountId: string): number {
+    let removed = 0;
+    for (const channelId of Array.from(this.members.keys())) {
+      if (this.removeMember(channelId, accountId)) removed += 1;
+    }
+    return removed;
+  }
+
+  /**
+   * Join a private channel with its password. Resolves to the channel when the
+   * password matches (the account is added as a member), throws otherwise.
+   * Comparison runs through bcrypt even for unknown channels so timing does not
+   * reveal which names exist.
+   */
+  async joinWithPassword(name: string, accountId: string, password: unknown): Promise<ChannelRecord> {
+    const invalid = () => new AppError('No private channel with that name and password', 'CHANNEL_JOIN_INVALID', 403);
+    const channel = this.getByName(name);
+    if (typeof password !== 'string' || !password || password.length > 128) throw invalid();
+    if (!channel || channel.visibility !== 'private' || !channel.joinPasswordHash) {
+      await bcrypt.compare(password, '$2a$10$CwTycUXWue0Thq9StjUM0uJ8W8V6Rq8kO5Rn4cJz7k9KZkC3Yq1mS');
+      throw invalid();
+    }
+    const match = await bcrypt.compare(password, channel.joinPasswordHash);
+    if (!match) throw invalid();
+    this.addMember(channel.id, accountId, null);
+    return channel;
+  }
+
+  // -------------------------------------------------------------- access
+
+  /**
+   * May `subject` perform `action` on the channel? Superusers always may.
+   * Private channels are closed to everyone but their members and the admins
+   * who manage channel permissions; after that the per-action role and
+   * account lists apply.
+   */
   canAccess(channel: ChannelRecord | string | null | undefined, subject: AccessSubject | null, action: PermissionAction): boolean {
     const record = typeof channel === 'string' ? this.get(channel) : channel;
     if (!record || !subject) return false;
     if (subject.isSuperuser) return true;
+
+    if (record.visibility === 'private') {
+      const manages = rolesHavePermission(subject.roles, 'canManageChannelPermissions');
+      if (!manages && !this.isMember(record.id, subject.accountId)) return false;
+    }
 
     const entry: PermissionEntry = record.permissions[action] ?? { roles: [ALL_ROLES], accounts: [] };
     if (entry.roles.includes(ALL_ROLES)) return true;

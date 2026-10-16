@@ -78,11 +78,20 @@ export interface MinigameSummary {
   updatedAt?: number;
 }
 
+export type ChannelVisibility = 'public' | 'private';
+
 export interface Channel {
   id: string;
   name: string;
   type: ChannelType;
   groupId?: string | null;
+  topic?: string | null;
+  /** Private channels are listed only for members and admins. */
+  visibility?: ChannelVisibility;
+  /** A private channel that can be joined with a password. */
+  hasPassword?: boolean;
+  /** Members of a private channel (0 for public ones). */
+  memberCount?: number;
   count: number;
   isLive?: boolean;
   liveStartedAt?: number | null;
@@ -103,6 +112,33 @@ export interface ChannelGroup {
   name: string;
   type: ChannelType;
   collapsed?: boolean;
+}
+
+/** `channels:create` payload. */
+export interface CreateChannelInput {
+  name: string;
+  type: ChannelType;
+  topic?: string | null;
+  visibility?: ChannelVisibility;
+  /** Join password for a private channel. */
+  password?: string | null;
+}
+
+/** `channels:update` payload (admins). `password: null` removes the password. */
+export interface UpdateChannelInput {
+  topic?: string | null;
+  visibility?: ChannelVisibility;
+  password?: string | null;
+}
+
+/** One member of a private channel, as listed to admins. */
+export interface ChannelMember {
+  accountId: string;
+  username: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+  addedBy: string | null;
+  joinedAt: number;
 }
 
 export interface ChatMessage {

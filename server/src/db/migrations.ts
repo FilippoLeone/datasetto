@@ -105,6 +105,24 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    name: 'private_channels',
+    up: `
+      ALTER TABLE channels ADD COLUMN topic TEXT;
+      ALTER TABLE channels ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public';
+      ALTER TABLE channels ADD COLUMN join_password_hash TEXT;
+
+      CREATE TABLE channel_members (
+        channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        added_by TEXT,
+        joined_at INTEGER NOT NULL,
+        PRIMARY KEY (channel_id, account_id)
+      );
+      CREATE INDEX channel_members_account_idx ON channel_members(account_id);
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

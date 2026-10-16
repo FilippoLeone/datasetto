@@ -45,11 +45,16 @@ export const setChannels = (next: Channel[], nextGroups?: ChannelGroup[]): void 
   });
 };
 
-/** Pick a sensible default channel: the remembered one, else the first text channel. */
-export const defaultChannelId = (): string | null => {
+/**
+ * Pick a sensible default channel: the remembered one, else the first text channel.
+ * `exclude` skips a channel that is going away but is still in the list (deleted or
+ * closed to us; the refreshed list arrives a moment later).
+ */
+export const defaultChannelId = (exclude: string | null = null): string | null => {
   const remembered = selectedChannelId.value;
-  if (remembered && channelsById.value.has(remembered)) return remembered;
-  return channelsByType.value.text[0]?.id ?? channels.value[0]?.id ?? null;
+  if (remembered && remembered !== exclude && channelsById.value.has(remembered)) return remembered;
+  const candidates = [...channelsByType.value.text, ...channels.value].filter((channel) => channel.id !== exclude);
+  return candidates[0]?.id ?? null;
 };
 
 export const rememberSelection = (channelId: string | null): void => {

@@ -1,4 +1,4 @@
-import { Hash, Menu as MenuIcon, MonitorUp, Radio, Users, Volume2 } from 'lucide-preact';
+import { Hash, Lock, Menu as MenuIcon, MonitorUp, Radio, Users, Volume2 } from 'lucide-preact';
 import { IconButton } from '@/components';
 import { selectedChannel } from '@/state/channels';
 import { onlineCount } from '@/state/presence';
@@ -28,7 +28,16 @@ const Header = ({ channel }: { channel: Channel | null }) => {
       )}
       <Icon size={20} className="shrink-0 text-text-muted" />
       <h2 className="truncate text-base font-semibold text-text-bright">{channel?.name ?? 'Datasetto'}</h2>
+      {channel?.visibility === 'private' && <Lock size={14} className="shrink-0 text-text-muted" aria-label="Private channel" />}
       {channel?.type === 'stream' && channel.isLive && <span className="live-dot text-xs font-bold text-live uppercase">Live</span>}
+      {channel?.topic && !mobile && (
+        <>
+          <span className="mx-1 h-5 w-px shrink-0 bg-border-strong" aria-hidden="true" />
+          <p className="min-w-0 truncate text-sm text-text-muted" title={channel.topic}>
+            {channel.topic}
+          </p>
+        </>
+      )}
       <span className="flex-1" />
       <IconButton
         label={mobile ? 'Members' : showMembers.value ? 'Hide members' : 'Show members'}

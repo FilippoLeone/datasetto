@@ -2,6 +2,7 @@ import { signal } from '@preact/signals';
 import type {
   Account,
   BanRecord,
+  ChannelMember,
   ChannelPermissions,
   ScreenshareSessionEvent,
   StreamKeyResponse,
@@ -26,6 +27,8 @@ export const minigameState = signal<VoiceMinigameState | null>(null);
 export const adminAccounts = signal<Account[]>([]);
 export const adminBans = signal<BanRecord[]>([]);
 export const channelPermissions = signal<Record<string, ChannelPermissions>>({});
+/** Members of private channels, keyed by channel id (admins only). */
+export const channelMembers = signal<Record<string, ChannelMember[]>>({});
 
 export const upsertAdminAccount = (next: Account): void => {
   const list = adminAccounts.value;

@@ -2,6 +2,7 @@ import { modal } from '@/state/ui';
 import { AuthModal } from '@/features/auth/AuthModal';
 import { ProfileModal } from '@/features/auth/ProfileModal';
 import { CreateChannelModal } from '@/features/channels/CreateChannelModal';
+import { JoinPrivateChannelModal } from '@/features/channels/JoinPrivateChannelModal';
 import { StreamKeyModal } from '@/features/channels/StreamKeyModal';
 import { ConfirmModal } from '@/features/channels/ConfirmModal';
 import { AudioSettingsModal } from '@/features/voice/AudioSettingsModal';
@@ -19,6 +20,8 @@ export const ModalHost = () => {
       return <ProfileModal />;
     case 'createChannel':
       return <CreateChannelModal channelType={current.channelType} />;
+    case 'joinPrivateChannel':
+      return <JoinPrivateChannelModal />;
     case 'streamKey':
       return <StreamKeyModal channelId={current.channelId} />;
     case 'audioSettings':

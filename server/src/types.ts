@@ -50,16 +50,31 @@ export interface SessionRecord {
   ip: string | null;
 }
 
+export type ChannelVisibility = 'public' | 'private';
+export const CHANNEL_VISIBILITIES: readonly ChannelVisibility[] = ['public', 'private'];
+
 export interface ChannelRecord {
   id: string;
   name: string;
   type: ChannelType;
   groupId: string | null;
+  topic: string | null;
+  /** Private channels are only listed for their members (and admins). */
+  visibility: ChannelVisibility;
+  /** bcrypt hash of the join password of a private channel; never sent to clients. */
+  joinPasswordHash: string | null;
   streamKey: string | null;
   permissions: ChannelPermissions;
   position: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ChannelMemberRecord {
+  channelId: string;
+  accountId: string;
+  addedBy: string | null;
+  joinedAt: number;
 }
 
 export interface ChannelGroupRecord {
@@ -161,6 +176,11 @@ export interface ChannelView {
   name: string;
   type: ChannelType;
   groupId: string | null;
+  topic: string | null;
+  visibility: ChannelVisibility;
+  hasPassword: boolean;
+  /** Members of a private channel; 0 for public channels. */
+  memberCount: number;
   count: number;
   isLive: boolean;
   liveStartedAt: number | null;

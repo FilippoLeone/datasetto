@@ -1,9 +1,17 @@
 import { z } from 'zod';
 import { formatStreamKey } from '../../core/ids.js';
 import { rolesHavePermission } from '../../core/roles.js';
-import { channelTypeSchema, idSchema, optionalIdSchema, permissionsInputSchema } from '../../core/validation.js';
+import {
+  channelNameSchema,
+  channelTypeSchema,
+  channelVisibilitySchema,
+  idSchema,
+  optionalIdSchema,
+  permissionsInputSchema,
+} from '../../core/validation.js';
 import { AppError, forbidden, notFound } from '../../errors.js';
-import type { ChannelType } from '../../types.js';
+import { ChannelService } from '../../services/channels.js';
+import type { ChannelType, ChannelVisibility } from '../../types.js';
 import { handle, requirePermission, requireUser, type SocketContext } from '../context.js';
 import { channelsPayload } from '../payloads.js';
 
@@ -14,8 +22,21 @@ const createChannelSchema = z.union([
     type: channelTypeSchema.optional(),
     groupId: optionalIdSchema.optional(),
     permissions: permissionsInputSchema.nullable().optional(),
+    topic: z.string().max(200).nullable().optional(),
+    visibility: channelVisibilitySchema.optional(),
+    password: z.string().max(128).nullable().optional(),
   }),
 ]);
+
+const joinPrivateSchema = z.object({ name: channelNameSchema, password: z.string().min(1).max(128) });
+
+const updateChannelSchema = z.object({
+  channelId: idSchema,
+  topic: z.string().max(200).nullable().optional(),
+  visibility: channelVisibilitySchema.optional(),
+  /** New password, `null` to remove it, omit to keep the current one. */
+  password: z.string().max(128).nullable().optional(),
+});
 
 const streamKeyRequestSchema = z
   .object({
@@ -31,22 +52,63 @@ export const registerChannelHandlers = (sctx: SocketContext): void => {
     socket.emit('channels:update', channelsPayload(app, requireUser(sctx)));
   });
 
-  handle(sctx, 'channels:create', { schema: createChannelSchema, code: 'CHANNEL_CREATE_FAILED' }, (payload) => {
+  handle(sctx, 'channels:create', { schema: createChannelSchema, code: 'CHANNEL_CREATE_FAILED' }, async (payload) => {
     const user = requirePermission(sctx, 'canCreateChannels', 'No permission to create channels');
     const input = typeof payload === 'string' ? { name: payload, type: 'text' as ChannelType } : payload;
 
     if (input.permissions && Object.keys(input.permissions).length > 0) {
       requirePermission(sctx, 'canManageChannelPermissions', 'No permission to configure channel permissions');
     }
+    const visibility = (input.visibility ?? 'public') as ChannelVisibility;
+    if (input.password && visibility !== 'private') {
+      throw new AppError('Only private channels can have a join password', 'PASSWORD_ON_PUBLIC_CHANNEL', 400);
+    }
+    const joinPasswordHash = input.password ? await ChannelService.hashPassword(input.password) : null;
 
     const channel = app.channels.create({
       name: input.name,
       type: (input.type ?? 'text') as ChannelType,
       groupId: input.groupId ?? null,
       permissions: input.permissions ?? null,
+      topic: input.topic ?? null,
+      visibility,
+      joinPasswordHash,
+      creatorAccountId: user.accountId,
     });
+    socket.emit('channels:created', { channelId: channel.id, channelName: channel.name, channelType: channel.type });
     app.broadcast.channels();
-    app.log.info({ channelId: channel.id, name: channel.name, type: channel.type, by: user.accountId }, 'channel created');
+    app.log.info(
+      { channelId: channel.id, name: channel.name, type: channel.type, visibility: channel.visibility, by: user.accountId },
+      'channel created',
+    );
+  });
+
+  handle(sctx, 'channels:update', { schema: updateChannelSchema, code: 'CHANNEL_UPDATE_FAILED' }, async (payload) => {
+    const user = requirePermission(sctx, 'canEditChannels', 'No permission to edit channels');
+    const channel = app.channels.require(payload.channelId);
+    const visibility = (payload.visibility ?? channel.visibility) as ChannelVisibility;
+    if (payload.password && visibility !== 'private') {
+      throw new AppError('Only private channels can have a join password', 'PASSWORD_ON_PUBLIC_CHANNEL', 400);
+    }
+    const joinPasswordHash =
+      payload.password === undefined ? undefined : payload.password === null ? null : await ChannelService.hashPassword(payload.password);
+    const updated = app.channels.update(channel.id, { topic: payload.topic, visibility, joinPasswordHash });
+    if (updated.visibility === 'private' && channel.visibility === 'public') {
+      // Whoever locks a channel keeps access to it.
+      app.channels.addMember(updated.id, user.accountId, user.accountId);
+    }
+    socket.emit('channels:updated', { channelId: updated.id });
+    app.broadcast.channels();
+    app.log.info({ channelId: channel.id, visibility: updated.visibility, by: user.accountId }, 'channel updated');
+  });
+
+  // Password guesses share the auth limiter (20 per minute per socket).
+  handle(sctx, 'channels:joinPrivate', { schema: joinPrivateSchema, code: 'CHANNEL_JOIN_FAILED', limiter: 'auth' }, async ({ name, password }) => {
+    const user = requireUser(sctx);
+    const channel = await app.channels.joinWithPassword(name, user.accountId, password);
+    socket.emit('channels:privateJoined', { channelId: channel.id, channelName: channel.name, channelType: channel.type });
+    app.broadcast.channels();
+    app.log.info({ channelId: channel.id, accountId: user.accountId }, 'joined private channel with password');
   });
 
   handle(sctx, 'channels:delete', { schema: idSchema, code: 'CHANNEL_DELETE_FAILED' }, (idOrName) => {

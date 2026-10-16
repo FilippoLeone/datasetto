@@ -5,6 +5,7 @@ export type Modal =
   | { type: 'auth'; mode: 'login' | 'register' }
   | { type: 'profile' }
   | { type: 'createChannel'; channelType: ChannelType }
+  | { type: 'joinPrivateChannel' }
   | { type: 'streamKey'; channelId: string }
   | { type: 'audioSettings' }
   | { type: 'admin'; tab: 'users' | 'channels' | 'bans' }

@@ -6,6 +6,6 @@ export const channelsPayload = (ctx: AppContext, subject: AccessSubject) => ({
   channels: ctx.channels
     .list()
     .filter((channel) => ctx.channels.canAccess(channel, subject, 'view'))
-    .map((channel) => ctx.presence.channelView(channel)),
+    .map((channel) => ctx.presence.channelView(channel, ctx.channels.memberCount(channel.id))),
   groups: ctx.channels.listGroups(),
 });

@@ -1,6 +1,7 @@
-import { batch } from '@preact/signals';
+import { batch, effect } from '@preact/signals';
 import { socketClient } from './client';
 import { api } from './api';
+import { selectChannel } from '@/features/channels/channelActions';
 import { sounds } from '@/services/sounds';
 import { notifyDesktop } from '@/services/native/desktop';
 import { account, authError, authStatus, clearSession, connectionStatus, isAuthenticated, sessionToken, setAuthenticated, socketId, updateAccount } from '@/state/session';
@@ -19,6 +20,7 @@ import { closeModal, modal, toast } from '@/state/ui';
 import {
   adminAccounts,
   adminBans,
+  channelMembers,
   channelPermissions,
   minigameState,
   setScreenshareSession,
@@ -32,6 +34,7 @@ import type {
   BanRecord,
   Channel,
   ChannelGroup,
+  ChannelMember,
   ChannelPermissions,
   ChatMessage,
   IceConfigPayload,
@@ -161,14 +164,39 @@ export const installSocketBindings = (): void => {
 
   socketClient.on<{ channelId: string }>('channel:joined', ({ channelId }) => markRead(channelId));
 
-  socketClient.on<{ channelId: string }>('channel:deleted', ({ channelId }) => {
+  socketClient.on<{ channelId: string; reason?: string }>('channel:deleted', ({ channelId, reason }) => {
     if (selectedChannelId.value === channelId) {
-      const next = defaultChannelId();
+      const next = defaultChannelId(channelId);
       rememberSelection(next);
       if (next) api.joinChannel(next);
     }
-    toast.info('Channel was deleted');
+    toast.info(reason === 'removed' ? 'You were removed from a private channel' : 'Channel was deleted');
   });
+
+  // The channel we just created or joined becomes the selection once the list that contains it arrives.
+  const selectWhenListed = (channelId: string) => {
+    if (channelsById.value.has(channelId)) {
+      selectChannel(channelId);
+      return;
+    }
+    const stop = effect(() => {
+      if (!channelsById.value.has(channelId)) return;
+      stop();
+      selectChannel(channelId);
+    });
+    window.setTimeout(stop, 5000);
+  };
+
+  socketClient.on<{ channelId: string; channelName: string }>('channels:created', ({ channelId, channelName }) => {
+    toast.success('#' + channelName + ' created');
+    selectWhenListed(channelId);
+  });
+  socketClient.on<{ channelId: string; channelName: string }>('channels:privateJoined', ({ channelId, channelName }) => {
+    toast.success('You joined #' + channelName);
+    if (modal.value?.type === 'joinPrivateChannel') closeModal();
+    selectWhenListed(channelId);
+  });
+  socketClient.on<{ channelId: string }>('channels:updated', () => toast.success('Channel settings saved'));
 
   socketClient.on<{ channelId: string; permissions: ChannelPermissions }>('channels:permissionsUpdated', (payload) => {
     channelPermissions.value = { ...channelPermissions.value, [payload.channelId]: payload.permissions };
@@ -265,6 +293,9 @@ export const installSocketBindings = (): void => {
   socketClient.on<{ channelId: string; permissions: ChannelPermissions }>('admin:channels:permissionsUpdated', (payload) => {
     channelPermissions.value = { ...channelPermissions.value, [payload.channelId]: payload.permissions };
     toast.success('Channel permissions saved');
+  });
+  socketClient.on<{ channelId: string; members: ChannelMember[] }>('admin:channels:members', (payload) => {
+    channelMembers.value = { ...channelMembers.value, [payload.channelId]: payload.members };
   });
   socketClient.on<ServerError>('admin:error', (payload) => toast.error(payload.message));
 

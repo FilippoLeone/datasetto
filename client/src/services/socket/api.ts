@@ -1,5 +1,5 @@
 import { socketClient } from './client';
-import type { ChannelPermissions, ChannelType, LeaderboardEntry, MinigameType } from '@/types/protocol';
+import type { ChannelPermissions, CreateChannelInput, LeaderboardEntry, MinigameType, UpdateChannelInput } from '@/types/protocol';
 
 const emit = (event: string, payload?: unknown): void => socketClient.emit(event, payload);
 
@@ -29,7 +29,18 @@ export const api = {
   // channels
   listChannels: () => emit('channels:list'),
   joinChannel: (channelId: string) => emit('channel:join', channelId),
-  createChannel: (name: string, type: ChannelType) => emit('channels:create', { name, type, groupId: null }),
+  createChannel: (input: CreateChannelInput) =>
+    emit('channels:create', {
+      name: input.name,
+      type: input.type,
+      groupId: null,
+      topic: input.topic || null,
+      visibility: input.visibility ?? 'public',
+      password: input.visibility === 'private' && input.password ? input.password : null,
+    }),
+  updateChannel: (channelId: string, input: UpdateChannelInput) => emit('channels:update', { channelId, ...input }),
+  /** Become a member of a private channel by name and password (answered with `channels:privateJoined`). */
+  joinPrivateChannel: (name: string, password: string) => emit('channels:joinPrivate', { name, password }),
   deleteChannel: (channelId: string) => emit('channels:delete', channelId),
   requestStreamKey: (channelId: string) => emit('stream:key:request', { channelId }),
   regenerateStreamKey: (channelId: string) => emit('stream:key:regenerate', { channelId }),
@@ -69,6 +80,9 @@ export const api = {
   getChannelPermissions: (channelId: string) => emit('admin:channels:getPermissions', { channelId }),
   updateChannelPermissions: (channelId: string, permissions: Partial<ChannelPermissions>) =>
     emit('admin:channels:updatePermissions', { channelId, permissions }),
+  listChannelMembers: (channelId: string) => emit('admin:channels:members:list', { channelId }),
+  addChannelMember: (channelId: string, accountId: string) => emit('admin:channels:members:add', { channelId, accountId }),
+  removeChannelMember: (channelId: string, accountId: string) => emit('admin:channels:members:remove', { channelId, accountId }),
 
   /** Fresh TURN credentials for the signed-in user (answered with `turn:credentials`). */
     refreshTurn: () => emit('turn:refresh'),
