@@ -58,9 +58,11 @@ ops/gcp/create-vm.sh
 ```
 
 One `e2-micro` VM in `europe-west1`, automatic HTTPS via Caddy, nightly SQLite
-backups to a bucket, budget alerts. Expected cost: 13 to 15 EUR per month with
-occasional streaming, less in the US free-tier regions. Details, cost
-breakdown and day-two operations: [ops/README.md](ops/README.md).
+backups to a bucket, budget alerts. Expected cost: about 10 EUR per month, with
+the first 200 GB of streaming traffic free and hard caps that keep the bill
+under about 13 EUR even under abuse; about 3.50 EUR in the US free-tier
+regions. Details, cost breakdown, abuse protection and day-two operations:
+[ops/README.md](ops/README.md).
 
 ## Development
 

@@ -26,6 +26,7 @@ import {
   upsertAdminAccount,
 } from '@/state/misc';
 import { containsMention } from '@/lib/text';
+import { serverConfig } from '@/services/ServerConfigService';
 import type {
   Account,
   BanRecord,
@@ -33,6 +34,7 @@ import type {
   ChannelGroup,
   ChannelPermissions,
   ChatMessage,
+  IceConfigPayload,
   ScreenshareSessionEvent,
   ServerError,
   SessionInfo,
@@ -42,6 +44,7 @@ import type {
 } from '@/types/protocol';
 
 interface AuthSuccess {
+  ice?: IceConfigPayload;
   user: User;
   account: Account;
   session: SessionInfo;
@@ -88,6 +91,7 @@ export const installSocketBindings = (): void => {
     batch(() => {
       setAuthenticated(payload.account, payload.session.token);
       setChannels(payload.channels, payload.groups);
+      serverConfig.applyIce(payload.ice);
       if (modal.value?.type === 'auth') closeModal();
     });
 
@@ -119,6 +123,11 @@ export const installSocketBindings = (): void => {
     authStatus.value = 'anonymous';
     authError.value = payload.message || 'Authentication failed';
     sounds.play('error', 0.4);
+  });
+
+  socketClient.on<IceConfigPayload>('turn:credentials', (ice) => serverConfig.applyIce(ice));
+  serverConfig.setIceRefresher(() => {
+    if (isAuthenticated.value) api.refreshTurn();
   });
 
   socketClient.on('auth:loggedOut', () => {

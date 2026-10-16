@@ -70,6 +70,9 @@ export const api = {
   updateChannelPermissions: (channelId: string, permissions: Partial<ChannelPermissions>) =>
     emit('admin:channels:updatePermissions', { channelId, permissions }),
 
+  /** Fresh TURN credentials for the signed-in user (answered with `turn:credentials`). */
+    refreshTurn: () => emit('turn:refresh'),
+
   // minigames
   startGame: (type: MinigameType) => emit('voice:game:start', { type }),
   joinGame: () => emit('voice:game:join'),

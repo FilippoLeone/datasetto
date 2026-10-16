@@ -61,7 +61,7 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
     pingInterval: 25_000,
     pingTimeout: 20_000,
     connectTimeout: 20_000,
-    maxHttpBufferSize: 1_000_000,
+    maxHttpBufferSize: 256_000,
   });
 
   const broadcaster: Broadcaster = {
@@ -78,6 +78,9 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
       const payload = ctx.presence.screenshareView(channelId);
       if (targetSocketId) io.to(targetSocketId).emit('screenshare:session', payload);
       else io.to(channelId).emit('screenshare:session', payload);
+    },
+    notifyChannel: (channelId, notification) => {
+      io.to(channelId).emit('notification', notification);
     },
     toChannelViewers: (channelId, event, payload) => {
       const channel = ctx.channels.get(channelId);

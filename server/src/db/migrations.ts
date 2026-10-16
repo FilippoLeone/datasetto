@@ -93,6 +93,18 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    name: 'usage_months',
+    up: `
+      CREATE TABLE usage_months (
+        month TEXT PRIMARY KEY,
+        hls_egress_bytes INTEGER NOT NULL DEFAULT 0,
+        stream_seconds INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

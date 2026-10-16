@@ -9,6 +9,8 @@ import { configRouter } from './routes/config.js';
 import { healthRouter } from './routes/health.js';
 import { releasesRouter } from './routes/releases.js';
 import { streamRouter } from './routes/stream.js';
+import { hlsRouter } from './routes/hls.js';
+import { RateLimiter } from '../core/rateLimit.js';
 
 export const createHttpApp = (ctx: AppContext): express.Express => {
   const app = express();
@@ -33,6 +35,13 @@ export const createHttpApp = (ctx: AppContext): express.Express => {
       maxAge: 86400,
     }),
   );
+  // Coarse per-IP ceiling for the HTTP API; the socket layer has its own buckets.
+  const apiLimiter = new RateLimiter(300, 60_000);
+  app.use('/api', (req, res, next) => {
+    if (apiLimiter.hit(req.ip ?? 'unknown').allowed) return next();
+    res.status(429).json({ error: 'Too many requests', code: 'RATE_LIMITED' });
+  });
+
   app.use(express.json({ limit: '256kb' }));
   app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
@@ -48,6 +57,7 @@ export const createHttpApp = (ctx: AppContext): express.Express => {
   app.use(healthRouter(ctx));
   app.use('/api/config', configRouter(ctx));
   app.use(streamRouter(ctx));
+  app.use(hlsRouter(ctx));
   app.use('/api/releases', releasesRouter(ctx));
 
   app.use((_req, res) => {

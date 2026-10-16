@@ -9,12 +9,16 @@ import { ModerationService } from './services/moderation.js';
 import { PresenceService } from './services/presence.js';
 import { SessionService } from './services/sessions.js';
 import { TurnService } from './services/turn.js';
+import { HlsTicketService } from './services/hlsTickets.js';
+import { UsageService } from './services/usage.js';
 
 /** Fan-out helpers implemented by the socket layer once it exists. */
 export interface Broadcaster {
   channels(): void;
   users(): void;
   screenshare(channelId: string, targetSocketId?: string | null): void;
+  /** Toast for everyone currently in a channel. */
+  notifyChannel(channelId: string, notification: { type: 'info' | 'success' | 'warning' | 'error'; message: string }): void;
   /** Emit to every authenticated socket allowed to view the channel (not only the ones currently in it). */
   toChannelViewers(channelId: string, event: string, payload: unknown): void;
 }
@@ -31,6 +35,8 @@ export interface AppContext {
   presence: PresenceService;
   turn: TurnService;
   leaderboard: LeaderboardService;
+  hlsTickets: HlsTicketService;
+  usage: UsageService;
   broadcast: Broadcaster;
   startedAt: number;
 }
@@ -39,6 +45,7 @@ const noopBroadcaster: Broadcaster = {
   channels: () => undefined,
   users: () => undefined,
   screenshare: () => undefined,
+  notifyChannel: () => undefined,
   toChannelViewers: () => undefined,
 };
 
@@ -58,6 +65,8 @@ export const createContext = (config: AppConfig, db: DB): AppContext => {
     presence: new PresenceService(),
     turn: new TurnService(config.turn),
     leaderboard: new LeaderboardService(db),
+    hlsTickets: new HlsTicketService(config.streaming.ticketSecret),
+    usage: new UsageService(db),
     broadcast: noopBroadcaster,
     startedAt: Date.now(),
   };

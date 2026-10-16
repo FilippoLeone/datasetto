@@ -46,15 +46,15 @@ echo "==> Enabling Compute Engine API (no-op if already enabled)"
 gcloud services enable compute.googleapis.com >/dev/null
 
 ensure_firewall() {
-  local name="$1" rules="$2" description="$3"
+  local name="$1" rules="$2" description="$3" sources="${4:-0.0.0.0/0}"
   if gcloud compute firewall-rules describe "$name" >/dev/null 2>&1; then
     echo "    firewall $name exists"
   else
     gcloud compute firewall-rules create "$name" \
       --network=default --direction=INGRESS --priority=1000 --action=ALLOW \
-      --rules="$rules" --source-ranges=0.0.0.0/0 --target-tags="$INSTANCE_TAG" \
+      --rules="$rules" --source-ranges="$sources" --target-tags="$INSTANCE_TAG" \
       --description="$description" >/dev/null
-    echo "    firewall $name created ($rules)"
+    echo "    firewall $name created ($rules from $sources)"
   fi
 }
 
@@ -63,6 +63,12 @@ ensure_firewall "${INSTANCE}-web" "tcp:80,tcp:443,udp:443" "Datasetto web (HTTP/
 ensure_firewall "${INSTANCE}-rtmp" "tcp:1935" "Datasetto RTMP ingest (OBS)"
 if [[ "$PROFILES" == *turn* ]]; then
   ensure_firewall "${INSTANCE}-turn" "tcp:3478,udp:3478,udp:49152-49400" "Datasetto TURN relay"
+fi
+# SSH only through Identity-Aware Proxy (gcloud compute ssh --tunnel-through-iap), never from the open internet.
+ensure_firewall "${INSTANCE}-ssh-iap" "tcp:22" "Datasetto SSH via IAP" "35.235.240.0/20"
+if gcloud compute firewall-rules describe default-allow-ssh >/dev/null 2>&1; then
+  echo "    note: the default network still has 'default-allow-ssh' open to the world;"
+  echo "          delete it once IAP SSH works: gcloud compute firewall-rules delete default-allow-ssh"
 fi
 
 ADDRESS_FLAG=""

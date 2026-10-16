@@ -71,6 +71,12 @@ export const streamRouter = (ctx: AppContext): Router => {
       return;
     }
 
+    if (ctx.usage.monthEgressBytes() >= ctx.config.streaming.monthlyEgressBytes) {
+      ctx.log.warn({ ip: input.ip, name: input.name || null }, 'stream publish rejected: monthly egress budget used up');
+      res.status(403).json({ allowed: false, code: 'EGRESS_BUDGET_EXCEEDED' });
+      return;
+    }
+
     const channel = ctx.channels.getByStreamKey(input.token);
     if (!channel || channel.type !== 'stream') {
       ctx.log.warn({ ip: input.ip, name: input.name || null }, 'stream publish rejected: invalid key');

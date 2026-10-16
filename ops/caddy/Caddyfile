@@ -19,9 +19,24 @@
 		reverse_proxy app:4000
 	}
 
-	# HLS playlists and segments are produced by nginx-rtmp.
+	# HLS playlists and segments are produced by nginx-rtmp. Every request is
+	# checked with the app first: viewers need a signed ticket (header or cookie)
+	# issued to a signed-in account, so a leaked stream URL serves nothing and
+	# every byte of paid egress belongs to a known viewer.
 	handle /hls/* {
-		reverse_proxy rtmp:8080
+		# route keeps the written order: answer CORS preflights first, then authorise.
+		route {
+			@preflight method OPTIONS
+			header @preflight Access-Control-Allow-Origin "*"
+			header @preflight Access-Control-Allow-Methods "GET, OPTIONS"
+			header @preflight Access-Control-Allow-Headers "Origin, Range, Accept, Content-Type, X-Hls-Ticket"
+			header @preflight Access-Control-Max-Age "600"
+			respond @preflight 204
+			forward_auth app:4000 {
+				uri /internal/hls/auth
+			}
+			reverse_proxy rtmp:8080
+		}
 	}
 
 	# Everything else is the static client.

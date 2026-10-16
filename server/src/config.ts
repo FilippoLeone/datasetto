@@ -63,6 +63,13 @@ const envSchema = z.object({
   TURN_CREDENTIAL_TTL_SECONDS: intFromEnv(43200, 300, 7 * 24 * 3600),
   STUN_URLS: listFromEnv(['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']),
 
+  // Streaming cost controls (see ops/README.md, "Keeping the bill small").
+  HLS_TICKET_SECRET: optionalString,
+  STREAM_MAX_VIEWERS: intFromEnv(10, 1, 500),
+  STREAM_MAX_BITRATE_KBPS: intFromEnv(6000, 500, 50000),
+  STREAM_MONTHLY_EGRESS_GB: intFromEnv(150, 1, 100000),
+  RTMP_STAT_URL: optionalString,
+
   RELEASES_DESKTOP_DIR: optionalString,
   RELEASES_MOBILE_DIR: optionalString,
 });
@@ -88,6 +95,7 @@ export interface AppConfig {
     maxMessagesPerMinute: number;
   };
   turn: { urls: string[]; secret: string | null; credentialTtlSeconds: number; stunUrls: string[] };
+  streaming: { maxViewers: number; maxBitrateKbps: number; monthlyEgressBytes: number; statUrl: string | null; ticketSecret: string | null };
   releases: { desktopDir: string | null; mobileDir: string | null };
 }
 
@@ -123,6 +131,13 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
     database: { path: env.DATABASE_PATH },
     cors: { origins: env.CORS_ORIGINS, allowNativeOrigins: env.ALLOW_NATIVE_ORIGINS },
     publicUrls: { rtmp: env.PUBLIC_RTMP_URL, hls: env.PUBLIC_HLS_URL },
+    streaming: {
+      maxViewers: env.STREAM_MAX_VIEWERS,
+      maxBitrateKbps: env.STREAM_MAX_BITRATE_KBPS,
+      monthlyEgressBytes: env.STREAM_MONTHLY_EGRESS_GB * 1e9,
+      statUrl: env.RTMP_STAT_URL ? env.RTMP_STAT_URL.replace(/[/]+$/, '') : null,
+      ticketSecret: env.HLS_TICKET_SECRET,
+    },
     registration: {
       mode: env.REGISTRATION_MODE,
       inviteCode: env.REGISTRATION_INVITE_CODE,

@@ -60,6 +60,32 @@ docker compose pull --quiet || echo "image pull failed; will try to build locall
 docker compose up -d --remove-orphans || docker compose up -d --build --remove-orphans
 docker compose ps
 
+# ---- egress guard: monthly traffic backstop (ops/gcp/egress-guard.sh) --------
+install -m 0755 "$APP_DIR/ops/gcp/egress-guard.sh" /usr/local/sbin/datasetto-egress-guard
+cat > /etc/systemd/system/datasetto-egress-guard.service <<EOF
+[Unit]
+Description=Datasetto monthly egress guard
+
+[Service]
+Type=oneshot
+Environment=APP_DIR=$APP_DIR
+ExecStart=/usr/local/sbin/datasetto-egress-guard
+EOF
+cat > /etc/systemd/system/datasetto-egress-guard.timer <<EOF
+[Unit]
+Description=Run the Datasetto egress guard every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable --now datasetto-egress-guard.timer
+echo "egress guard enabled (limits from ops/.env EGRESS_SOFT_LIMIT_GB / EGRESS_HARD_LIMIT_GB)"
+
 # ---- nightly backup to GCS (optional) ---------------------------------------
 BUCKET="$(meta datasetto-backup-bucket)"
 if [[ -n "$BUCKET" ]]; then

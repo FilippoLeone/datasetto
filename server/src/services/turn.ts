@@ -22,6 +22,12 @@ export class TurnService {
     return this.config.urls.length > 0 && Boolean(this.config.secret);
   }
 
+  /** STUN servers only: safe to publish to anyone, carries no credentials. */
+  stunOnly(): IceConfig {
+    const servers: IceServer[] = this.config.stunUrls.length > 0 ? [{ urls: [...this.config.stunUrls] }] : [];
+    return { servers, ttlSeconds: null, expiresAt: null };
+  }
+
   iceConfig(now = Date.now()): IceConfig {
     const servers: IceServer[] = [];
     if (this.config.stunUrls.length > 0) {

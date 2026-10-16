@@ -5,6 +5,7 @@ import { openDatabase } from './db/index.js';
 import { createHttpApp } from './http/app.js';
 import { logger } from './logger.js';
 import { createSocketServer } from './socket/index.js';
+import { StreamWatchdog } from './services/streamWatchdog.js';
 
 const main = async (): Promise<void> => {
   const config = loadConfigFromEnvFile();
@@ -14,6 +15,12 @@ const main = async (): Promise<void> => {
   const app = createHttpApp(ctx);
   const server = http.createServer(app);
   const { io, minigames } = createSocketServer(server, ctx);
+  const watchdog = new StreamWatchdog(ctx, {
+    statUrl: config.streaming.statUrl,
+    maxBitrateKbps: config.streaming.maxBitrateKbps,
+    monthlyEgressBytes: config.streaming.monthlyEgressBytes,
+  });
+  watchdog.start();
 
   const timers = [
     setInterval(() => {
@@ -49,6 +56,7 @@ const main = async (): Promise<void> => {
     shuttingDown = true;
     logger.info({ signal }, 'shutting down');
     timers.forEach((timer) => clearInterval(timer));
+    watchdog.stop();
     minigames.shutdown?.();
 
     const force = setTimeout(() => {

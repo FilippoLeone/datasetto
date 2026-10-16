@@ -55,6 +55,12 @@ services:
       HOST: 0.0.0.0
       PORT: "4000"
       TRUST_PROXY: "true"
+      # Streaming cost controls (ops/README.md, "Keeping the bill small")
+      RTMP_STAT_URL: http://rtmp:8080
+      STREAM_MAX_VIEWERS: ${STREAM_MAX_VIEWERS:-10}
+      STREAM_MAX_BITRATE_KBPS: ${STREAM_MAX_BITRATE_KBPS:-6000}
+      STREAM_MONTHLY_EGRESS_GB: ${STREAM_MONTHLY_EGRESS_GB:-150}
+      HLS_TICKET_SECRET: ${HLS_TICKET_SECRET:-}
       DATABASE_PATH: /data/datasetto.db
     volumes:
       - app_data:/data

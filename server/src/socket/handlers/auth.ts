@@ -46,6 +46,8 @@ const authSuccessPayload = (sctx: SocketContext, account: PublicAccount, isNewAc
   user: sctx.app.presence.exportUser(sctx.socket.id),
   account,
   session: { token: sctx.sessionToken, expiresAt },
+  // TURN credentials are only ever sent to signed-in users (relay traffic is paid egress).
+  ice: sctx.app.turn.iceConfig(),
   ...channelsPayload(sctx.app, requireUser(sctx)),
   isNewAccount,
 });
@@ -143,6 +145,10 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
       finalize(account, payload.token, session.expiresAt, false);
     },
   );
+
+  handle(sctx, 'turn:refresh', { code: 'TURN_REFRESH_FAILED', limiter: 'auth' }, () => {
+    socket.emit('turn:credentials', app.turn.iceConfig());
+  });
 
   handle(sctx, 'auth:logout', { errorEvent: 'auth:error', code: 'LOGOUT_FAILED', requireAuth: false }, () => {
     if (sctx.sessionToken) app.sessions.revoke(sctx.sessionToken);

@@ -336,3 +336,10 @@ export type EventMap = {
   notification: Notification;
   [key: string]: unknown;
 };
+
+/** STUN/TURN servers handed to a signed-in user; TURN credentials are short-lived. */
+export interface IceConfigPayload {
+  servers: RTCIceServer[];
+  ttlSeconds: number | null;
+  expiresAt: number | null;
+}

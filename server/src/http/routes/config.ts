@@ -2,15 +2,15 @@ import { Router } from 'express';
 import type { AppContext } from '../../context.js';
 
 /**
- * Public runtime configuration for clients. Fetched at boot and again when
- * the TURN credential is about to expire. Contains nothing secret: TURN
- * credentials are short-lived HMAC tokens.
+ * Public runtime configuration for clients, fetched at boot. Deliberately
+ * contains no TURN credentials: relaying through our server costs money, so
+ * those are only handed to authenticated sockets (auth:success / turn:refresh).
  */
 export const configRouter = (ctx: AppContext): Router => {
   const router = Router();
 
   router.get('/', (_req, res) => {
-    const ice = ctx.turn.iceConfig();
+    const ice = ctx.turn.stunOnly();
     res.setHeader('Cache-Control', 'no-store');
     res.json({
       version: ctx.config.version,

@@ -70,6 +70,27 @@ class ServerConfigService {
   private apiBaseUrl = '';
   private inflight: Promise<ServerConfig | null> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private iceRefresher: (() => void) | null = null;
+
+  /** TURN credentials come from the socket (auth:success / turn:credentials); the public config carries STUN only. */
+  applyIce(ice: Partial<ServerIceConfig> | null | undefined): void {
+    if (!ice || !Array.isArray(ice.servers) || ice.servers.length === 0) return;
+    const base = this.current ?? this.normalize({});
+    this.current = {
+      ...base,
+      ice: {
+        servers: ice.servers as RTCIceServer[],
+        ttlSeconds: typeof ice.ttlSeconds === 'number' ? ice.ttlSeconds : null,
+        expiresAt: typeof ice.expiresAt === 'number' ? ice.expiresAt : null,
+      },
+    };
+    this.scheduleRefresh();
+  }
+
+  /** How to ask for fresh TURN credentials (set by the socket bindings once signed in). */
+  setIceRefresher(fn: (() => void) | null): void {
+    this.iceRefresher = fn;
+  }
 
   /** Fetch once at boot. Never throws; returns null when the server is unreachable. */
   async load(apiBaseUrl: string): Promise<ServerConfig | null> {
@@ -103,7 +124,7 @@ class ServerConfigService {
     const ice = this.current?.ice;
     if (!ice || ice.servers.length === 0) return buildTimeIceServers();
     if (ice.expiresAt && ice.expiresAt - Date.now() < REFRESH_MARGIN_MS) {
-      void this.refresh();
+      this.requestFreshIce();
     }
     return ice.servers.map((server) => ({ ...server }));
   }
@@ -162,7 +183,12 @@ class ServerConfigService {
     const expiresAt = this.current?.ice.expiresAt;
     if (!expiresAt) return;
     const delay = Math.max(60_000, expiresAt - Date.now() - REFRESH_MARGIN_MS);
-    this.refreshTimer = setTimeout(() => void this.refresh(), Math.min(delay, 2 ** 31 - 1));
+    this.refreshTimer = setTimeout(() => this.requestFreshIce(), Math.min(delay, 2 ** 31 - 1));
+  }
+
+  private requestFreshIce(): void {
+    if (this.iceRefresher) this.iceRefresher();
+    else void this.refresh();
   }
 }
 

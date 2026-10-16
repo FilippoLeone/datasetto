@@ -106,29 +106,90 @@ sudo tail -f /var/log/datasetto-startup.log                              # first
 ops/gcp/destroy.sh                                                       # delete VM + firewall rules
 ```
 
-## Cost (europe-west1, approximate, October 2026 list prices)
+## Cost (europe-west1, list prices read from the Cloud Billing catalog on 2026-10-16)
 
 | Item | Monthly |
 | --- | --- |
-| e2-micro VM, 730 h | about 7 EUR |
-| 10 GB pd-balanced boot disk | about 1 EUR |
-| External IPv4 address in use (ephemeral or static) | about 3 EUR |
-| Egress, Standard tier, around 0.08 EUR/GB | 2 to 4 EUR for 25 to 50 GB |
-| Cloud Logging, GCS backups (a few MB) | 0 |
+| e2-micro VM, 730 h (0.25 vCPU at 0.0211 EUR/h + 1 GiB at 0.0028 EUR/h) | 5.92 EUR |
+| 10 GB pd-balanced boot disk (0.088 EUR/GB) | 0.88 EUR |
+| External IPv4 address in use (Google lists 0.005 USD/h) | about 3.40 EUR |
+| Egress, Standard tier: first 200 GB per month free, then about 0.075 EUR/GB | 0 EUR up to 200 GB |
+| Cloud Logging, GCS backups (a few MB) | about 0 |
 
-Total: roughly 13 to 15 EUR with a few streaming evenings a month. Chat, voice
-and screenshare cost nearly nothing in egress because media is peer to peer.
-Streaming is the only variable: every viewer downloads the full stream bitrate
-from the VM, so a 4 Mbps stream watched by 4 people for 2 hours is about 14 GB.
-Keep OBS at 2500 to 4000 kbps and the bill stays inside the budget.
+Fixed total: about 10.20 EUR per month. Ingress (OBS uploading, people talking)
+is free. Chat, voice and screenshare cost nothing in egress because media goes
+peer to peer; the optional TURN relay is the only exception and is capped (see
+below). Streaming is the one variable: every viewer downloads the publisher's
+bitrate from the VM.
 
-Alternative within the Always Free tier: `REGION=us-central1 ZONE=us-central1-a
-ops/gcp/create-vm.sh` makes the VM itself free (one e2-micro per month in
-us-west1/us-central1/us-east1, 30 GB standard disk, 1 GB egress). Only the IP
-address and egress are billed, roughly 4 to 7 EUR, at the price of 100 ms
-extra latency to Europe for signaling (voice still goes peer to peer). Verify
-current prices in the Google Cloud pricing calculator before relying on these
-numbers.
+| OBS bitrate | Per viewer-hour | 4 viewers, 2 h session | Sessions per month inside the free 200 GB |
+| --- | --- | --- | --- |
+| 2500 kbps | 1.1 GB | 9 GB | about 22 |
+| 4000 kbps | 1.8 GB | 14 GB | about 14 |
+| 6000 kbps (the default cap) | 2.7 GB | 22 GB | about 9 |
+
+Above the free allowance, each extra 4-viewer 2-hour session at 4000 kbps costs
+about 1.10 EUR. With the default guards the bill cannot run away: the app stops
+streaming at `STREAM_MONTHLY_EGRESS_GB` (150, inside the free allowance), and
+the VM throttles everything at `EGRESS_SOFT_LIMIT_GB` (190) and stops the
+stream and relay containers at `EGRESS_HARD_LIMIT_GB` (230). Worst case the
+egress line is 30 GB x 0.075 EUR, so the monthly bill stays under about 13 EUR
+even if someone tries to abuse the server.
+
+Cheapest option: `REGION=us-central1 ZONE=us-central1-a ops/gcp/create-vm.sh`.
+The Always Free tier covers one e2-micro and a 30 GB standard disk in
+us-west1, us-central1 and us-east1, and the 200 GB Standard tier egress
+allowance applies there too, so only the IP address is billed: about 3.50 EUR
+per month. The price is 100 ms more latency to Europe for signalling; voice
+still goes peer to peer. Check the Google Cloud pricing calculator before
+relying on any of these numbers.
+
+## Keeping the bill small: abuse protection
+
+Everything that can cost money is gated or capped. The knobs live in
+`ops/.env` (see `.env.example`, "cost controls").
+
+- **Nothing anonymous reaches media.** HLS playlists and segments are only
+  served to viewers holding a signed ticket: Caddy asks the app
+  (`/internal/hls/auth`) on every request, and tickets are issued to signed-in
+  accounts that may view the channel, bound to that channel, and expire after
+  10 minutes (the player renews them). A leaked stream URL serves nothing.
+- **Viewer cap.** `STREAM_MAX_VIEWERS` (10) tickets per live stream; beyond that
+  the player shows "stream is full".
+- **Bitrate cap.** The app polls nginx-rtmp every 15 s and drops a publisher
+  that sends more than `STREAM_MAX_BITRATE_KBPS` (6000) twice in a row, with a
+  toast in the channel telling them to lower it in OBS.
+- **Monthly budget.** The app estimates egress as publisher bitrate x viewers
+  and stores it per month in SQLite. At `STREAM_MONTHLY_EGRESS_GB` (150) it
+  drops publishers, refuses new publishes and stops issuing tickets until the
+  next month.
+- **VM backstop.** `ops/gcp/egress-guard.sh` runs from a systemd timer every
+  5 minutes, counts bytes sent on the public interface per month, shapes all
+  egress to 1 Mbit/s at `EGRESS_SOFT_LIMIT_GB` and stops the rtmp and turn
+  containers at `EGRESS_HARD_LIMIT_GB`. It lifts both automatically on the
+  first run of the next month. `datasetto-egress-guard --status` prints the
+  month-to-date figure; `/var/log/datasetto-egress.log` has the history.
+- **RTMP.** Only publishers with a valid `channel?key=token` get through
+  (`on_publish` callback); nobody can pull RTMP; idle publishers are dropped
+  after 10 s; at most 32 connections and 16 streams; publish attempts are rate
+  limited per IP. The stat and control endpoints are not reachable from outside.
+- **TURN.** Credentials are only sent to signed-in users over the socket (the
+  public `/api/config` carries STUN only) and expire after 12 h. coturn is
+  capped at 1.5 Mbit/s per session, 20 Mbit/s in total, 40 sessions, 6 per
+  user, and refuses to relay to private, link-local and metadata addresses.
+- **HTTP and sockets.** Helmet headers, strict CORS, 256 KB JSON bodies, 256 KB
+  socket messages, 20 sockets per IP, 300 API requests per IP per minute, and
+  per-event buckets for chat, signalling, games and auth. Registration is
+  invite-only by default.
+- **VM.** Standard network tier, no public SSH: port 22 is only open to the
+  Identity-Aware Proxy range (`gcloud compute ssh --tunnel-through-iap`),
+  unattended security upgrades, a billing budget with alerts, and only ports
+  80/443/1935 (plus 3478 and the relay range with the `turn` profile) open.
+
+What this does not do: it will not stop a determined volumetric attack from
+saturating the VM's link (that costs you nothing extra, ingress is free) or
+from making the site slow while it lasts. If that ever matters, put Cloudflare
+in front of ports 80/443; RTMP and TURN would stay direct.
 
 ## Operations notes
 

@@ -7,10 +7,15 @@ import { buildHlsUrlCandidates } from '@/lib/hlsUrls';
 import { runtimeUrls } from '@/lib/runtimeConfig';
 import { serverConfig } from '@/services/ServerConfigService';
 import { Storage } from '@/lib/storage';
+import { fetchHlsTicket, HlsTicketError } from './hlsTicket';
 
-type PlayerStatus = 'idle' | 'connecting' | 'playing' | 'buffering' | 'offline' | 'error';
+type PlayerStatus = 'idle' | 'connecting' | 'playing' | 'buffering' | 'offline' | 'error' | 'denied';
 
 const VOLUME_KEY = 'datasetto.playerVolume';
+/** Renew the viewer ticket this long before it expires. */
+const TICKET_RENEW_MARGIN_MS = 60_000;
+/** After a 401/403 from the HLS endpoint, wait at least this long before asking for another ticket. */
+const RETICKET_MIN_INTERVAL_MS = 15_000;
 
 interface HlsPlayerProps {
   channelName: string;
@@ -18,13 +23,15 @@ interface HlsPlayerProps {
   className?: string;
 }
 
-/** HLS playback with retries and minimal custom controls. */
+/** HLS playback with retries, viewer tickets and minimal custom controls. */
 export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const retryRef = useRef<number | null>(null);
+  const ticketRef = useRef<string | null>(null);
   const [status, setStatus] = useState<PlayerStatus>('idle');
+  const [deniedReason, setDeniedReason] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(() => Storage.get<number>(VOLUME_KEY, 0.8));
@@ -39,16 +46,43 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
     const base = serverConfig.get()?.urls.hls ?? runtimeUrls.hlsBaseUrl;
     const candidates = buildHlsUrlCandidates(base, channelName);
     let disposed = false;
-    let attempt = 0;
+    let renewTimer: number | null = null;
+    let lastReticket = 0;
 
     const destroy = () => {
       hlsRef.current?.destroy();
       hlsRef.current = null;
     };
 
-    const scheduleRetry = () => {
+    const scheduleRetry = (delay = 4000) => {
       if (disposed) return;
-      retryRef.current = window.setTimeout(() => load(0), 4000);
+      retryRef.current = window.setTimeout(() => void start(), delay);
+    };
+
+    /** Gets (or renews) the viewer ticket; false when the server refused us. */
+    const obtainTicket = async (): Promise<boolean> => {
+      try {
+        const issued = await fetchHlsTicket(channelName);
+        if (disposed) return false;
+        ticketRef.current = issued.ticket;
+        setDeniedReason(null);
+        if (renewTimer !== null) window.clearTimeout(renewTimer);
+        const delay = Math.max(15_000, issued.expiresAt - Date.now() - TICKET_RENEW_MARGIN_MS);
+        renewTimer = window.setTimeout(() => void obtainTicket(), delay);
+        return true;
+      } catch (error) {
+        if (disposed) return false;
+        ticketRef.current = null;
+        if (error instanceof HlsTicketError && (error.status === 403 || error.status === 429)) {
+          setStatus('denied');
+          setDeniedReason(error.message);
+          scheduleRetry(30_000);
+        } else {
+          setStatus('connecting');
+          scheduleRetry();
+        }
+        return false;
+      }
     };
 
     const load = (index: number) => {
@@ -73,6 +107,10 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
           manifestLoadingMaxRetry: 2,
           levelLoadingMaxRetry: 2,
           fragLoadingMaxRetry: 3,
+          // Every playlist and segment request carries the viewer ticket; Caddy checks it with the app.
+          xhrSetup: (xhr) => {
+            if (ticketRef.current) xhr.setRequestHeader('X-Hls-Ticket', ticketRef.current);
+          },
         });
         hlsRef.current = hls;
         hls.loadSource(source);
@@ -86,12 +124,21 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
             hls.recoverMediaError();
             return;
           }
-          attempt += 1;
+          const httpStatus = (data.response as { code?: number } | undefined)?.code;
+          if ((httpStatus === 401 || httpStatus === 403) && Date.now() - lastReticket > RETICKET_MIN_INTERVAL_MS) {
+            // Ticket expired or was revoked: get a new one and start over (at most once per interval,
+            // so a rejected fallback URL cannot turn into a ticket request storm).
+            lastReticket = Date.now();
+            destroy();
+            void start();
+            return;
+          }
           load(index + 1);
         });
         return;
       }
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native HLS (Safari) cannot add headers; it relies on the ticket cookie the server set.
         video.src = source;
         video.play().catch(() => setPaused(true));
         return;
@@ -99,10 +146,17 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
       setStatus('error');
     };
 
-    load(0);
+    const start = async () => {
+      if (disposed) return;
+      setStatus('connecting');
+      if (await obtainTicket()) load(0);
+    };
+
+    void start();
     return () => {
       disposed = true;
       if (retryRef.current !== null) window.clearTimeout(retryRef.current);
+      if (renewTimer !== null) window.clearTimeout(renewTimer);
       destroy();
       video.removeAttribute('src');
       video.load();
@@ -150,9 +204,11 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
         ? 'Connecting…'
         : status === 'buffering'
           ? 'Buffering…'
-          : status === 'error'
-            ? 'This browser cannot play HLS'
-            : null;
+          : status === 'denied'
+            ? (deniedReason ?? 'Playback is not available right now')
+            : status === 'error'
+              ? 'This browser cannot play HLS'
+              : null;
 
   return (
     <div ref={containerRef} className={cn('group relative flex flex-col overflow-hidden bg-black', className)}>
@@ -171,7 +227,7 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
         onClick={togglePlay}
       />
       {overlay && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 text-sm font-medium text-white">{overlay}</div>
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 px-6 text-center text-sm font-medium text-white">{overlay}</div>
       )}
       {live && (
         <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 pt-6 pb-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
