@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Surface colour of the web client (client/src/styles/app.css --color-base). -->
+    <!-- Surface colour of the web client (the color-base token in client/src/styles/app.css). -->
     <color name="datasetto_base">#1e1f22</color>
 </resources>
