@@ -15,13 +15,32 @@ import { SettingsService } from './services/settings.js';
 import { TurnService } from './services/turn.js';
 import { HlsTicketService } from './services/hlsTickets.js';
 import { InviteService } from './services/invites.js';
+import { LinkPreviewService, type LinkPreviewOptions } from './services/linkPreviews.js';
+import { UploadService } from './services/uploads.js';
 import { UsageService } from './services/usage.js';
+import type { StreamWatchdog } from './services/streamWatchdog.js';
+import { createBurstLogger, type BurstLogger } from './socket/burstLog.js';
+
+/**
+ * Process-level state that the health endpoint and the socket layer read:
+ * whether a graceful shutdown is under way (new connections are refused, health
+ * answers 503), the stream watchdog once index.ts has started it, the live socket
+ * count, and the burst logger that writes one line per reconnect wave.
+ */
+export interface RuntimeState {
+  shuttingDown: boolean;
+  watchdog: StreamWatchdog | null;
+  /** Set by the socket server; 0 before it exists. */
+  connectedSockets: () => number;
+  bursts: BurstLogger;
+}
 
 /** Fan-out helpers implemented by the socket layer once it exists. */
 export interface Broadcaster {
   channels(): void;
   users(): void;
-  screenshare(channelId: string, targetSocketId?: string | null): void;
+  /** `extra` rides along on the event (e.g. `endedBy` when a share ended, so viewers know whether to wait). */
+  screenshare(channelId: string, targetSocketId?: string | null, extra?: Record<string, unknown>): void;
   /** Toast for everyone currently in a channel. */
   notifyChannel(channelId: string, notification: { type: 'info' | 'success' | 'warning' | 'error'; message: string }): void;
   /** Emit to every authenticated socket allowed to view the channel (not only the ones currently in it). */
@@ -41,6 +60,8 @@ export interface AppContext {
   settings: SettingsService;
   channels: ChannelService;
   messages: MessageService;
+  uploads: UploadService;
+  linkPreviews: LinkPreviewService;
   search: SearchService;
   moderation: ModerationService;
   presence: PresenceService;
@@ -50,6 +71,7 @@ export interface AppContext {
   hlsTickets: HlsTicketService;
   usage: UsageService;
   broadcast: Broadcaster;
+  runtime: RuntimeState;
   startedAt: number;
 }
 
@@ -65,12 +87,20 @@ const noopBroadcaster: Broadcaster = {
 export interface ContextOptions {
   /** Test hook: capture push deliveries instead of calling the push services. */
   push?: PushServiceOptions;
+  /** Test hook: fake DNS or transport for link previews. */
+  linkPreviews?: LinkPreviewOptions;
 }
 
 export const createContext = (config: AppConfig, db: DB, options: ContextOptions = {}): AppContext => {
   const channels = new ChannelService(db, config);
   channels.seedDefaults();
   const invites = new InviteService(db);
+  const settings = new SettingsService(db);
+  const uploads = new UploadService(
+    db,
+    { dataDir: config.storage.dataDir, maxBytes: config.uploads.maxBytes, previewMaxPx: config.uploads.previewMaxPx },
+    settings.secret('mediaTicketSecret'),
+  );
 
   return {
     config,
@@ -80,9 +110,11 @@ export const createContext = (config: AppConfig, db: DB, options: ContextOptions
     avatars: new AvatarService(config.storage.dataDir),
     invites,
     sessions: new SessionService(db, config.sessions.ttlMs),
-    settings: new SettingsService(db),
+    settings,
     channels,
-    messages: new MessageService(db, config),
+    messages: new MessageService(db, config, uploads),
+    uploads,
+    linkPreviews: new LinkPreviewService(db, options.linkPreviews),
     search: new SearchService(db),
     moderation: new ModerationService(db),
     presence: new PresenceService(),
@@ -92,6 +124,7 @@ export const createContext = (config: AppConfig, db: DB, options: ContextOptions
     hlsTickets: new HlsTicketService(config.streaming.ticketSecret),
     usage: new UsageService(db),
     broadcast: noopBroadcaster,
+    runtime: { shuttingDown: false, watchdog: null, connectedSockets: () => 0, bursts: createBurstLogger({ log: logger }) },
     startedAt: Date.now(),
   };
 };

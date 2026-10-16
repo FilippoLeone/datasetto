@@ -12,7 +12,9 @@ interface AudioRoutePlugin {
   setRoute(options: { id?: string }): Promise<void>;
 }
 
-let pluginPromise: Promise<AudioRoutePlugin | null> | null = null;
+// Kept inside an object: a Capacitor plugin proxy answers every property, so a promise
+// resolved with the proxy itself would call "AudioRoute.then()" natively and never settle.
+let pluginPromise: Promise<{ plugin: AudioRoutePlugin | null }> | null = null;
 let corePromise: Promise<typeof import('@capacitor/core') | null> | null = null;
 
 async function loadCapacitorCore(): Promise<typeof import('@capacitor/core') | null> {
@@ -34,7 +36,8 @@ async function loadCapacitorCore(): Promise<typeof import('@capacitor/core') | n
   return corePromise;
 }
 
-async function loadPlugin(): Promise<AudioRoutePlugin | null> {
+/** Resolves to `{ plugin }`, never to the proxy itself (see above); callers destructure. */
+function loadPlugin(): Promise<{ plugin: AudioRoutePlugin | null }> {
   if (pluginPromise) {
     return pluginPromise;
   }
@@ -43,13 +46,13 @@ async function loadPlugin(): Promise<AudioRoutePlugin | null> {
     try {
       const core = await loadCapacitorCore();
       if (!core) {
-        return null;
+        return { plugin: null };
       }
 
       const { Capacitor, registerPlugin } = core;
 
       if (!Capacitor?.isNativePlatform?.()) {
-        return null;
+        return { plugin: null };
       }
 
       try {
@@ -62,18 +65,18 @@ async function loadPlugin(): Promise<AudioRoutePlugin | null> {
           console.log('[NativeAudioRouteService] AudioRoute plugin loaded successfully:', testResult);
         }
         
-        return plugin;
+        return { plugin };
       } catch (error) {
         if (import.meta.env.DEV) {
           console.warn('[NativeAudioRouteService] AudioRoute plugin test call failed:', error);
         }
-        return null;
+        return { plugin: null };
       }
     } catch (error) {
       if (import.meta.env.DEV) {
         console.error('[NativeAudioRouteService] Failed to load AudioRoute plugin:', error);
       }
-      return null;
+      return { plugin: null };
     }
   })();
 
@@ -91,7 +94,7 @@ export function isNativeAudioRoutingAvailable(): boolean {
 }
 
 export async function fetchNativeAudioRoutes(): Promise<NativeAudioRoute[]> {
-  const plugin = await loadPlugin();
+  const { plugin } = await loadPlugin();
   if (!plugin) {
     return isNativeAudioRoutingAvailable() ? fallbackRoutes() : [];
   }
@@ -126,8 +129,8 @@ export async function selectNativeAudioRoute(routeId: string | null): Promise<vo
     console.log('[NativeAudioRouteService] selectNativeAudioRoute called with routeId:', routeId);
   }
   
-  const plugin = await loadPlugin();
-  
+  const { plugin } = await loadPlugin();
+
   if (import.meta.env.DEV) {
     console.log('[NativeAudioRouteService] plugin loaded:', plugin ? 'success' : 'null');
   }

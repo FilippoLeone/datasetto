@@ -2,6 +2,8 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import { X } from 'lucide-preact';
 import { cn } from '@/lib/cn';
+import { useBackClose } from '@/lib/backStack';
+import { isTouchPrimary } from '@/lib/device';
 import { IconButton } from './IconButton';
 
 interface ModalProps {
@@ -16,16 +18,22 @@ interface ModalProps {
 
 const SIZES = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-2xl' };
 
+const noop = () => undefined;
+
 export const Modal = ({ title, subtitle, onClose, size = 'md', footer, children }: ModalProps) => {
   const cardRef = useRef<HTMLDivElement>(null);
+  // Android back / the browser's back button on touch screens closes a dismissable dialog.
+  useBackClose(Boolean(onClose), onClose ?? noop);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && onClose) onClose();
     };
     document.addEventListener('keydown', onKey);
-    const first = cardRef.current?.querySelector<HTMLElement>('input, textarea, select, button:not([data-close])');
-    first?.focus();
+    // With a keyboard, start in the first field. On a touch screen that would pop the
+    // on-screen keyboard and shove the dialog around before it is even read: focus the card instead.
+    if (isTouchPrimary()) cardRef.current?.focus();
+    else cardRef.current?.querySelector<HTMLElement>('input, textarea, select, button:not([data-close])')?.focus();
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
@@ -42,7 +50,11 @@ export const Modal = ({ title, subtitle, onClose, size = 'md', footer, children 
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={cn('dialog-card flex max-h-[90vh] w-full flex-col overflow-hidden rounded-lg bg-sidebar shadow-modal supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]', SIZES[size])}
+        tabIndex={-1}
+        className={cn(
+          'dialog-card flex max-h-[90vh] w-full flex-col overflow-hidden rounded-lg bg-sidebar shadow-modal outline-none supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]',
+          SIZES[size],
+        )}
       >
         <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3">
           <div className="min-w-0">

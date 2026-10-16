@@ -4,7 +4,8 @@ import { normalizeRoles } from '../core/roles.js';
 import { emojiSchema, messageTextSchema } from '../core/validation.js';
 import { parseJson, type DB } from '../db/index.js';
 import { AppError, notFound } from '../errors.js';
-import type { ConnectedUser, MessageRecord, ReactionSummary } from '../types.js';
+import type { AttachmentView, ConnectedUser, LinkPreviewView, MessageRecord, ReactionSummary } from '../types.js';
+import { attachmentView, type UploadService } from './uploads.js';
 
 /** Distinct emojis one message can carry, and reactions one account may add to it. */
 export const MAX_REACTIONS_PER_MESSAGE = 20;
@@ -53,9 +54,43 @@ interface MessageRow {
   edited_at: number | null;
   deleted_at: number | null;
   deleted_by: string | null;
+  preview_url: string | null;
+  preview_removed: number;
 }
 
-const rowToRecord = (row: MessageRow, reactions: ReactionSummary[] = []): MessageRecord => ({
+interface AttachmentRow {
+  id: string;
+  message_id: string;
+  account_id: string;
+  kind: string;
+  file_name: string;
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  stored_name: string;
+  preview_name: string | null;
+  preview_width: number | null;
+  preview_height: number | null;
+  created_at: number;
+}
+
+interface PreviewRow {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  site_name: string | null;
+}
+
+/** Everything a message row needs besides its own columns. */
+interface Extras {
+  reactions: Map<string, ReactionSummary[]>;
+  attachments: Map<string, AttachmentView[]>;
+  previews: Map<string, LinkPreviewView>;
+}
+
+const rowToRecord = (row: MessageRow, extras: Extras): MessageRecord => ({
   id: row.id,
   channelId: row.channel_id,
   from: row.author_name,
@@ -67,10 +102,19 @@ const rowToRecord = (row: MessageRow, reactions: ReactionSummary[] = []): Messag
   isSuperuser: Boolean(row.is_superuser),
   edited: row.edited_at !== null,
   deleted: row.deleted_at !== null,
-  reactions,
+  reactions: extras.reactions.get(row.id) ?? [],
+  attachments: row.deleted_at ? [] : (extras.attachments.get(row.id) ?? []),
+  preview: row.deleted_at || row.preview_removed || !row.preview_url ? null : (extras.previews.get(row.preview_url) ?? null),
 });
 
 const PRUNE_EVERY = 50;
+
+export interface CreateMessageOptions {
+  /** Allow an empty text (the message carries pictures). */
+  allowEmpty?: boolean;
+  /** The link a preview card will be fetched for, if any. */
+  previewUrl?: string | null;
+}
 
 export class MessageService {
   private readonly stmts;
@@ -79,11 +123,28 @@ export class MessageService {
   constructor(
     db: DB,
     private readonly config: AppConfig,
+    private readonly uploads: UploadService,
   ) {
     this.stmts = {
       insert: db.prepare(`
-        INSERT INTO messages (id, channel_id, account_id, author_name, text, roles, is_superuser, created_at)
-        VALUES (@id, @channel_id, @account_id, @author_name, @text, @roles, @is_superuser, @created_at)
+        INSERT INTO messages (id, channel_id, account_id, author_name, text, roles, is_superuser, created_at, preview_url)
+        VALUES (@id, @channel_id, @account_id, @author_name, @text, @roles, @is_superuser, @created_at, @preview_url)
+      `),
+      attachmentsOfMessages: db.prepare(`
+        SELECT * FROM message_attachments WHERE message_id IN (SELECT value FROM json_each(?)) ORDER BY created_at ASC, rowid ASC
+      `),
+      previewsOf: db.prepare(`
+        SELECT url, title, description, image, site_name FROM link_previews
+        WHERE ok = 1 AND url IN (SELECT value FROM json_each(?))
+      `),
+      removePreview: db.prepare('UPDATE messages SET preview_removed = 1 WHERE id = ? AND channel_id = ?'),
+      channelOf: db.prepare('SELECT channel_id FROM messages WHERE id = ? AND deleted_at IS NULL'),
+      attachmentsToPrune: db.prepare(`
+        SELECT a.stored_name, a.preview_name FROM message_attachments a
+        JOIN messages m ON m.id = a.message_id
+        WHERE m.channel_id = ? AND m.rowid NOT IN (
+          SELECT rowid FROM messages WHERE channel_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?
+        )
       `),
       history: db.prepare(`
         SELECT * FROM (
@@ -138,9 +199,9 @@ export class MessageService {
     };
   }
 
-  /** Validate and persist a message authored by a connected user. */
-  create(channelId: string, author: ConnectedUser, rawText: unknown): MessageRecord {
-    const text = messageTextSchema(this.config.limits.maxMessageLength).parse(rawText);
+  /** Validate and persist a message authored by a connected user. Pictures are bound afterwards with {@link attach}. */
+  create(channelId: string, author: ConnectedUser, rawText: unknown, options: CreateMessageOptions = {}): MessageRecord {
+    const text = messageTextSchema(this.config.limits.maxMessageLength, options.allowEmpty === true).parse(rawText);
     const record: MessageRecord = {
       id: newId('msg', 18),
       channelId,
@@ -154,6 +215,8 @@ export class MessageService {
       edited: false,
       deleted: false,
       reactions: [],
+      attachments: [],
+      preview: null,
     };
 
     this.stmts.insert.run({
@@ -165,6 +228,7 @@ export class MessageService {
       roles: JSON.stringify(record.roles),
       is_superuser: record.isSuperuser ? 1 : 0,
       created_at: record.ts,
+      preview_url: options.previewUrl ?? null,
     });
 
     this.insertsSincePrune += 1;
@@ -175,11 +239,67 @@ export class MessageService {
     return record;
   }
 
+  /**
+   * Bind pending uploads of the author to a message (at most `maxFilesPerMessage`);
+   * returns the message with its attachments.
+   */
+  attach(record: MessageRecord, attachmentIds: readonly string[]): MessageRecord {
+    if (attachmentIds.length === 0) return record;
+    if (attachmentIds.length > this.config.uploads.maxFilesPerMessage) {
+      throw new AppError('At most ' + this.config.uploads.maxFilesPerMessage + ' pictures per message', 'TOO_MANY_ATTACHMENTS', 400);
+    }
+    if (!record.accountId) throw new AppError('Only signed-in users can share pictures', 'NOT_AUTHENTICATED', 401);
+    const attachments = this.uploads.attach(record.id, record.accountId, attachmentIds).map(attachmentView);
+    return { ...record, attachments };
+  }
+
+  /** Reactions, attachments and preview cards for a set of message rows, in three queries. */
+  private extrasFor(rows: readonly MessageRow[], reactions?: Map<string, ReactionSummary[]>): Extras {
+    const ids = JSON.stringify(rows.map((row) => row.id));
+    const attachments = new Map<string, AttachmentView[]>();
+    for (const row of this.stmts.attachmentsOfMessages.all(ids) as AttachmentRow[]) {
+      const list = attachments.get(row.message_id) ?? [];
+      list.push(
+        attachmentView({
+          id: row.id,
+          messageId: row.message_id,
+          accountId: row.account_id,
+          kind: 'image',
+          fileName: row.file_name,
+          mime: row.mime,
+          size: row.size,
+          width: row.width,
+          height: row.height,
+          storedName: row.stored_name,
+          previewName: row.preview_name,
+          previewWidth: row.preview_width,
+          previewHeight: row.preview_height,
+          createdAt: row.created_at,
+        }),
+      );
+      attachments.set(row.message_id, list);
+    }
+    const previews = new Map<string, LinkPreviewView>();
+    const urls = Array.from(new Set(rows.filter((row) => row.preview_url && !row.preview_removed && !row.deleted_at).map((row) => row.preview_url as string)));
+    if (urls.length > 0) {
+      for (const row of this.stmts.previewsOf.all(JSON.stringify(urls)) as PreviewRow[]) {
+        if (!row.title && !row.description && !row.image) continue;
+        previews.set(row.url, { url: row.url, title: row.title, description: row.description, image: row.image, siteName: row.site_name });
+      }
+    }
+    return {
+      reactions: reactions ?? summarize(this.stmts.reactionsOfMessages.all(ids) as ReactionRow[]),
+      attachments,
+      previews,
+    };
+  }
+
   history(channelId: string, limit = this.config.limits.chatHistoryLimit): MessageRecord[] {
     const rows = this.stmts.history.all(channelId, limit) as MessageRow[];
     if (rows.length === 0) return [];
     const reactions = summarize(this.stmts.reactionsOfChannel.all(channelId) as ReactionRow[]);
-    return rows.map((row) => rowToRecord(row, reactions.get(row.id) ?? []));
+    const extras = this.extrasFor(rows, reactions);
+    return rows.map((row) => rowToRecord(row, extras));
   }
 
   /**
@@ -194,13 +314,33 @@ export class MessageService {
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(1) : rows;
     if (page.length === 0) return { messages: [], hasMore: false };
-    const reactions = summarize(this.stmts.reactionsOfMessages.all(JSON.stringify(page.map((row) => row.id))) as ReactionRow[]);
-    return { messages: page.map((row) => rowToRecord(row, reactions.get(row.id) ?? [])), hasMore };
+    const extras = this.extrasFor(page);
+    return { messages: page.map((row) => rowToRecord(row, extras)), hasMore };
   }
 
   get(channelId: string, messageId: string): MessageRecord | null {
     const row = this.stmts.byId.get(messageId, channelId) as MessageRow | undefined;
-    return row ? rowToRecord(row, this.reactions(row.id)) : null;
+    return row ? rowToRecord(row, this.extrasFor([row])) : null;
+  }
+
+  /** The channel a message (not deleted) belongs to, or null. */
+  channelOf(messageId: string): string | null {
+    const row = this.stmts.channelOf.get(messageId) as { channel_id: string } | undefined;
+    return row?.channel_id ?? null;
+  }
+
+  /** The URL a preview is (or was) wanted for, or null. */
+  previewUrlOf(channelId: string, messageId: string): string | null {
+    const row = this.stmts.byId.get(messageId, channelId) as MessageRow | undefined;
+    return row && !row.preview_removed && !row.deleted_at ? row.preview_url : null;
+  }
+
+  /** The author took the preview card off their message; it does not come back. */
+  removePreview(channelId: string, messageId: string): MessageRecord {
+    const existing = this.get(channelId, messageId);
+    if (!existing || existing.deleted) throw notFound('Message');
+    this.stmts.removePreview.run(messageId, channelId);
+    return { ...existing, preview: null };
   }
 
   /** Reactions on one message, grouped by emoji. */
@@ -243,11 +383,16 @@ export class MessageService {
     const existing = this.get(channelId, messageId);
     if (!existing) throw notFound('Message');
     this.stmts.softDelete.run(Date.now(), deletedBy.slice(0, 100), messageId);
-    return { ...existing, text: '', deleted: true };
+    // Deleted messages keep their row (soft delete) but their pictures are gone for good.
+    this.uploads.deleteForMessage(messageId);
+    return { ...existing, text: '', deleted: true, attachments: [], preview: null };
   }
 
   prune(channelId: string): number {
     const keep = this.config.limits.messageRetentionPerChannel;
+    // Rows cascade; the files behind them need a hand.
+    const files = this.stmts.attachmentsToPrune.all(channelId, channelId, keep) as Array<{ stored_name: string; preview_name: string | null }>;
+    if (files.length > 0) this.uploads.removeFiles(files.map((file) => ({ storedName: file.stored_name, previewName: file.preview_name })));
     return this.stmts.prune.run(channelId, channelId, keep).changes;
   }
 

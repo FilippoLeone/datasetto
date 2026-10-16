@@ -7,6 +7,20 @@ import { handle, requirePermission, requireUser, type SocketContext } from '../c
 import { leaveVoiceRoom } from '../lifecycle.js';
 import type { Minigames } from './minigame.js';
 
+/**
+ * `voice:join` takes the channel id, or an object with the client's media session
+ * id (see VoiceParticipant.rtcSessionId) so peers can keep their connections
+ * across the client's reconnect.
+ */
+const joinSchema = z.union([
+  idSchema,
+  z.object({
+    channelId: idSchema,
+    rtcSessionId: z.string().min(1).max(64).optional().nullable(),
+    /** Peer connections the client still holds (account + their media session id), relayed in `voice:peer-join`. */
+    holding: z.array(z.object({ accountId: z.string().max(128), rtcSessionId: z.string().max(64).nullable() })).max(64).optional(),
+  }),
+]);
 const signalSchema = z.object({ to: idSchema, data: z.unknown().optional() });
 const metadataSchema = z.object({ to: idSchema, metadata: z.unknown().optional() });
 const stateSchema = z.object({ muted: z.boolean().optional(), deafened: z.boolean().optional() }).partial();
@@ -39,10 +53,11 @@ export const registerVoiceHandlers = (sctx: SocketContext, minigames: Minigames)
     return target;
   };
 
-  const forceLeaveVoice = (targetSocketId: string, channelId: string) => {
+  const forceLeaveVoice = (targetSocketId: string, channelId: string, reason: 'left' | 'replaced' = 'left') => {
     const targetSocket = io.sockets.sockets.get(targetSocketId);
+    const accountId = app.presence.getUser(targetSocketId)?.accountId ?? null;
     app.presence.leaveVoice(targetSocketId);
-    io.to(channelId).emit('voice:peer-leave', { id: targetSocketId });
+    io.to(channelId).emit('voice:peer-leave', { id: targetSocketId, accountId, reason });
     minigames.handleVoiceMemberLeft(channelId, targetSocketId);
     if (targetSocket) {
       const targetUser = app.presence.getUser(targetSocketId);
@@ -52,8 +67,11 @@ export const registerVoiceHandlers = (sctx: SocketContext, minigames: Minigames)
     }
   };
 
-  handle(sctx, 'voice:join', { schema: idSchema, code: 'VOICE_JOIN_FAILED' }, async (channelId) => {
+  handle(sctx, 'voice:join', { schema: joinSchema, code: 'VOICE_JOIN_FAILED' }, async (payload) => {
     const user = requireUser(sctx);
+    const channelId = typeof payload === 'string' ? payload : payload.channelId;
+    const rtcSessionId = typeof payload === 'string' ? null : (payload.rtcSessionId ?? null);
+    const holding = typeof payload === 'string' ? undefined : payload.holding;
 
     const timeout = app.moderation.voiceTimeoutRemaining(user.accountId);
     if (timeout > 0) {
@@ -69,16 +87,30 @@ export const registerVoiceHandlers = (sctx: SocketContext, minigames: Minigames)
       leaveVoiceRoom(sctx, minigames);
     }
 
-    const participant = app.presence.joinVoice(socket.id, channel.id);
+    // A reconnect's previous socket (not yet timed out) or a second tab of the same login
+    // still holds a seat in this room: this socket takes it over. Peers are told it was
+    // replaced, not that the person left, so they keep their media connection to them.
+    for (const staleId of app.presence.voiceSeatsOfAccount(channel.id, user.accountId, socket.id)) {
+      forceLeaveVoice(staleId, channel.id, 'replaced');
+      io.to(staleId).emit('voice:replaced', { channelId: channel.id, bySocketId: socket.id });
+      app.log.debug({ accountId: user.accountId, staleSocketId: staleId, socketId: socket.id, channelId: channel.id }, 'voice seat taken over');
+    }
+
+    const participant = app.presence.joinVoice(socket.id, channel.id, rtcSessionId);
     if (!participant) throw new AppError('Failed to join voice session', 'VOICE_JOIN_FAILED', 500);
     await socket.join(channel.id);
     sctx.voiceChannel = channel.id;
 
+    // `holding` lets each existing member see whether the newcomer still has a connection to it
+    // (keep it) or lost it (negotiate afresh), without an extra round trip.
     socket.to(channel.id).emit('voice:peer-join', {
       id: socket.id,
+      accountId: participant.accountId,
       name: participant.name,
       muted: participant.muted,
       deafened: participant.deafened,
+      rtcSessionId: participant.rtcSessionId,
+      ...(holding ? { holding } : {}),
     });
 
     const room = app.presence.voiceRoom(channel.id);

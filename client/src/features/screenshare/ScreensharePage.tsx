@@ -25,10 +25,14 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
   const hostKey = role === 'viewer' ? screenHostKey(session?.hostId, session?.hostName) : null;
   const streamAudio = screenAudioPref(hostKey);
 
+  // Leaving the page ends our part in the room; a presenter going away for a moment (their socket
+  // blipped, a deploy) does not: the service keeps the picture and waits for them.
   useEffect(() => {
     screenshareService.init();
-    if (someoneElseSharing) screenshareService.watch(channel.id);
     return () => screenshareService.leaveChannel(channel.id);
+  }, [channel.id]);
+  useEffect(() => {
+    if (someoneElseSharing) screenshareService.watch(channel.id);
   }, [channel.id, someoneElseSharing]);
 
   return (

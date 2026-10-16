@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Button, Slider } from '@/components';
+import { pinchZoom, pointerDistance } from '@/lib/gestures';
 import { MAX_AVATAR_BYTES } from '@/services/avatarUpload';
 
 /** Size of the uploaded image in pixels. */
@@ -79,9 +80,16 @@ const exportImage = async (image: HTMLImageElement, view: Viewport): Promise<Blo
   return png;
 };
 
+interface Pinch {
+  /** Finger distance and zoom when the second finger landed. */
+  distance: number;
+  zoom: number;
+}
+
 /**
- * Pick the square of a picture that becomes the avatar: drag to move, slider or
- * wheel to zoom, live preview in the window itself. Pure canvas, no dependency.
+ * Pick the square of a picture that becomes the avatar: drag to move, slider,
+ * wheel or a two-finger pinch to zoom, live preview in the window itself.
+ * Pure canvas, no dependency.
  */
 export const AvatarCropper = ({ file, onCancel, onDone }: AvatarCropperProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -90,6 +98,9 @@ export const AvatarCropper = ({ file, onCancel, onDone }: AvatarCropperProps) =>
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const drag = useRef<{ pointerId: number; startX: number; startY: number; origin: Viewport } | null>(null);
+  /** Fingers on the window, for the pinch. */
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<Pinch | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,20 +139,46 @@ export const AvatarCropper = ({ file, onCancel, onDone }: AvatarCropperProps) =>
     update({ zoom, x: view.x + (before - after) / 2, y: view.y + (before - after) / 2 });
   };
 
+  const fingerDistance = (): number => {
+    const [a, b] = Array.from(pointers.current.values());
+    return a && b ? pointerDistance(a, b) : 0;
+  };
+
   const onPointerDown = (event: PointerEvent) => {
     if (!image) return;
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.current.size === 2) {
+      // Second finger: the drag becomes a pinch around the current view.
+      drag.current = null;
+      pinch.current = { distance: fingerDistance(), zoom: view.zoom };
+      return;
+    }
     drag.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, origin: view };
   };
   const onPointerMove = (event: PointerEvent) => {
+    if (!image) return;
+    if (pointers.current.has(event.pointerId)) pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const active = pinch.current;
+    if (active && pointers.current.size >= 2) {
+      setZoom(pinchZoom(active.zoom, active.distance, fingerDistance(), 1, MAX_ZOOM));
+      return;
+    }
     const state = drag.current;
-    if (!state || !image || state.pointerId !== event.pointerId) return;
+    if (!state || state.pointerId !== event.pointerId) return;
     // Screen pixels to image pixels at the current zoom.
     const scale = regionSize(image, view.zoom) / VIEW_SIZE;
     update({ ...state.origin, x: state.origin.x - (event.clientX - state.startX) * scale, y: state.origin.y - (event.clientY - state.startY) * scale });
   };
-  const onPointerUp = () => {
-    drag.current = null;
+  const onPointerUp = (event: PointerEvent) => {
+    pointers.current.delete(event.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+    if (drag.current?.pointerId === event.pointerId) drag.current = null;
+    // The finger that stays after a pinch continues as a drag from where it is.
+    if (pointers.current.size === 1 && !drag.current) {
+      const [pointerId, point] = Array.from(pointers.current.entries())[0];
+      drag.current = { pointerId, startX: point.x, startY: point.y, origin: view };
+    }
   };
 
   const finish = async () => {
@@ -164,7 +201,7 @@ export const AvatarCropper = ({ file, onCancel, onDone }: AvatarCropperProps) =>
           height={VIEW_SIZE}
           className="block cursor-grab touch-none rounded-md bg-base active:cursor-grabbing"
           style={{ width: VIEW_SIZE, height: VIEW_SIZE }}
-          aria-label="Crop window: drag to move the picture"
+          aria-label="Crop window: drag to move the picture, pinch to zoom"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -184,7 +221,7 @@ export const AvatarCropper = ({ file, onCancel, onDone }: AvatarCropperProps) =>
           <Slider label="Zoom" value={view.zoom} min={1} max={MAX_ZOOM} step={0.01} format={(v) => Math.round(v * 100) + '%'} onChange={setZoom} />
         </div>
       )}
-      <p className="text-xs text-text-muted">Drag the picture to move it, scroll or use the slider to zoom. Saved as {AVATAR_SIZE}×{AVATAR_SIZE}.</p>
+      <p className="text-xs text-text-muted">Drag the picture to move it; pinch, scroll or use the slider to zoom. Saved as {AVATAR_SIZE}×{AVATAR_SIZE}.</p>
       {error && (
         <p role="alert" className="rounded-sm bg-danger/15 px-3 py-2 text-sm text-[#fa777c]">
           {error}

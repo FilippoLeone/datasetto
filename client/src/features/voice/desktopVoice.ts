@@ -100,7 +100,7 @@ const installGlobalPushToTalk = (): void => {
     releaseTimer = window.setTimeout(checkRelease, Math.max(10, (hold.releaseAt ?? 0) - Date.now()));
   };
   api.onPushToTalkPressed(() => {
-    if (voiceStatus.value !== 'connected' || !audioSettings.value.pttEnable) return;
+    if ((voiceStatus.value !== 'connected' && voiceStatus.value !== 'reconnecting') || !audioSettings.value.pttEnable) return;
     hold = pressHold(hold, Date.now());
     voiceManager.setPushToTalkHeld('global', true);
     clearReleaseTimer();
@@ -112,7 +112,8 @@ const installGlobalPushToTalk = (): void => {
   let generation = 0;
   effect(() => {
     const settings = audioSettings.value;
-    const inVoice = voiceStatus.value === 'connected';
+    // A call on hold while the socket reconnects is still a call: the key keeps working.
+    const inVoice = voiceStatus.value === 'connected' || voiceStatus.value === 'reconnecting';
     const shortcut = settings.pttEnable ? parseShortcut(settings.pttKey) : null;
     const accelerator = toElectronAccelerator(shortcut);
     const wanted = inVoice && !globalPttSuspended.value && accelerator ? accelerator : null;
@@ -154,7 +155,8 @@ const installVoiceOverlay = (): void => {
     const channel = voiceChannelId.value ? channelsById.value.get(voiceChannelId.value) : null;
     const users = usersById.value;
     const next = buildOverlayState({
-      status: voiceStatus.value,
+      // The overlay stays up while the socket reconnects: the call itself never stopped.
+      status: voiceStatus.value === 'reconnecting' ? 'connected' : voiceStatus.value,
       channelName: channel?.name,
       me: me ? { id: socketId.value ?? 'me', name: me.displayName, avatarUrl: overlayAvatar(me.id, me.displayName, me.avatarUrl) } : null,
       peers: peerList.value,

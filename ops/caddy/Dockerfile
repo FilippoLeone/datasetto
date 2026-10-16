@@ -2,11 +2,18 @@
 # Builds the web client and serves it with Caddy (TLS + reverse proxy).
 FROM node:24-bookworm-slim AS build
 ARG SITE_URL=
+# Release version of this build (the tag without the v); the app compares it with
+# the latest GitHub release once a day. Empty means "unknown": no update notice.
+ARG APP_VERSION=
 ENV VITE_SITE_URL=${SITE_URL}
+ENV VITE_APP_VERSION=${APP_VERSION}
 WORKDIR /src
 COPY client/package.json client/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY client/ ./
+# client/src/features/activity/catalogue.test.ts type-checks the desktop shell game matcher
+# from ../../../../desktop/games; the tsc gate in `npm run build` needs it at that path.
+COPY desktop/games /desktop/games
 RUN npm run build
 
 FROM caddy:2.11-alpine

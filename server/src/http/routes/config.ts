@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { AppContext } from '../../context.js';
+import { ACCEPTED_IMAGE_TYPES } from '../../services/uploads.js';
 
 /**
  * Public runtime configuration for clients, fetched at boot. Deliberately
@@ -32,6 +33,13 @@ export const configRouter = (ctx: AppContext): Router => {
         // Messages sent with `chat:history` on join; fewer than this means the channel's start is on screen.
         chatHistoryLimit: ctx.config.limits.chatHistoryLimit,
       },
+      // Pictures in chat: size per file, files per message, accepted MIME types (checked by signature server side).
+      uploads: {
+        maxBytes: ctx.config.uploads.maxBytes,
+        maxFilesPerMessage: ctx.config.uploads.maxFilesPerMessage,
+        acceptedTypes: ACCEPTED_IMAGE_TYPES,
+      },
+      linkPreviews: { enabled: ctx.config.linkPreviews.enabled },
       // Web Push: off without VAPID keys; the public key is what browsers subscribe with.
       push: { enabled: ctx.push.isEnabled(), publicKey: ctx.push.publicKey() },
     });

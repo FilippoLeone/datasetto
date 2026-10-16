@@ -7,9 +7,9 @@ import { MOTION, useListPresence, type PresenceState } from '@/lib/motion';
 import { useElementSize } from '@/lib/useElementSize';
 import { usersById, usersInVoice } from '@/state/presence';
 import { screenAudioPref, screenHostKey, setScreenAudioPref } from '@/state/screenAudio';
-import { account, can } from '@/state/session';
+import { account, can, socketId } from '@/state/session';
 import { audioSettings } from '@/state/settings';
-import { isMobile, openModal } from '@/state/ui';
+import { isLandscapePhone, isMobile, openModal } from '@/state/ui';
 import { minigameState } from '@/state/misc';
 import {
   anyVideoActive,
@@ -34,8 +34,10 @@ import { MinigamePanel } from '@/features/minigames/MinigamePanel';
 import type { Channel } from '@/types/protocol';
 
 const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state?: PresenceState }) => {
-  const user = usersById.value.get(peer.id);
+  const user = usersById.value.get(isMe ? (socketId.value ?? '') : peer.id);
   const me = account.value;
+  // "Playing …" as the server broadcasts it (my own comes back the same way).
+  const activity = user?.activity ?? null;
   const speaking = isMe ? localSpeaking.value : peer.speaking;
   const muted = isMe ? localMuted.value || (audioSettings.value.pttEnable && !pttPressed.value) : peer.muted;
   const deafened = isMe ? localDeafened.value : peer.deafened;
@@ -71,7 +73,7 @@ const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state
   }
 
   return (
-    <Menu items={items}>
+    <Menu items={items} title={peer.name}>
       <div
         data-state={state}
         className={cn(
@@ -82,6 +84,12 @@ const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state
       >
         <Avatar seed={user?.accountId ?? peer.id} name={peer.name} src={user?.avatarUrl} size={64} speaking={speaking} />
         <span className="w-full truncate text-center text-sm font-medium text-text-bright">{peer.name}{isMe ? ' (you)' : ''}</span>
+        {activity && (
+          <span className="flex w-full items-center justify-center gap-1 text-[11px] text-text-muted" title={'Playing ' + activity} data-activity>
+            <Gamepad2 size={12} className="shrink-0" />
+            <span className="truncate">Playing {activity}</span>
+          </span>
+        )}
         <span className="flex items-center gap-1.5 text-text-muted">
           {muted ? <MicOff size={14} className="text-live" /> : <Mic size={14} />}
           {deafened && <HeadphoneOff size={14} className="text-live" />}
@@ -93,12 +101,18 @@ const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state
   );
 };
 
-const Toolbar = () => {
+/** The call controls; `overlay` floats them over the video (landscape phones). */
+const Toolbar = ({ overlay = false }: { overlay?: boolean }) => {
   const muted = localMuted.value || (audioSettings.value.pttEnable && !pttPressed.value);
   const cameraOn = localCameraStream.value !== null;
   const screenOn = localScreenStream.value !== null;
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2 px-3 py-3">
+    <div
+      className={cn(
+        'flex flex-wrap items-center justify-center gap-2 px-3 py-3',
+        overlay && 'absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 to-transparent pt-8 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]',
+      )}
+    >
       <IconButton label={muted ? 'Unmute' : 'Mute'} size="lg" tone={localMuted.value ? 'danger' : 'default'} className="bg-sidebar" onClick={() => void voiceManager.toggleMute()}>
         <span key={muted ? 'muted' : 'live'} className="inline-flex animate-icon-swap">
           {muted ? <MicOff size={22} /> : <Mic size={22} />}
@@ -170,8 +184,10 @@ const tileAudio = (tile: Tile) => {
   };
 };
 
-const VideoGrid = () => {
+/** `edge`: no padding, the picture runs to the edges (landscape phones). */
+const VideoGrid = ({ edge = false }: { edge?: boolean }) => {
   const [focused, setFocused] = useState<string | null>(null);
+  const inset = edge ? 0 : 24;
   const me = account.value;
   const tiles: Tile[] = [];
   if (localScreenStream.value) tiles.push({ key: 'me:screen', stream: localScreenStream.value, label: 'Your screen', screen: { remote: false } });
@@ -186,13 +202,13 @@ const VideoGrid = () => {
   // Columns and row height that give the tiles the most picture for the space the grid has
   // (measured; rows share the height equally until the grid has been measured once).
   const [gridRef, gridSize] = useElementSize();
-  const layout = gridSize ? videoGridLayout(present.length, gridSize.width - 24, gridSize.height - 24) : null;
+  const layout = gridSize ? videoGridLayout(present.length, gridSize.width - inset, gridSize.height - inset) : null;
   if (tiles.length === 0) return null;
   const focusedTile = tiles.find((tile) => tile.key === focused) ?? (tiles.length === 1 ? tiles[0] : null);
   if (focusedTile) {
     const others = tiles.filter((tile) => tile.key !== focusedTile.key);
     return (
-      <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+      <div className={cn('flex min-h-0 flex-1 flex-col gap-2', edge ? 'p-0' : 'p-3')}>
         <VideoTile stream={focusedTile.stream} label={focusedTile.label} mirror={focusedTile.mirror} {...tileAudio(focusedTile)} className="min-h-0 flex-1" onClick={() => setFocused(null)} />
         {others.length > 0 && (
           <div className="flex h-24 gap-2 overflow-x-auto">
@@ -207,7 +223,7 @@ const VideoGrid = () => {
   return (
     <div
       ref={gridRef}
-      className="scrollbar-thin grid min-h-0 flex-1 content-center justify-center overflow-y-auto p-3"
+      className={cn('scrollbar-thin grid min-h-0 flex-1 content-center justify-center overflow-y-auto', edge ? 'p-0' : 'p-3')}
       style={{
         gap: VIDEO_GRID_GAP + 'px',
         gridTemplateColumns: layout ? 'repeat(' + layout.columns + ', ' + layout.cellWidth + 'px)' : 'repeat(' + Math.min(2, present.length) + ', minmax(0, 1fr))',
@@ -261,20 +277,29 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
     );
   }
 
+  // A phone held sideways while video is on: the picture takes the whole page, the controls float over it.
+  const immersive = isLandscapePhone.value && anyVideoActive.value && !gameOpen;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-base/40">
-      <div className="flex items-center justify-between px-4 pt-3 text-xs text-text-muted">
-        <span>
-          {voiceStatus.value === 'connected' ? 'Connected' : 'Connecting'} · {elapsed}
-        </span>
-        <button type="button" className={cn('flex items-center gap-1 rounded-sm px-2 py-1 hover:bg-hover hover:text-text-bright', gameOpen && 'text-warning')} onClick={() => setShowGame((value) => !value)}>
-          <Gamepad2 size={14} /> Minigames
-        </button>
-      </div>
+    <div className={cn('relative flex min-h-0 flex-1 flex-col', immersive ? 'bg-black' : 'bg-base/40')}>
+      {!immersive && (
+        <div className="flex items-center justify-between px-4 pt-3 text-xs text-text-muted">
+          <span>
+            {voiceStatus.value === 'connected' ? 'Connected' : voiceStatus.value === 'reconnecting' ? 'Reconnecting (your call stays up)' : 'Connecting'} · {elapsed}
+          </span>
+          <button
+            type="button"
+            className={cn('flex items-center gap-1 rounded-sm px-2 py-1 hover:bg-hover hover:text-text-bright pointer-coarse:py-2.5', gameOpen && 'text-warning')}
+            onClick={() => setShowGame((value) => !value)}
+          >
+            <Gamepad2 size={14} /> Minigames
+          </button>
+        </div>
+      )}
       {gameOpen ? (
         <MinigamePanel channel={channel} onClose={() => setShowGame(false)} />
       ) : anyVideoActive.value ? (
-        <VideoGrid />
+        <VideoGrid edge={immersive} />
       ) : (
         <div className="scrollbar-thin flex flex-1 flex-wrap content-start justify-center gap-3 overflow-y-auto p-4">
           {me && <PeerTile peer={{ id: 'me', name: me.displayName, muted: localMuted.value, deafened: localDeafened.value, speaking: localSpeaking.value, camera: false, screen: false, quality: 'unknown' }} isMe />}
@@ -283,7 +308,7 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
           ))}
         </div>
       )}
-      <Toolbar />
+      <Toolbar overlay={immersive} />
     </div>
   );
 };

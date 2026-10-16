@@ -72,7 +72,7 @@ export const AuthModal = ({ initialMode, dismissable }: AuthModalProps) => {
           role="tab"
           aria-selected={mode === value}
           onClick={() => setMode(value)}
-          className={cn('flex-1 rounded-sm py-1.5 text-sm font-medium transition-colors', mode === value ? 'bg-active text-text-bright' : 'text-text-muted hover:text-text')}
+          className={cn('flex-1 rounded-sm py-1.5 text-sm font-medium transition-colors pointer-coarse:py-2.5', mode === value ? 'bg-active text-text-bright' : 'text-text-muted hover:text-text')}
         >
           {value === 'login' ? 'Sign in' : 'Create account'}
         </button>

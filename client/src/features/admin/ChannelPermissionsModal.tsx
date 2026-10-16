@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Lock, UserMinus, UserPlus } from 'lucide-preact';
-import { Avatar, Button, Field, Modal, Select, TextInput } from '@/components';
+import { Avatar, Button, Field, Modal, Select, TextInput, Toggle } from '@/components';
 import { formatFullDate } from '@/lib/format';
 import { api } from '@/services/socket/api';
 import { channelsById } from '@/state/channels';
@@ -16,10 +16,15 @@ const ChannelSettings = ({ channel }: { channel: Channel }) => {
   const [visibility, setVisibility] = useState<ChannelVisibility>(channel.visibility ?? 'public');
   const [password, setPassword] = useState('');
   const [clearPassword, setClearPassword] = useState(false);
+  const [linkPreviews, setLinkPreviews] = useState(channel.linkPreviews !== false);
   const [error, setError] = useState<string | null>(null);
 
   const dirty =
-    topic.trim() !== (channel.topic ?? '') || visibility !== (channel.visibility ?? 'public') || password.length > 0 || clearPassword;
+    topic.trim() !== (channel.topic ?? '') ||
+    visibility !== (channel.visibility ?? 'public') ||
+    password.length > 0 ||
+    clearPassword ||
+    linkPreviews !== (channel.linkPreviews !== false);
 
   const save = () => {
     if (password && password.length < 4) {
@@ -30,6 +35,7 @@ const ChannelSettings = ({ channel }: { channel: Channel }) => {
     api.updateChannel(channel.id, {
       topic: topic.trim() || null,
       visibility,
+      linkPreviews,
       ...(visibility === 'private' ? (password ? { password } : clearPassword ? { password: null } : {}) : {}),
     });
     setPassword('');
@@ -81,6 +87,14 @@ const ChannelSettings = ({ channel }: { channel: Channel }) => {
       )}
       {visibility === 'public' && channel.visibility === 'private' && (
         <p className="text-xs text-warning">Making the channel public removes its password and member list; everyone will see it.</p>
+      )}
+      {channel.type !== 'voice' && channel.type !== 'screenshare' && (
+        <Toggle
+          label="Link previews"
+          description="Show a card with the title, description and picture of the first link in a message."
+          checked={linkPreviews}
+          onChange={setLinkPreviews}
+        />
       )}
       <div className="mt-2 flex justify-end">
         <Button size="sm" disabled={!dirty} onClick={save}>
@@ -210,7 +224,9 @@ export const ChannelPermissionsModal = ({ channelId }: { channelId: string }) =>
       }
     >
       <div className="flex flex-col gap-3">
-        {can('canEditChannels') && <ChannelSettings key={channel.id + ':' + channel.visibility + ':' + channel.hasPassword + ':' + channel.topic} channel={channel} />}
+        {can('canEditChannels') && (
+          <ChannelSettings key={channel.id + ':' + channel.visibility + ':' + channel.hasPassword + ':' + channel.topic + ':' + channel.linkPreviews} channel={channel} />
+        )}
         {channel.visibility === 'private' && <MembersSection channel={channel} />}
         <PermissionsEditor
           value={draft}

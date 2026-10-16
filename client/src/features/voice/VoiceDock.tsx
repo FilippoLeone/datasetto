@@ -61,7 +61,7 @@ export const VoiceDock = () => {
         <Signal size={16} className={cn(QUALITY_COLOR[overallQuality.value])} />
         <span className="min-w-0 flex-1">
           <span className={cn('block truncate text-xs font-semibold', status === 'connected' ? 'text-success' : 'text-warning')}>
-            {status === 'connected' ? 'Voice connected' : 'Connecting…'}
+            {status === 'connected' ? 'Voice connected' : status === 'reconnecting' ? 'Reconnecting voice…' : 'Connecting…'}
           </span>
           <span className="block truncate text-xs text-text-muted">
             {channel?.name ?? 'voice'} · {participantCount.value} {participantCount.value === 1 ? 'person' : 'people'} · {elapsed}

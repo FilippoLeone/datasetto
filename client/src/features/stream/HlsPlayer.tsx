@@ -7,6 +7,8 @@ import { buildHlsUrlCandidates } from '@/lib/hlsUrls';
 import { runtimeUrls } from '@/lib/runtimeConfig';
 import { serverConfig } from '@/services/ServerConfigService';
 import { Storage } from '@/lib/storage';
+import { isTouchPrimary } from '@/lib/device';
+import { connectionStatus } from '@/state/session';
 import { fetchHlsTicket, HlsTicketError } from './hlsTicket';
 
 type PlayerStatus = 'idle' | 'connecting' | 'playing' | 'buffering' | 'offline' | 'error' | 'denied';
@@ -30,12 +32,22 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
   const hlsRef = useRef<Hls | null>(null);
   const retryRef = useRef<number | null>(null);
   const ticketRef = useRef<string | null>(null);
+  /** Restarts playback (new ticket, reload); set by the player effect, used by the reconnect effect. */
+  const restartRef = useRef<(() => void) | null>(null);
   const [status, setStatus] = useState<PlayerStatus>('idle');
   const [deniedReason, setDeniedReason] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(() => Storage.get<number>(VOLUME_KEY, 0.8));
   const [fullscreen, setFullscreen] = useState(false);
+  // Touch screens have no hover: a tap shows the control bar, which hides again after a few seconds.
+  const touch = isTouchPrimary();
+  const [controlsShown, setControlsShown] = useState(true);
+  const [controlsTick, setControlsTick] = useState(0);
+  const revealControls = () => {
+    setControlsShown(true);
+    setControlsTick((value) => value + 1);
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -152,9 +164,18 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
       if (await obtainTicket()) load(0);
     };
 
+    restartRef.current = () => {
+      if (disposed) return;
+      if (retryRef.current !== null) window.clearTimeout(retryRef.current);
+      retryRef.current = null;
+      destroy();
+      void start();
+    };
+
     void start();
     return () => {
       disposed = true;
+      restartRef.current = null;
       if (retryRef.current !== null) window.clearTimeout(retryRef.current);
       if (renewTimer !== null) window.clearTimeout(renewTimer);
       destroy();
@@ -162,6 +183,17 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
       video.load();
     };
   }, [channelName, live]);
+
+  // The socket came back after a deploy or a network blip: do not sit out the retry timer,
+  // ask for a fresh ticket and pick the live stream up again right away.
+  const connected = connectionStatus.value === 'connected';
+  useEffect(() => {
+    if (!connected || !live) return;
+    if (status === 'playing' || status === 'buffering' || status === 'idle') return;
+    restartRef.current?.();
+    // `status` is read on purpose only when the connection flips: a status change alone must not restart playback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, live]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -176,6 +208,12 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
+
+  useEffect(() => {
+    if (!touch || !controlsShown || status !== 'playing') return;
+    const timer = window.setTimeout(() => setControlsShown(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [touch, controlsShown, controlsTick, status]);
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -227,13 +265,19 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
         }}
         onPause={() => setPaused(true)}
         onWaiting={() => setStatus('buffering')}
-        onClick={togglePlay}
+        onClick={() => (touch ? (controlsShown ? setControlsShown(false) : revealControls()) : togglePlay())}
       />
       {overlay && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 px-6 text-center text-sm font-medium text-white">{overlay}</div>
       )}
       {live && (
-        <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 pt-6 pb-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
+        <div
+          className={cn(
+            'absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 pt-6 pb-1 transition-opacity focus-within:opacity-100',
+            touch ? (controlsShown ? 'opacity-100' : 'pointer-events-none opacity-0') : 'opacity-0 group-hover:opacity-100',
+          )}
+          onPointerDown={() => touch && revealControls()}
+        >
           <IconButton label={paused ? 'Play' : 'Pause'} size="sm" className="text-white hover:bg-white/15" onClick={togglePlay}>
             {paused ? <Play size={18} /> : <Pause size={18} />}
           </IconButton>

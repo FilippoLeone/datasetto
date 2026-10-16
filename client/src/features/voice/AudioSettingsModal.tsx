@@ -2,13 +2,17 @@ import { useEffect, useState } from 'preact/hooks';
 import { Mic } from 'lucide-preact';
 import { Button, Modal, Select, Slider, Toggle } from '@/components';
 import { cn } from '@/lib/cn';
+import { isTouchPrimary } from '@/lib/device';
 import { micLevel, voiceStatus } from '@/state/voice';
 import { SCREEN_QUALITY_OPTIONS } from '@/services/screenCapture';
 import { audioSettings, updateAudioSettings } from '@/state/settings';
 import { closeModal, toast } from '@/state/ui';
+import { GameActivitySection } from '@/features/settings/GameActivitySection';
 import { NotificationsSection } from '@/features/settings/NotificationsSection';
+import { supportsGameActivity } from '@/features/activity/desktopActivity';
 import { supportsVoiceOverlay } from './desktopVoice';
 import { ShortcutCapture } from './ShortcutCapture';
+import { DesktopUpdatesSection } from '@/features/settings/DesktopUpdatesSection';
 import { voiceManager } from './voiceManager';
 import type { OverlayCorner } from './voiceOverlayState';
 import type { AudioSettings, DeviceInfo, ScreenQuality } from '@/types/protocol';
@@ -66,7 +70,7 @@ export const AudioSettingsModal = () => {
   return (
     <Modal
       title="Settings"
-      subtitle={voiceStatus.value === 'connected' ? 'Voice changes apply to your current call.' : 'Voice, audio, screen share and notifications.'}
+      subtitle={voiceStatus.value === 'connected' ? 'Voice changes apply to your current call.' : 'Voice, audio, screen share, game activity and notifications.'}
       onClose={closeModal}
       size="lg"
       footer={
@@ -155,9 +159,11 @@ export const AudioSettingsModal = () => {
           )}
         </section>
 
+        {supportsGameActivity() && <GameActivitySection />}
         <NotificationsSection />
       </div>
-      <p className="mt-2 text-xs text-text-faint">Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings.</p>
+      <DesktopUpdatesSection />
+      {!isTouchPrimary() && <p className="mt-2 text-xs text-text-faint">Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings.</p>}
     </Modal>
   );
 };

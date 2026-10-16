@@ -75,6 +75,8 @@ export interface User {
   avatarUrl?: string | null;
   voiceChannel?: string | null;
   currentChannel?: string | null;
+  /** "Playing <title>": the game their desktop app reports (`presence:activity`), or null. */
+  activity?: string | null;
 }
 
 /** Channel kinds users create; `dm` channels are one-to-one conversations made by the server. */
@@ -114,6 +116,8 @@ export interface Channel {
   /** Members of a private channel (0 for public ones). */
   memberCount?: number;
   lastMessageAt?: number | null;
+  /** Preview cards for links posted here (on unless an admin switched it off). */
+  linkPreviews?: boolean;
   /** For `dm` channels: the other participant. */
   dm?: { peerId: string; peerName: string; peerUsername: string; peerAvatarUrl: string | null } | null;
   count: number;
@@ -153,6 +157,7 @@ export interface UpdateChannelInput {
   topic?: string | null;
   visibility?: ChannelVisibility;
   password?: string | null;
+  linkPreviews?: boolean;
 }
 
 /** One member of a private channel, as listed to admins. */
@@ -173,6 +178,30 @@ export interface ReactionSummary {
   names: string[];
 }
 
+/** A picture on a message. URLs are server-relative and need the media ticket (`lib/media.ts`). */
+export interface Attachment {
+  id: string;
+  kind: 'image';
+  fileName: string;
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  url: string;
+  previewUrl: string;
+  previewWidth: number | null;
+  previewHeight: number | null;
+}
+
+/** The card for the first link of a message. */
+export interface LinkPreview {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  siteName: string | null;
+}
+
 export interface ChatMessage {
   id: string;
   channelId: string;
@@ -186,6 +215,23 @@ export interface ChatMessage {
   edited?: boolean;
   deleted?: boolean;
   reactions?: ReactionSummary[];
+  /** Echo of the sender's queue id (only on the sender's own messages, never stored). */
+  clientId?: string | null;
+  attachments?: Attachment[];
+  preview?: LinkPreview | null;
+}
+
+/** `chat:messageUpdated`: a preview card arrived for, or was removed from, a message. */
+export interface MessageUpdatedEvent {
+  channelId: string;
+  messageId: string;
+  preview?: LinkPreview | null;
+}
+
+/** Signed viewer ticket for pictures (`auth:success` `media`, `media:ticket`). */
+export interface MediaTicket {
+  ticket: string;
+  expiresAt: number;
 }
 
 /** `chat:history:before` answer: the page of history older than a known message. */
@@ -290,9 +336,46 @@ export interface DeviceInfo {
 
 export interface VoicePeerEvent {
   id: string;
+  /** Who is behind the socket; stable across their reconnects. */
+  accountId?: string;
   name: string;
   muted: boolean;
   deafened: boolean;
+  /** Their media session: unchanged while they keep their peer connections, new when they rebuilt. */
+  rtcSessionId?: string | null;
+  /** On a (re)join: the connections they still hold, so we know whether ours to them is still wanted. */
+  holding?: HeldPeerConnection[];
+}
+
+/** One peer connection a client still holds: who, and which media session of theirs. */
+export interface HeldPeerConnection {
+  accountId: string;
+  rtcSessionId: string | null;
+}
+
+export interface VoicePeerLeaveEvent {
+  id: string;
+  accountId?: string | null;
+  /** `replaced`: the same person took the seat over with a new socket (keep the media connection). */
+  reason?: 'left' | 'replaced';
+}
+
+/** Sent to every socket right before a graceful shutdown (a deploy). */
+export interface ServerRestartingEvent {
+  expectedWaitMs: number;
+  reason?: string;
+  at?: number;
+}
+
+/** Acknowledgement of a `chat` emit. */
+export interface ChatAck {
+  success: boolean;
+  messageId?: string;
+  channelId?: string;
+  clientId?: string | null;
+  ts?: number;
+  error?: string;
+  code?: string;
 }
 
 export interface VoiceJoinedEvent {
@@ -311,15 +394,47 @@ export interface ScreenshareSessionEvent {
   channelId: string;
   active: boolean;
   hostId: string | null;
+  /** Who presents; stable across the host's reconnects while `hostId` changes. */
+  hostAccountId?: string | null;
   hostName: string | null;
+  /** The host's media session id: our connection to them is still good while it stays the same. */
+  rtcSessionId?: string | null;
   startedAt: number | null;
   viewerCount: number;
+  /** When `active` is false: a deliberate stop (`host`) or the host's socket going away (`disconnect`). */
+  endedBy?: 'host' | 'disconnect' | null;
 }
 
 export interface ScreenshareSignalEvent {
   from: string;
   data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
   channelId?: string | null;
+}
+
+/** To the host: a viewer took a seat (or is back on a new socket). */
+export interface ScreenshareViewerPendingEvent {
+  channelId: string;
+  viewerId: string;
+  viewerAccountId?: string;
+  viewerName: string;
+  rtcSessionId?: string | null;
+  holding?: HeldPeerConnection[];
+}
+
+/** To a viewer: its seat is confirmed, with the presenter's identity. */
+export interface ScreenshareViewerSeatedEvent {
+  channelId: string;
+  hostId: string;
+  hostAccountId: string | null;
+  hostName: string | null;
+  rtcSessionId: string | null;
+}
+
+/** To a socket whose host or viewer seat another socket of the same account took over. */
+export interface ScreenshareReplacedEvent {
+  channelId: string;
+  role: 'host' | 'viewer';
+  bySocketId: string;
 }
 
 export interface StreamKeyResponse {

@@ -2,6 +2,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import { ArrowLeft, Filter, Hash, MessageCircle, Radio, Search, SearchX, X } from 'lucide-preact';
 import { Avatar, Button, IconButton } from '@/components';
+import { useBackClose } from '@/lib/backStack';
 import { cn } from '@/lib/cn';
 import { formatFullDate, formatRelative } from '@/lib/format';
 import { MOTION, usePresence } from '@/lib/motion';
@@ -34,7 +35,7 @@ const Chip = ({ active, onClick, children, removable, label }: { active?: boolea
     aria-label={label}
     onClick={onClick}
     className={cn(
-      'flex h-6 max-w-48 items-center gap-1 rounded-full border px-2 text-xs transition-colors',
+      'flex h-6 max-w-48 items-center gap-1 rounded-full border px-2 text-xs transition-colors pointer-coarse:h-9 pointer-coarse:px-3 pointer-coarse:text-sm',
       active ? 'border-brand bg-brand-soft text-text-bright' : 'border-border text-text-muted hover:border-border-strong hover:text-text',
     )}
   >
@@ -102,7 +103,10 @@ const ResultRow = ({ result, index }: { result: SearchResult; index: number }) =
           type="button"
           aria-label={'Only messages from ' + result.authorName}
           title={'Only messages from ' + result.authorName}
-          className={cn('shrink-0 rounded-sm p-1 text-text-faint hover:text-text-bright focus:opacity-100 pointer-coarse:opacity-100', active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
+          className={cn(
+            'shrink-0 rounded-sm p-1 text-text-faint hover:text-text-bright focus:opacity-100 pointer-coarse:-my-1 pointer-coarse:p-[13px] pointer-coarse:opacity-100',
+            active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          )}
           onClick={(event) => {
             event.stopPropagation();
             setSearchAuthor({ id: result.authorId!, name: result.authorName });
@@ -228,6 +232,8 @@ export const SearchPanel = () => {
   const phone = isPhone.value;
   const presence = usePresence(open, MOTION.fast);
   const currentChannelId = selectedChannelId.value;
+  // The phone page is a screen of its own: the back button leaves it before leaving the app.
+  useBackClose(open && phone, closeSearch);
 
   // Clicking anywhere else closes the dropdown (the phone page has its own back button).
   useEffect(() => {

@@ -91,6 +91,8 @@ export interface ChannelRecord {
   updatedAt: number;
   /** When the newest message was posted; orders direct messages. */
   lastMessageAt: number | null;
+  /** Fetch a preview card for the first link of each message (on by default). */
+  linkPreviews: boolean;
 }
 
 export interface ChannelMemberRecord {
@@ -117,6 +119,49 @@ export interface ReactionSummary {
   names: string[];
 }
 
+/** An uploaded picture as stored (`message_attachments`). */
+export interface AttachmentRecord {
+  id: string;
+  /** Null until the upload is bound to a message. */
+  messageId: string | null;
+  accountId: string;
+  kind: 'image';
+  fileName: string;
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  storedName: string;
+  previewName: string | null;
+  previewWidth: number | null;
+  previewHeight: number | null;
+  createdAt: number;
+}
+
+/** An attachment as sent to clients: URLs are server-relative and need the viewer's media ticket. */
+export interface AttachmentView {
+  id: string;
+  kind: 'image';
+  fileName: string;
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  url: string;
+  previewUrl: string;
+  previewWidth: number | null;
+  previewHeight: number | null;
+}
+
+/** What the first link of a message pointed at (Open Graph or title/description). */
+export interface LinkPreviewView {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  siteName: string | null;
+}
+
 export interface MessageRecord {
   id: string;
   channelId: string;
@@ -130,6 +175,9 @@ export interface MessageRecord {
   edited: boolean;
   deleted: boolean;
   reactions: ReactionSummary[];
+  attachments: AttachmentView[];
+  /** The link preview card, once fetched and unless the author removed it. */
+  preview: LinkPreviewView | null;
 }
 
 export interface BanRecord {
@@ -160,6 +208,8 @@ export interface ConnectedUser {
   visible: boolean;
   /** When `visible` was last reported (the client heartbeats while visible). */
   visibleAt: number;
+  /** Title of the game the desktop app reports as running (`presence:activity`), or null. */
+  activity: string | null;
 }
 
 /** A Web Push subscription as listed to its owner (keys are never sent back). */
@@ -173,10 +223,17 @@ export interface PushSubscriptionView {
 
 export interface VoiceParticipant {
   id: string;
+  accountId: string;
   name: string;
   muted: boolean;
   deafened: boolean;
   joinedAt: number;
+  /**
+   * The client's id for its current set of peer connections. It survives a
+   * reconnect, so peers can tell "same person, same media session, new socket"
+   * (keep the connection) from "they rebuilt" (negotiate afresh).
+   */
+  rtcSessionId: string | null;
 }
 
 export interface VoiceRoom {
@@ -186,13 +243,32 @@ export interface VoiceRoom {
   participants: Map<string, VoiceParticipant>;
 }
 
+/** A peer connection a client still holds: who, and which media session of theirs. */
+export interface HeldConnection {
+  accountId: string;
+  rtcSessionId: string | null;
+}
+
+export interface ScreenshareViewer {
+  /** Socket id; changes when the viewer reconnects (the seat follows the account). */
+  id: string;
+  accountId: string;
+  displayName: string;
+  rtcSessionId: string | null;
+  /** What the viewer said it still holds when it (re)joined. */
+  holding: HeldConnection[];
+}
+
 export interface ScreenshareSession {
   channelId: string;
+  /** The host's socket id; a reconnecting host takes the seat over with a new one. */
   hostId: string;
   accountId: string | null;
   displayName: string | null;
   startedAt: number;
-  viewers: Set<string>;
+  /** The host's media session id (see VoiceParticipant.rtcSessionId). */
+  rtcSessionId: string | null;
+  viewers: Map<string, ScreenshareViewer>;
 }
 
 export interface ActiveStream {
@@ -227,6 +303,7 @@ export interface ChannelView {
   /** Members of a private channel; 0 for public channels. */
   memberCount: number;
   lastMessageAt: number | null;
+  linkPreviews: boolean;
   /** For `dm` channels: the other participant, as seen by the receiving user. */
   dm?: { peerId: string; peerName: string; peerUsername: string; peerAvatarUrl: string | null } | null;
   count: number;

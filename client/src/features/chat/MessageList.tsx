@@ -1,20 +1,28 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { ArrowDown, Hash, MessageCircle, SmilePlus, Trash2 } from 'lucide-preact';
-import { Avatar, RoleBadge, Spinner } from '@/components';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { AlertCircle, ArrowDown, Clock, Copy, Hash, MessageCircle, SmilePlus, Trash2 } from 'lucide-preact';
+import { Avatar, RoleBadge, Sheet, SheetItem, Spinner } from '@/components';
 import { cn } from '@/lib/cn';
 import { isTouchPrimary } from '@/lib/device';
 import { formatDayLabel, formatFullDate, formatMessageTime, sameDay } from '@/lib/format';
-import { prefersReducedMotion } from '@/lib/motion';
+import { LongPressTracker } from '@/lib/gestures';
+import { MOTION, prefersReducedMotion, usePresence, type PresenceState } from '@/lib/motion';
 import { serverConfig } from '@/services/ServerConfigService';
 import { api } from '@/services/socket/api';
-import { highlightedMessageId, historyExhausted, historyLoading, loadedChannels, messages, scrollTarget } from '@/state/chat';
+import { highlightedMessageId, historyExhausted, historyLoading, loadedChannels, messages, pendingMessages, scrollTarget } from '@/state/chat';
 import { account, can } from '@/state/session';
+import { AttachmentGrid } from './AttachmentGrid';
+import { toast } from '@/state/ui';
 import { EmojiPicker } from './EmojiPicker';
 import { flashMessage, loadOlderMessages } from './history';
+import { LinkPreviewCard } from './LinkPreviewCard';
 import { MessageBody } from './MessageBody';
+import { outbox } from './outboxService';
+import type { PendingMessage } from './outbox';
 import type { Channel, ChatMessage, ReactionSummary } from '@/types/protocol';
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
+/** The row of one-tap reactions at the top of the message sheet. */
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '🔥', '🎉', '👀'];
 
 interface Row {
   message: ChatMessage;
@@ -35,11 +43,19 @@ const buildRows = (list: ChatMessage[]): Row[] => {
   return rows;
 };
 
-/** "Alice, Bob and Carol reacted with 👍" for the chip tooltip. */
+/** "Alice, Bob and Carol reacted with 👍" for the chip tooltip and the sheet. */
 const reactionTitle = (reaction: ReactionSummary): string => {
   const names = reaction.names;
   const list = names.length <= 3 ? names.join(', ').replace(/, ([^,]*)$/, ' and $1') : names.slice(0, 3).join(', ') + ' and ' + (names.length - 3) + ' more';
   return list + ' reacted with ' + reaction.emoji;
+};
+
+/** Add or take back my reaction with this emoji. */
+const toggleReaction = (channelId: string, message: ChatMessage, emoji: string): void => {
+  const me = account.value?.id;
+  const existing = message.reactions?.find((entry) => entry.emoji === emoji);
+  if (existing && me && existing.accountIds.includes(me)) api.removeReaction(channelId, message.id, emoji);
+  else api.addReaction(channelId, message.id, emoji);
 };
 
 const Reactions = ({ message, channelId, onAdd }: { message: ChatMessage; channelId: string; onAdd: () => void }) => {
@@ -59,15 +75,14 @@ const Reactions = ({ message, channelId, onAdd }: { message: ChatMessage; channe
             aria-label={reaction.emoji + ' ' + reaction.count + (mine ? ', you reacted' : '')}
             onClick={(event) => {
               event.stopPropagation();
-              if (mine) api.removeReaction(channelId, message.id, reaction.emoji);
-              else api.addReaction(channelId, message.id, reaction.emoji);
+              toggleReaction(channelId, message, reaction.emoji);
             }}
             className={cn(
-              'flex items-center gap-1 rounded-full border px-1.5 py-px text-xs leading-5 transition-colors',
+              'flex items-center gap-1 rounded-full border px-1.5 py-px text-xs leading-5 transition-colors pointer-coarse:h-8 pointer-coarse:px-2.5 pointer-coarse:text-sm',
               mine ? 'border-brand bg-brand-soft text-text-bright' : 'border-border bg-base/60 text-text-muted hover:border-border-strong hover:text-text',
             )}
           >
-            <span className="text-sm leading-none">{reaction.emoji}</span>
+            <span className="text-sm leading-none pointer-coarse:text-base">{reaction.emoji}</span>
             <span className="tabular-nums">{reaction.count}</span>
           </button>
         );
@@ -80,11 +95,81 @@ const Reactions = ({ message, channelId, onAdd }: { message: ChatMessage; channe
           event.stopPropagation();
           onAdd();
         }}
-        className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-text-faint hover:border-border-strong hover:text-text"
+        className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-text-faint hover:border-border-strong hover:text-text pointer-coarse:h-8 pointer-coarse:w-8"
       >
         <SmilePlus size={13} />
       </button>
     </div>
+  );
+};
+
+interface MessageSheetProps {
+  message: ChatMessage;
+  channelId: string;
+  deletable: boolean;
+  state: PresenceState;
+  onClose: () => void;
+  onMoreReactions: () => void;
+}
+
+/** Long-press menu of a message on touch screens: quick reactions, copy, delete, who reacted. */
+const MessageSheet = ({ message, channelId, deletable, state, onClose, onMoreReactions }: MessageSheetProps) => {
+  const me = account.value?.id;
+  const mine = (emoji: string) => Boolean(me && message.reactions?.some((entry) => entry.emoji === emoji && entry.accountIds.includes(me)));
+  const copy = async () => {
+    onClose();
+    try {
+      await navigator.clipboard.writeText(message.text);
+      toast.success('Message copied');
+    } catch {
+      toast.error('Could not copy the message');
+    }
+  };
+  return (
+    <Sheet title={message.from + ' · ' + formatMessageTime(message.ts)} state={state} onClose={onClose}>
+      <p className="line-clamp-3 px-5 pb-2 text-sm break-words text-text-muted">{message.text}</p>
+      <div className="flex items-center justify-between px-4 py-1" role="group" aria-label="Quick reactions">
+        {QUICK_REACTIONS.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            aria-label={(mine(emoji) ? 'Remove your ' : 'React with ') + emoji}
+            aria-pressed={mine(emoji)}
+            className={cn('flex h-12 w-12 items-center justify-center rounded-full text-2xl active:bg-active', mine(emoji) && 'bg-brand-soft ring-1 ring-brand')}
+            onClick={() => {
+              toggleReaction(channelId, message, emoji);
+              onClose();
+            }}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+      <div role="menu" className="py-1">
+        <SheetItem icon={<SmilePlus size={18} />} label="More reactions…" onSelect={onMoreReactions} />
+        <SheetItem icon={<Copy size={18} />} label="Copy text" onSelect={() => void copy()} />
+        {deletable && (
+          <SheetItem
+            danger
+            icon={<Trash2 size={18} />}
+            label="Delete message"
+            onSelect={() => {
+              api.deleteMessage(channelId, message.id);
+              onClose();
+            }}
+          />
+        )}
+      </div>
+      {(message.reactions?.length ?? 0) > 0 && (
+        <div className="px-5 pt-1 pb-2 text-xs text-text-muted">
+          {message.reactions!.map((reaction) => (
+            <p key={reaction.emoji} className="truncate">
+              {reactionTitle(reaction)}
+            </p>
+          ))}
+        </div>
+      )}
+    </Sheet>
   );
 };
 
@@ -95,32 +180,62 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
   // Briefly lit after jumping here from a search result; the flash is feedback, so it survives reduced motion.
   const highlighted = highlightedMessageId.value === message.id;
   const deletable = own || can('canDeleteAnyMessage');
-  // Touch screens have no hover: a tap on the message toggles its actions.
+  // Touch screens have no hover: a tap on the message toggles its actions, a long press opens the sheet.
   const [active, setActive] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const sheet = usePresence(sheetOpen, MOTION.base);
+  const press = useMemo(
+    () =>
+      new LongPressTracker(() => {
+        setSheetOpen(true);
+        try {
+          navigator.vibrate?.(10);
+        } catch {
+          /* not allowed */
+        }
+      }),
+    [],
+  );
   const pick = (emoji: string) => {
     setPickerOpen(false);
-    const existing = message.reactions?.find((entry) => entry.emoji === emoji);
-    if (existing && me && existing.accountIds.includes(me.id)) api.removeReaction(channelId, message.id, emoji);
-    else api.addReaction(channelId, message.id, emoji);
+    toggleReaction(channelId, message, emoji);
   };
   return (
     <div
       className={cn(
         'message-row group relative flex gap-3 px-4 py-0.5 hover:bg-black/10 pointer-coarse:py-1',
         showHeader && 'mt-3',
-        (active || pickerOpen) && 'is-active',
+        (active || pickerOpen || sheetOpen) && 'is-active',
         highlighted && 'is-highlighted motion-essential',
       )}
-      onClick={() => {
-        if (isTouchPrimary()) setActive((value) => !value);
+      onPointerDown={(event) => {
+        if (event.pointerType === 'touch') press.down(event.clientX, event.clientY, event.pointerId);
+      }}
+      onPointerMove={(event) => press.move(event.clientX, event.clientY, event.pointerId)}
+      onPointerUp={(event) => press.up(event.pointerId)}
+      onPointerCancel={() => press.cancel()}
+      onContextMenu={(event) => {
+        // Android fires contextmenu for a long press; the sheet is the menu here.
+        if (press.fired || press.pending) event.preventDefault();
+      }}
+      onClick={(event) => {
+        if (press.fired) {
+          press.fired = false;
+          event.preventDefault();
+          return;
+        }
+        if (!isTouchPrimary()) return;
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('a, button')) return;
+        setActive((value) => !value);
       }}
     >
       <div className="w-10 shrink-0">
         {showHeader ? (
           <Avatar seed={message.accountId ?? message.from} name={message.from} size={40} />
         ) : (
-          <span className="block pt-1 text-right text-[10px] text-text-faint opacity-0 group-hover:opacity-100 tabular-nums">
+          <span className="message-time block pt-1 text-right text-[10px] text-text-faint opacity-0 group-hover:opacity-100 tabular-nums">
             {formatMessageTime(message.ts).slice(-5)}
           </span>
         )}
@@ -135,7 +250,9 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
             </time>
           </div>
         )}
-        <MessageBody text={message.text} />
+        {message.text && <MessageBody text={message.text} />}
+        <AttachmentGrid attachments={message.attachments} />
+        <LinkPreviewCard preview={message.preview} canRemove={deletable} onRemove={() => api.removePreview(channelId, message.id)} />
         <Reactions message={message} channelId={channelId} onAdd={() => setPickerOpen(true)} />
       </div>
       <div className="message-actions absolute top-0 right-4 flex -translate-y-1/2 rounded-sm bg-elevated shadow-pop">
@@ -143,7 +260,7 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
           type="button"
           aria-label="Add reaction"
           title="Add reaction"
-          className="p-1.5 text-text-muted hover:text-text-bright pointer-coarse:p-2.5"
+          className="p-1.5 text-text-muted hover:text-text-bright pointer-coarse:p-3"
           onClick={(event) => {
             event.stopPropagation();
             setPickerOpen((value) => !value);
@@ -156,7 +273,7 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
             type="button"
             aria-label="Delete message"
             title="Delete message"
-            className="p-1.5 text-text-muted hover:text-live pointer-coarse:p-2.5"
+            className="p-1.5 text-text-muted hover:text-live pointer-coarse:p-3"
             onClick={(event) => {
               event.stopPropagation();
               api.deleteMessage(channelId, message.id);
@@ -166,13 +283,64 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
           </button>
         )}
       </div>
-      {pickerOpen && <EmojiPicker onPick={pick} onClose={() => setPickerOpen(false)} className="absolute top-full right-4 z-30 mt-1" />}
+      {pickerOpen && <EmojiPicker onPick={pick} onClose={() => setPickerOpen(false)} className="absolute top-full right-4 z-30 mt-1" title="React to this message" />}
+      {sheet.mounted && (
+        <MessageSheet
+          message={message}
+          channelId={channelId}
+          deletable={deletable}
+          state={sheet.state}
+          onClose={() => setSheetOpen(false)}
+          onMoreReactions={() => {
+            setSheetOpen(false);
+            setPickerOpen(true);
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+/**
+ * One of our own messages the server has not confirmed yet: "sending" (also while the
+ * socket is down: it goes out on reconnect) or, after 60 s or a refusal, "not sent" with
+ * a retry. Rendered after the confirmed history, in send order.
+ */
+const PendingRow = ({ entry }: { entry: PendingMessage }) => {
+  const me = account.value;
+  const failed = entry.status === 'failed';
+  return (
+    <div className={cn('message-row relative mt-3 flex gap-3 px-4 py-0.5', !failed && 'opacity-60')} data-pending={entry.status} aria-live="polite">
+      <div className="w-10 shrink-0">
+        <Avatar seed={me?.id ?? 'me'} name={me?.displayName ?? 'You'} src={me?.avatarUrl} size={40} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="font-semibold text-text-bright">{me?.displayName ?? 'You'}</span>
+          <span className={cn('flex items-center gap-1 text-xs', failed ? 'text-live' : 'text-text-faint')}>
+            {failed ? <AlertCircle size={12} /> : <Clock size={12} />}
+            {failed ? (entry.error ?? 'Not sent') : 'Sending…'}
+          </span>
+        </div>
+        <MessageBody text={entry.text || (entry.attachmentIds.length === 1 ? '1 picture' : entry.attachmentIds.length + ' pictures')} />
+        {failed && (
+          <div className="mt-1 flex gap-3 text-xs">
+            <button type="button" className="font-semibold text-link hover:underline" onClick={() => outbox.retry(entry.clientId)}>
+              Retry
+            </button>
+            <button type="button" className="text-text-muted hover:text-text-bright hover:underline" onClick={() => outbox.discard(entry.clientId)}>
+              Discard
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
 
 export const MessageList = ({ channel, compact }: { channel: Channel; compact?: boolean }) => {
   const list = messages.value[channel.id] ?? [];
+  const pending = pendingMessages.value[channel.id] ?? [];
   const loaded = loadedChannels.value[channel.id] ?? false;
   const loadingOlder = historyLoading.value[channel.id] ?? false;
   // The channel's first message is on screen: nothing older exists, or the first page was not even full.
@@ -198,7 +366,8 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
   const [showJump, setShowJump] = useState(false);
   // Scroll position to restore after older messages are put in front of the list.
   const anchor = useRef<{ height: number; top: number } | null>(null);
-  const lastId = list[list.length - 1]?.id ?? null;
+  // A message we just sent counts as the newest thing on screen until the server echoes it.
+  const lastId = pending[pending.length - 1]?.clientId ?? list[list.length - 1]?.id ?? null;
 
   const scrollToBottom = (smooth = false) => {
     const node = scrollRef.current;
@@ -217,6 +386,17 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
     if (stickToBottom.current) scrollToBottom();
     else setShowJump(true);
   }, [lastId]);
+
+  // The list got shorter (the on-screen keyboard came up, the phone turned): stay at the newest message.
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottom.current) scrollToBottom();
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   // Older messages were added above: keep what the user was looking at in place.
   useLayoutEffect(() => {
@@ -303,6 +483,9 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
             <MessageRow row={row} channelId={channel.id} />
           </div>
         ))}
+        {pending.map((entry) => (
+          <PendingRow key={entry.clientId} entry={entry} />
+        ))}
       </div>
       {showJump && (
         <button
@@ -312,7 +495,7 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
             setShowJump(false);
             scrollToBottom(true);
           }}
-          className="absolute right-4 bottom-3 flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-xs font-semibold text-white shadow-pop animate-slide-up"
+          className="absolute right-4 bottom-3 flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-xs font-semibold text-white shadow-pop animate-slide-up pointer-coarse:py-2"
         >
           <ArrowDown size={14} /> New messages
         </button>

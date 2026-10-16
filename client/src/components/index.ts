@@ -10,4 +10,6 @@ export { TextInput, TextArea } from './TextInput';
 export { Spinner } from './Spinner';
 export { Menu, type MenuItem } from './Menu';
 export { ToastHost } from './ToastHost';
+export { UpdateNotice } from './UpdateNotice';
 export { Field } from './Field';
+export { Sheet, SheetItem } from './Sheet';

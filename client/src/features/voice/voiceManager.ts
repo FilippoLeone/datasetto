@@ -24,6 +24,7 @@ import {
   micLevel,
   overallQuality,
   pttPressed,
+  rekeyPeer,
   removePeer,
   resetVoiceState,
   setRemoteVideo,
@@ -34,15 +35,34 @@ import {
   voiceStatus,
   type ConnectionQuality,
 } from '@/state/voice';
-import type { AudioSettings, DeviceInfo, VoiceJoinedEvent, VoicePeerEvent, VoiceSignalEvent } from '@/types/protocol';
+import type { AudioSettings, DeviceInfo, HeldPeerConnection, ServerError, VoiceJoinedEvent, VoicePeerEvent, VoicePeerLeaveEvent, VoiceSignalEvent } from '@/types/protocol';
+import { reconcilePeers, type KnownPeer, type RoomPeer, type SelfIdentity } from './peerReconcile';
+import { initialRejoinState, isRejoinPending, PERMANENT_JOIN_ERRORS, reduceRejoin, type RejoinEffect, type RejoinEvent, type RejoinState } from './voiceRejoin';
 
 const JOIN_TIMEOUT_MS = 15_000;
 const SPEAKING_HOLD_MS = 350;
+/** How often the rejoin clock and the stale-peer sweep run while in a call. */
+const CALL_TICK_MS = 5_000;
+/** A friend missing from the room after our rejoin is kept this long while their media still flows. */
+const STALE_PEER_MAX_MS = 60_000;
+/** After a rekey, give the transport this long to recover by itself before asking for an ICE restart. */
+const ICE_RESTART_GRACE_MS = 1_500;
+
+const newRtcSessionId = (): string => {
+  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
+  return 'rtc-' + random;
+};
 
 /**
  * Owns the microphone (AudioService) and the WebRTC mesh (VoiceService) and
  * keeps the voice store in sync with the server. Components only call the
  * public methods below and read signals.
+ *
+ * A lost socket does not end the call: the peer connections are peer to peer
+ * and keep carrying audio. The call goes to `reconnecting`, keeps the
+ * microphone, mute and deafen state, rejoins the room when the socket is back
+ * (voiceRejoin.ts) and reconciles the room's new socket ids with the
+ * connections it still has (peerReconcile.ts).
  */
 class VoiceManager {
   private readonly audio: AudioService;
@@ -55,6 +75,11 @@ class VoiceManager {
   private facingMode: 'user' | 'environment' = 'user';
   private initialized = false;
   private readonly pttSources = { window: false, global: false };
+  /** Our media session id: peers keep their connection to us as long as it does not change. */
+  private rtcSessionId: string | null = null;
+  private rejoin: RejoinState = initialRejoinState;
+  private tickTimer: number | null = null;
+  private readonly iceGraceTimers = new Map<string, number>();
 
   constructor() {
     const settings = audioSettings.value;
@@ -73,11 +98,16 @@ class VoiceManager {
 
     effect(() => {
       updateDesktopVoiceActivity({
-        connected: voiceStatus.value === 'connected',
+        connected: voiceStatus.value === 'connected' || voiceStatus.value === 'reconnecting',
         speaking: localSpeaking.value,
         muted: localMuted.value || localDeafened.value,
       });
     });
+  }
+
+  /** In a call: connected, or holding it together while the socket reconnects. */
+  private inCall(): boolean {
+    return voiceStatus.value === 'connected' || voiceStatus.value === 'reconnecting';
   }
 
   // ------------------------------------------------------------- joining
@@ -89,7 +119,7 @@ class VoiceManager {
     }
     const channel = channelsById.value.get(channelId);
     if (!channel || channel.type !== 'voice') return;
-    if (voiceStatus.value === 'connected' && voiceChannelId.value === channelId) return;
+    if (this.inCall() && voiceChannelId.value === channelId) return;
     if (this.pendingJoin === channelId) return;
 
     if (voiceStatus.value !== 'idle') {
@@ -99,6 +129,7 @@ class VoiceManager {
     try {
       this.voice.prepareAudioPlayback();
       this.pendingJoin = channelId;
+      this.rtcSessionId = newRtcSessionId();
       batch(() => {
         voiceStatus.value = 'connecting';
         voiceChannelId.value = channelId;
@@ -106,7 +137,7 @@ class VoiceManager {
       });
       this.startJoinTimeout(channelId);
       await this.syncMicrophone(true);
-      api.joinVoice(channelId);
+      api.joinVoice(channelId, this.rtcSessionId);
     } catch (error) {
       this.resetLocal();
       sounds.play('error', 0.5);
@@ -124,7 +155,12 @@ class VoiceManager {
 
   private resetLocal(): void {
     this.clearJoinTimeout();
+    this.stopTick();
+    for (const timer of this.iceGraceTimers.values()) window.clearTimeout(timer);
+    this.iceGraceTimers.clear();
     this.pendingJoin = null;
+    this.rtcSessionId = null;
+    this.rejoin = initialRejoinState;
     this.pttSources.window = false;
     this.pttSources.global = false;
     this.voice.stopStatsMonitoring();
@@ -135,9 +171,20 @@ class VoiceManager {
     resetVoiceState();
   }
 
+  /** Android: the persistent notification names the channel and offers Leave (no-op elsewhere). */
+  private syncForegroundService(): void {
+    const channel = voiceChannelId.value ? channelsById.value.get(voiceChannelId.value) : null;
+    void ensureForegroundServiceForVoice({ channelName: channel?.name ?? 'Voice', onLeave: () => void this.leave() });
+  }
+
   private startJoinTimeout(channelId: string): void {
     this.clearJoinTimeout();
     this.joinTimer = window.setTimeout(() => {
+      if (this.rejoin.phase === 'rejoining' && voiceChannelId.value === channelId) {
+        // No answer to the rejoin: the state machine decides whether to try again.
+        this.dispatch({ type: 'joinFailed', at: Date.now(), code: 'TIMEOUT' });
+        return;
+      }
       if (this.pendingJoin === channelId && voiceStatus.value === 'connecting') {
         toast.error('Voice connection timed out. Check your connection and try again.');
         this.resetLocal();
@@ -148,6 +195,128 @@ class VoiceManager {
   private clearJoinTimeout(): void {
     if (this.joinTimer !== null) window.clearTimeout(this.joinTimer);
     this.joinTimer = null;
+  }
+
+  // -------------------------------------------------------------- rejoin
+
+  private dispatch(event: RejoinEvent): void {
+    const step = reduceRejoin(this.rejoin, event);
+    this.rejoin = step.state;
+    for (const effect of step.effects) this.runRejoinEffect(effect);
+  }
+
+  private runRejoinEffect(effect: RejoinEffect): void {
+    if (effect.type === 'rejoin') {
+      if (voiceStatus.value !== 'idle') voiceStatus.value = 'reconnecting';
+      this.startJoinTimeout(effect.channelId);
+      api.joinVoice(effect.channelId, this.rtcSessionId, this.heldConnections());
+      return;
+    }
+    const why =
+      effect.reason === 'timeout'
+        ? 'The connection was down for too long.'
+        : effect.reason === 'attempts'
+          ? 'The server kept refusing the rejoin.'
+          : 'The server refused the rejoin' + (effect.code ? ' (' + effect.code + ')' : '') + '.';
+    toast.warning('You left voice. ' + why + ' Join again when you are ready.', 8000);
+    sounds.play('disconnect', 0.4);
+    this.resetLocal();
+  }
+
+  /** The socket dropped: keep the call, wait for the next sign-in to rejoin. */
+  private onSocketLost(): void {
+    if (voiceStatus.value === 'idle') return;
+    if (voiceStatus.value === 'connecting') {
+      // The join was still in flight: nothing to hold on to.
+      toast.warning('The connection dropped before voice was up. Join again when you are back online.');
+      this.resetLocal();
+      return;
+    }
+    voiceStatus.value = 'reconnecting';
+    this.clearJoinTimeout();
+    this.dispatch({ type: 'socketLost', at: Date.now() });
+    this.startTick();
+  }
+
+  /** Signed in again on a new socket: rejoin the room we were in. */
+  private onAuthenticated(): void {
+    if (!isRejoinPending(this.rejoin)) return;
+    this.dispatch({ type: 'authenticated', at: Date.now() });
+  }
+
+  private startTick(): void {
+    if (this.tickTimer !== null) return;
+    this.tickTimer = window.setInterval(() => this.tick(), CALL_TICK_MS);
+  }
+
+  private stopTick(): void {
+    if (this.tickTimer !== null) window.clearInterval(this.tickTimer);
+    this.tickTimer = null;
+  }
+
+  private tick(): void {
+    if (!this.inCall()) {
+      this.stopTick();
+      return;
+    }
+    const now = Date.now();
+    if (isRejoinPending(this.rejoin)) this.dispatch({ type: 'tick', at: now });
+    // Friends the server no longer lists: keep them while their audio still flows, drop them
+    // once the media path is gone or they stayed away too long.
+    for (const peer of Object.values(voicePeers.value)) {
+      if (peer.staleSince === null || peer.staleSince === undefined) continue;
+      const health = this.voice.peerHealth(peer.id);
+      if (health === 'missing' || health === 'broken' || now - peer.staleSince > STALE_PEER_MAX_MS) {
+        this.voice.removePeer(peer.id);
+        removePeer(peer.id);
+      }
+    }
+  }
+
+  /** What we know about the people we are connected to, for peerReconcile.ts. */
+  private knownPeers(): KnownPeer[] {
+    return Object.values(voicePeers.value).map((peer) => ({ id: peer.id, accountId: peer.accountId ?? null, rtcSessionId: peer.rtcSessionId ?? null, health: this.voice.peerHealth(peer.id) }));
+  }
+
+  /** The connections we still hold, told to the room on a rejoin so a peer we lost offers afresh. */
+  private heldConnections(): HeldPeerConnection[] {
+    return Object.values(voicePeers.value)
+      .filter((peer) => peer.accountId && this.voice.peerHealth(peer.id) !== 'missing')
+      .map((peer) => ({ accountId: peer.accountId as string, rtcSessionId: peer.rtcSessionId ?? null }));
+  }
+
+  private self(): SelfIdentity {
+    return { accountId: account.value?.id ?? null, rtcSessionId: this.rtcSessionId };
+  }
+
+  private roomPeer(peer: VoicePeerEvent): RoomPeer {
+    return { id: peer.id, accountId: peer.accountId ?? '', rtcSessionId: peer.rtcSessionId ?? null, holding: peer.holding };
+  }
+
+  private peerFields(peer: VoicePeerEvent) {
+    return {
+      name: displayNameFor(peer.id, peer.name),
+      muted: Boolean(peer.muted),
+      deafened: Boolean(peer.deafened),
+      accountId: peer.accountId ?? null,
+      rtcSessionId: peer.rtcSessionId ?? null,
+      staleSince: null,
+    };
+  }
+
+  /** Our transport to a kept peer is broken: ask for an ICE restart unless it recovers on its own first. */
+  private restartIceSoon(peerId: string): void {
+    const existing = this.iceGraceTimers.get(peerId);
+    if (existing !== undefined) window.clearTimeout(existing);
+    this.iceGraceTimers.set(
+      peerId,
+      window.setTimeout(() => {
+        this.iceGraceTimers.delete(peerId);
+        if (this.inCall() && this.voice.peerHealth(peerId) === 'broken') {
+          this.voice.restartIce(peerId).catch((error) => console.error('[voice] ICE restart failed', error));
+        }
+      }, ICE_RESTART_GRACE_MS),
+    );
   }
 
   // ------------------------------------------------------------- controls
@@ -180,7 +349,7 @@ class VoiceManager {
     if (!settings.pttEnable || !settings.pttKey) return;
     const shortcut = parseShortcut(settings.pttKey);
     if (!shortcut || !shortcutMatchesEvent(shortcut, event, pressed ? 'down' : 'up')) return;
-    if (voiceStatus.value !== 'connected') return;
+    if (!this.inCall()) return;
     event.preventDefault();
     this.setPushToTalkHeld('window', pressed);
   }
@@ -193,7 +362,7 @@ class VoiceManager {
   setPushToTalkHeld(source: 'window' | 'global', held: boolean): void {
     this.pttSources[source] = held;
     const pressed = this.pttSources.window || this.pttSources.global;
-    if (!audioSettings.value.pttEnable || voiceStatus.value !== 'connected') {
+    if (!audioSettings.value.pttEnable || !this.inCall()) {
       if (pttPressed.value) pttPressed.value = false;
       return;
     }
@@ -210,6 +379,7 @@ class VoiceManager {
     return true;
   }
 
+  /** Tell the room our mute/deafen state; while reconnecting it is re-sent by the rejoin. */
   private announceState(): void {
     if (voiceStatus.value === 'connected') api.setVoiceState(localMuted.value, localDeafened.value);
   }
@@ -390,11 +560,7 @@ class VoiceManager {
   private bindSocket(): void {
     socketClient.on<VoiceJoinedEvent>('voice:joined', (data) => void this.onJoined(data));
     socketClient.on<VoicePeerEvent>('voice:peer-join', (peer) => void this.onPeerJoin(peer));
-    socketClient.on<{ id: string }>('voice:peer-leave', ({ id }) => {
-      this.voice.removePeer(id);
-      removePeer(id);
-      if (voiceStatus.value === 'connected') sounds.play('userLeave', 0.3);
-    });
+    socketClient.on<VoicePeerLeaveEvent>('voice:peer-leave', (event) => this.onPeerLeave(event));
     socketClient.on<VoiceSignalEvent>('voice:signal', (data) => void this.onSignal(data));
     socketClient.on<{ from: string; metadata: { streamId: string; type: 'camera' | 'screen' } }>('voice:stream-metadata', (data) => {
       this.voice.handleStreamMetadata(data);
@@ -413,10 +579,19 @@ class VoiceManager {
       toast.warning(data.reason || 'You were timed out from voice by ' + data.by);
       this.resetLocal();
     });
-    socketClient.on('disconnect', () => {
-      if (voiceStatus.value !== 'idle') {
-        toast.warning('Voice dropped with the connection. Rejoin when you are back online.');
-        this.resetLocal();
+    // Another socket of ours (a second tab) took the seat in this room.
+    socketClient.on<{ channelId: string }>('voice:replaced', () => {
+      if (voiceStatus.value === 'idle') return;
+      toast.info('Voice moved to your other window');
+      this.resetLocal();
+    });
+    socketClient.on('disconnect', () => this.onSocketLost());
+    socketClient.on('auth:success', () => this.onAuthenticated());
+    // A refused `voice:join` arrives on the generic error event; only refusals matter while rejoining.
+    socketClient.on<ServerError>('error', (payload) => {
+      if (this.rejoin.phase !== 'rejoining' || !payload?.code) return;
+      if (PERMANENT_JOIN_ERRORS.has(payload.code) || payload.code === 'VOICE_JOIN_FAILED' || payload.code === 'RATE_LIMITED') {
+        this.dispatch({ type: 'joinFailed', at: Date.now(), code: payload.code });
       }
     });
   }
@@ -466,7 +641,7 @@ class VoiceManager {
     this.audio.on('mic:level', (level) => {
       const value = typeof level === 'number' ? level : 0;
       micLevel.value = value;
-      if (voiceStatus.value === 'connected' && this.shouldTransmit()) {
+      if (this.inCall() && this.shouldTransmit()) {
         this.setLocalSpeaking(value > audioSettings.value.vadThreshold);
       }
     });
@@ -482,12 +657,12 @@ class VoiceManager {
     const resumed = () => {
       this.appActive = true;
       if (voiceStatus.value === 'idle') return;
-      void ensureForegroundServiceForVoice();
+      this.syncForegroundService();
       this.scheduleMicRecovery();
     };
     const paused = () => {
       this.appActive = false;
-      if (voiceStatus.value !== 'idle') void ensureForegroundServiceForVoice();
+      if (voiceStatus.value !== 'idle') this.syncForegroundService();
     };
     document.addEventListener('visibilitychange', () => (document.visibilityState === 'visible' ? resumed() : paused()));
 
@@ -515,35 +690,55 @@ class VoiceManager {
 
   // ------------------------------------------------------- socket events
 
+  /**
+   * The server confirmed our seat, after a fresh join or a rejoin. The room's list is
+   * reconciled with the connections we hold: the same person on a new socket keeps
+   * their connection (rekey), someone who rebuilt theirs or is new waits for an offer
+   * from us only in `onPeerJoin`; here we are the newcomer and they offer.
+   */
   private async onJoined(data: VoiceJoinedEvent): Promise<void> {
     this.clearJoinTimeout();
+    const rejoining = voiceStatus.value === 'reconnecting';
     this.pendingJoin = null;
     const now = Date.now();
     const startedAt = typeof data.startedAt === 'number' && data.startedAt > 0 && data.startedAt <= now ? data.startedAt : now;
+    const actions = reconcilePeers(this.knownPeers(), data.peers.map((peer) => this.roomPeer(peer)), this.self());
+    const byId = new Map(data.peers.map((peer) => [peer.id, peer]));
+
     batch(() => {
       voiceStatus.value = 'connected';
       voiceChannelId.value = data.channelId;
-      voiceStartedAt.value = data.peers.length > 0 ? startedAt : now;
-      const peers: typeof voicePeers.value = {};
-      for (const peer of data.peers) {
-        peers[peer.id] = {
-          id: peer.id,
-          name: displayNameFor(peer.id, peer.name),
-          muted: Boolean(peer.muted),
-          deafened: Boolean(peer.deafened),
-          speaking: false,
-          camera: false,
-          screen: false,
-          quality: 'unknown',
-        };
+      if (!rejoining) voiceStartedAt.value = data.peers.length > 0 ? startedAt : now;
+      for (const action of actions) {
+        switch (action.action) {
+          case 'keep':
+            upsertPeer({ id: action.id, ...this.peerFields(byId.get(action.id)!) });
+            break;
+          case 'rekey':
+            this.voice.rekeyPeer(action.from, action.to);
+            rekeyPeer(action.from, action.to, this.peerFields(byId.get(action.to)!));
+            if (action.restartIce) this.restartIceSoon(action.to);
+            break;
+          case 'rebuild':
+            if (action.from) {
+              this.voice.removePeer(action.from);
+              removePeer(action.from);
+            }
+            upsertPeer({ id: action.to, ...this.peerFields(byId.get(action.to)!), speaking: false, camera: false, screen: false, quality: 'unknown' });
+            break;
+          case 'stale':
+            upsertPeer({ id: action.id, staleSince: voicePeers.value[action.id]?.staleSince ?? now });
+            break;
+        }
       }
-      voicePeers.value = peers;
     });
+    this.dispatch({ type: 'joined', channelId: data.channelId });
 
     this.voice.startStatsMonitoring();
     await this.syncMicrophone();
     this.announceState();
-    void ensureForegroundServiceForVoice();
+    this.syncForegroundService();
+    this.startTick();
 
     const settings = audioSettings.value;
     this.voice.setOutputVolume(settings.outputVol);
@@ -551,15 +746,38 @@ class VoiceManager {
       this.voice.setOutputDevice(settings.spkDeviceId).catch(() => undefined);
     }
 
+    if (rejoining) {
+      toast.success('Voice is back', 2500);
+      return;
+    }
     const channelName = channelsById.value.get(data.channelId)?.name ?? 'voice';
     sounds.play('call', 0.5);
     toast.success('Joined ' + channelName);
   }
 
+  /** Someone (re)joined the room while we are in it: we offer, unless we already hold their connection. */
   private async onPeerJoin(peer: VoicePeerEvent): Promise<void> {
-    if (voiceStatus.value !== 'connected') return;
-    upsertPeer({ id: peer.id, name: displayNameFor(peer.id, peer.name), muted: peer.muted, deafened: peer.deafened });
-    sounds.play('userJoin', 0.3);
+    if (!this.inCall()) return;
+    const [action] = reconcilePeers(this.knownPeers(), [this.roomPeer(peer)], this.self(), { partial: true });
+    if (!action) return;
+    if (action.action === 'keep') {
+      upsertPeer({ id: peer.id, ...this.peerFields(peer) });
+      return;
+    }
+    if (action.action === 'rekey') {
+      this.voice.rekeyPeer(action.from, action.to);
+      rekeyPeer(action.from, action.to, this.peerFields(peer));
+      if (action.restartIce) this.restartIceSoon(action.to);
+      return;
+    }
+    if (action.action !== 'rebuild') return;
+    if (action.from) {
+      this.voice.removePeer(action.from);
+      removePeer(action.from);
+    } else {
+      sounds.play('userJoin', 0.3);
+    }
+    upsertPeer({ id: peer.id, ...this.peerFields(peer) });
     if (this.voice.hasPeer(peer.id)) return;
     try {
       await this.voice.createOffer(peer.id);
@@ -569,8 +787,20 @@ class VoiceManager {
     }
   }
 
+  private onPeerLeave({ id, reason }: VoicePeerLeaveEvent): void {
+    if (reason === 'replaced') {
+      // The same person is taking the seat over with a new socket: their connection stays
+      // until the matching peer-join moves it over (or the sweep drops it).
+      if (voicePeers.value[id]) upsertPeer({ id, staleSince: Date.now() });
+      return;
+    }
+    this.voice.removePeer(id);
+    removePeer(id);
+    if (voiceStatus.value === 'connected') sounds.play('userLeave', 0.3);
+  }
+
   private async onSignal(data: VoiceSignalEvent): Promise<void> {
-    if (voiceStatus.value !== 'connected' || !voicePeers.value[data.from]) return;
+    if (!this.inCall() || !voicePeers.value[data.from]) return;
     try {
       if (data.data.sdp?.type === 'offer') await this.voice.handleOffer(data.from, data.data.sdp);
       else if (data.data.sdp?.type === 'answer') await this.voice.handleAnswer(data.from, data.data.sdp);

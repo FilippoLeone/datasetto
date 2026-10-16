@@ -241,6 +241,53 @@ export const migrations: Migration[] = [
       CREATE INDEX push_subscriptions_account_idx ON push_subscriptions(account_id);
     `,
   },
+  {
+    // Pictures in chat and link previews.
+    // message_attachments: one row per uploaded file. A row is created by the upload
+    // (message_id NULL, owned by account_id) and bound to a message when it is sent;
+    // rows that stay unbound are swept after an hour. Files live under DATA_DIR/uploads
+    // as <stored_name> (the original) and <preview_name> (a resized WebP).
+    // link_previews: what the first link of a message pointed at, cached per URL;
+    // messages.preview_url names the row, preview_removed hides it for one message.
+    // channels.link_previews is the per-channel switch (on by default).
+    version: 11,
+    name: 'attachments_and_link_previews',
+    up: `
+      CREATE TABLE message_attachments (
+        id TEXT PRIMARY KEY,
+        message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        width INTEGER,
+        height INTEGER,
+        stored_name TEXT NOT NULL UNIQUE,
+        preview_name TEXT,
+        preview_width INTEGER,
+        preview_height INTEGER,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX message_attachments_message_idx ON message_attachments(message_id);
+      CREATE INDEX message_attachments_pending_idx ON message_attachments(created_at) WHERE message_id IS NULL;
+
+      CREATE TABLE link_previews (
+        url TEXT PRIMARY KEY,
+        final_url TEXT,
+        title TEXT,
+        description TEXT,
+        image TEXT,
+        site_name TEXT,
+        ok INTEGER NOT NULL DEFAULT 1,
+        fetched_at INTEGER NOT NULL
+      );
+
+      ALTER TABLE messages ADD COLUMN preview_url TEXT;
+      ALTER TABLE messages ADD COLUMN preview_removed INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE channels ADD COLUMN link_previews INTEGER NOT NULL DEFAULT 1;
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

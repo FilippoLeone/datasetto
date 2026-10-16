@@ -49,6 +49,8 @@ const authSuccessPayload = (sctx: SocketContext, account: PublicAccount, isNewAc
   session: { token: sctx.sessionToken, expiresAt },
   // TURN credentials are only ever sent to signed-in users (relay traffic is paid egress).
   ice: sctx.app.turn.iceConfig(),
+  // Signed viewer ticket for pictures in chat (appended to /api/uploads/* URLs as ?t=).
+  media: sctx.app.uploads.issueTicket(account.id),
   ...channelsPayload(sctx.app, requireUser(sctx)),
   isNewAccount,
 });
@@ -106,7 +108,7 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
     socket.emit('auth:success', authSuccessPayload(sctx, account, isNewAccount, expiresAt));
     app.broadcast.users();
     app.broadcast.channels();
-    app.log.info({ socketId: socket.id, accountId: account.id, roles: account.roles, isNewAccount }, 'authenticated');
+    app.runtime.bursts.record('authenticated', { socketId: socket.id, accountId: account.id, roles: account.roles, isNewAccount }, account.id);
   };
 
   handle(

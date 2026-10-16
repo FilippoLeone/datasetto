@@ -22,32 +22,41 @@ the web build served by Caddy needs none of them because everything is same-orig
 ```
 src/
   main.tsx                 bootstrap: runtime config -> socket -> render
-  app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts
-  state/                   signals: session, channels, chat, search, presence, voice, settings, notifications (push status), ui, screenAudio, misc (streams, screenshare, admin, minigame)
+  app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts, connection banner
+  state/                   signals: session, channels, chat, search, presence, voice, settings, activity (game activity), notifications (push status), ui, screenAudio, misc (streams, screenshare, admin, minigame)
   services/
-    socket/                SocketClient (reconnecting socket.io), api (typed emits), bindings (server events -> state)
+    socket/                SocketClient (socket.io with our own reconnect pacing), backoff (exponential backoff + jitter scheduler),
+                           api (typed emits), bindings (server events -> state)
     voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate)
     native/                Electron bridge, Capacitor foreground service and audio routes
     screenCapture          getDisplayMedia / desktop picker capture with system audio, shared by rooms and voice channels
     pushNotifications      Web Push opt-in per browser: permission, service worker, subscription, sync after sign-in
+    uploads                POST /api/uploads over XMLHttpRequest (progress) for pictures in chat
     visibilityHeartbeat    tells the server whether this page is visible (push goes out only when no page is)
     ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs, push
+    updates                update notices: the desktop updater's state, or a daily GET /api/releases on the web and Android
     sounds, AudioNotificationService   synthesised UI sounds
   audio/worklets/          AudioWorklet processors (noise gate)
   features/
     auth/                  sign-in / register gate, profile dialog
     channels/              channel list, create/delete, stream key dialog, confirm dialog
-    chat/                  message list, composer, message rendering (links, mentions), history paging and jump-to-message
+    chat/                  message list, composer (with the picture strip: paste, drop, picker), message rendering (links, mentions),
+                           AttachmentGrid + Lightbox (pictures), LinkPreviewCard, history paging and jump-to-message,
+                           outbox (queue of unconfirmed messages: "sending", failed after 60 s, retry)
     search/                Ctrl+K message search: header box, results panel, debounced queries
     stream/                HLS player + live chat page
-    voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation), voice page, dock, audio settings,
+    voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation, rejoin after a reconnect), voice page, dock,
+                           audio settings, voiceRejoin (rejoin state machine), peerReconcile (keep / rekey / rebuild peer connections),
                            desktopVoice (system-wide push to talk + voice overlay through the Electron bridge), pushToTalkHold, voiceOverlayState
-    screenshare/           presenter/viewer rooms over direct WebRTC
+    screenshare/           presenter/viewer rooms over direct WebRTC, screenshareRejoin (room rejoin state machine)
     minigames/             canvas engine (slither, pacman, fighter) + panel
     admin/                 members, channel permissions, bans
-    settings/              the Notifications section of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
-  components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost
-  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs, shortcut (push-to-talk keys)
+    activity/              "Playing <game>": own entries and report pacing (gameActivity), the Electron bridge wiring (desktopActivity), catalogue tests
+    settings/              the Notifications, Desktop app (automatic updates) and Game activity sections of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
+  components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost, UpdateNotice
+  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs, shortcut (push-to-talk keys),
+                           version comparison (version.ts) and the running version (appVersion.ts),
+                           attachments (composer picture drafts), media (picture URLs with the viewer's ticket)
   types/                   protocol.ts (wire types shared with the server), globals.d.ts (desktop and Capacitor globals)
   styles/app.css           Tailwind v4 theme tokens (dark palette) and the few custom classes
   test/setup.ts            vitest environment (jsdom)
@@ -140,6 +149,88 @@ debounced while you type; the last word matches as a prefix (`pine` finds
   enter/leave motion goes through `lib/motion.ts`, so it respects reduced motion
   like every other dialog.
 
+## Sharing pictures and link previews
+
+- **Attach pictures** by pasting them into the message box, dropping files anywhere
+  in the app, or with the picture button next to the box (on phones the file input
+  offers the camera and the gallery). PNG, JPEG, WebP and GIF up to the server's
+  `UPLOAD_MAX_MB` (10 MB by default), at most 10 per message; anything else is
+  explained in a toast. Each picture appears in a strip above the box with its
+  upload progress, a remove button and a retry on failure (`lib/attachments.ts`
+  holds the strip's state, `services/uploads.ts` the upload). The message goes out
+  once every picture is stored, with or without text.
+- **In the list** a single picture keeps its shape (bounded to 420 × 340), several
+  form a two-column grid of square tiles; the space is reserved from the known
+  size so nothing jumps. The server's resized preview is shown (the original for
+  GIFs so they animate). Clicking opens the **lightbox**: Escape closes, arrow keys
+  step through the message's pictures, Home/End jump, the backdrop closes, "Open
+  original" opens the full file, and focus returns to the thumbnail afterwards.
+  Its enter/leave motion goes through `lib/motion.ts` like every dialog, so it is
+  instant under reduced motion.
+- **Picture URLs** are server-relative and need the viewer's media ticket: it
+  arrives with `auth:success`, `lib/media.ts` appends it (`?t=`) and the socket
+  bindings renew it an hour before it expires. Only people who can read the channel
+  get the bytes, so private channels and direct messages stay private.
+- **Link previews**: the first link of a message gets a compact card (site, title,
+  description, thumbnail) when the server has fetched it; it arrives a moment after
+  the message (`chat:messageUpdated`) or at once for a link seen recently. The
+  author (or a moderator) can remove the card with its × ; admins switch previews
+  off per channel in the channel's permissions dialog ("Link previews").
+
+## Staying connected through a deploy or a flaky link
+
+A dropped socket is not an event for the person using the app. What happens
+(`services/socket/client.ts`, `services/socket/bindings.ts`):
+
+- **Reconnect pacing** is ours, not socket.io's: exponential backoff from 1 s,
+  doubling, capped at 30 s, with jitter (`services/socket/backoff.ts`). The
+  server's `server:restarting {expectedWaitMs}` notice (sent right before a
+  deploy stops it) replaces the first wait; the browser's `online` event, the
+  page becoming visible again and the banner's "Retry now" retry at once;
+  while the browser reports no network, attempts are held.
+- **The banner** (`app/ConnectionBanner.tsx`) is a thin strip at the top,
+  never a modal: "The server is restarting. Back in about 10 s", "Connection
+  lost. Attempt 3 in 4 s", "No internet connection", each with "Retry now".
+  The rest of the app stays usable.
+- **Resume** re-presents the stored session token on every connect. The server
+  treats it as the same login (nobody else is signed out), re-sends the
+  channel list, and the client reopens the channel it had open.
+- **Chat typed while offline** goes into the outbox (`features/chat/outbox.ts`)
+  and shows in the list right away as "Sending…"; it goes out in order on the
+  next sign-in, each message acknowledged by the server and swapped for the
+  echoed copy (matched by `clientId`). A message the server has not confirmed
+  after 60 s, or refused, turns into "Not sent" with Retry and Discard. The
+  composer never locks.
+- **Voice calls keep going.** The audio runs peer to peer, so the socket going
+  away changes nothing you can hear: the call shows "Reconnecting voice…",
+  keeps the microphone, mute, deafen and push-to-talk state, and on the next
+  sign-in `voiceManager` rejoins the room (`features/voice/voiceRejoin.ts`:
+  up to six attempts, giving up after 90 s away or on a permanent refusal).
+  The room's new socket ids are matched with the connections still held
+  (`features/voice/peerReconcile.ts`): the same person with the same media
+  session keeps their connection, moved to the new id, with an ICE restart
+  only if the transport broke; someone who rebuilt or who is new is
+  negotiated afresh. Friends the server no longer lists stay for up to a
+  minute while their audio still flows.
+- **Live streams** (`features/stream/HlsPlayer.tsx`) ask for a fresh ticket
+  and reload the playlist as soon as the socket is back, instead of waiting
+  for the retry timer.
+- **Screenshare rooms keep going too** (`features/screenshare/screenshareService.ts`,
+  state machine in `screenshareRejoin.ts`): the presenter keeps capturing and the
+  viewers keep their picture while the socket is down; on the next sign-in the
+  presenter starts hosting again with the same media session id and each viewer
+  joins again, telling the server what it still holds. The host matches every
+  `viewer:pending` with the connection it has to that person (same media session
+  and they still hold ours: kept, moved to the new socket id, ICE restart if it
+  broke; otherwise a fresh offer), and a viewer follows the presenter's new socket
+  id from the room event or its seat confirmation. A viewer whose presenter
+  vanished waits up to a minute with the last picture before giving up; a
+  different presenter in the room is watched instead.
+
+The backoff schedule, the outbox and the rejoin state machines are unit tested
+(`backoff.test.ts`, `outbox.test.ts`, `voiceRejoin.test.ts`, `peerReconcile.test.ts`,
+`screenshareRejoin.test.ts`).
+
 ## Push to talk and the voice overlay while gaming
 
 - Push to talk (Voice & audio settings > Transmission) records a key or a combination such as `Ctrl + Shift + F9`
@@ -157,6 +248,89 @@ debounced while you type; the last word matches as a prefix (`pine` finds
   Hold to talk / Live state, at most eight rows plus a "+N more" line. It is hidden outside voice and in the browser.
   Both the shortcut helpers and the overlay state are unit tested; everything feature-detects the bridge so a
   browser, a phone or an older desktop shell keeps working.
+
+## Update notices
+
+`services/updates.ts` runs at boot and `components/UpdateNotice.tsx` shows a small card in the bottom
+corner when a newer version exists; it can be closed and comes back only for a newer version than the one
+closed (`datasetto.updates.dismissed.v1`). It is never a dialog, so a call is not interrupted.
+
+- **Desktop app**: the Electron shell checks GitHub Releases itself (`desktop/updater.js`) and pushes its
+  state over `window.desktopAPI.onUpdateState`; `state/updates.ts` keeps it for the card ("Version x is
+  ready, restart to update" with a restart button, or "Version x is available" with a download button on
+  builds that cannot install themselves) and for **Settings > Desktop app** (`features/settings/`), which
+  has the automatic-updates switch and a **Check now** button.
+- **Web and Android**: once a day (`isReleaseCheckDue`, remembered in `datasetto.updates.checkedAt.v1`)
+  the client fetches `GET /api/releases` from the server, which caches the latest GitHub release, and
+  compares `version` with the version this build was made from (`lib/appVersion.ts`: `VITE_APP_VERSION`,
+  on Android the app's versionName). On the web the card offers a reload and a link to the downloads page;
+  on Android it links to the APK. Without a build version (a local `npm run dev` or `npm run build`) no
+  check runs.
+- `VITE_APP_VERSION` is set by the release workflow from the tag for the desktop and Android bundles, and
+  by the image workflow for the web image (the release tag, or `git describe` for a branch build, which
+  sorts below the next release). Set it yourself for a custom deployment (`ops/caddy/Dockerfile` takes it as
+  the `APP_VERSION` build argument).
+- `lib/version.ts` compares versions numerically (`0.1.10` > `0.1.9`, pre-release and `git describe`
+  suffixes sort below the plain release); unit tests cover it and the notice state.
+
+## Game activity ("Playing <game>")
+
+Desktop app only, off by default. Settings > Game activity > "Show what I'm playing" asks the Electron shell to
+read the names of the running programs every 20 s (with the operating system's own process-list tool, nothing
+injected or hooked; `desktop/README.md` has the full account for the anti-cheat question) and to report the title
+it matches in its bundled catalogue or in your own entries. `features/activity/desktopActivity.ts` keeps the shell
+configured (`configureGameActivity`, sent at start-up and on every change), mirrors the detection into
+`state/activity.ts` (`detectedGame`) and sends it to the server as `presence:activity {title}` through
+`features/activity/gameActivity.ts`'s reporter: only changes, never more than one per 11 s (the server accepts one
+per 10 s), repeated after every `auth:success` because a new socket starts at null. What leaves the machine is that
+title and nothing else; the server broadcasts it as the `activity` field of `user:update`, and `MemberList` and the
+voice tiles show "Playing <title>" with a controller icon.
+
+The section explains all this in place, shows what is detected right now and keeps "Your own games": pick a program
+from the list the shell reads on your machine (shown only there; launchers and Windows system processes are left
+out) and give it a title. Own entries win over the catalogue, so a catalogue title can be renamed too. Settings
+live in `localStorage` (`datasetto.gameActivity.v1`); `gameActivity.ts` (normalisation, add/remove, the reporter)
+and `catalogue.test.ts` (the shell's matcher and catalogue, loaded from `desktop/games/`) are unit tested. In a
+browser, on a phone or with an older desktop shell the section is not shown and nothing is sent.
+
+## On a phone
+
+Phones (under 768 px, or any touch screen shorter than 500 px, which is a phone held sideways)
+get the channel and member drawers, the bottom toolbar and touch behaviour that the desktop
+layout never sees: `state/ui.ts` keeps `isPhone`, `isLandscapePhone` and `keyboardOpen`, and the
+styles use Tailwind's `pointer-coarse:` variant, so a desktop window of the same size is untouched.
+
+- **Targets.** Every control is at least 40 px on a coarse pointer: icon and text buttons, channel
+  rows and their options, dialog close, chips, sliders (a 28 px hit area with a 24 px thumb) and
+  switch rows (the whole label toggles, not only the switch).
+- **Sheets instead of pop-ups.** `components/Sheet.tsx` is a bottom sheet rendered into `<body>`.
+  On touch screens `Menu` (channel options, members, voice peers) and `EmojiPicker` render as
+  sheets, so nothing is clipped by a scroll container or too small to hit.
+- **Messages.** A long press (450 ms, `lib/gestures.ts`) opens the message sheet: six quick
+  reactions, more reactions, copy text, delete when allowed, and who reacted. A tap still shows
+  the hover actions and the time of a grouped message. Text selection is off on message rows on
+  touch screens so the long press is not a selection; "Copy text" replaces it.
+- **Drawers.** Swipe right in the main area for the channel drawer, left for the member drawer,
+  and the opposite way on an open drawer to close it (`app/useDrawerSwipe.ts`; the thresholds and
+  the drawer rules in `lib/gestures.ts` are unit tested). A closed drawer is `inert`.
+- **Back closes panels.** `lib/backStack.ts` keeps a stack of open panels (sheets, pickers,
+  dialogs, the search page, the admin area, drawers). Android back (Capacitor) pops it before the
+  app goes to the background; on touch browsers every panel is a history entry, so the browser's
+  back button and gesture do the same instead of leaving the app. Desktop browsers get no history
+  entries.
+- **Keyboard.** While a text field has the focus and the viewport shrank (`lib/keyboard.ts`) the
+  bottom toolbar hides and the message list keeps the newest message in view (a ResizeObserver
+  re-sticks it to the bottom). Dialogs do not auto-focus their first field on touch screens, so
+  the keyboard waits for a tap. `index.html` asks for `interactive-widget=resizes-content`.
+- **Landscape.** A phone held sideways keeps the drawers, loses the bottom toolbar (the header has
+  the same buttons), shows a voice channel with video edge to edge with the call controls floating
+  over the picture, and puts the stream chat beside the player.
+- **Player.** The stream player's bar shows on a tap and hides after three seconds of playback.
+- **Install.** `services/installPrompt.ts` catches Chrome's `beforeinstallprompt`; the channel
+  drawer then shows an "Install Datasetto" card, and iOS Safari gets the Share > Add to Home
+  Screen steps. "Not now" hides it for two weeks (`lib/installPrompt.ts`, tested). The manifest
+  and icons live in `public/`.
+- **Cropper.** The avatar cropper takes a two-finger pinch to zoom next to drag, wheel and the slider.
 
 ## Conventions
 

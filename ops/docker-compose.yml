@@ -48,6 +48,10 @@ services:
     build:
       context: ../server
     restart: unless-stopped
+    # Graceful shutdown (server/src/shutdown.ts): clients are told, sockets closed, SQLite
+    # checkpointed, exit within 10 s. Docker waits this long before SIGKILL; the systemd unit
+    # that ops/vps/install.sh writes allows 90 s for the whole stack.
+    stop_grace_period: 15s
     env_file:
       - .env
     environment:
@@ -61,6 +65,8 @@ services:
       STREAM_MAX_BITRATE_KBPS: ${STREAM_MAX_BITRATE_KBPS:-6000}
       STREAM_MONTHLY_EGRESS_GB: ${STREAM_MONTHLY_EGRESS_GB:-150}
       HLS_TICKET_SECRET: ${HLS_TICKET_SECRET:-}
+      # What clients are told to wait on a deploy: the new container's start plus its health start period.
+      RESTART_EXPECTED_WAIT_SECONDS: ${RESTART_EXPECTED_WAIT_SECONDS:-10}
       DATABASE_PATH: /data/datasetto.db
     volumes:
       - app_data:/data

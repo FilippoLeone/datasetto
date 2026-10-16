@@ -27,6 +27,8 @@ interface ImportMetaEnv {
   readonly VITE_VOICE_VAD_THRESHOLD?: string;
   readonly VITE_NOISE_REDUCTION_LEVEL?: string;
   readonly VITE_SITE_URL?: string;
+  /** Release version this bundle was built from (set by CI from the tag); empty in local builds. */
+  readonly VITE_APP_VERSION?: string;
   readonly DEV: boolean;
   readonly PROD: boolean;
   readonly MODE: string;
@@ -72,6 +74,14 @@ interface DesktopAPI {
   getLogPath: () => Promise<string>;
   openLogFile: () => Promise<unknown>;
   log: (level: string, ...args: unknown[]) => void;
+  /** Updater bridge; absent in desktop shells older than the updater. */
+  getUpdateState?: () => Promise<DesktopUpdateState>;
+  setAutoUpdate?: (enabled: boolean) => Promise<DesktopUpdateState>;
+  checkForUpdates?: () => Promise<DesktopUpdateState>;
+  /** Quit and install a downloaded update (`status === 'ready'`). */
+  installUpdate?: () => Promise<boolean>;
+  /** Subscribe to state changes; returns the unsubscribe function. */
+  onUpdateState?: (listener: (state: DesktopUpdateState) => void) => () => void;
 
   // Added with the gaming features; shells built before them lack these members, so
   // every caller feature-detects them (see features/voice/desktopVoice.ts).
@@ -94,6 +104,33 @@ interface DesktopAPI {
   configureVoiceOverlay?: (options: { enabled: boolean; corner: DesktopOverlayCorner }) => Promise<unknown>;
   /** What the overlay shows; `null` while not in voice (the window is hidden then). */
   updateVoiceOverlay?: (state: DesktopVoiceOverlayState | null) => void;
+
+  // Game activity ("Playing <game>"), also optional: see features/activity/desktopActivity.ts.
+
+  /**
+   * Apply the game activity settings. While `enabled`, the shell reads the names of the
+   * running programs every 20 s with the operating system's own tool and reports only
+   * the title matched in its catalogue or in `custom`. Resolves once a first scan ran.
+   */
+  configureGameActivity?: (options: DesktopGameActivityConfig) => Promise<DesktopGameActivityStatus>;
+  /** Lower-cased names of the running programs for the picker (no launchers, no system processes); never sent anywhere. */
+  listProcesses?: () => Promise<{ processes: string[]; error?: string }>;
+  /** The matched title changed (`null`: no listed game runs, or the feature is off). Returns an unsubscribe function. */
+  onGameActivity?: (handler: (event: { title: string | null }) => void) => () => void;
+}
+
+interface DesktopGameActivityConfig {
+  enabled: boolean;
+  /** The user's own entries: lower-cased executable name and the title to show. */
+  custom: Array<{ exe: string; title: string }>;
+}
+
+interface DesktopGameActivityStatus {
+  enabled: boolean;
+  /** Title found by the scan that ran on configure, or null. */
+  title: string | null;
+  /** Games in the shell's bundled catalogue. */
+  catalogueSize: number;
 }
 
 interface DesktopShortcutStatus {
@@ -126,6 +163,27 @@ interface DesktopVoiceOverlayState {
 }
 
 declare global {
+  /**
+   * What the Electron shell's updater (desktop/updater.js) is doing.
+   * `self`: the app installs updates itself (Windows installer, Linux AppImage/deb).
+   * `notice`: it can only announce a newer version (macOS, the portable Windows build).
+   * `off`: unpackaged development run.
+   */
+  interface DesktopUpdateState {
+    autoUpdate: boolean;
+    mode: 'self' | 'notice' | 'off';
+    status: 'idle' | 'checking' | 'downloading' | 'ready' | 'available' | 'none' | 'error';
+    currentVersion: string;
+    /** The newer version, when there is one. */
+    version: string | null;
+    /** Download progress in percent while `downloading`. */
+    percent: number | null;
+    /** Where to get the newer version in `notice` mode. */
+    url: string | null;
+    error: string | null;
+    checkedAt: number | null;
+  }
+
   interface Window {
     datasettoDesktopConfig?: DatasettoDesktopConfig;
     desktopAPI?: DesktopAPI;

@@ -1,6 +1,6 @@
 # Datasetto Desktop
 
-Electron shell around the Datasetto web client (`client/`, Preact + Vite). It loads the production bundle from `renderer/` and adds what a browser tab cannot do: a native screen picker with system audio, a tray icon that mirrors your voice state, native notifications, links that open in the system browser, and for gaming a push-to-talk key that works while another window has focus plus a small always-on-top voice overlay.
+Electron shell around the Datasetto web client (`client/`, Preact + Vite). It loads the production bundle from `renderer/` and adds what a browser tab cannot do: a native screen picker with system audio, a tray icon that mirrors your voice state, native notifications, links that open in the system browser, for gaming a push-to-talk key that works while another window has focus plus a small always-on-top voice overlay, and automatic updates from GitHub Releases, and for gaming a push-to-talk key that works while another window has focus, a small always-on-top voice overlay and an opt-in "Playing <game>" status read from the names of running programs.
 
 ## Prerequisites
 
@@ -57,13 +57,26 @@ npm run build
 
 During packaging the build script also regenerates the desktop icon (PNG + ICO) from a simple Datasetto monogram and clears old release artifacts. The outputs appear in `desktop/release/`, named after the version in `package.json` (`Datasetto-<version>-<os>-<arch>.<ext>`):
 
-- Windows: `Datasetto-<version>-win-x64.exe` and `win-unpacked/`
+- Windows: `Datasetto-<version>-win-x64.exe` (installer), `Datasetto-Portable-<version>-win-x64.exe` and `win-unpacked/`
 - Linux: `Datasetto-<version>-linux-x86_64.AppImage` and `Datasetto-<version>-linux-amd64.deb`
 - macOS: `Datasetto-<version>-mac-arm64.dmg`
+- The updater metadata next to them: `latest.yml` (Windows), `latest-mac.yml`, `latest-linux.yml` and one `.blockmap` per installer. electron-builder writes them because `build.publish` names the GitHub repository; `--publish never` in the build script keeps it from uploading anything itself.
 
 > **Tip:** `npm run build` already chains `build:renderer`, `prepare:renderer`, icon generation, and a cleanup step before calling `electron-builder`, so you can run it directly when you want a packaged `.exe`/`.dmg`/AppImage. `npm run release` (or `release:win`, `release:linux`, `release:mac`) wraps the same steps for multi-platform builds.
 
-The published installers come from `.github/workflows/release.yml`: on every GitHub release it runs these same steps on Windows, Linux and macOS runners, sets the package version from the release tag (`v0.1.9` → `0.1.9`) and attaches the files to the release.
+The published installers come from `.github/workflows/release.yml`: on every GitHub release it runs these same steps on Windows, Linux and macOS runners, sets the package version from the release tag (`v0.1.9` → `0.1.9`) and attaches the installers together with the `latest*.yml` and `.blockmap` files to the release. The metadata must sit next to the installers in the release, that is what installed apps read.
+
+## Automatic updates
+
+The packaged app keeps itself current through [electron-updater](https://www.electron.build/auto-update) and the releases of `FilippoLeone/datasetto` (`updater.js`):
+
+- It checks 20 seconds after launch and every 4 hours. On Windows (installed) and Linux (AppImage, deb) the new installer downloads in the background and a small card in the app says "Version x is ready, restart to update" with a restart button. Nothing is installed while the app runs and no dialog interrupts a call: the update is applied on that restart, or silently on the next quit.
+- macOS builds are not code signed, so they cannot replace themselves; the portable Windows executable cannot either. Those builds only read the release metadata and show "Version x is available" with a button that opens the release page.
+- **Settings > Desktop app** has the **Automatic updates** switch (on by default; stored in `desktop-settings.json` in the user-data folder), the running version, the updater status and a **Check now** button that works with the switch off too.
+- Everything the updater does is in the desktop log with the `[Updater]` prefix (`Ctrl+Shift+L` reveals the file).
+- `DATASETTO_UPDATE_REPO=owner/repo` points the updater at another GitHub repository (a fork, or a test repository with a release of a higher version). Unpackaged runs (`npm start`, `npm run dev`) never check.
+
+The feed is the public GitHub provider: electron-updater reads the repository's releases feed, downloads `latest.yml` (or `latest-mac.yml` / `latest-linux.yml`) from the newest release and then the installer named in it. Draft releases are not visible to it and pre-releases are skipped. A release without the metadata files is reported as an error in the log and ignored.
 
 To tweak the icon artwork, edit `scripts/generate-icon.mjs` (it uses `pngjs` to draw a gradient monogram) and rerun `npm run generate:icon`.
 
@@ -82,12 +95,28 @@ Both features are plain operating-system facilities. Nothing is injected into ot
 
 **Voice overlay.** A frameless, transparent, always-on-top window (`overlay/`) in a corner of the primary display shows the voice channel, every participant with a speaking ring and mute/deafen icons, and your own state (Muted, Deafened, Hold to talk, Live). It ignores the mouse (`setIgnoreMouseEvents`), never takes focus, is excluded from screen captures (`setContentProtection`, so it does not show up in your own screen share) and is hidden from the screen share picker. The client feeds it over IPC from its voice state and hides it when you leave voice; the toggle and the corner live in Voice & audio settings. Because it is an ordinary window, games running in **exclusive fullscreen** cover it; borderless (windowed fullscreen) and windowed games show it.
 
+## Game activity: "Playing <game>"
+
+Off by default. Settings > Game activity > "Show what I'm playing" turns it on; friends then see "Playing <game>" under your name in the member list and on your voice tile while a known game runs.
+
+**What the app does, exactly.** Every 20 seconds, while the switch is on, the main process runs the operating system's own process-list tool and keeps nothing but the lower-cased executable names: `tasklist /FO CSV /NH` on Windows (PowerShell `Get-Process` names if that fails), `ps -axo comm=` on macOS and Linux. That is the same public list Task Manager, Activity Monitor or `ps` show to any user. The names are compared with `games/catalogue.json` (a few hundred common PC games, executable name to title, plus a list of launchers that never count as a game) and with your own entries, and only the matched title, or nothing, is handed to the client over IPC (`activity:detected`). The client sends that title to the server as `presence:activity {title}` (`null` when the game ends), at most once every 10 seconds; the server keeps it on your connection in memory, broadcasts it with the online list and drops it when you disconnect. Nothing is persisted.
+
+**What the app does not do, for the anti-cheat question.** It opens no handle to another process, reads no memory of any process, does not enumerate, inspect or subclass other windows, installs no keyboard, mouse or window hooks, injects no DLL or code, loads no driver and never touches a game's files or input. The only system call involved is spawning `tasklist`/`ps` as a child process and reading its text output, exactly what a script in a terminal would do. Anti-cheat systems watch for processes that attach to, hook or read the game; a program that lists process names is an ordinary application to them, and Datasetto stays one with this feature on. Your process list never leaves your machine: the client only ever sees the matched title, the server only ever receives that title.
+
+**Your own entries.** For a game that is not in the catalogue, Settings > Game activity > "Add a game" shows the names of the programs running right now (read on your machine for the picker, shown only there, launchers and Windows system processes left out); pick the game's program and give it a name. Own entries win over the catalogue, so you can also rename a catalogue title. Minecraft (Java) runs as `javaw.exe`, for instance. Entries are stored in the client's local storage (`datasetto.gameActivity.v1`) and sent to the shell on every start and change, up to 50 of them, titles of up to 64 characters. The catalogue lives in `games/catalogue.json` (keys lower-cased); on Linux the 15-character `comm` names `ps` reports are matched as prefixes, and a few native Linux executables are listed too.
+
+The matcher and the parsers are plain CommonJS in `games/match.js`, with no Electron in them, so the client's unit tests (`client/src/features/activity/catalogue.test.ts`) exercise them and the catalogue as shipped.
+
 ## Project structure
 
 ```
 desktop/
-├─ main.js              # Electron main process: window, tray, notifications, screen picker, global push to talk, voice overlay, IPC
+├─ main.js              # Electron main process: window, tray, notifications, screen picker, global push to talk, voice overlay, game activity, IPC
 ├─ preload.js           # contextBridge: window.desktopAPI + window.datasettoDesktopConfig
+├─ updater.js           # electron-updater wiring: GitHub feed, background download, notices, the on/off setting
+├─ games/
+│  ├─ catalogue.json    # Executable name -> game title, plus launchers that never count
+│  └─ match.js          # Process-list parsing and matching (pure, unit-tested from client/)
 ├─ picker/              # Screen/window picker window (HTML + preload)
 ├─ overlay/             # Always-on-top voice overlay window (HTML + preload)
 ├─ renderer/            # Copied Vite build output (generated, git-ignored)
@@ -104,9 +133,10 @@ desktop/
 
 `preload.js` exposes two globals through `contextBridge`; the typed contract lives in `client/src/types/globals.d.ts` and must stay in sync with the preload:
 
-- `window.desktopAPI`: `getInfo`, `getRuntimeConfig`, `showNotification`, `checkNotificationPermission`, `updateVoiceActivity` (tray icon state), `pickScreenshareSource` (native picker, returns the chosen `desktopCapturer` source and whether to share system audio), `openExternal`, `getLogPath`, `openLogFile`, `log`.
+- `window.desktopAPI`: `getInfo`, `getRuntimeConfig`, `showNotification`, `checkNotificationPermission`, `updateVoiceActivity` (tray icon state), `pickScreenshareSource` (native picker, returns the chosen `desktopCapturer` source and whether to share system audio), `openExternal`, `getLogPath`, `openLogFile`, `log`, and the updater: `getUpdateState`, `setAutoUpdate`, `checkForUpdates`, `installUpdate`, `onUpdateState` (the state shape is `DesktopUpdateState` in `globals.d.ts`; the client feature-detects these, so older shells simply show no update section).
   The picker (`picker/`) is a modal window styled like the client (tokens copied from `client/src/styles/app.css`): tabs for entire screens and windows, thumbnails refreshed every two seconds while it is open, display size on screen cards, a "Share system audio" switch, and arrow/Enter/Escape keyboard control. The client may pass `{ audio, quality: { width, height, fps, label } }`; the quality is only shown as a hint in the footer and the result object is unchanged.
   Gaming additions, all optional on the client side (it feature-detects them, so a client paired with an older shell simply has no background key and no overlay): `setPushToTalkShortcut(accelerator | null)` returns `{ accelerator, registered, error? }` (`taken` or `invalid`), `checkPushToTalkShortcut(accelerator)` returns `{ available }` without changing the registration, `onPushToTalkPressed(handler)` delivers `{ accelerator, at }` for every press (and OS key repeat) and returns an unsubscribe function, `configureVoiceOverlay({ enabled, corner })` and `updateVoiceOverlay(state | null)` with the state shape described in `client/src/types/globals.d.ts` (`DesktopVoiceOverlayState`). The accelerator is an Electron accelerator string such as `Control+Shift+F9`, built by `client/src/lib/shortcut.ts`. IPC channels: `ptt:set`, `ptt:check`, `ptt:pressed`, `overlay:configure`, `overlay:state`, `overlay:size` (the overlay page reports its height so the window hugs the card).
+  Game activity, also optional and feature-detected (`client/src/features/activity/desktopActivity.ts`): `configureGameActivity({ enabled, custom: [{ exe, title }] })` applies the settings and resolves with `{ enabled, title, catalogueSize }` after an immediate scan; `listProcesses()` resolves with `{ processes }`, the lower-cased names of the running programs for the picker (launchers, Windows system processes and the app itself left out); `onGameActivity(handler)` delivers `{ title }` whenever the matched title changes and returns an unsubscribe function. The shell forgets the settings on every page load (reload, window closed), so the client sends them again at start-up. IPC channels: `activity:configure`, `activity:processes`, `activity:detected`.
 - `window.datasettoDesktopConfig`: `{ serverUrl, apiBaseUrl, hlsBaseUrl, rtmpServerUrl }`, read by `client/src/lib/runtimeConfig.ts` before the build-time `VITE_*` fallbacks.
 
 The client uses these helpers from `client/src/services/native/desktop.ts` and `client/src/features/screenshare/screenshareService.ts`; every call is a no-op in a plain browser.
@@ -117,12 +147,13 @@ The client uses these helpers from `client/src/services/native/desktop.ts` and `
 - Remote voices are played through the renderer's `AudioContext` (a `MediaStreamSource` per friend); the muted `<audio>` element per peer stays in the page because Chromium only hands remote WebRTC audio to Web Audio while an element consumes the stream. Do not switch this to `createMediaElementSource`: on a `MediaStream` it yields silence (checked in Electron 44), which mutes everyone and hides who is speaking.
 - `F12` / `Ctrl+Shift+I` toggles DevTools in any build; `Ctrl+Shift+L` reveals the log file (`datasetto.log` next to a portable executable, otherwise in the user-data folder).
 - `renderer/`, `release/` and a local `desktop/runtime-config.json` are git-ignored.
+- `DATASETTO_UPDATE_REPO` (`owner/repo`) changes where the packaged app looks for updates; see [Automatic updates](#automatic-updates).
 - The icons in `resources/` (`icon.png`, `icon.ico`, `icon-speaking.*`, `tray-*.*`) are all drawn by `scripts/generate-icon.mjs`; change the artwork there rather than editing the files.
 - Adjust the `build` section in `package.json` if you need different packaging targets or signing options.
 - Packaging tweaks already enabled:
   - Relative asset paths when `VITE_BUILD_TARGET=desktop`, so the portable build resolves bundled files correctly.
   - `npmRebuild` disabled during packaging (faster builds when no native modules are used).
-  - Both NSIS installer and portable executables are produced for Windows.
+  - Both NSIS installer and portable executables are produced for Windows, with different names (`build.portable.artifactName`): with the shared name the portable file used to overwrite the installer, so the published exe was the portable build and never matched the installer's checksum in `latest.yml`. Only the installer updates itself.
 
 ## Configure backend endpoints
 

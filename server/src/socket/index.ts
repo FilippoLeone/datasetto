@@ -9,6 +9,7 @@ import { registerAuthHandlers } from './handlers/auth.js';
 import { registerChannelHandlers } from './handlers/channels.js';
 import { registerChatHandlers } from './handlers/chat.js';
 import { registerMinigameHandlers, type Minigames } from './handlers/minigame.js';
+import { registerPresenceHandlers } from './handlers/presence.js';
 import { registerPushHandlers } from './handlers/push.js';
 import { registerScreenshareHandlers } from './handlers/screenshare.js';
 import { registerSearchHandlers } from './handlers/search.js';
@@ -76,8 +77,8 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
       }
     }),
     users: coalesce(() => io.emit('user:update', ctx.presence.exportUsers())),
-    screenshare: (channelId, targetSocketId = null) => {
-      const payload = ctx.presence.screenshareView(channelId);
+    screenshare: (channelId, targetSocketId = null, extra = {}) => {
+      const payload = { ...ctx.presence.screenshareView(channelId), ...extra };
       if (targetSocketId) io.to(targetSocketId).emit('screenshare:session', payload);
       else io.to(channelId).emit('screenshare:session', payload);
     },
@@ -123,9 +124,13 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
     onChannelUpdate: () => broadcaster.channels(),
   }) as unknown as Minigames;
 
+  ctx.runtime.connectedSockets = () => io.engine.clientsCount;
+
   // Per-IP connection cap. Counts are decremented on disconnect.
   const connectionsPerIp = new Map<string, number>();
   io.use((socket, next) => {
+    // A deploy in progress: the client gets `connect_error` and backs off; the next container takes it.
+    if (ctx.runtime.shuttingDown) return next(new Error('Server is restarting'));
     const ip = resolveClientIp(socket, ctx.config.server.trustProxy);
     const current = connectionsPerIp.get(ip) ?? 0;
     if (current >= ctx.config.security.maxConnectionsPerIp) {
@@ -145,7 +150,8 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
     const ip = (socket.data.ip as string) ?? 'unknown';
     const sctx: SocketContext = createSocketContext(ctx, io, socket, ip);
     socket.data.ctx = sctx;
-    ctx.log.info({ socketId: socket.id, ip, transport: socket.conn.transport.name }, 'socket connected');
+    // One line per reconnect wave (after a deploy every client comes back within a second or two).
+    ctx.runtime.bursts.record('socket connected', { socketId: socket.id, ip, transport: socket.conn.transport.name }, ip);
 
     registerAuthHandlers(sctx, minigames);
     registerChannelHandlers(sctx);
@@ -155,6 +161,7 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
     registerScreenshareHandlers(sctx);
     registerAdminHandlers(sctx);
     registerPushHandlers(sctx);
+    registerPresenceHandlers(sctx);
     registerMinigameHandlers(sctx, minigames);
 
     socket.on('disconnect', (reason) => {
@@ -169,7 +176,7 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
       } finally {
         disposeSocketContext(sctx);
       }
-      ctx.log.info({ socketId: socket.id, reason }, 'socket disconnected');
+      ctx.runtime.bursts.record('socket disconnected', { socketId: socket.id, reason }, reason);
     });
   });
 

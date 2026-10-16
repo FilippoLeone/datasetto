@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { appendMessage, historyExhausted, historyVersion, messages, prependMessages, removeMessage, setHistory, setHistoryExhausted } from './chat';
+import { appendMessage, historyExhausted, historyVersion, messages, prependMessages, removeMessage, setHistory, setHistoryExhausted, updateMessage } from './chat';
 import { channelsByType, markRead, markUnread, selectedChannelId, setChannels, unread } from './channels';
 import type { ChatMessage } from '@/types/protocol';
 
@@ -17,6 +17,20 @@ describe('chat store', () => {
     expect(messages.value.c1.map((m) => m.id)).toEqual(['m1', 'm2']);
     removeMessage('c1', 'm1');
     expect(messages.value.c1.map((m) => m.id)).toEqual(['m2']);
+  });
+
+  it('merges a preview card into a loaded message and ignores unknown ones', () => {
+    appendMessage(message('m1'));
+    const card = { url: 'https://example.com', title: 'T', description: null, image: null, siteName: null };
+    updateMessage('c1', 'm1', { preview: card });
+    expect(messages.value.c1[0].preview).toEqual(card);
+    expect(messages.value.c1[0].text).toBe('m1');
+    updateMessage('c1', 'm1', { preview: null });
+    expect(messages.value.c1[0].preview).toBeNull();
+    const before = messages.value;
+    updateMessage('c1', 'missing', { preview: card });
+    updateMessage('c2', 'm1', { preview: card });
+    expect(messages.value).toBe(before);
   });
 
   it('replaces history per channel', () => {

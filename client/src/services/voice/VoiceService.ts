@@ -86,6 +86,12 @@ const DEFAULT_OPUS_MAX_PLAYBACK_RATE = Math.round(
 );
 const isTurnConfigured = (): boolean => serverConfig.turnConfigured();
 
+/** The DTLS fingerprint of an SDP (first `a=fingerprint:` line); null when there is none. */
+export const dtlsFingerprint = (sdp: string | undefined): string | null => {
+  const match = sdp?.match(/^a=fingerprint:(\S+\s+\S+)/m);
+  return match ? match[1].toLowerCase() : null;
+};
+
 const clampNumber = (value: number, min: number, max: number, fallback: number): number => {
   if (!Number.isFinite(value)) {
     return fallback;
@@ -345,6 +351,15 @@ class PeerAudioManager {
     }
   }
 
+  /** The peer came back on a new socket id: keep playing, relabel the element. */
+  rename(peerId: string) {
+    this.peerId = peerId;
+    if (this.audioElement) {
+      this.audioElement.id = `audio-${peerId}`;
+      this.audioElement.dataset.peerId = peerId;
+    }
+  }
+
   resume() {
     if (this.audioElement && this.audioElement.paused && this.audioElement.srcObject) {
       this.audioElement.play().catch(() => {});
@@ -410,6 +425,11 @@ export class VoiceService extends EventEmitter<EventMap> {
   private statsPollingHandle: number | null = null;
   private peerStatsHistory: Map<string, PeerConnectionStats[]> = new Map();
   private lastStatsTimestamp: Map<string, number> = new Map();
+  /**
+   * Old socket id -> the id the same connection lives under now (see rekeyPeer).
+   * Callbacks created with the old id look the current one up when they fire.
+   */
+  private aliases: Map<string, string> = new Map();
 
   constructor(
     voiceBitrate = OPUS_TARGET_BITRATE,
@@ -490,11 +510,14 @@ export class VoiceService extends EventEmitter<EventMap> {
   private createPeerConnection(peerId: string): RTCPeerConnection {
     const pc = new RTCPeerConnection({ iceServers: getIceServers() });
 
+    // The connection may outlive the socket id it was created under (rekeyPeer).
+    const current = () => this.resolve(peerId);
+
     // ICE candidate handler
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         this.emit('voice:ice-candidate', {
-          peerId,
+          peerId: current(),
           candidate: event.candidate,
         } as never);
       }
@@ -502,33 +525,35 @@ export class VoiceService extends EventEmitter<EventMap> {
 
     pc.onicecandidateerror = (event) => {
       if (import.meta.env.DEV) {
-        console.warn(`[VoiceService] ICE candidate error for ${peerId}:`, event);
+        console.warn(`[VoiceService] ICE candidate error for ${current()}:`, event);
       }
     };
 
     // Connection state monitoring
     pc.onconnectionstatechange = () => {
-      console.log(`Peer ${peerId} connection state: ${pc.connectionState}`);
-      
+      const id = current();
+      console.log(`Peer ${id} connection state: ${pc.connectionState}`);
+
       if (pc.connectionState === 'failed') {
         this.emit('notification', {
-          id: `peer-failed-${peerId}`,
+          id: `peer-failed-${id}`,
           type: 'warning',
           message: 'Voice connection issue detected',
           duration: 3000,
         });
-        this.scheduleIceRestart(peerId, 'connection-state-failed');
+        this.scheduleIceRestart(id, 'connection-state-failed');
       }
 
       if (pc.connectionState === 'connected') {
-        this.resetIceRecovery(peerId);
+        this.resetIceRecovery(id);
       }
     };
 
     pc.oniceconnectionstatechange = () => {
+      const id = current();
       const state = pc.iceConnectionState;
       if (import.meta.env.DEV) {
-        console.log(`[VoiceService] ICE state for ${peerId}: ${state}`);
+        console.log(`[VoiceService] ICE state for ${id}: ${state}`);
       }
 
       if (state === 'disconnected' || state === 'failed') {
@@ -537,36 +562,106 @@ export class VoiceService extends EventEmitter<EventMap> {
             pc.restartIce();
           } catch (error) {
             if (import.meta.env.DEV) {
-              console.warn(`[VoiceService] Failed to call restartIce for ${peerId}:`, error);
+              console.warn(`[VoiceService] Failed to call restartIce for ${id}:`, error);
             }
           }
         }
 
-        this.scheduleIceRestart(peerId, `ice-state-${state}`);
+        this.scheduleIceRestart(id, `ice-state-${state}`);
       } else if (state === 'connected' || state === 'completed') {
-        this.resetIceRecovery(peerId);
+        this.resetIceRecovery(id);
       }
     };
 
     // Track received handler
     pc.ontrack = (event) => {
+      const id = current();
       const track = event.track;
       const stream = event.streams[0];
-      console.log(`Received ${track.kind} track from peer ${peerId}`);
-      
+      console.log(`Received ${track.kind} track from peer ${id}`);
+
       if (track.kind === 'audio') {
-        if (this.isScreenStream(peerId, stream)) {
+        if (this.isScreenStream(id, stream)) {
           // Screen-share sound travels in the screen's stream and plays through its video tile.
-          console.log(`[VoiceService] Screen audio from ${peerId}`);
+          console.log(`[VoiceService] Screen audio from ${id}`);
         } else {
-          this.handleRemoteTrack(peerId, stream);
+          this.handleRemoteTrack(id, stream);
         }
       } else if (track.kind === 'video') {
-        this.handleRemoteVideoTrack(peerId, track, stream);
+        this.handleRemoteVideoTrack(id, track, stream);
       }
     };
 
     return pc;
+  }
+
+  /** The id a connection created under `peerId` lives under now. */
+  private resolve(peerId: string): string {
+    let id = peerId;
+    for (let hops = 0; hops < 50; hops += 1) {
+      const next = this.aliases.get(id);
+      if (!next) break;
+      id = next;
+    }
+    return id;
+  }
+
+  /**
+   * The same person is back on a new socket after a reconnect and their media session
+   * is unchanged: keep the live connection (audio never stopped) and move everything
+   * filed under the old id to the new one.
+   */
+  rekeyPeer(from: string, to: string): boolean {
+    if (from === to) return true;
+    const pc = this.peers.get(from);
+    if (!pc) return false;
+    // Anything that might already sit under the new id (it never should) is dropped first.
+    if (this.peers.has(to)) this.removePeer(to);
+
+    const move = <T>(map: Map<string, T>) => {
+      const value = map.get(from);
+      map.delete(from);
+      if (value !== undefined) map.set(to, value);
+    };
+    move(this.peers);
+    move(this.peerManagers);
+    move(this.iceRestartTimers);
+    move(this.iceRestartAttempts);
+    move(this.remoteVideoElements);
+    move(this.videoSenders);
+    move(this.remoteVideoTracks);
+    move(this.streamMetadata);
+    move(this.peerStatsHistory);
+    move(this.lastStatsTimestamp);
+    if (this.peerAudioPreferences.has(from) && !this.peerAudioPreferences.has(to)) {
+      this.peerAudioPreferences.set(to, this.peerAudioPreferences.get(from)!);
+      this.persistPeerAudioPreferences();
+    }
+    this.peerManagers.get(to)?.rename(to);
+    this.aliases.delete(to);
+    this.aliases.set(from, to);
+    return true;
+  }
+
+  /** How the media path to a peer is doing, for the rejoin logic (features/voice/peerReconcile.ts). */
+  peerHealth(peerId: string): 'connected' | 'connecting' | 'broken' | 'missing' {
+    const pc = this.peers.get(peerId);
+    if (!pc) return 'missing';
+    if (pc.connectionState === 'closed' || pc.connectionState === 'failed') return 'broken';
+    if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') return 'broken';
+    if (pc.connectionState === 'connected') return 'connected';
+    return 'connecting';
+  }
+
+  /** Renegotiate the transport with an ICE restart now (our or their network changed while the socket was down). */
+  async restartIce(peerId: string): Promise<void> {
+    const timer = this.iceRestartTimers.get(peerId);
+    if (timer) {
+      clearTimeout(timer);
+      this.iceRestartTimers.delete(peerId);
+    }
+    this.iceRestartAttempts.delete(peerId);
+    await this.performIceRestart(peerId, 'rejoin');
   }
 
   handleStreamMetadata(data: { from: string; metadata: { streamId: string; type: 'camera' | 'screen' } }): void {
@@ -620,12 +715,12 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     const onTrackEnded = () => {
-      this.handleRemoteVideoTrackRemoval(peerId, streamType);
+      this.handleRemoteVideoTrackRemoval(this.resolve(peerId), streamType);
     };
 
     const onStreamRemove = (event: MediaStreamTrackEvent) => {
       if (event.track === track) {
-        this.handleRemoteVideoTrackRemoval(peerId, streamType);
+        this.handleRemoteVideoTrackRemoval(this.resolve(peerId), streamType);
       }
     };
 
@@ -697,9 +792,9 @@ export class VoiceService extends EventEmitter<EventMap> {
     let manager = this.peerManagers.get(peerId);
     if (!manager) {
       manager = new PeerAudioManager(
-        peerId, 
-        context, 
-        (speaking) => this.emit('voice:speaking', { id: peerId, speaking }),
+        peerId,
+        context,
+        (speaking) => this.emit('voice:speaking', { id: this.resolve(peerId), speaking }),
         this.vadThreshold
       );
       this.peerManagers.set(peerId, manager);
@@ -934,13 +1029,30 @@ export class VoiceService extends EventEmitter<EventMap> {
     offer: RTCSessionDescriptionInit
   ): Promise<void> {
     let pc = this.peers.get(peerId);
-    
+
+    // An offer from a connection the peer rebuilt (new DTLS certificate) cannot be applied to
+    // the connection we still hold for them: start over on our side too.
+    if (pc && pc.remoteDescription?.sdp) {
+      const previous = dtlsFingerprint(pc.remoteDescription.sdp);
+      const next = dtlsFingerprint(offer.sdp);
+      if (previous && next && previous !== next) {
+        if (import.meta.env.DEV) console.info(`[VoiceService] ${peerId} offers from a new connection; rebuilding ours`);
+        this.removePeer(peerId);
+        pc = undefined;
+      }
+    }
+
     if (!pc) {
       pc = this.createPeerConnection(peerId);
       this.peers.set(peerId, pc);
     }
 
     try {
+      // Our own offer may be sitting unanswered (sent while the socket was down and lost):
+      // take it back, the incoming one wins. Without this, setRemoteDescription throws.
+      if (pc.signalingState === 'have-local-offer') {
+        await pc.setLocalDescription({ type: 'rollback' });
+      }
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
       // Reuse existing sender when renegotiating to avoid InvalidAccessError
@@ -1040,6 +1152,9 @@ export class VoiceService extends EventEmitter<EventMap> {
     if (manager) {
       manager.dispose();
       this.peerManagers.delete(peerId);
+    }
+    for (const [from, to] of Array.from(this.aliases.entries())) {
+      if (to === peerId) this.aliases.delete(from);
     }
   }
 
@@ -1442,6 +1557,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.remoteVideoElements.clear();
     this.videoSenders.clear();
     this.remoteVideoTracks.clear();
+    this.aliases.clear();
   }
 
   // ==================== VIDEO METHODS ====================
