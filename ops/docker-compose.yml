@@ -3,7 +3,7 @@
 #
 #   web   Caddy: TLS, static client, reverse proxy          ports 80/443
 #   app   Node.js API + Socket.IO + SQLite (volume app_data) internal :4000
-#   rtmp  nginx-rtmp: OBS ingest -> HLS                      port 1935, HLS on :8080 internal
+#   rtmp  nginx-rtmp: OBS ingest -> HLS                      ports 1935 (RTMP), 1936 (RTMPS), HLS on :8080 internal
 #   turn  coturn relay for WebRTC behind strict NATs         host network, profile "turn"
 #
 # Images are pulled from the registry in IMAGE_PREFIX; `docker compose build`
@@ -79,10 +79,17 @@ services:
     restart: unless-stopped
     depends_on:
       - app
+    environment:
+      # ops/rtmp/entrypoint.sh enables RTMPS on 1936 once Caddy holds a certificate for this host.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     ports:
       - "1935:1935"
+      - "1936:1936"
     expose:
       - "8080"
+    volumes:
+      # Read-only view of Caddy's certificates; the entrypoint copies the one for SITE_ADDRESS.
+      - caddy_data:/caddy:ro
     tmpfs:
       # HLS segments live in RAM: fast and never wears the disk.
       - /tmp/hls:rw,size=256m,mode=1777

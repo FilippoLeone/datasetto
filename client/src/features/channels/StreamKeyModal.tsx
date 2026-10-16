@@ -18,6 +18,12 @@ const copy = async (value: string, label: string) => {
   }
 };
 
+/** `rtmps://host:1936/live` -> `rtmp://host/live`, the unencrypted ingest for the LAN; null for anything else. */
+const plainRtmpUrl = (url: string): string | null => {
+  const match = /^rtmps:\/\/([^/:?#]+)(?::\d+)?(\/[^?#]*)?$/i.exec(url);
+  return match ? 'rtmp://' + match[1] + (match[2] ?? '/live') : null;
+};
+
 const Row = ({ label, value, secret }: { label: string; value: string; secret?: boolean }) => {
   const [revealed, setRevealed] = useState(!secret);
   return (
@@ -42,6 +48,7 @@ export const StreamKeyModal = ({ channelId }: { channelId: string }) => {
   const channel = channelsById.value.get(channelId);
   const key = streamKeys.value[channelId];
   const rtmpUrl = serverConfig.rtmpUrl() ?? runtimeUrls.rtmpServerUrl;
+  const lanUrl = plainRtmpUrl(rtmpUrl);
 
   useEffect(() => {
     api.requestStreamKey(channelId);
@@ -77,6 +84,12 @@ export const StreamKeyModal = ({ channelId }: { channelId: string }) => {
           <li>Use the whole key, including the part after <code className="font-mono">?key=</code>. It is what authorises your stream.</li>
           <li>2500 to 4000 kbps, keyframe interval 1 or 2 s, keeps latency low and the server bill small.</li>
           <li>Viewers watch at <code className="font-mono">/hls/{channel.name}</code>; the key never appears in their URLs.</li>
+          {lanUrl && (
+            <li>
+              <code className="font-mono">rtmps://</code> sends your key over TLS. On the server's own LAN, plain{' '}
+              <code className="font-mono">{lanUrl}</code> (port 1935, no TLS) works too.
+            </li>
+          )}
         </ul>
       </div>
     </Modal>

@@ -60,7 +60,8 @@ ensure_firewall() {
 
 echo "==> Firewall rules"
 ensure_firewall "${INSTANCE}-web" "tcp:80,tcp:443,udp:443" "Datasetto web (HTTP/HTTPS/HTTP3)"
-ensure_firewall "${INSTANCE}-rtmp" "tcp:1935" "Datasetto RTMP ingest (OBS)"
+ensure_firewall "${INSTANCE}-rtmp" "tcp:1935" "Datasetto RTMP ingest (OBS, plain)"
+ensure_firewall "${INSTANCE}-rtmps" "tcp:1936" "Datasetto RTMPS ingest (OBS over TLS)"
 if [[ "$PROFILES" == *turn* ]]; then
   ensure_firewall "${INSTANCE}-turn" "tcp:3478,udp:3478,udp:49152-49400" "Datasetto TURN relay"
 fi
@@ -152,5 +153,6 @@ Next:
   1. Create a DNS A record: ${SITE_ADDRESS#:} -> ${IP:-<external ip>}
      (Caddy obtains the Let's Encrypt certificate automatically once DNS resolves.)
   2. Open https://${SITE_ADDRESS#:}/app and register; the first account becomes admin.
-  3. OBS: server rtmp://${SITE_ADDRESS#:}/live, stream key from the channel's key dialog.
+  3. OBS: server rtmps://${SITE_ADDRESS#:}:1936/live (TLS, once Caddy has the certificate;
+     plain rtmp://${SITE_ADDRESS#:}/live also works), stream key from the channel's key dialog.
 EOF
