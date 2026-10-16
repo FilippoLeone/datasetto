@@ -25,11 +25,59 @@ interface VideoTileProps {
   audioIndicator?: boolean;
   /** Mute button and volume slider, shown while the stream carries sound. */
   audioControls?: TileAudioControls;
+  /** Show the resolution and frame rate the stream actually plays at (screen shares). */
+  stats?: boolean;
   className?: string;
   onClick?: () => void;
   /** From useListPresence: scales the tile in on mount and out while it leaves. */
   state?: PresenceState;
 }
+
+/** "1920×1080 · 60 fps" from the playing video; frame rate measured when the track does not report it. */
+export const formatVideoStats = (width: number, height: number, fps: number | null): string => {
+  if (!width || !height) return '';
+  return width + '×' + height + (fps ? ' · ' + Math.round(fps) + ' fps' : '');
+};
+
+type FrameCallbackVideo = HTMLVideoElement & {
+  requestVideoFrameCallback?: (callback: () => void) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
+};
+
+/** Effective resolution and frame rate of the stream shown in `ref`, refreshed every second. */
+const useVideoStats = (ref: { current: HTMLVideoElement | null }, stream: MediaStream, enabled: boolean): string => {
+  const [label, setLabel] = useState('');
+  useEffect(() => {
+    if (!enabled) return;
+    const node = ref.current as FrameCallbackVideo | null;
+    if (!node) return;
+    let frames = 0;
+    let handle: number | null = null;
+    const count = () => {
+      frames += 1;
+      handle = node.requestVideoFrameCallback ? node.requestVideoFrameCallback(count) : null;
+    };
+    if (node.requestVideoFrameCallback) handle = node.requestVideoFrameCallback(count);
+    let lastTick = performance.now();
+    const tick = () => {
+      const track = stream.getVideoTracks()[0];
+      const settings = track?.getSettings() ?? {};
+      const now = performance.now();
+      const measured = frames > 0 ? (frames * 1000) / Math.max(1, now - lastTick) : null;
+      frames = 0;
+      lastTick = now;
+      const fps = typeof settings.frameRate === 'number' && settings.frameRate > 0 ? settings.frameRate : measured;
+      setLabel(formatVideoStats(node.videoWidth || settings.width || 0, node.videoHeight || settings.height || 0, fps));
+    };
+    const timer = window.setInterval(tick, 1000);
+    tick();
+    return () => {
+      window.clearInterval(timer);
+      if (handle !== null && node.cancelVideoFrameCallback) node.cancelVideoFrameCallback(handle);
+    };
+  }, [ref, stream, enabled]);
+  return label;
+};
 
 /** True while the stream has an audio track that is still playing. */
 export const streamHasAudio = (stream: MediaStream): boolean => stream.getAudioTracks().some((track) => track.readyState === 'live');
@@ -67,9 +115,10 @@ const useStreamHasAudio = (stream: MediaStream, enabled: boolean): boolean => {
 const stop = (event: Event) => event.stopPropagation();
 
 /** Plays a MediaStream in a <video>, re-attaching when the stream changes. */
-export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId, audioIndicator, audioControls, className, onClick, state }: VideoTileProps) => {
+export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId, audioIndicator, audioControls, stats, className, onClick, state }: VideoTileProps) => {
   const ref = useRef<HTMLVideoElement>(null);
   const hasAudio = useStreamHasAudio(stream, Boolean(audioIndicator || audioControls));
+  const statsLabel = useVideoStats(ref, stream, Boolean(stats));
 
   useEffect(() => {
     const node = ref.current;
@@ -104,6 +153,11 @@ export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId,
   return (
     <div data-state={state} className={cn('motion-tile @container relative overflow-hidden rounded-lg bg-black', onClick && 'cursor-pointer', className)} onClick={onClick}>
       <video ref={ref} autoPlay playsInline className={cn('h-full w-full object-contain', mirror && 'mirror')} />
+      {statsLabel && (
+        <span className="absolute top-2 left-2 rounded-sm bg-black/60 px-1.5 py-0.5 text-[11px] text-white/90 tabular-nums" title="Resolution and frame rate as played here" data-video-stats>
+          {statsLabel}
+        </span>
+      )}
       {/* Bottom bar: the label truncates, the sound controls keep their place; on small tiles
           (container queries) the slider and the percentage make way. */}
       <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-end justify-between gap-2">

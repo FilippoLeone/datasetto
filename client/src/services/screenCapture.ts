@@ -9,8 +9,9 @@ import type { ScreenQuality } from '@/types/protocol';
 export interface ScreenQualityPreset {
   id: ScreenQuality;
   label: string;
-  width: number;
-  height: number;
+  /** Requested size; `null` keeps the captured display's own resolution. */
+  width: number | null;
+  height: number | null;
   fps: number;
   /** Encoder cap in bits per second, before the deployment ceiling. */
   maxBitrateBps: number;
@@ -44,14 +45,25 @@ const CEILING = {
   fps: num(config.SCREENSHARE_MAX_FPS, 120),
 };
 
+/** Upper bound sent to the desktop shell for native presets (8K); the display decides the real size. */
+const NATIVE_MAX_EDGE = 7680;
+
 /** Bitrate for the screen's audio track (Opus; game sound, not speech). */
 export const SCREEN_AUDIO_BITRATE_BPS = 96_000;
 
-export const DEFAULT_SCREEN_QUALITY: ScreenQuality = '720p30';
+export const DEFAULT_SCREEN_QUALITY: ScreenQuality = '1080p60';
 
+/**
+ * Per-viewer encoder caps. The presenter uploads one copy per viewer, so the
+ * bitrate adds up; a friend reached through the TURN relay is additionally
+ * limited to about 1.5 Mbit/s by the relay (see ops/README.md) and gets a
+ * softer picture at the higher presets.
+ */
 export const SCREEN_QUALITY_PRESETS: Record<ScreenQuality, ScreenQualityPreset> = {
-  '720p30': { id: '720p30', label: '720p · 30 fps (default)', width: 1280, height: 720, fps: 30, maxBitrateBps: 3_500_000 },
-  '1080p60': { id: '1080p60', label: '1080p · 60 fps (games, more bandwidth)', width: 1920, height: 1080, fps: 60, maxBitrateBps: 8_000_000 },
+  '720p30': { id: '720p30', label: '720p · 30 fps (data saver)', width: 1280, height: 720, fps: 30, maxBitrateBps: 3_500_000 },
+  '1080p60': { id: '1080p60', label: '1080p · 60 fps (default)', width: 1920, height: 1080, fps: 60, maxBitrateBps: 8_000_000 },
+  native60: { id: 'native60', label: 'Native resolution · 60 fps', width: null, height: null, fps: 60, maxBitrateBps: 12_000_000 },
+  native120: { id: 'native120', label: 'Native resolution · 120 fps (competitive)', width: null, height: null, fps: 120, maxBitrateBps: 18_000_000 },
 };
 
 export const SCREEN_QUALITY_OPTIONS = Object.values(SCREEN_QUALITY_PRESETS).map((preset) => ({ value: preset.id, label: preset.label }));
@@ -62,8 +74,16 @@ export const isScreenQuality = (value: unknown): value is ScreenQuality =>
 export const screenQualityPreset = (quality: unknown): ScreenQualityPreset =>
   SCREEN_QUALITY_PRESETS[isScreenQuality(quality) ? quality : DEFAULT_SCREEN_QUALITY];
 
+export interface ScreenQualityLimits {
+  /** `null` = native resolution. */
+  width: number | null;
+  height: number | null;
+  fps: number;
+  maxBitrateBps: number;
+}
+
 /** Frame rate and bitrate a preset is allowed to use under the deployment ceilings. */
-export const screenQualityLimits = (quality: unknown): { width: number; height: number; fps: number; maxBitrateBps: number } => {
+export const screenQualityLimits = (quality: unknown): ScreenQualityLimits => {
   const preset = screenQualityPreset(quality);
   return {
     width: preset.width,
@@ -72,6 +92,12 @@ export const screenQualityLimits = (quality: unknown): { width: number; height: 
     maxBitrateBps: Math.min(preset.maxBitrateBps, CEILING.bitrateBps),
   };
 };
+
+/** Video constraints for a preset: size only when the preset fixes one; frame rate always. */
+const videoConstraints = (limits: ScreenQualityLimits): MediaTrackConstraints => ({
+  ...(limits.width && limits.height ? { width: { ideal: limits.width }, height: { ideal: limits.height } } : {}),
+  frameRate: { ideal: limits.fps, max: limits.fps },
+});
 
 /** 60 fps presets are for games (keep motion smooth); 30 fps keeps text sharp. */
 const videoContentHint = (fps: number): 'motion' | 'detail' => (fps >= 60 ? 'motion' : 'detail');
@@ -111,11 +137,7 @@ export const buildDisplayMediaRequest = (quality: unknown, restrictOwnAudio: boo
   };
   if (restrictOwnAudio) audio.restrictOwnAudio = true;
   return {
-    video: {
-      width: { ideal: limits.width },
-      height: { ideal: limits.height },
-      frameRate: { ideal: limits.fps, max: limits.fps },
-    },
+    video: videoConstraints(limits),
     audio,
     systemAudio: 'include',
   };
@@ -147,8 +169,8 @@ const captureInDesktopShell = async (quality: unknown): Promise<ScreenCaptureRes
     mandatory: {
       chromeMediaSource: 'desktop',
       chromeMediaSourceId: picked.source.id,
-      maxWidth: limits.width,
-      maxHeight: limits.height,
+      maxWidth: limits.width ?? NATIVE_MAX_EDGE,
+      maxHeight: limits.height ?? NATIVE_MAX_EDGE,
       maxFrameRate: limits.fps,
     },
   } as unknown as MediaTrackConstraints;
@@ -189,13 +211,7 @@ export const applyScreenQualityToStream = (stream: MediaStream, quality: unknown
   const track = stream.getVideoTracks()[0];
   if (!track) return;
   track.contentHint = videoContentHint(limits.fps);
-  void track
-    .applyConstraints({
-      width: { ideal: limits.width },
-      height: { ideal: limits.height },
-      frameRate: { ideal: limits.fps, max: limits.fps },
-    })
-    .catch(() => undefined);
+  void track.applyConstraints(videoConstraints(limits)).catch(() => undefined);
 };
 
 /**

@@ -67,10 +67,23 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
   this page's own audio, the voice chat, out of the capture (`restrictOwnAudio`)
   so friends are not echoed back; speakers still feed the microphone.
 - Quality presets live in Voice & audio settings and next to the share button:
-  **720p30** (default, about 3.5 Mbit/s) and **1080p60** (up to 8 Mbit/s, for
-  games). The choice is remembered and can be changed while sharing. The
-  presenter uploads one copy per viewer, so 1080p60 with three viewers needs
-  roughly 25 Mbit/s of upload.
+  **720p30** (about 3.5 Mbit/s), **1080p60** (default, up to 8 Mbit/s),
+  **Native resolution · 60 fps** (the display's own size, up to 12 Mbit/s) and
+  **Native resolution · 120 fps (competitive)** (up to 18 Mbit/s; 120 fps needs
+  a 120 Hz display and a browser that grants it, otherwise it falls back to
+  what the capture delivers). The deployment ceiling is
+  `VITE_SCREENSHARE_MAX_BITRATE_KBPS` (25000) and `VITE_SCREENSHARE_MAX_FPS`
+  (120). The choice is remembered and can be changed while sharing. Every
+  screen tile shows the resolution and frame rate it actually plays at.
+- The presenter uploads one copy per viewer, so 1080p60 with three viewers
+  needs roughly 25 Mbit/s of upload. A viewer who cannot connect directly and
+  goes through the TURN relay is capped at about 1.5 Mbit/s by the relay
+  (`TURN_MAX_BPS` in `ops/turn/entrypoint.sh`), so they see a softer picture
+  at the higher presets; direct connections are not affected.
+- Voice uses Opus at 128 kbps by default (Voice & audio settings > Bitrate
+  offers 32 to 128 kbps); the value is applied to our sender through
+  `setParameters` and asked of the other side through `maxaveragebitrate` in
+  the SDP.
 
 ## Conventions
 

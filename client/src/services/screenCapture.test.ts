@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  DEFAULT_SCREEN_QUALITY,
   SCREEN_AUDIO_BITRATE_BPS,
+  SCREEN_QUALITY_OPTIONS,
   SCREEN_QUALITY_PRESETS,
   applyScreenEncoding,
+  applyScreenQualityToStream,
   buildDisplayMediaRequest,
   isCancelError,
   missingAudioHint,
@@ -10,16 +13,20 @@ import {
   screenQualityPreset,
   supportsRestrictOwnAudio,
 } from './screenCapture';
-import { normalizeAudioSettings } from '@/state/settings';
+import { DEFAULT_AUDIO_SETTINGS, normalizeAudioSettings } from '@/state/settings';
+import { formatVideoStats } from '@/features/voice/VideoTile';
 
 describe('screen quality presets', () => {
-  it('falls back to 720p30 for unknown values', () => {
-    expect(screenQualityPreset('1080p60').id).toBe('1080p60');
-    expect(screenQualityPreset('potato').id).toBe('720p30');
-    expect(screenQualityPreset(undefined).id).toBe('720p30');
+  it('defaults to 1080p60 and falls back to it for unknown values', () => {
+    expect(DEFAULT_SCREEN_QUALITY).toBe('1080p60');
+    expect(screenQualityPreset('720p30').id).toBe('720p30');
+    expect(screenQualityPreset('native120').id).toBe('native120');
+    expect(screenQualityPreset('potato').id).toBe('1080p60');
+    expect(screenQualityPreset(undefined).id).toBe('1080p60');
+    expect(SCREEN_QUALITY_OPTIONS.map((option) => option.value)).toEqual(['720p30', '1080p60', 'native60', 'native120']);
   });
 
-  it('keeps the presets under the deployment ceilings', () => {
+  it('keeps the presets under the deployment ceilings and orders their bitrates', () => {
     for (const preset of Object.values(SCREEN_QUALITY_PRESETS)) {
       const limits = screenQualityLimits(preset.id);
       expect(limits.fps).toBeLessThanOrEqual(preset.fps);
@@ -28,13 +35,24 @@ describe('screen quality presets', () => {
       expect(limits.height).toBe(preset.height);
     }
     expect(screenQualityLimits('1080p60').fps).toBe(60);
-    expect(screenQualityLimits('720p30').maxBitrateBps).toBeLessThan(screenQualityLimits('1080p60').maxBitrateBps);
+    expect(screenQualityLimits('native120').fps).toBe(120);
+    const bitrates = ['720p30', '1080p60', 'native60', 'native120'].map((id) => screenQualityLimits(id).maxBitrateBps);
+    expect([...bitrates].sort((a, b) => a - b)).toEqual(bitrates);
+    // Sensible cap: even the competitive preset stays well under the 25 Mbit/s deployment ceiling.
+    expect(screenQualityLimits('native120').maxBitrateBps).toBeLessThanOrEqual(20_000_000);
   });
 
   it('is persisted through the audio settings with validation', () => {
-    expect(normalizeAudioSettings({}).screenQuality).toBe('720p30');
-    expect(normalizeAudioSettings({ screenQuality: '1080p60' }).screenQuality).toBe('1080p60');
-    expect(normalizeAudioSettings({ screenQuality: 'nope' as never }).screenQuality).toBe('720p30');
+    expect(DEFAULT_AUDIO_SETTINGS.screenQuality).toBe('1080p60');
+    expect(normalizeAudioSettings({}).screenQuality).toBe('1080p60');
+    expect(normalizeAudioSettings({ screenQuality: '720p30' }).screenQuality).toBe('720p30');
+    expect(normalizeAudioSettings({ screenQuality: 'native60' }).screenQuality).toBe('native60');
+    expect(normalizeAudioSettings({ screenQuality: 'nope' as never }).screenQuality).toBe('1080p60');
+  });
+
+  it('defaults voice to 128 kbps Opus while lower values stay allowed', () => {
+    expect(DEFAULT_AUDIO_SETTINGS.voiceBitrate).toBe(128000);
+    expect(normalizeAudioSettings({ voiceBitrate: 32000 }).voiceBitrate).toBe(32000);
   });
 });
 
@@ -46,6 +64,11 @@ describe('getDisplayMedia request', () => {
     expect(request.systemAudio).toBe('include');
   });
 
+  it('leaves the size to the display for native presets and asks for 120 fps where allowed', () => {
+    expect(buildDisplayMediaRequest('native60', false).video).toEqual({ frameRate: { ideal: 60, max: 60 } });
+    expect(buildDisplayMediaRequest('native120', false).video).toEqual({ frameRate: { ideal: 120, max: 120 } });
+  });
+
   it('only sends restrictOwnAudio when the engine advertises it', () => {
     expect((buildDisplayMediaRequest('720p30', true).audio as { restrictOwnAudio?: boolean }).restrictOwnAudio).toBe(true);
     expect('restrictOwnAudio' in (buildDisplayMediaRequest('720p30', false).audio as object)).toBe(false);
@@ -53,6 +76,18 @@ describe('getDisplayMedia request', () => {
     expect(supportsRestrictOwnAudio({ getSupportedConstraints: () => ({}) } as never)).toBe(false);
     expect(supportsRestrictOwnAudio({} as never)).toBe(false);
     expect(supportsRestrictOwnAudio(undefined)).toBe(false);
+  });
+
+  it('re-applies a preset to a running capture without forcing a size for native presets', () => {
+    const applyConstraints = vi.fn(() => Promise.resolve());
+    const track = { contentHint: '', applyConstraints } as unknown as MediaStreamTrack;
+    const stream = { getVideoTracks: () => [track] } as unknown as MediaStream;
+    applyScreenQualityToStream(stream, 'native120');
+    expect(track.contentHint).toBe('motion');
+    expect(applyConstraints).toHaveBeenCalledWith({ frameRate: { ideal: 120, max: 120 } });
+    applyScreenQualityToStream(stream, '720p30');
+    expect(track.contentHint).toBe('detail');
+    expect(applyConstraints).toHaveBeenLastCalledWith({ width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } });
   });
 });
 
@@ -74,6 +109,11 @@ describe('applyScreenEncoding', () => {
     expect(parameters.encodings[0].maxBitrate).toBe(screenQualityLimits('1080p60').maxBitrateBps);
     expect(parameters.encodings[0].maxFramerate).toBe(60);
     expect(parameters.degradationPreference).toBe('maintain-framerate');
+
+    const competitive = fakeSender('video');
+    applyScreenEncoding(competitive.sender, 'native120');
+    expect(competitive.setParameters.mock.calls[0][0].encodings[0].maxFramerate).toBe(120);
+    expect(competitive.setParameters.mock.calls[0][0].encodings[0].maxBitrate).toBe(18_000_000);
   });
 
   it('prefers resolution at 30 fps and gives the screen audio a music bitrate', () => {
@@ -89,6 +129,14 @@ describe('applyScreenEncoding', () => {
     const setParameters = vi.fn();
     applyScreenEncoding({ track: null, setParameters } as unknown as RTCRtpSender, '720p30');
     expect(setParameters).not.toHaveBeenCalled();
+  });
+});
+
+describe('tile stats label', () => {
+  it('shows the effective resolution and frame rate', () => {
+    expect(formatVideoStats(1920, 1080, 59.94)).toBe('1920×1080 · 60 fps');
+    expect(formatVideoStats(2560, 1440, null)).toBe('2560×1440');
+    expect(formatVideoStats(0, 0, 60)).toBe('');
   });
 });
 

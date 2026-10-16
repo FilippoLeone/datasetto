@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CHANNEL_TYPES } from '../types.js';
+import { CHANNEL_TYPES, CHANNEL_VISIBILITIES } from '../types.js';
 
 export const emailSchema = z
   .string()
@@ -26,11 +26,32 @@ export const channelNameSchema = z
 
 export const channelTypeSchema = z.enum(CHANNEL_TYPES as [string, ...string[]]);
 
+export const channelVisibilitySchema = z.enum(CHANNEL_VISIBILITIES as [string, ...string[]]);
+
+export const channelTopicSchema = z
+  .union([z.string().trim().max(200, 'Topic must be 200 characters or less'), z.null()])
+  .optional()
+  .transform((value) => (value ? value : null));
+
+/** Join password of a private channel. Shorter than account passwords: it is shared among friends. */
+export const channelPasswordSchema = z
+  .string()
+  .min(4, 'Channel password must be at least 4 characters')
+  .max(128, 'Channel password must be 128 characters or less');
+
 export const idSchema = z.string().trim().min(1).max(128);
 
 export const optionalIdSchema = z
   .union([idSchema, z.null(), z.undefined()])
   .transform((value) => (value ? value : null));
+
+/** A single emoji (pictographs with optional modifiers, joiners and keycaps). */
+export const emojiSchema = z
+  .string()
+  .trim()
+  .min(1, 'Pick an emoji')
+  .max(16, 'Not an emoji')
+  .regex(/^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|[0-9#*]️?⃣|‍|️)+$/u, 'Not an emoji');
 
 /** Strips control characters except tab/newline and trims. */
 export const messageTextSchema = (maxLength: number) =>

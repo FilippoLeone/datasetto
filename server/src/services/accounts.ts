@@ -7,6 +7,7 @@ import { displayNameSchema, emailSchema, optionalTextSchema, optionalUrlSchema, 
 import { parseJson, type DB } from '../db/index.js';
 import { AppError, notFound } from '../errors.js';
 import type { AccountRecord, PublicAccount, RoleName } from '../types.js';
+import { looksLikeInviteToken, type InviteService } from './invites.js';
 
 const BCRYPT_ROUNDS = 10;
 // Valid bcrypt hash of a random string; used to equalise timing for unknown accounts.
@@ -27,6 +28,10 @@ interface AccountRow {
   updated_at: number;
   disabled_at: number | null;
   disabled_reason: string | null;
+  invite_token_id: string | null;
+  must_change_password: number;
+  last_seen_at: number | null;
+  deleted_at: number | null;
 }
 
 export interface RegisterInput {
@@ -52,19 +57,31 @@ const rowToRecord = (row: AccountRow): AccountRecord => ({
   bio: row.bio,
   avatarUrl: row.avatar_url,
   roles: normalizeRoles(parseJson<string[]>(row.roles, ['user'])),
-  status: row.status === 'disabled' ? 'disabled' : 'active',
+  status: row.status === 'disabled' ? 'disabled' : row.status === 'deleted' ? 'deleted' : 'active',
   passwordHash: row.password_hash,
   metadata: parseJson<Record<string, unknown>>(row.metadata, {}),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   disabledAt: row.disabled_at,
   disabledReason: row.disabled_reason,
+  inviteTokenId: row.invite_token_id ?? null,
+  mustChangePassword: Boolean(row.must_change_password),
+  lastSeenAt: row.last_seen_at ?? null,
+  deletedAt: row.deleted_at ?? null,
 });
+
+/** Username a deleted account keeps so the real one becomes free again. */
+export const tombstoneUsername = (id: string): string => 'deleted-' + id + '@deleted.invalid';
+
+const LAST_SEEN_WRITE_INTERVAL_MS = 60_000;
 
 export const sanitizeAccount = (account: AccountRecord): PublicAccount => {
   const { passwordHash: _passwordHash, ...safe } = account;
   return { ...safe, roles: [...safe.roles], metadata: { ...safe.metadata } };
 };
+
+const inviteUsable = (invite: { revokedAt: number | null; expiresAt: number | null; uses: number; maxUses: number }, now = Date.now()): boolean =>
+  invite.revokedAt === null && (invite.expiresAt === null || invite.expiresAt > now) && invite.uses < invite.maxUses;
 
 const safeEqual = (a: string, b: string): boolean => {
   const bufA = Buffer.from(a);
@@ -84,8 +101,9 @@ export class AccountService {
   private readonly stmts;
 
   constructor(
-    db: DB,
+    private readonly db: DB,
     private readonly config: AppConfig,
+    private readonly invites: InviteService | null = null,
   ) {
     this.stmts = {
       count: db.prepare('SELECT COUNT(*) AS n FROM accounts'),
@@ -93,14 +111,20 @@ export class AccountService {
       byUsername: db.prepare('SELECT * FROM accounts WHERE username = ?'),
       list: db.prepare('SELECT * FROM accounts ORDER BY created_at ASC'),
       insert: db.prepare(`
-        INSERT INTO accounts (id, username, display_name, email, bio, avatar_url, roles, status, password_hash, metadata, created_at, updated_at)
-        VALUES (@id, @username, @display_name, @email, @bio, @avatar_url, @roles, 'active', @password_hash, @metadata, @created_at, @updated_at)
+        INSERT INTO accounts (id, username, display_name, email, bio, avatar_url, roles, status, password_hash, metadata, created_at, updated_at, invite_token_id)
+        VALUES (@id, @username, @display_name, @email, @bio, @avatar_url, @roles, 'active', @password_hash, @metadata, @created_at, @updated_at, @invite_token_id)
       `),
       updateProfile: db.prepare(`
         UPDATE accounts SET display_name = @display_name, email = @email, bio = @bio, avatar_url = @avatar_url,
           metadata = @metadata, updated_at = @updated_at WHERE id = @id
       `),
-      updatePassword: db.prepare('UPDATE accounts SET password_hash = ?, updated_at = ? WHERE id = ?'),
+      updatePassword: db.prepare('UPDATE accounts SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?'),
+      resetPassword: db.prepare('UPDATE accounts SET password_hash = ?, must_change_password = 1, updated_at = ? WHERE id = ?'),
+      touchSeen: db.prepare('UPDATE accounts SET last_seen_at = ? WHERE id = ?'),
+      softDelete: db.prepare(`
+        UPDATE accounts SET status = 'deleted', deleted_at = @now, username = @username, display_name = 'Deleted user', email = NULL,
+          bio = NULL, avatar_url = NULL, roles = '["user"]', metadata = @metadata, must_change_password = 0, updated_at = @now WHERE id = @id
+      `),
       updateRoles: db.prepare('UPDATE accounts SET roles = ?, updated_at = ? WHERE id = ?'),
       setStatus: db.prepare(`
         UPDATE accounts SET status = @status, disabled_at = @disabled_at, disabled_reason = @disabled_reason,
@@ -148,17 +172,40 @@ export class AccountService {
     return normalizeRoles(Array.from(result));
   }
 
-  async register(input: RegisterInput): Promise<PublicAccount> {
+  /**
+   * Decide whether a registration may proceed and with which invite token.
+   * Returns the token to redeem (null for the env code or open registration).
+   */
+  private checkInvite(input: RegisterInput): string | null {
     const { mode, inviteCode } = this.config.registration;
+    const provided = typeof input.inviteCode === 'string' ? input.inviteCode.trim() : '';
     if (mode === 'closed') {
       throw new AppError('Registration is closed on this server', 'REGISTRATION_CLOSED', 403);
     }
+    const envCodeMatches = Boolean(inviteCode && provided && safeEqual(provided, inviteCode));
+    if (envCodeMatches) return null;
+    const token = this.invites && looksLikeInviteToken(provided) ? this.invites.getByToken(provided) : null;
+    const tokenValid = token !== null && inviteUsable(token);
     if (mode === 'invite') {
-      const provided = typeof input.inviteCode === 'string' ? input.inviteCode.trim() : '';
-      if (!inviteCode || !provided || !safeEqual(provided, inviteCode)) {
-        throw new AppError('Invalid invite code', 'INVITE_CODE_INVALID', 403);
-      }
+      if (!tokenValid) throw new AppError('Invalid invite code', 'INVITE_CODE_INVALID', 403);
+      return provided;
     }
+    // Open registration: a valid token is recorded, anything else is ignored.
+    return tokenValid ? provided : null;
+  }
+
+  private readonly lastSeenWritten = new Map<string, number>();
+
+  /** Record activity, writing at most once a minute per account. */
+  touchLastSeen(id: string, now = Date.now()): void {
+    const previous = this.lastSeenWritten.get(id);
+    if (previous !== undefined && now - previous < LAST_SEEN_WRITE_INTERVAL_MS) return;
+    this.lastSeenWritten.set(id, now);
+    this.stmts.touchSeen.run(now, id);
+  }
+
+  async register(input: RegisterInput): Promise<PublicAccount> {
+    const inviteToken = this.checkInvite(input);
 
     const username = emailSchema.parse(input.username);
     const password = passwordSchema(this.config.security.passwordMinLength).parse(input.password);
@@ -187,21 +234,35 @@ export class AccountService {
       updatedAt: now,
       disabledAt: null,
       disabledReason: null,
+      inviteTokenId: null,
+      mustChangePassword: false,
+      lastSeenAt: null,
+      deletedAt: null,
     };
 
-    this.stmts.insert.run({
-      id: record.id,
-      username: record.username,
-      display_name: record.displayName,
-      email: record.email,
-      bio: record.bio,
-      avatar_url: record.avatarUrl,
-      roles: JSON.stringify(record.roles),
-      password_hash: record.passwordHash,
-      metadata: JSON.stringify(record.metadata),
-      created_at: now,
-      updated_at: now,
-    });
+    // The token use and the account land in one transaction: a token is never
+    // spent without an account, and an account never points at an unspent token.
+    this.db.transaction(() => {
+      if (inviteToken && this.invites) {
+        const redeemed = this.invites.redeem(inviteToken, now);
+        if (!redeemed) throw new AppError('Invalid invite code', 'INVITE_CODE_INVALID', 403);
+        record.inviteTokenId = redeemed.id;
+      }
+      this.stmts.insert.run({
+        id: record.id,
+        username: record.username,
+        display_name: record.displayName,
+        email: record.email,
+        bio: record.bio,
+        avatar_url: record.avatarUrl,
+        roles: JSON.stringify(record.roles),
+        password_hash: record.passwordHash,
+        metadata: JSON.stringify(record.metadata),
+        created_at: now,
+        updated_at: now,
+        invite_token_id: record.inviteTokenId,
+      });
+    })();
 
     return sanitizeAccount(record);
   }
@@ -214,7 +275,7 @@ export class AccountService {
     }
 
     const account = this.getByUsername(username);
-    if (!account) {
+    if (!account || account.status === 'deleted') {
       await bcrypt.compare(password, DUMMY_HASH);
       throw invalid();
     }
@@ -280,6 +341,44 @@ export class AccountService {
     }
     const hash = await bcrypt.hash(next, BCRYPT_ROUNDS);
     this.stmts.updatePassword.run(hash, Date.now(), id);
+  }
+
+  /** Admin: set a temporary password; the user must pick a new one on the next sign-in. */
+  async resetPassword(id: string, temporaryPassword: unknown): Promise<PublicAccount> {
+    const account = this.requireById(id);
+    if (account.status === 'deleted') throw new AppError('This account was deleted', 'ACCOUNT_DELETED', 410);
+    const next = passwordSchema(this.config.security.passwordMinLength).parse(temporaryPassword);
+    const hash = await bcrypt.hash(next, BCRYPT_ROUNDS);
+    const now = Date.now();
+    this.stmts.resetPassword.run(hash, now, id);
+    return sanitizeAccount({ ...account, passwordHash: hash, mustChangePassword: true, updatedAt: now });
+  }
+
+  /**
+   * Soft delete: the row stays (messages keep their author id) but the account
+   * can no longer sign in, its profile is blanked and its email becomes free.
+   */
+  softDelete(id: string): PublicAccount {
+    const account = this.requireById(id);
+    if (account.status === 'deleted') return sanitizeAccount(account);
+    const now = Date.now();
+    const username = tombstoneUsername(id);
+    const metadata = { deletedUsername: account.username, deletedDisplayName: account.displayName };
+    this.stmts.softDelete.run({ id, now, username, metadata: JSON.stringify(metadata) });
+    return sanitizeAccount({
+      ...account,
+      status: 'deleted',
+      deletedAt: now,
+      username,
+      displayName: 'Deleted user',
+      email: null,
+      bio: null,
+      avatarUrl: null,
+      roles: ['user'],
+      metadata,
+      mustChangePassword: false,
+      updatedAt: now,
+    });
   }
 
   assignRoles(id: string, roles: unknown): PublicAccount {

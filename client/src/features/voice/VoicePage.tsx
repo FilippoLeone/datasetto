@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { Gamepad2, Headphones, HeadphoneOff, Mic, MicOff, MonitorUp, Phone, PhoneOff, RefreshCw, Settings, Video, VideoOff, Volume2 } from 'lucide-preact';
+import { Gamepad2, Headphones, HeadphoneOff, MessageCircle, Mic, MicOff, MonitorUp, Phone, PhoneOff, RefreshCw, Settings, Video, VideoOff, Volume2 } from 'lucide-preact';
 import { Avatar, Button, IconButton, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
 import { canCaptureScreen } from '@/lib/device';
@@ -43,6 +43,7 @@ const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state
 
   const items: MenuItem[] = [];
   if (!isMe) {
+    if (user) items.push({ label: 'Message', icon: <MessageCircle size={14} />, onSelect: () => api.openDm(user.accountId) });
     items.push({
       label: pref?.muted ? 'Unmute for me' : 'Mute for me',
       icon: <Volume2 size={14} />,
@@ -149,7 +150,7 @@ interface Tile {
  */
 const tileAudio = (tile: Tile) => {
   if (!tile.screen) return { muted: true, audioIndicator: false };
-  if (!tile.screen.remote || !tile.screen.peerId) return { muted: true, audioIndicator: true };
+  if (!tile.screen.remote || !tile.screen.peerId) return { muted: true, audioIndicator: true, stats: true };
   const peerId = tile.screen.peerId;
   const pref = voiceManager.peerVolume(peerId);
   const hostKey = screenHostKey(peerId, peerId) ?? 'peer:' + peerId;
@@ -159,6 +160,7 @@ const tileAudio = (tile: Tile) => {
     volume: streamAudio.volume * pref.volume * audioSettings.value.outputVol,
     sinkId: audioSettings.value.spkDeviceId,
     audioIndicator: true,
+    stats: true,
     audioControls: {
       muted: streamAudio.muted,
       volume: streamAudio.volume,

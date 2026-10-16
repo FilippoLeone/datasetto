@@ -1,4 +1,4 @@
-import { Ban, Headphones, MicOff, Radio, ShieldCheck, Volume2 } from 'lucide-preact';
+import { Ban, Headphones, MessageCircle, MicOff, Radio, ShieldCheck, Volume2 } from 'lucide-preact';
 import { Avatar, Menu, RoleBadge, type MenuItem } from '@/components';
 import { channelsById } from '@/state/channels';
 import { onlineCount, sortedUsers } from '@/state/presence';
@@ -32,6 +32,9 @@ const MemberRow = ({ user }: { user: User }) => {
   const status = statusFor(user);
   const Icon = status.icon;
   const items: MenuItem[] = [];
+  if (user.accountId !== account.value?.id) {
+    items.push({ label: 'Message ' + user.displayName, icon: <MessageCircle size={14} />, onSelect: () => api.openDm(user.accountId) });
+  }
   if (canModerate(user)) {
     if (can('canBanUsers')) {
       items.push({

@@ -49,12 +49,14 @@ See [.env.example](.env.example). Notable settings:
 
 | Variable | Purpose |
 | --- | --- |
-| `REGISTRATION_MODE` | `open`, `invite` (needs `REGISTRATION_INVITE_CODE`) or `closed` |
+| `REGISTRATION_MODE` | `open`, `invite` (needs `REGISTRATION_INVITE_CODE`, or an admin-made invite token) or `closed` |
 | `ADMIN_EMAILS` | accounts that always receive the superuser role |
+| `SINGLE_SESSION_PER_ACCOUNT` | default `true`: a sign-in with a new session token (another device, or a password login) ends the account's other logins: their tokens are revoked and their live connections get `auth:error {code: "SIGNED_IN_ELSEWHERE"}`; a stale client resuming a revoked token gets `SESSION_FAILED` instead of taking the account back, so switching devices needs the password. Connections that resume the same token (tabs of one browser, a reload) are one login and stay. `false` allows several logins per account |
 | `CORS_ORIGINS` | browser origins allowed to connect; native shells are allowed by default |
 | `TURN_URLS`, `TURN_SECRET` | enable TURN; the server mints 12-hour HMAC credentials for clients |
 | `PUBLIC_RTMP_URL` | shown in the OBS dialog: `rtmps://host:1936/live` on a deployed server (TLS through nginx, Caddy's certificate), `rtmp://host/live` for plain RTMP |
 | `DATABASE_PATH` | SQLite file; parent directory is created |
+| `DATA_DIR` | uploads (avatars under `DATA_DIR/avatars`); defaults to the database's directory, `/data` in Docker |
 | `TRUST_PROXY` | read client IPs from `X-Forwarded-For` (true behind Caddy) |
 
 ## HTTP API
@@ -68,6 +70,9 @@ See [.env.example](.env.example). Notable settings:
 | `POST /api/stream/:channelName/ticket` | HLS viewer ticket for a signed-in account allowed to view the channel (10 minutes, the player renews it; refused over the egress budget) |
 | `GET /api/releases`, `/latest` | installers from the latest GitHub release of `RELEASES_GITHUB_REPO` (cached) for the landing and downloads pages |
 | `GET /internal/hls/auth` | Caddy `forward_auth` for `/hls/*`: checks the `X-Hls-Ticket` header or cookie against the channel in the URL |
+| `POST /api/avatars` | Bearer session token, body = raw PNG or WebP bytes (1 MB max, signature-checked): stores `DATA_DIR/avatars/<accountId>.<ext>` and sets `avatarUrl` to `/api/avatars/<accountId>.<ext>?v=<time>` |
+| `DELETE /api/avatars` | removes the uploaded picture (generated avatar again) |
+| `GET /api/avatars/:file` | serves uploaded pictures with `Cache-Control: public, max-age=31536000, immutable` (Caddy already proxies `/api/*`) |
 | `POST /internal/stream/publish` | nginx-rtmp `on_publish`: validates `key` for stream name `<channel>` (OBS key is `channel?key=token`) |
 | `POST /internal/stream/done` | nginx-rtmp `on_publish_done` |
 
@@ -87,19 +92,117 @@ rate limits apply.
 
 | Client emits | Server emits |
 | --- | --- |
-| `channel:join id`, `channels:list`, `channels:create {name,type,groupId?}`, `channels:delete idOrName` | `channel:joined`, `chat:history`, `channels:update {channels, groups}`, `channel:deleted` |
-| `chat text`, `chat:delete {messageId, channelId}` | `chat message`, `chat:messageDeleted` |
+| `channel:join id`, `channels:list`, `channels:create {name,type,groupId?,topic?,visibility?,password?}`, `channels:update {channelId,topic?,visibility?,password?}`, `channels:joinPrivate {name,password}`, `channels:delete idOrName`, `dm:open {accountId}` | `channel:joined`, `chat:history`, `channels:update {channels, groups}`, `channels:created`, `channels:updated`, `channels:privateJoined {channelId}`, `channel:deleted {channelId, reason?}`, `dm:opened {channelId, peerId, peerName}` |
+| `chat text`, `chat:delete {messageId, channelId}`, `chat:react/unreact {channelId, messageId, emoji}` | `chat message` (with `reactions[]`), `chat:messageDeleted`, `chat:reaction {channelId, messageId, emoji, accountId, displayName, added, reactions[]}` |
 | `voice:join id`, `voice:leave`, `voice:signal {to,data}`, `voice:stream-metadata`, `voice:state {muted,deafened}`, `voice:video:state` | `voice:joined {peers,startedAt,sessionId}`, `voice:peer-join`, `voice:peer-leave`, `voice:signal`, `voice:state`, `voice:video:state` |
 | `voice:kick`, `voice:timeout`, `user:ban {targetSocketId,...}` | `voice:kicked`, `voice:timeout`, `user:banned`, `moderation:success` |
 | `screenshare:start/stop/viewer:join/viewer:leave {channelId}`, `screenshare:signal` | `screenshare:session`, `screenshare:viewer:pending`, `screenshare:signal` |
 | `stream:key:request {channelId}`, `stream:key:regenerate {channelId}` | `stream:key:response {streamKey: "channel?key=token", ...}` |
 | `account:get`, `account:update {...}` | `account:data`, `account:updated`, `account:rolesUpdated` |
-| `admin:accounts:list/updateRoles/disable/enable/unban`, `admin:bans:list`, `admin:channels:getPermissions/updatePermissions` | `admin:accounts:*`, `admin:bans:list`, `admin:channels:permissions`, `channels:permissionsUpdated` |
+| `admin:accounts:list/updateRoles/disable/enable/unban`, `admin:bans:list`, `admin:channels:getPermissions/updatePermissions`, `admin:channels:members:list/add/remove {channelId, accountId?}` | `admin:accounts:*`, `admin:bans:list`, `admin:channels:permissions`, `channels:permissionsUpdated`, `admin:channels:members {channelId, members[]}` |
+| `admin:invites:list`, `admin:invites:create {maxUses?, expiresAt?, note?}`, `admin:invites:revoke/delete {inviteId}` | `admin:invites:list {invites[]}`, `admin:invites:created {invite}` |
+| `admin:settings:get`, `admin:settings:update {channelPermissionTemplates?: {text?, voice?, stream?, screenshare?}}` | `admin:settings {settings, saved?}` |
+| `admin:accounts:update {accountId, displayName}`, `admin:accounts:resetPassword {accountId, temporaryPassword}`, `admin:accounts:delete {accountId}`, `admin:accounts:sessions:list {accountId}`, `admin:accounts:sessions:revoke {accountId, sessionId?}` | `admin:accounts:updated/passwordReset/deleted {account}`, `admin:accounts:sessions {accountId, sessions[]}` |
+| `admin:usage:get` (admins), `admin:server:info` (superusers) | `admin:usage {currentMonth, months[], budgetBytes, online, liveStreams[]}`, `admin:server:info {version, registration, sessions, limits, streaming, turn, storage, counts, …}` (no secrets) |
 | `voice:game:start/join/leave/input/end/leaderboard` | `voice:game:state/update/started/ended/leaderboard` |
 
 Presence is broadcast as `user:update users[]` to everyone whenever it changes.
 Stream keys are never included in channel lists; they are only returned by
 `stream:key:request` to users allowed to stream on that channel.
+
+### Admin panel
+
+The client's admin area (`/app/admin`, or the shield in the sidebar) has the
+sections Members, Invites, Channels (with the permission templates), Bans,
+Usage and Server. Usage reads `usage_months` (estimated HLS egress and stream
+time per month against `STREAM_MONTHLY_EGRESS_GB`), the live streams with
+their viewer counts and the number of connected sockets. Server shows the
+running configuration read from the environment (version, registration mode,
+session rules, limits, streaming caps, TURN, storage paths) to superusers
+only; secrets are never included.
+
+### User management
+
+Admins (`canManageUsers`, deletion needs `canDisableAccounts`) see every
+account with status, roles, `lastSeenAt` (written on sign-in and disconnect,
+at most once a minute) and creation date. They can rename accounts, set a
+temporary password (`admin:accounts:resetPassword`: all sessions are revoked,
+`mustChangePassword` is set and the socket layer refuses everything except
+`account:update`, `account:get` and `auth:logout` with
+`PASSWORD_CHANGE_REQUIRED` until the user saves a new password), list and
+revoke sessions (`admin:accounts:sessions:*`, each session addressed by a
+16-character prefix of its hash; a revoked session's socket receives
+`auth:error {code: "SESSION_REVOKED"}`), disable and enable, and soft delete
+(`admin:accounts:delete`: status `deleted`, profile blanked, username replaced
+by `deleted-<id>@deleted.invalid` so the email is free again, sessions revoked,
+avatar file removed, private memberships dropped; messages keep their author).
+Deleted accounts cannot be edited, enabled or signed into. Admins can never act
+on themselves or on accounts with equal or higher privileges (superusers can).
+
+### Channel permissions
+
+Every channel stores five entries (`view`, `chat`, `voice`, `stream`, `manage`),
+each a list of roles (`*` = everyone) plus per-account overrides. `view` is the
+gate for everything: joining the channel and reading history, voice, hosting
+or watching a screenshare, HLS tickets, stream keys, reactions and deletion
+all require it before the action's own entry is checked
+(`ChannelService.requireAccess`). Permission changes are broadcast only to
+people who can see the channel, and the public stream status endpoint does
+not acknowledge private channels. Admins keep a template per channel kind in
+the `settings` table (`admin:settings:update {channelPermissionTemplates}`);
+`channels:create` without explicit permissions starts from that template, else
+from the server default (everyone may see, chat, talk and stream; admins manage).
+
+### Direct messages
+
+A one-to-one conversation is a channel of type `dm`: private, ungrouped, with
+exactly two rows in `channel_members` and a random name. `dm:open {accountId}`
+creates it or returns the existing one and answers `dm:opened`. Only the two
+participants pass any permission check on it (not even superusers), so history,
+reactions and deletion follow the normal chat pipeline but stay between them;
+admin tools (`channels:update/delete`, permissions, members) refuse `dm`
+channels. DMs do not count against `MAX_CHANNELS`. Each side's channel list
+entry carries `dm: {peerId, peerName, peerUsername, peerAvatarUrl}` for the
+other person, and `channels.last_message_at` (every channel) lets clients sort
+conversations by recency.
+
+### Reactions
+
+Anyone who can view a channel can react to its messages with one emoji per
+reaction (`message_reactions`, one row per message, account and emoji; at most
+20 different emojis per message and 10 reactions per account per message).
+Messages carry `reactions: [{emoji, count, accountIds, names}]` in history and
+in the `chat` event; every change is broadcast as `chat:reaction` to everyone
+who can view the channel. Reactions are rate limited separately from messages
+(60 per minute per socket) and disappear with their message.
+
+### Invite tokens
+
+Admins (`canManageUsers`) create invite tokens from the admin panel: single-use
+or up to 1000 uses, optional expiry and note. Tokens look like `inv-…`, are
+stored in `invite_tokens` as issued (so the link can be copied again) and can be
+revoked or deleted. `auth:register` accepts either `REGISTRATION_INVITE_CODE`
+or a valid token in `inviteCode`; the account remembers the token in
+`accounts.invite_token_id`, and the token's use and the account are written in
+one transaction. In `open` mode a valid token is recorded and an invalid one is
+ignored; `closed` stays closed. Invite links are `https://host/app?invite=TOKEN`:
+the client moves the token into the registration form and drops it from the URL.
+`GET /api/config` reports `registration.acceptsInviteLinks`.
+
+### Private channels
+
+A channel has `visibility: public | private`, an optional `topic` and, when
+private, an optional join password (bcrypt hash in `channels.join_password_hash`,
+never sent to clients; `hasPassword` is). Private channels are listed only for
+their members (`channel_members`, one row per account) and for admins who hold
+`canManageChannelPermissions`; superusers see everything. Every permission check
+(`view`, `chat`, `voice`, `stream`, `manage`) first requires membership on a
+private channel, so chat history, HLS tickets, voice and screenshare all follow
+the same rule. Whoever creates a private channel is its first member. Members
+join once with `channels:joinPrivate {name, password}` (rate limited with the
+auth bucket) and stay members; admins add and remove members with
+`admin:channels:members:*`. A removed member receives `channel:deleted {reason:
+"removed"}`. Making a channel public clears its password and member list.
 
 ## Maintenance
 

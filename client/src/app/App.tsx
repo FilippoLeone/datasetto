@@ -2,14 +2,16 @@ import { useEffect } from 'preact/hooks';
 import { cn } from '@/lib/cn';
 import { MOTION, usePresence } from '@/lib/motion';
 import { ToastHost } from '@/components';
-import { authStatus, connectionStatus, isAuthenticated } from '@/state/session';
-import { closeDrawers, isMobile, isPhone, membersOpen, showMembers, sidebarOpen } from '@/state/ui';
+import { account, authStatus, canManage, connectionStatus, isAuthenticated } from '@/state/session';
+import { closeDrawers, isMobile, isPhone, membersOpen, modal, openModal, showMembers, sidebarOpen } from '@/state/ui';
 import { Sidebar } from './layout/Sidebar';
 import { MainArea } from './layout/MainArea';
 import { MemberList } from './layout/MemberList';
 import { MobileToolbar } from './layout/MobileToolbar';
 import { ModalHost } from './ModalHost';
 import { AuthScreen } from '@/features/auth/AuthScreen';
+import { PasswordChangeScreen } from '@/features/auth/PasswordChangeScreen';
+import { openedOnAdminPath } from '@/features/admin/AdminModal';
 import { useGlobalShortcuts } from './useGlobalShortcuts';
 
 const ConnectionBanner = () => {
@@ -29,6 +31,12 @@ export const App = () => {
     if (!isMobile.value) closeDrawers();
   }, [isMobile.value]);
 
+  // /app/admin opens the admin area once signed in (admins only; others just land in the app).
+  const authed = isAuthenticated.value;
+  useEffect(() => {
+    if (authed && canManage.value && openedOnAdminPath() && modal.value?.type !== 'admin') openModal({ type: 'admin', tab: 'users' });
+  }, [authed]);
+
   const authenticated = isAuthenticated.value;
   const mobile = isMobile.value;
   const phone = isPhone.value;
@@ -40,6 +48,16 @@ export const App = () => {
     return (
       <>
         <AuthScreen resuming={authStatus.value === 'resuming'} />
+        <ConnectionBanner />
+        <ToastHost />
+      </>
+    );
+  }
+
+  if (account.value?.mustChangePassword) {
+    return (
+      <>
+        <PasswordChangeScreen />
         <ConnectionBanner />
         <ToastHost />
       </>

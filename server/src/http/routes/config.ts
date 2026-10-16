@@ -18,6 +18,8 @@ export const configRouter = (ctx: AppContext): Router => {
       registration: {
         mode: ctx.config.registration.mode,
         requiresInvite: ctx.config.registration.mode === 'invite',
+        // Invite links (/app?invite=TOKEN) work whenever registration is not closed.
+        acceptsInviteLinks: ctx.config.registration.mode !== 'closed',
       },
       urls: {
         rtmp: ctx.config.publicUrls.rtmp,

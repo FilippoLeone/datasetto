@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
 
@@ -37,6 +38,8 @@ const envSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   TRUST_PROXY: boolFromEnv(false),
   DATABASE_PATH: z.string().default('./data/datasetto.db'),
+  // Uploads (avatars) live here; defaults to the database's directory, /data in Docker.
+  DATA_DIR: optionalString,
 
   CORS_ORIGINS: listFromEnv(['http://localhost:5173', 'http://localhost:8080']),
   ALLOW_NATIVE_ORIGINS: boolFromEnv(true),
@@ -49,6 +52,8 @@ const envSchema = z.object({
   ADMIN_EMAILS: listFromEnv([]).transform((list) => list.map((email) => email.toLowerCase())),
 
   SESSION_TTL_DAYS: intFromEnv(30, 1, 365),
+  // One signed-in device per account: a new sign-in disconnects the previous socket.
+  SINGLE_SESSION_PER_ACCOUNT: boolFromEnv(true),
   PASSWORD_MIN_LENGTH: intFromEnv(8, 8, 64),
 
   MAX_CHANNELS: intFromEnv(50, 1, 500),
@@ -86,10 +91,11 @@ export interface AppConfig {
   version: string;
   server: { port: number; host: string; trustProxy: boolean };
   database: { path: string };
+  storage: { dataDir: string };
   cors: { origins: string[]; allowNativeOrigins: boolean };
   publicUrls: { rtmp: string | null; hls: string | null };
   registration: { mode: Env['REGISTRATION_MODE']; inviteCode: string | null; adminEmails: string[] };
-  sessions: { ttlMs: number };
+  sessions: { ttlMs: number; singlePerAccount: boolean };
   security: { passwordMinLength: number; maxConnectionsPerIp: number };
   limits: {
     maxChannels: number;
@@ -133,6 +139,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
     version: readVersion(),
     server: { port: env.PORT, host: env.HOST, trustProxy: env.TRUST_PROXY },
     database: { path: env.DATABASE_PATH },
+    storage: { dataDir: env.DATA_DIR ?? (env.DATABASE_PATH === ':memory:' ? './data' : dirname(env.DATABASE_PATH)) },
     cors: { origins: env.CORS_ORIGINS, allowNativeOrigins: env.ALLOW_NATIVE_ORIGINS },
     publicUrls: { rtmp: env.PUBLIC_RTMP_URL, hls: env.PUBLIC_HLS_URL },
     streaming: {
@@ -147,7 +154,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       inviteCode: env.REGISTRATION_INVITE_CODE,
       adminEmails: env.ADMIN_EMAILS,
     },
-    sessions: { ttlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000 },
+    sessions: { ttlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000, singlePerAccount: env.SINGLE_SESSION_PER_ACCOUNT },
     security: { passwordMinLength: env.PASSWORD_MIN_LENGTH, maxConnectionsPerIp: env.MAX_CONNECTIONS_PER_IP },
     limits: {
       maxChannels: env.MAX_CHANNELS,

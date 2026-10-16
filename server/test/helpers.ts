@@ -1,14 +1,21 @@
 import http from 'node:http';
+import { mkdtempSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { loadConfig, type AppConfig } from '../src/config.js';
 import { createContext, type AppContext } from '../src/context.js';
 import { openDatabase } from '../src/db/index.js';
 import { createHttpApp } from '../src/http/app.js';
 import { createSocketServer, type SocketServer } from '../src/socket/index.js';
 
+/** Uploads (avatars) go to a throwaway directory per test process. */
+export const testDataDir = mkdtempSync(join(tmpdir(), 'datasetto-test-'));
+
 export const testEnv = (overrides: Record<string, string> = {}): NodeJS.ProcessEnv => ({
   NODE_ENV: 'test',
   DATABASE_PATH: ':memory:',
+  DATA_DIR: testDataDir,
   LOG_LEVEL: 'silent',
   CORS_ORIGINS: 'http://localhost',
   ...overrides,

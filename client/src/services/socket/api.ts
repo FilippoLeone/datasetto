@@ -1,5 +1,13 @@
 import { socketClient } from './client';
-import type { ChannelPermissions, ChannelType, LeaderboardEntry, MinigameType } from '@/types/protocol';
+import type {
+  ChannelPermissions,
+  CreateChannelInput,
+  CreateInviteInput,
+  LeaderboardEntry,
+  MinigameType,
+  ServerSettingsUpdate,
+  UpdateChannelInput,
+} from '@/types/protocol';
 
 const emit = (event: string, payload?: unknown): void => socketClient.emit(event, payload);
 
@@ -29,14 +37,29 @@ export const api = {
   // channels
   listChannels: () => emit('channels:list'),
   joinChannel: (channelId: string) => emit('channel:join', channelId),
-  createChannel: (name: string, type: ChannelType) => emit('channels:create', { name, type, groupId: null }),
+  createChannel: (input: CreateChannelInput) =>
+    emit('channels:create', {
+      name: input.name,
+      type: input.type,
+      groupId: null,
+      topic: input.topic || null,
+      visibility: input.visibility ?? 'public',
+      password: input.visibility === 'private' && input.password ? input.password : null,
+    }),
+  updateChannel: (channelId: string, input: UpdateChannelInput) => emit('channels:update', { channelId, ...input }),
+  /** Become a member of a private channel by name and password (answered with `channels:privateJoined`). */
+  joinPrivateChannel: (name: string, password: string) => emit('channels:joinPrivate', { name, password }),
   deleteChannel: (channelId: string) => emit('channels:delete', channelId),
+  /** Open (or reuse) the one-to-one conversation with an account (answered with `dm:opened`). */
+  openDm: (accountId: string) => emit('dm:open', { accountId }),
   requestStreamKey: (channelId: string) => emit('stream:key:request', { channelId }),
   regenerateStreamKey: (channelId: string) => emit('stream:key:regenerate', { channelId }),
 
   // chat
   sendMessage: (text: string) => emit('chat', text),
   deleteMessage: (channelId: string, messageId: string) => emit('chat:delete', { channelId, messageId }),
+  addReaction: (channelId: string, messageId: string, emoji: string) => emit('chat:react', { channelId, messageId, emoji }),
+  removeReaction: (channelId: string, messageId: string, emoji: string) => emit('chat:unreact', { channelId, messageId, emoji }),
 
   // voice
   joinVoice: (channelId: string) => emit('voice:join', channelId),
@@ -62,6 +85,12 @@ export const api = {
   // admin
   listAccounts: () => emit('admin:accounts:list'),
   updateRoles: (accountId: string, roles: string[]) => emit('admin:accounts:updateRoles', { accountId, roles }),
+  adminUpdateAccount: (accountId: string, displayName: string) => emit('admin:accounts:update', { accountId, displayName }),
+  resetAccountPassword: (accountId: string, temporaryPassword: string) => emit('admin:accounts:resetPassword', { accountId, temporaryPassword }),
+  deleteAccount: (accountId: string) => emit('admin:accounts:delete', { accountId }),
+  listAccountSessions: (accountId: string) => emit('admin:accounts:sessions:list', { accountId }),
+  /** Revoke one session (by id) or, without an id, every session of the account. */
+  revokeAccountSessions: (accountId: string, sessionId?: string) => emit('admin:accounts:sessions:revoke', { accountId, sessionId: sessionId ?? null }),
   disableAccount: (accountId: string, reason?: string) => emit('admin:accounts:disable', { accountId, reason }),
   enableAccount: (accountId: string) => emit('admin:accounts:enable', { accountId }),
   unbanAccount: (accountId: string) => emit('admin:accounts:unban', { accountId }),
@@ -69,6 +98,17 @@ export const api = {
   getChannelPermissions: (channelId: string) => emit('admin:channels:getPermissions', { channelId }),
   updateChannelPermissions: (channelId: string, permissions: Partial<ChannelPermissions>) =>
     emit('admin:channels:updatePermissions', { channelId, permissions }),
+  getSettings: () => emit('admin:settings:get'),
+  getUsage: () => emit('admin:usage:get'),
+  getServerInfo: () => emit('admin:server:info'),
+  updateSettings: (input: ServerSettingsUpdate) => emit('admin:settings:update', input),
+  listInvites: () => emit('admin:invites:list'),
+  createInvite: (input: CreateInviteInput) => emit('admin:invites:create', input),
+  revokeInvite: (inviteId: string) => emit('admin:invites:revoke', { inviteId }),
+  deleteInvite: (inviteId: string) => emit('admin:invites:delete', { inviteId }),
+  listChannelMembers: (channelId: string) => emit('admin:channels:members:list', { channelId }),
+  addChannelMember: (channelId: string, accountId: string) => emit('admin:channels:members:add', { channelId, accountId }),
+  removeChannelMember: (channelId: string, accountId: string) => emit('admin:channels:members:remove', { channelId, accountId }),
 
   /** Fresh TURN credentials for the signed-in user (answered with `turn:credentials`). */
     refreshTurn: () => emit('turn:refresh'),

@@ -58,6 +58,7 @@ export class SessionService {
       deleteByAccountExcept: db.prepare('DELETE FROM sessions WHERE account_id = ? AND token_hash <> ?'),
       deleteExpired: db.prepare('DELETE FROM sessions WHERE expires_at <= ?'),
       countByAccount: db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE account_id = ?'),
+      listByAccount: db.prepare('SELECT * FROM sessions WHERE account_id = ? AND expires_at > ? ORDER BY last_seen_at DESC'),
     };
   }
 
@@ -117,6 +118,15 @@ export class SessionService {
       return this.stmts.deleteByAccountExcept.run(accountId, exceptTokenHash).changes;
     }
     return this.stmts.deleteByAccount.run(accountId).changes;
+  }
+
+  /** Live sessions of an account, most recently used first. */
+  listForAccount(accountId: string, now = Date.now()): SessionRecord[] {
+    return (this.stmts.listByAccount.all(accountId, now) as SessionRow[]).map(rowToRecord);
+  }
+
+  revokeByHash(tokenHash: string): boolean {
+    return this.stmts.deleteByHash.run(tokenHash).changes > 0;
   }
 
   purgeExpired(now = Date.now()): number {

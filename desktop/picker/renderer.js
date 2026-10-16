@@ -253,8 +253,12 @@ window.addEventListener('keydown', (event) => {
 });
 
 const describeQuality = (quality) => {
-  if (!quality || !quality.width || !quality.height) return 'Quality follows the screen share preset in Voice & audio settings.';
+  if (!quality) return 'Quality follows the screen share preset in Voice & audio settings.';
   const fps = quality.fps ? ' · ' + quality.fps + ' fps' : '';
+  // Native presets send no size: the display's own resolution is used.
+  if (!quality.width || !quality.height) {
+    return 'Shared at ' + (quality.label || 'the native resolution') + '. Change it under Voice & audio › Screen share quality.';
+  }
   return 'Shared at ' + quality.width + ' × ' + quality.height + fps + '. Change it under Voice & audio › Screen share quality.';
 };
 

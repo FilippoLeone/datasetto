@@ -10,6 +10,7 @@ import { healthRouter } from './routes/health.js';
 import { releasesRouter } from './routes/releases.js';
 import { streamRouter } from './routes/stream.js';
 import { hlsRouter } from './routes/hls.js';
+import { avatarsRouter } from './routes/avatars.js';
 import { RateLimiter } from '../core/rateLimit.js';
 
 export const createHttpApp = (ctx: AppContext): express.Express => {
@@ -30,7 +31,7 @@ export const createHttpApp = (ctx: AppContext): express.Express => {
         return callback(null, false);
       },
       credentials: true,
-      methods: ['GET', 'POST', 'OPTIONS'],
+      methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
       maxAge: 86400,
     }),
@@ -58,6 +59,7 @@ export const createHttpApp = (ctx: AppContext): express.Express => {
   app.use('/api/config', configRouter(ctx));
   app.use(streamRouter(ctx));
   app.use(hlsRouter(ctx));
+  app.use(avatarsRouter(ctx));
   app.use('/api/releases', releasesRouter(ctx));
 
   app.use((_req, res) => {
