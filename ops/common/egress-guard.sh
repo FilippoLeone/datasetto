@@ -1,7 +1,8 @@
 #!/bin/bash
 # Monthly egress backstop for the VM. Runs every few minutes from a systemd timer
-# (installed by startup.sh). Counts bytes sent on the primary interface since the
-# start of the month and, independently of anything the app does:
+# (installed by ops/common/egress-guard-install.sh: on every boot by ops/gcp/startup.sh,
+# on request by ops/vps/install.sh --egress-guard). Counts bytes sent on the primary
+# interface since the start of the month and, independently of anything the app does:
 #   soft limit -> shapes all outgoing traffic to a trickle (chat and voice signalling
 #                 keep working, streaming and relaying become useless);
 #   hard limit -> additionally stops the rtmp and turn containers.
@@ -9,6 +10,12 @@
 #
 # Limits come from ops/.env (EGRESS_SOFT_LIMIT_GB, EGRESS_HARD_LIMIT_GB); GB are
 # decimal, like the cloud bill. State lives in /var/lib/datasetto/egress.json.
+#
+#   datasetto-egress-guard            one accounting run (what the timer does)
+#   datasetto-egress-guard --status   same, then print the month-to-date figure
+#   datasetto-egress-guard --lift     remove the shaping and restart the containers now;
+#                                     the counter keeps counting, so the next timer run
+#                                     re-applies the limit if it is still exceeded
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/datasetto}"
@@ -20,9 +27,10 @@ SOFT_RATE="${EGRESS_SOFT_RATE:-1mbit}"
 
 log() { printf '%s %s\n' "$(date -Is)" "$*" | tee -a "$LOG"; }
 
+# A key missing from .env must fall through to the default, not abort (pipefail).
 if [[ -f "$APP_DIR/ops/.env" ]]; then
-  SOFT_GB="$(grep -E '^EGRESS_SOFT_LIMIT_GB=' "$APP_DIR/ops/.env" | tail -n1 | cut -d= -f2 | tr -d '[:space:]')"
-  HARD_GB="$(grep -E '^EGRESS_HARD_LIMIT_GB=' "$APP_DIR/ops/.env" | tail -n1 | cut -d= -f2 | tr -d '[:space:]')"
+  SOFT_GB="$(grep -E '^EGRESS_SOFT_LIMIT_GB=' "$APP_DIR/ops/.env" | tail -n1 | cut -d= -f2 | tr -d '[:space:]' || true)"
+  HARD_GB="$(grep -E '^EGRESS_HARD_LIMIT_GB=' "$APP_DIR/ops/.env" | tail -n1 | cut -d= -f2 | tr -d '[:space:]' || true)"
 fi
 SOFT_GB="${SOFT_GB:-190}"
 HARD_GB="${HARD_GB:-230}"
@@ -52,6 +60,17 @@ lift() {
     (cd "$APP_DIR/ops" && docker compose start rtmp turn >/dev/null 2>&1) || true
   fi
 }
+
+if [[ "${1:-}" == "--lift" ]]; then
+  log "lifting limits on request (month $MONTH, $(( S_TOTAL / 1000000000 )) GB used so far)"
+  lift
+  [[ -n "$S_MONTH" ]] || S_LAST="$TX"
+  python3 - "$STATE" "$MONTH" "$S_LAST" "$S_TOTAL" 0 <<'PY'
+import json, sys
+json.dump({"month": sys.argv[2], "last": int(sys.argv[3]), "total": int(sys.argv[4]), "level": int(sys.argv[5])}, open(sys.argv[1], "w"))
+PY
+  exit 0
+fi
 
 if [[ "$S_MONTH" != "$MONTH" ]]; then
   if [[ -n "$S_MONTH" ]]; then

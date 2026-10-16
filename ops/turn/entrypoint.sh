@@ -1,6 +1,8 @@
 #!/bin/sh
 # coturn entrypoint: ephemeral credentials (use-auth-secret) shared with the app
 # through TURN_SECRET. Discovers the public IP on GCP when TURN_EXTERNAL_IP is empty.
+# Plain UDP/TCP only: TLS is switched off and DTLS is off by default in coturn 4.18
+# (the old --no-dtls flag no longer exists and made the server exit).
 #
 # Relayed traffic is paid egress, so the relay is deliberately small: a handful
 # of sessions, a per-session cap that fits voice and one screen share, and a
@@ -29,7 +31,6 @@ set -- \
   --static-auth-secret="${TURN_SECRET}" \
   --fingerprint \
   --no-tls \
-  --no-dtls \
   --no-cli \
   --no-multicast-peers \
   --stale-nonce=600 \
