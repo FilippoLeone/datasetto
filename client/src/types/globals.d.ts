@@ -72,6 +72,57 @@ interface DesktopAPI {
   getLogPath: () => Promise<string>;
   openLogFile: () => Promise<unknown>;
   log: (level: string, ...args: unknown[]) => void;
+
+  // Added with the gaming features; shells built before them lack these members, so
+  // every caller feature-detects them (see features/voice/desktopVoice.ts).
+
+  /**
+   * Register `accelerator` (an Electron accelerator such as `Control+Shift+V`) as the
+   * system-wide push-to-talk key, or `null` to drop the current one. `registered` is
+   * false when the system or another app already owns the combination.
+   */
+  setPushToTalkShortcut?: (accelerator: string | null) => Promise<DesktopShortcutStatus>;
+  /** Whether `accelerator` could be registered, without changing the current registration. */
+  checkPushToTalkShortcut?: (accelerator: string) => Promise<{ available: boolean }>;
+  /**
+   * Presses of the registered push-to-talk key, also while another window has focus.
+   * The operating system repeats the press while the key is held; releases are not
+   * reported (features/voice/pushToTalkHold.ts derives them). Returns an unsubscribe function.
+   */
+  onPushToTalkPressed?: (handler: (event: { accelerator: string; at: number }) => void) => () => void;
+  /** Show or hide the always-on-top voice overlay and pick its corner of the primary display. */
+  configureVoiceOverlay?: (options: { enabled: boolean; corner: DesktopOverlayCorner }) => Promise<unknown>;
+  /** What the overlay shows; `null` while not in voice (the window is hidden then). */
+  updateVoiceOverlay?: (state: DesktopVoiceOverlayState | null) => void;
+}
+
+interface DesktopShortcutStatus {
+  accelerator: string | null;
+  registered: boolean;
+  /** `taken` when the system or another app owns the key, `invalid` for an accelerator Electron rejects. */
+  error?: 'taken' | 'invalid' | string;
+}
+
+type DesktopOverlayCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+/** Mirrors VoiceOverlayState in features/voice/voiceOverlayState.ts; desktop/overlay/renderer.js draws it. */
+interface DesktopVoiceOverlayState {
+  channelName: string;
+  participants: Array<{
+    id: string;
+    name: string;
+    /** Absolute URL or data URI (the overlay window cannot resolve server-relative paths). */
+    avatarUrl: string | null;
+    speaking: boolean;
+    muted: boolean;
+    deafened: boolean;
+    self: boolean;
+  }>;
+  more: number;
+  muted: boolean;
+  deafened: boolean;
+  pushToTalk: boolean;
+  transmitting: boolean;
 }
 
 declare global {

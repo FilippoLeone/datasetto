@@ -6,6 +6,7 @@ import { serverConfig } from '@/services/ServerConfigService';
 import { installSocketBindings } from '@/services/socket/bindings';
 import { socketClient } from '@/services/socket/client';
 import { voiceManager } from '@/features/voice/voiceManager';
+import { installDesktopVoice } from '@/features/voice/desktopVoice';
 import { screenshareService } from '@/features/screenshare/screenshareService';
 import { installCapacitorAppHandlers } from '@/services/native/capacitorApp';
 import { captureInviteFromUrl } from '@/state/session';
@@ -16,6 +17,7 @@ const bootstrap = async (): Promise<void> => {
   await serverConfig.load(runtimeUrls.apiBaseUrl);
   installSocketBindings();
   voiceManager.init();
+  installDesktopVoice();
   screenshareService.init();
   void installCapacitorAppHandlers();
   socketClient.connect(runtimeUrls.serverUrl);

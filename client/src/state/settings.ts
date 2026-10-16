@@ -1,6 +1,8 @@
 import { signal } from '@preact/signals';
 import { config } from '@/config';
+import { parseShortcut, serializeShortcut } from '@/lib/shortcut';
 import { Storage } from '@/lib/storage';
+import { DEFAULT_OVERLAY_CORNER, isOverlayCorner } from '@/features/voice/voiceOverlayState';
 import type { AudioSettings, ScreenQuality } from '@/types/protocol';
 
 const SETTINGS_KEY = 'rtmpdisc.settings.v1';
@@ -26,6 +28,8 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   outputVol: 1,
   pttEnable: false,
   pttKey: '',
+  overlayEnabled: true,
+  overlayCorner: DEFAULT_OVERLAY_CORNER,
   voiceBitrate: num(config.VOICE_OPUS_BITRATE, 128000, 6000, 128000),
   dtx: bool(config.VOICE_DTX_ENABLED, true),
   latencyHint: 'interactive',
@@ -37,6 +41,11 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
 export const normalizeAudioSettings = (stored: Partial<AudioSettings> | null | undefined): AudioSettings => {
   const next = { ...DEFAULT_AUDIO_SETTINGS, ...(stored ?? {}) };
   if (!SCREEN_QUALITIES.includes(next.screenQuality)) next.screenQuality = DEFAULT_AUDIO_SETTINGS.screenQuality;
+  if (!isOverlayCorner(next.overlayCorner)) next.overlayCorner = DEFAULT_OVERLAY_CORNER;
+  next.overlayEnabled = Boolean(next.overlayEnabled);
+  // The old client stored the bare KeyboardEvent.code; normalise to the shortcut form.
+  const shortcut = parseShortcut(typeof next.pttKey === 'string' ? next.pttKey : '');
+  next.pttKey = shortcut ? serializeShortcut(shortcut) : '';
   return next;
 };
 

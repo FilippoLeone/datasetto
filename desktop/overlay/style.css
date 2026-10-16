@@ -1,0 +1,277 @@
+/* Voice overlay. Colour, radius and motion tokens mirror the client's design system
+   (client/src/styles/app.css) and the screen share picker; keep them in sync. The window
+   is transparent and click-through, only the card is painted. */
+:root {
+  color-scheme: dark;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-base: #1e1f22;
+  --color-sidebar: #2b2d31;
+  --color-elevated: #383a40;
+  --color-active: #404249;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-strong: rgba(255, 255, 255, 0.12);
+
+  --color-text: #dbdee1;
+  --color-text-muted: #949ba4;
+  --color-text-faint: #6d6f78;
+  --color-text-bright: #f2f3f5;
+
+  --color-brand: #5865f2;
+  --color-success: #23a559;
+  --color-live: #ed4245;
+  --color-warning: #f0b232;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --duration-fast: 150ms;
+  --duration: 200ms;
+  --duration-slow: 250ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  /* Room for the shadow around the card; main.js adds the same 16 px to the window height. */
+  padding: 8px;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+.is-hidden {
+  display: none !important;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 10px;
+  background: rgba(30, 31, 34, 0.92);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  animation: card-in var(--duration-slow) var(--ease-out) both;
+}
+
+/* ------------------------------------------------------------------ header */
+.card__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.card__channel-icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.card__channel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--color-text-bright);
+}
+
+.card__status {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--color-active);
+  color: var(--color-text-muted);
+  animation: pop var(--duration-fast) var(--ease-out) both;
+}
+
+.card__status[data-tone='live'] {
+  background: rgba(35, 165, 89, 0.22);
+  color: #4ade80;
+}
+
+.card__status[data-tone='muted'] {
+  background: rgba(237, 66, 69, 0.2);
+  color: #f87171;
+}
+
+.card__status[data-tone='ptt'] {
+  background: var(--color-active);
+  color: var(--color-text);
+}
+
+/* -------------------------------------------------------------------- rows */
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 0;
+  animation: row-in var(--duration) var(--ease-out) both;
+}
+
+.row__avatar {
+  position: relative;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--color-elevated);
+  transition: box-shadow var(--duration-fast);
+}
+
+.row__image {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+/* Green ring around whoever is talking; the pulse is non-essential motion. */
+.row[data-speaking='true'] .row__avatar {
+  box-shadow: 0 0 0 2px var(--color-success);
+  animation: speaking-pulse 1.2s ease-in-out infinite;
+}
+
+.row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  transition: color var(--duration-fast);
+}
+
+.row[data-speaking='true'] .row__name {
+  color: var(--color-text-bright);
+}
+
+.row[data-muted='true'] .row__name {
+  color: var(--color-text-muted);
+}
+
+.row__name small {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-text-faint);
+}
+
+.row__icons {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-live);
+}
+
+.row__icon {
+  display: none;
+}
+
+.row[data-muted='true'] .row__icon--muted {
+  display: block;
+}
+
+.row[data-deafened='true'] .row__icon--deaf {
+  display: block;
+}
+
+.more {
+  margin: 0;
+  padding-left: 34px;
+  font-size: 11px;
+  color: var(--color-text-faint);
+}
+
+/* ----------------------------------------------------------------- motion */
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes speaking-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px var(--color-success);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(35, 165, 89, 0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

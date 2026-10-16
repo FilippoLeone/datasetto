@@ -37,12 +37,13 @@ src/
     channels/              channel list, create/delete, stream key dialog, confirm dialog
     chat/                  message list, composer, message rendering (links, mentions)
     stream/                HLS player + live chat page
-    voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation), voice page, dock, audio settings
+    voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation), voice page, dock, audio settings,
+                           desktopVoice (system-wide push to talk + voice overlay through the Electron bridge), pushToTalkHold, voiceOverlayState
     screenshare/           presenter/viewer rooms over direct WebRTC
     minigames/             canvas engine (slither, pacman, fighter) + panel
     admin/                 members, channel permissions, bans
   components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost
-  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs
+  lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs, shortcut (push-to-talk keys)
   types/                   protocol.ts (wire types shared with the server), globals.d.ts (desktop and Capacitor globals)
   styles/app.css           Tailwind v4 theme tokens (dark palette) and the few custom classes
   test/setup.ts            vitest environment (jsdom)
@@ -84,6 +85,24 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
   offers 32 to 128 kbps); the value is applied to our sender through
   `setParameters` and asked of the other side through `maxaveragebitrate` in
   the SDP.
+
+## Push to talk and the voice overlay while gaming
+
+- Push to talk (Voice & audio settings > Transmission) records a key or a combination such as `Ctrl + Shift + F9`
+  (`lib/shortcut.ts`: stored as `Ctrl+Shift+KeyV`, a bare `KeyboardEvent.code` from the old client still loads).
+  A press must carry exactly the recorded modifiers, a release only has to be the same key. A modifier alone
+  (right Ctrl) works too.
+- In the browser the key works while the tab is focused. In the desktop app the same key is registered with the
+  operating system while you are in voice (`features/voice/desktopVoice.ts` asks `window.desktopAPI` for it) and
+  also works while a game has focus; the dialog says "Works in the background in the desktop app" when it does,
+  warns when the system or another app already owns the combination, and explains that a modifier alone or a bare
+  typing key has limits. Electron reports presses only, so `pushToTalkHold.ts` treats the key as released when the
+  OS key repeats stop (about 150 ms after a long hold, up to 1.2 s after a short tap).
+- The desktop overlay (Voice & audio settings > Voice overlay: toggle and corner) is fed from the voice signals by
+  `voiceOverlayState.ts`: you first, then friends by name, speaking ring, mute/deafen, your Muted / Deafened /
+  Hold to talk / Live state, at most eight rows plus a "+N more" line. It is hidden outside voice and in the browser.
+  Both the shortcut helpers and the overlay state are unit tested; everything feature-detects the bridge so a
+  browser, a phone or an older desktop shell keeps working.
 
 ## Conventions
 

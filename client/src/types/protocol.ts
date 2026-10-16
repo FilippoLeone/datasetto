@@ -207,7 +207,12 @@ export interface AudioSettings {
   micGain: number;
   outputVol: number;
   pttEnable: boolean;
+  /** Push-to-talk shortcut as stored by lib/shortcut.ts (`Ctrl+Shift+KeyV`, or a bare `KeyboardEvent.code`). */
   pttKey: string;
+  /** Desktop app: show the always-on-top voice overlay while in a voice channel. */
+  overlayEnabled: boolean;
+  /** Desktop app: corner of the primary display the overlay sits in. */
+  overlayCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   micDeviceId?: string;
   spkDeviceId?: string;
   voiceBitrate: number;
