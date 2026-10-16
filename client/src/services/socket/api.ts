@@ -48,6 +48,8 @@ export const api = {
   // chat
   sendMessage: (text: string) => emit('chat', text),
   deleteMessage: (channelId: string, messageId: string) => emit('chat:delete', { channelId, messageId }),
+  addReaction: (channelId: string, messageId: string, emoji: string) => emit('chat:react', { channelId, messageId, emoji }),
+  removeReaction: (channelId: string, messageId: string, emoji: string) => emit('chat:unreact', { channelId, messageId, emoji }),
 
   // voice
   joinVoice: (channelId: string) => emit('voice:join', channelId),

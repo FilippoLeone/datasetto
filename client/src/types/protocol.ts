@@ -141,6 +141,14 @@ export interface ChannelMember {
   joinedAt: number;
 }
 
+/** One emoji on a message and everyone who added it. */
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  accountIds: string[];
+  names: string[];
+}
+
 export interface ChatMessage {
   id: string;
   channelId: string;
@@ -153,6 +161,18 @@ export interface ChatMessage {
   isSuperuser?: boolean;
   edited?: boolean;
   deleted?: boolean;
+  reactions?: ReactionSummary[];
+}
+
+/** `chat:reaction`: someone added or removed an emoji; `reactions` is the message's full list afterwards. */
+export interface ReactionEvent {
+  channelId: string;
+  messageId: string;
+  emoji: string;
+  accountId: string;
+  displayName: string;
+  added: boolean;
+  reactions: ReactionSummary[];
 }
 
 export interface AudioSettings {

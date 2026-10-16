@@ -45,6 +45,14 @@ export const optionalIdSchema = z
   .union([idSchema, z.null(), z.undefined()])
   .transform((value) => (value ? value : null));
 
+/** A single emoji (pictographs with optional modifiers, joiners and keycaps). */
+export const emojiSchema = z
+  .string()
+  .trim()
+  .min(1, 'Pick an emoji')
+  .max(16, 'Not an emoji')
+  .regex(/^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|[0-9#*]️?⃣|‍|️)+$/u, 'Not an emoji');
+
 /** Strips control characters except tab/newline and trims. */
 export const messageTextSchema = (maxLength: number) =>
   z

@@ -100,6 +100,14 @@ export interface ChannelGroupRecord {
   createdAt: number;
 }
 
+/** One emoji on a message with everyone who added it (names for the hover list). */
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  accountIds: string[];
+  names: string[];
+}
+
 export interface MessageRecord {
   id: string;
   channelId: string;
@@ -112,6 +120,7 @@ export interface MessageRecord {
   isSuperuser: boolean;
   edited: boolean;
   deleted: boolean;
+  reactions: ReactionSummary[];
 }
 
 export interface BanRecord {

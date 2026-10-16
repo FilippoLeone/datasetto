@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import type { ChatMessage } from '@/types/protocol';
+import type { ChatMessage, ReactionSummary } from '@/types/protocol';
 
 const MAX_PER_CHANNEL = 500;
 
@@ -19,6 +19,15 @@ export const appendMessage = (message: ChatMessage): void => {
   const next = [...existing, message];
   if (next.length > MAX_PER_CHANNEL) next.splice(0, next.length - MAX_PER_CHANNEL);
   messages.value = { ...messages.value, [message.channelId]: next };
+};
+
+export const setReactions = (channelId: string, messageId: string, reactions: ReactionSummary[]): void => {
+  const existing = messages.value[channelId];
+  if (!existing?.some((entry) => entry.id === messageId)) return;
+  messages.value = {
+    ...messages.value,
+    [channelId]: existing.map((entry) => (entry.id === messageId ? { ...entry, reactions } : entry)),
+  };
 };
 
 export const removeMessage = (channelId: string, messageId: string): void => {

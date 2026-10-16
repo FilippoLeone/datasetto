@@ -14,7 +14,7 @@ import {
   selectedChannelId,
   setChannels,
 } from '@/state/channels';
-import { appendMessage, removeMessage, setHistory } from '@/state/chat';
+import { appendMessage, removeMessage, setHistory, setReactions } from '@/state/chat';
 import { users } from '@/state/presence';
 import { closeModal, modal, toast } from '@/state/ui';
 import {
@@ -41,6 +41,7 @@ import type {
   ChatMessage,
   IceConfigPayload,
   InviteToken,
+  ReactionEvent,
   ScreenshareSessionEvent,
   ServerError,
   SessionInfo,
@@ -228,6 +229,10 @@ export const installSocketBindings = (): void => {
 
   socketClient.on<{ messageId: string; channelId: string }>('chat:messageDeleted', ({ channelId, messageId }) => {
     removeMessage(channelId, messageId);
+  });
+
+  socketClient.on<ReactionEvent>('chat:reaction', (event) => {
+    setReactions(event.channelId, event.messageId, event.reactions);
   });
 
   // ------------------------------------------------------------- presence

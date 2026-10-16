@@ -6,7 +6,7 @@ import { rolesHavePermission, type Permission } from '../core/roles.js';
 import { AppError, errorMessage, isAppError, notAuthenticated } from '../errors.js';
 import type { ConnectedUser, PublicAccount } from '../types.js';
 
-export type LimiterKind = 'chat' | 'signal' | 'game' | 'generic' | 'auth';
+export type LimiterKind = 'chat' | 'reaction' | 'signal' | 'game' | 'generic' | 'auth';
 
 /** Per-connection state. One instance per socket, discarded on disconnect. */
 export interface SocketContext {
@@ -43,6 +43,7 @@ export const createSocketContext = (app: AppContext, io: Server, socket: Socket,
   screenshareViewing: null,
   limiters: {
     chat: new RateLimiter(app.config.limits.maxMessagesPerMinute, 60_000, false),
+    reaction: new RateLimiter(60, 60_000, false),
     signal: new RateLimiter(600, 10_000, false),
     game: new RateLimiter(1200, 10_000, false),
     generic: new RateLimiter(300, 10_000, false),

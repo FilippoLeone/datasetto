@@ -1,10 +1,45 @@
 import type { AppConfig } from '../config.js';
 import { newId } from '../core/ids.js';
 import { normalizeRoles } from '../core/roles.js';
-import { messageTextSchema } from '../core/validation.js';
+import { emojiSchema, messageTextSchema } from '../core/validation.js';
 import { parseJson, type DB } from '../db/index.js';
-import { notFound } from '../errors.js';
-import type { ConnectedUser, MessageRecord } from '../types.js';
+import { AppError, notFound } from '../errors.js';
+import type { ConnectedUser, MessageRecord, ReactionSummary } from '../types.js';
+
+/** Distinct emojis one message can carry, and reactions one account may add to it. */
+export const MAX_REACTIONS_PER_MESSAGE = 20;
+export const MAX_REACTIONS_PER_ACCOUNT = 10;
+
+interface ReactionRow {
+  message_id: string;
+  account_id: string;
+  emoji: string;
+  created_at: number;
+  display_name: string | null;
+}
+
+/** Group raw reaction rows per message, emojis in first-reaction order. */
+const summarize = (rows: ReactionRow[]): Map<string, ReactionSummary[]> => {
+  const byMessage = new Map<string, Map<string, ReactionSummary>>();
+  for (const row of rows) {
+    let perMessage = byMessage.get(row.message_id);
+    if (!perMessage) {
+      perMessage = new Map();
+      byMessage.set(row.message_id, perMessage);
+    }
+    let summary = perMessage.get(row.emoji);
+    if (!summary) {
+      summary = { emoji: row.emoji, count: 0, accountIds: [], names: [] };
+      perMessage.set(row.emoji, summary);
+    }
+    summary.count += 1;
+    summary.accountIds.push(row.account_id);
+    summary.names.push(row.display_name ?? 'Former member');
+  }
+  const result = new Map<string, ReactionSummary[]>();
+  for (const [messageId, perMessage] of byMessage) result.set(messageId, Array.from(perMessage.values()));
+  return result;
+};
 
 interface MessageRow {
   id: string;
@@ -20,7 +55,7 @@ interface MessageRow {
   deleted_by: string | null;
 }
 
-const rowToRecord = (row: MessageRow): MessageRecord => ({
+const rowToRecord = (row: MessageRow, reactions: ReactionSummary[] = []): MessageRecord => ({
   id: row.id,
   channelId: row.channel_id,
   from: row.author_name,
@@ -32,6 +67,7 @@ const rowToRecord = (row: MessageRow): MessageRecord => ({
   isSuperuser: Boolean(row.is_superuser),
   edited: row.edited_at !== null,
   deleted: row.deleted_at !== null,
+  reactions,
 });
 
 const PRUNE_EVERY = 50;
@@ -65,6 +101,25 @@ export class MessageService {
           SELECT rowid FROM messages WHERE channel_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?
         )
       `),
+      reactionsOfChannel: db.prepare(`
+        SELECT r.message_id, r.account_id, r.emoji, r.created_at, a.display_name
+        FROM message_reactions r
+        JOIN messages m ON m.id = r.message_id
+        LEFT JOIN accounts a ON a.id = r.account_id
+        WHERE m.channel_id = ? ORDER BY r.created_at ASC, r.rowid ASC
+      `),
+      reactionsOfMessage: db.prepare(`
+        SELECT r.message_id, r.account_id, r.emoji, r.created_at, a.display_name
+        FROM message_reactions r LEFT JOIN accounts a ON a.id = r.account_id
+        WHERE r.message_id = ? ORDER BY r.created_at ASC, r.rowid ASC
+      `),
+      insertReaction: db.prepare(`
+        INSERT INTO message_reactions (message_id, account_id, emoji, created_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(message_id, account_id, emoji) DO NOTHING
+      `),
+      deleteReaction: db.prepare('DELETE FROM message_reactions WHERE message_id = ? AND account_id = ? AND emoji = ?'),
+      countDistinctEmojis: db.prepare('SELECT COUNT(DISTINCT emoji) AS n FROM message_reactions WHERE message_id = ?'),
+      countByAccount: db.prepare('SELECT COUNT(*) AS n FROM message_reactions WHERE message_id = ? AND account_id = ?'),
     };
   }
 
@@ -83,6 +138,7 @@ export class MessageService {
       isSuperuser: author.isSuperuser,
       edited: false,
       deleted: false,
+      reactions: [],
     };
 
     this.stmts.insert.run({
@@ -106,12 +162,50 @@ export class MessageService {
 
   history(channelId: string, limit = this.config.limits.chatHistoryLimit): MessageRecord[] {
     const rows = this.stmts.history.all(channelId, limit) as MessageRow[];
-    return rows.map(rowToRecord);
+    if (rows.length === 0) return [];
+    const reactions = summarize(this.stmts.reactionsOfChannel.all(channelId) as ReactionRow[]);
+    return rows.map((row) => rowToRecord(row, reactions.get(row.id) ?? []));
   }
 
   get(channelId: string, messageId: string): MessageRecord | null {
     const row = this.stmts.byId.get(messageId, channelId) as MessageRow | undefined;
-    return row ? rowToRecord(row) : null;
+    return row ? rowToRecord(row, this.reactions(row.id)) : null;
+  }
+
+  /** Reactions on one message, grouped by emoji. */
+  reactions(messageId: string): ReactionSummary[] {
+    return summarize(this.stmts.reactionsOfMessage.all(messageId) as ReactionRow[]).get(messageId) ?? [];
+  }
+
+  /** Add an emoji reaction; returns the message's reactions afterwards. Idempotent per account and emoji. */
+  addReaction(channelId: string, messageId: string, accountId: string, rawEmoji: unknown): ReactionSummary[] {
+    const emoji = emojiSchema.parse(rawEmoji);
+    const existing = this.stmts.byId.get(messageId, channelId) as MessageRow | undefined;
+    if (!existing || existing.deleted_at !== null) throw notFound('Message');
+
+    const already = this.reactions(messageId).some((entry) => entry.emoji === emoji && entry.accountIds.includes(accountId));
+    if (!already) {
+      const distinct = Number((this.stmts.countDistinctEmojis.get(messageId) as { n: number }).n);
+      const hasEmoji = this.reactions(messageId).some((entry) => entry.emoji === emoji);
+      if (!hasEmoji && distinct >= MAX_REACTIONS_PER_MESSAGE) {
+        throw new AppError('This message already has the maximum number of different reactions', 'REACTION_LIMIT', 409);
+      }
+      const mine = Number((this.stmts.countByAccount.get(messageId, accountId) as { n: number }).n);
+      if (mine >= MAX_REACTIONS_PER_ACCOUNT) {
+        throw new AppError('You already reacted to this message enough times', 'REACTION_LIMIT', 409);
+      }
+      this.stmts.insertReaction.run(messageId, accountId, emoji, Date.now());
+    }
+    return this.reactions(messageId);
+  }
+
+  /** Remove an account's emoji reaction; returns the message's reactions afterwards. */
+  removeReaction(channelId: string, messageId: string, accountId: string, rawEmoji: unknown): ReactionSummary[] {
+    const emoji = emojiSchema.parse(rawEmoji);
+    const existing = this.stmts.byId.get(messageId, channelId) as MessageRow | undefined;
+    if (!existing) throw notFound('Message');
+    this.stmts.deleteReaction.run(messageId, accountId, emoji);
+    return this.reactions(messageId);
   }
 
   delete(channelId: string, messageId: string, deletedBy: string): MessageRecord {

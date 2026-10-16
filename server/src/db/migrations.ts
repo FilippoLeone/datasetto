@@ -142,6 +142,20 @@ export const migrations: Migration[] = [
       CREATE INDEX accounts_invite_token_idx ON accounts(invite_token_id);
     `,
   },
+  {
+    version: 5,
+    name: 'message_reactions',
+    up: `
+      CREATE TABLE message_reactions (
+        message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        emoji TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (message_id, account_id, emoji)
+      );
+      CREATE INDEX message_reactions_message_idx ON message_reactions(message_id);
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

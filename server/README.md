@@ -81,7 +81,7 @@ rate limits apply.
 | Client emits | Server emits |
 | --- | --- |
 | `channel:join id`, `channels:list`, `channels:create {name,type,groupId?,topic?,visibility?,password?}`, `channels:update {channelId,topic?,visibility?,password?}`, `channels:joinPrivate {name,password}`, `channels:delete idOrName` | `channel:joined`, `chat:history`, `channels:update {channels, groups}`, `channels:created`, `channels:updated`, `channels:privateJoined {channelId}`, `channel:deleted {channelId, reason?}` |
-| `chat text`, `chat:delete {messageId, channelId}` | `chat message`, `chat:messageDeleted` |
+| `chat text`, `chat:delete {messageId, channelId}`, `chat:react/unreact {channelId, messageId, emoji}` | `chat message` (with `reactions[]`), `chat:messageDeleted`, `chat:reaction {channelId, messageId, emoji, accountId, displayName, added, reactions[]}` |
 | `voice:join id`, `voice:leave`, `voice:signal {to,data}`, `voice:stream-metadata`, `voice:state {muted,deafened}`, `voice:video:state` | `voice:joined {peers,startedAt,sessionId}`, `voice:peer-join`, `voice:peer-leave`, `voice:signal`, `voice:state`, `voice:video:state` |
 | `voice:kick`, `voice:timeout`, `user:ban {targetSocketId,...}` | `voice:kicked`, `voice:timeout`, `user:banned`, `moderation:success` |
 | `screenshare:start/stop/viewer:join/viewer:leave {channelId}`, `screenshare:signal` | `screenshare:session`, `screenshare:viewer:pending`, `screenshare:signal` |
@@ -94,6 +94,16 @@ rate limits apply.
 Presence is broadcast as `user:update users[]` to everyone whenever it changes.
 Stream keys are never included in channel lists; they are only returned by
 `stream:key:request` to users allowed to stream on that channel.
+
+### Reactions
+
+Anyone who can view a channel can react to its messages with one emoji per
+reaction (`message_reactions`, one row per message, account and emoji; at most
+20 different emojis per message and 10 reactions per account per message).
+Messages carry `reactions: [{emoji, count, accountIds, names}]` in history and
+in the `chat` event; every change is broadcast as `chat:reaction` to everyone
+who can view the channel. Reactions are rate limited separately from messages
+(60 per minute per socket) and disappear with their message.
 
 ### Invite tokens
 

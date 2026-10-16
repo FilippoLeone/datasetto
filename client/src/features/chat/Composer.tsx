@@ -2,33 +2,13 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Send, Smile } from 'lucide-preact';
 import { IconButton } from '@/components';
 import { cn } from '@/lib/cn';
-import { EMOJIS } from '@/lib/text';
 import { api } from '@/services/socket/api';
 import { sounds } from '@/services/sounds';
 import { serverConfig } from '@/services/ServerConfigService';
 import { connectionStatus } from '@/state/session';
 import { isMobile } from '@/state/ui';
 import type { Channel } from '@/types/protocol';
-
-const EmojiPicker = ({ onPick, onClose }: { onPick: (emoji: string) => void; onClose: () => void }) => {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onDown = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [onClose]);
-  return (
-    <div ref={ref} role="dialog" aria-label="Emoji" className="absolute right-0 bottom-full mb-2 grid w-72 grid-cols-8 gap-1 rounded-md bg-elevated p-2 shadow-pop animate-pop">
-      {EMOJIS.map((emoji) => (
-        <button key={emoji} type="button" className="rounded-sm p-1 text-xl hover:bg-hover" onClick={() => onPick(emoji)}>
-          {emoji}
-        </button>
-      ))}
-    </div>
-  );
-};
+import { EmojiPicker } from './EmojiPicker';
 
 export const Composer = ({ channel, compact }: { channel: Channel; compact?: boolean }) => {
   const [text, setText] = useState('');

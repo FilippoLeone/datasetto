@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { ArrowDown, Hash, Trash2 } from 'lucide-preact';
+import { ArrowDown, Hash, SmilePlus, Trash2 } from 'lucide-preact';
 import { Avatar, RoleBadge } from '@/components';
 import { cn } from '@/lib/cn';
 import { isTouchPrimary } from '@/lib/device';
@@ -7,8 +7,9 @@ import { formatDayLabel, formatFullDate, formatMessageTime, sameDay } from '@/li
 import { api } from '@/services/socket/api';
 import { loadedChannels, messages } from '@/state/chat';
 import { account, can } from '@/state/session';
+import { EmojiPicker } from './EmojiPicker';
 import { MessageBody } from './MessageBody';
-import type { Channel, ChatMessage } from '@/types/protocol';
+import type { Channel, ChatMessage, ReactionSummary } from '@/types/protocol';
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -31,6 +32,59 @@ const buildRows = (list: ChatMessage[]): Row[] => {
   return rows;
 };
 
+/** "Alice, Bob and Carol reacted with 👍" for the chip tooltip. */
+const reactionTitle = (reaction: ReactionSummary): string => {
+  const names = reaction.names;
+  const list = names.length <= 3 ? names.join(', ').replace(/, ([^,]*)$/, ' and $1') : names.slice(0, 3).join(', ') + ' and ' + (names.length - 3) + ' more';
+  return list + ' reacted with ' + reaction.emoji;
+};
+
+const Reactions = ({ message, channelId, onAdd }: { message: ChatMessage; channelId: string; onAdd: () => void }) => {
+  const list = message.reactions ?? [];
+  if (list.length === 0) return null;
+  const me = account.value?.id;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1" data-reactions>
+      {list.map((reaction) => {
+        const mine = Boolean(me && reaction.accountIds.includes(me));
+        return (
+          <button
+            key={reaction.emoji}
+            type="button"
+            title={reactionTitle(reaction)}
+            aria-pressed={mine}
+            aria-label={reaction.emoji + ' ' + reaction.count + (mine ? ', you reacted' : '')}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (mine) api.removeReaction(channelId, message.id, reaction.emoji);
+              else api.addReaction(channelId, message.id, reaction.emoji);
+            }}
+            className={cn(
+              'flex items-center gap-1 rounded-full border px-1.5 py-px text-xs leading-5 transition-colors',
+              mine ? 'border-brand bg-brand-soft text-text-bright' : 'border-border bg-base/60 text-text-muted hover:border-border-strong hover:text-text',
+            )}
+          >
+            <span className="text-sm leading-none">{reaction.emoji}</span>
+            <span className="tabular-nums">{reaction.count}</span>
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        aria-label="Add reaction"
+        title="Add reaction"
+        onClick={(event) => {
+          event.stopPropagation();
+          onAdd();
+        }}
+        className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-text-faint hover:border-border-strong hover:text-text"
+      >
+        <SmilePlus size={13} />
+      </button>
+    </div>
+  );
+};
+
 const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
   const { message, showHeader } = row;
   const me = account.value;
@@ -38,11 +92,18 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
   const deletable = own || can('canDeleteAnyMessage');
   // Touch screens have no hover: a tap on the message toggles its actions.
   const [active, setActive] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pick = (emoji: string) => {
+    setPickerOpen(false);
+    const existing = message.reactions?.find((entry) => entry.emoji === emoji);
+    if (existing && me && existing.accountIds.includes(me.id)) api.removeReaction(channelId, message.id, emoji);
+    else api.addReaction(channelId, message.id, emoji);
+  };
   return (
     <div
-      className={cn('message-row group relative flex gap-3 px-4 py-0.5 hover:bg-black/10 pointer-coarse:py-1', showHeader && 'mt-3', active && 'is-active')}
+      className={cn('message-row group relative flex gap-3 px-4 py-0.5 hover:bg-black/10 pointer-coarse:py-1', showHeader && 'mt-3', (active || pickerOpen) && 'is-active')}
       onClick={() => {
-        if (deletable && isTouchPrimary()) setActive((value) => !value);
+        if (isTouchPrimary()) setActive((value) => !value);
       }}
     >
       <div className="w-10 shrink-0">
@@ -65,20 +126,37 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
           </div>
         )}
         <MessageBody text={message.text} />
+        <Reactions message={message} channelId={channelId} onAdd={() => setPickerOpen(true)} />
       </div>
-      {deletable && (
-        <div className="message-actions absolute top-0 right-4 -translate-y-1/2 rounded-sm bg-elevated shadow-pop">
+      <div className="message-actions absolute top-0 right-4 flex -translate-y-1/2 rounded-sm bg-elevated shadow-pop">
+        <button
+          type="button"
+          aria-label="Add reaction"
+          title="Add reaction"
+          className="p-1.5 text-text-muted hover:text-text-bright pointer-coarse:p-2.5"
+          onClick={(event) => {
+            event.stopPropagation();
+            setPickerOpen((value) => !value);
+          }}
+        >
+          <SmilePlus size={16} />
+        </button>
+        {deletable && (
           <button
             type="button"
             aria-label="Delete message"
             title="Delete message"
             className="p-1.5 text-text-muted hover:text-live pointer-coarse:p-2.5"
-            onClick={() => api.deleteMessage(channelId, message.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              api.deleteMessage(channelId, message.id);
+            }}
           >
             <Trash2 size={16} />
           </button>
-        </div>
-      )}
+        )}
+      </div>
+      {pickerOpen && <EmojiPicker onPick={pick} onClose={() => setPickerOpen(false)} className="absolute top-full right-4 z-30 mt-1" />}
     </div>
   );
 };
