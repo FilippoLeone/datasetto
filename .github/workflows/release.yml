@@ -356,6 +356,14 @@ jobs:
           cd desktop
           node ./scripts/clean-release.mjs
 
+      - name: Version the desktop app from the release tag
+        shell: bash
+        run: |
+          cd desktop
+          TAG="${{ github.event.release.tag_name || github.event.inputs.tag }}"
+          npm version --no-git-tag-version --allow-same-version "${TAG#v}"
+          echo "desktop version: $(node -p 'require("./package.json").version')"
+
       - name: Build Electron app
         shell: bash
         run: |
