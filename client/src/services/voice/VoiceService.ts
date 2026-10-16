@@ -1,13 +1,14 @@
 /**
  * WebRTC voice communication service
  */
-import type { EventMap } from '@/types/protocol';
+import type { EventMap, ScreenQuality } from '@/types/protocol';
 import { EventEmitter } from '@/lib/EventEmitter';
 import { Storage } from '@/lib/storage';
 import { isNativeAudioRoutingAvailable, selectNativeAudioRoute } from '@/services/native/NativeAudioRouteService';
 import { isElectron, isCapacitor } from '@/lib/device';
 import { config } from '@/config';
 import { serverConfig } from '@/services/ServerConfigService';
+import { DEFAULT_SCREEN_QUALITY, applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError } from '@/services/screenCapture';
 
 const parseNumberEnv = (
   value: string | undefined,
@@ -155,24 +156,8 @@ type RemoteVideoTrackInfo = {
   onStreamRemove: (event: MediaStreamTrackEvent) => void;
 };
 
-type DesktopScreenshareSource = {
-  id: string;
-  name: string;
-  isScreen?: boolean;
-  type?: 'screen' | 'window';
-  display_id?: string;
-};
-
-type DesktopScreensharePickResult = {
-  success: boolean;
-  source?: DesktopScreenshareSource;
-  shareAudio?: boolean;
-  error?: string;
-};
-
-type DesktopScreenshareBridge = {
-  pickScreenshareSource?: (options?: { audio?: boolean }) => Promise<DesktopScreensharePickResult>;
-};
+/** Senders for one peer: the camera track, the screen's video and (when captured) its audio. */
+type PeerVideoSenders = { camera?: RTCRtpSender; screen?: RTCRtpSender; screenAudio?: RTCRtpSender };
 
 class SpeakingMonitor {
   private interval: number | null = null;
@@ -415,7 +400,8 @@ export class VoiceService extends EventEmitter<EventMap> {
   private localVideoStream: MediaStream | null = null;
   private localScreenStream: MediaStream | null = null;
   private remoteVideoElements: Map<string, HTMLVideoElement> = new Map();
-  private videoSenders: Map<string, { camera?: RTCRtpSender; screen?: RTCRtpSender }> = new Map();
+  private videoSenders: Map<string, PeerVideoSenders> = new Map();
+  private screenQuality: ScreenQuality = DEFAULT_SCREEN_QUALITY;
   private remoteVideoTracks: Map<string, { camera?: RemoteVideoTrackInfo; screen?: RemoteVideoTrackInfo }> = new Map();
   private streamMetadata: Map<string, Map<string, 'camera' | 'screen'>> = new Map();
   private audioContext: AudioContext | null = null;
@@ -434,7 +420,6 @@ export class VoiceService extends EventEmitter<EventMap> {
   private statsPollingHandle: number | null = null;
   private peerStatsHistory: Map<string, PeerConnectionStats[]> = new Map();
   private lastStatsTimestamp: Map<string, number> = new Map();
-  private desktopBridge: DesktopScreenshareBridge | null = null;
 
   constructor(
     voiceBitrate = OPUS_TARGET_BITRATE,
@@ -449,7 +434,6 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.loadPeerAudioPreferences();
 
     if (typeof window !== 'undefined') {
-      this.resolveDesktopBridge();
       const unlock = () => {
         this.tryResumeAudioContext();
         window.removeEventListener('click', unlock);
@@ -483,7 +467,9 @@ export class VoiceService extends EventEmitter<EventMap> {
     peerId: string,
     pc: RTCPeerConnection
   ): Promise<void> {
-    const sender = pc.getSenders().find((s) => s.track?.kind === 'audio');
+    // The screen share's audio is a second audio sender; never swap the microphone into it.
+    const screenAudio = this.videoSenders.get(peerId)?.screenAudio;
+    const sender = pc.getSenders().find((s) => s !== screenAudio && s.track?.kind === 'audio');
     const newTrack = this.localStream?.getAudioTracks()[0];
 
     if (newTrack) {
@@ -579,7 +565,12 @@ export class VoiceService extends EventEmitter<EventMap> {
       console.log(`Received ${track.kind} track from peer ${peerId}`);
       
       if (track.kind === 'audio') {
-        this.handleRemoteTrack(peerId, stream);
+        if (this.isScreenStream(peerId, stream)) {
+          // Screen-share sound travels in the screen's stream and plays through its video tile.
+          console.log(`[VoiceService] Screen audio from ${peerId}`);
+        } else {
+          this.handleRemoteTrack(peerId, stream);
+        }
       } else if (track.kind === 'video') {
         this.handleRemoteVideoTrack(peerId, track, stream);
       }
@@ -600,6 +591,13 @@ export class VoiceService extends EventEmitter<EventMap> {
     // If track arrived first, it was already classified.
     // We could check if we have a track with this streamId and if the type mismatches, fix it.
     // For now, we assume metadata arrives reasonably fast.
+  }
+
+  /** A stream the peer announced as its screen, or one that already carries video (the microphone stream never does). */
+  private isScreenStream(peerId: string, stream: MediaStream): boolean {
+    if (this.streamMetadata.get(peerId)?.get(stream.id) === 'screen') return true;
+    if (this.remoteVideoTracks.get(peerId)?.screen?.stream.id === stream.id) return true;
+    return stream.getVideoTracks().length > 0;
   }
 
   /**
@@ -969,6 +967,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       const answer = await pc.createAnswer();
       const enhancedAnswer = this.enhanceOpusSdp(answer);
       await pc.setLocalDescription(enhancedAnswer);
+      this.applyScreenSenderEncoding(peerId);
 
       const local = pc.localDescription ?? enhancedAnswer;
       this.emit('voice:answer', {
@@ -1001,6 +1000,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
       this.resetIceRecovery(peerId);
+      this.applyScreenSenderEncoding(peerId);
     } catch (error) {
       console.error(`Error handling answer from ${peerId}:`, error);
       throw error;
@@ -1581,7 +1581,7 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   /**
-   * Start screen sharing and add to all peers
+   * Start screen sharing (video plus system audio when the user allows it) and add it to all peers
    */
   async startScreenShare(): Promise<MediaStream> {
     if (this.localScreenStream) {
@@ -1589,58 +1589,23 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     try {
-      const videoConstraints: MediaTrackConstraints = {
-        width: { ideal: 1920, max: 2560 },
-        height: { ideal: 1080, max: 1440 },
-        frameRate: { ideal: 30, max: 60 },
-      };
-
-      let stream: MediaStream | null = null;
-      let desktopCancelled = false;
-      const desktopBridge = this.resolveDesktopBridge();
-
-      if (desktopBridge?.pickScreenshareSource) {
-        const result = await this.requestDesktopScreenshareStream(videoConstraints, true);
-        stream = result.stream;
-        desktopCancelled = result.cancelled;
-      }
-
-      const mediaDevices = navigator.mediaDevices as MediaDevices & {
-        getDisplayMedia?: (constraints?: MediaStreamConstraints) => Promise<MediaStream>;
-      };
-
-      if (!stream) {
-        if (desktopCancelled) {
-          throw this.createNotAllowedError('Screen share was cancelled');
-        }
-
-        if (!mediaDevices.getDisplayMedia) {
-          throw new Error('Screen sharing is not supported in this browser');
-        }
-
-        stream = await mediaDevices.getDisplayMedia({
-          video: videoConstraints,
-          audio: true,
-        });
-      }
-
+      const capture = await captureScreen(this.screenQuality);
+      const stream = capture.stream;
       this.localScreenStream = stream;
 
-      const track = stream.getVideoTracks()[0];
-      if (track) {
-        track.contentHint = 'detail';
-        track.addEventListener('ended', () => {
-          this.handleScreenTrackEnded();
-        });
-      }
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        this.handleScreenTrackEnded();
+      });
 
-      // Add video track to all existing peers
+      // Add the screen's tracks to all existing peers
       await this.addVideoTrackToAllPeers('screen', stream);
 
-      this.emit('video:screen:started', { stream } as never);
+      this.emit('video:screen:started', { stream, hasAudio: capture.hasAudio } as never);
       return stream;
     } catch (error) {
-      console.error('[VoiceService] Failed to start screen share:', error);
+      if (!isCancelError(error)) {
+        console.error('[VoiceService] Failed to start screen share:', error);
+      }
       throw error;
     }
   }
@@ -1655,6 +1620,20 @@ export class VoiceService extends EventEmitter<EventMap> {
       this.localScreenStream = null;
     }
     this.emit('video:screen:stopped', undefined as never);
+  }
+
+  /**
+   * Change the screen share preset; a running share is re-encoded in place.
+   */
+  setScreenQuality(quality: ScreenQuality): void {
+    this.screenQuality = quality;
+    if (!this.localScreenStream) {
+      return;
+    }
+    applyScreenQualityToStream(this.localScreenStream, quality);
+    for (const peerId of this.videoSenders.keys()) {
+      this.applyScreenSenderEncoding(peerId);
+    }
   }
 
   /**
@@ -1686,26 +1665,42 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   /**
-   * Add video track to a specific peer
+   * Add a camera or screen stream to a specific peer. The screen's audio track
+   * (system audio) rides along as a second audio sender. The peer is told which
+   * stream this is before the offer reaches it, so late joiners classify it too.
    */
   private addVideoTrackToPeer(peerId: string, pc: RTCPeerConnection, type: 'camera' | 'screen', stream: MediaStream): void {
     const track = stream.getVideoTracks()[0];
     if (!track) return;
 
     try {
-      // Check if we already have a sender for this type
-      const senders = this.videoSenders.get(peerId);
-      if (senders?.[type]) {
-        return;
-      }
-
-      const sender = pc.addTrack(track, stream);
-      
-      // Store sender for later removal
       if (!this.videoSenders.has(peerId)) {
         this.videoSenders.set(peerId, {});
       }
-      this.videoSenders.get(peerId)![type] = sender;
+      const senders = this.videoSenders.get(peerId)!;
+
+      if (!senders[type]) {
+        senders[type] = pc.addTrack(track, stream);
+        if (type === 'screen') {
+          applyScreenEncoding(senders[type]!, this.screenQuality);
+        }
+      }
+
+      if (type === 'screen') {
+        const audio = stream.getAudioTracks()[0];
+        if (audio && !senders.screenAudio) {
+          senders.screenAudio = pc.addTrack(audio, stream);
+          applyScreenEncoding(senders.screenAudio, this.screenQuality);
+        }
+      }
+
+      this.emit('voice:send-stream-metadata', {
+        to: peerId,
+        metadata: {
+          streamId: stream.id,
+          type
+        }
+      } as never);
     } catch (error) {
       console.error(`[VoiceService] Failed to add ${type} track to peer ${peerId}:`, error);
     }
@@ -1717,15 +1712,6 @@ export class VoiceService extends EventEmitter<EventMap> {
   private async addVideoTrackToAllPeers(type: 'camera' | 'screen', stream: MediaStream): Promise<void> {
     for (const [peerId, pc] of this.peers) {
       this.addVideoTrackToPeer(peerId, pc, type, stream);
-      
-      // Send metadata
-      this.emit('voice:send-stream-metadata', {
-        to: peerId,
-        metadata: {
-          streamId: stream.id,
-          type
-        }
-      } as never);
 
       // Renegotiate connection
       await this.createAndSendOffer(peerId, pc);
@@ -1733,25 +1719,43 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   /**
-   * Remove video track from all connected peers
+   * Remove video track (and, for the screen, its audio track) from all connected peers
    */
   private removeVideoTrackFromAllPeers(type: 'camera' | 'screen'): void {
     for (const [peerId, pc] of this.peers) {
       const senders = this.videoSenders.get(peerId);
-      const sender = senders?.[type];
-      
-      if (sender) {
-        try {
+      if (!senders) continue;
+
+      const removable: RTCRtpSender[] = [];
+      if (senders[type]) removable.push(senders[type]!);
+      if (type === 'screen' && senders.screenAudio) removable.push(senders.screenAudio);
+      if (removable.length === 0) continue;
+
+      try {
+        for (const sender of removable) {
           pc.removeTrack(sender);
-          delete senders![type];
-          
-          // Renegotiate connection
-          void this.createAndSendOffer(peerId, pc);
-        } catch (error) {
-          console.error(`[VoiceService] Failed to remove ${type} track from peer ${peerId}:`, error);
         }
+        delete senders[type];
+        if (type === 'screen') delete senders.screenAudio;
+
+        // Renegotiate connection
+        void this.createAndSendOffer(peerId, pc);
+      } catch (error) {
+        console.error(`[VoiceService] Failed to remove ${type} track from peer ${peerId}:`, error);
       }
     }
+  }
+
+  /**
+   * Encoder caps for the screen senders of a peer. Called when the senders are
+   * created and again after each negotiation, because parameters set on a
+   * sender that is not negotiated yet do not always stick.
+   */
+  private applyScreenSenderEncoding(peerId: string): void {
+    const senders = this.videoSenders.get(peerId);
+    if (!senders) return;
+    if (senders.screen) applyScreenEncoding(senders.screen, this.screenQuality);
+    if (senders.screenAudio) applyScreenEncoding(senders.screenAudio, this.screenQuality);
   }
 
   /**
@@ -1767,146 +1771,11 @@ export class VoiceService extends EventEmitter<EventMap> {
    * Handle screen track ended (user stopped via browser UI)
    */
   private handleScreenTrackEnded(): void {
+    const stream = this.localScreenStream;
     this.localScreenStream = null;
+    stream?.getTracks().forEach((track) => track.stop());
     this.removeVideoTrackFromAllPeers('screen');
     this.emit('video:screen:stopped', undefined as never);
-  }
-
-  private async requestDesktopScreenshareStream(
-    videoConstraints: MediaTrackConstraints,
-    wantsAudio: boolean
-  ): Promise<{ stream: MediaStream | null; cancelled: boolean }> {
-    const desktopBridge = this.resolveDesktopBridge();
-    if (!desktopBridge?.pickScreenshareSource) {
-      return { stream: null, cancelled: false };
-    }
-
-    try {
-      const selection = await desktopBridge.pickScreenshareSource({ audio: wantsAudio });
-      if (!selection?.success || !selection.source) {
-        return { stream: null, cancelled: selection?.error === 'cancelled' };
-      }
-
-      const sourceId = selection.source.id;
-      const resolvedWidth = this.extractConstraintNumber(videoConstraints.width as ConstrainULongRange | number | undefined);
-      const resolvedHeight = this.extractConstraintNumber(videoConstraints.height as ConstrainULongRange | number | undefined);
-      const frameRateConstraint = videoConstraints.frameRate as ConstrainDoubleRange | number | undefined;
-      const minFrameRate = this.extractConstraintNumber(
-        typeof frameRateConstraint === 'object' ? frameRateConstraint.min : frameRateConstraint
-      );
-      const maxFrameRate = this.extractConstraintNumber(
-        typeof frameRateConstraint === 'object' ? frameRateConstraint.max : frameRateConstraint
-      );
-
-      const mandatoryVideo = {
-        chromeMediaSource: 'desktop',
-        chromeMediaSourceId: sourceId,
-        ...(resolvedWidth
-          ? {
-              minWidth: Math.round(resolvedWidth),
-              maxWidth: Math.round(resolvedWidth),
-            }
-          : {}),
-        ...(resolvedHeight
-          ? {
-              minHeight: Math.round(resolvedHeight),
-              maxHeight: Math.round(resolvedHeight),
-            }
-          : {}),
-        ...(typeof minFrameRate === 'number' ? { minFrameRate: Math.round(minFrameRate) } : {}),
-        ...(typeof maxFrameRate === 'number' ? { maxFrameRate: Math.round(maxFrameRate) } : {}),
-      };
-
-      const enableAudio = Boolean(wantsAudio && selection.shareAudio);
-      
-      // If sharing a window, we might need to use the screen ID for audio capture (System Audio fallback)
-      // because capturing specific window audio is often not supported by the OS/Electron.
-      let audioSourceId = sourceId;
-      if (enableAudio && !selection.source.isScreen && selection.source.display_id) {
-        // Construct screen ID from display_id if possible, or just try to find it?
-        // Electron source IDs for screens are usually "screen:display_id:0" or similar.
-        // But we don't have the list of screens here easily.
-        // However, if we pass the window ID and it fails, we get silence.
-        // If we pass "screen:0:0" (primary) or similar, we get system audio.
-        
-        // Actually, let's try to use the window ID first. If that fails (silent), we can't easily fallback without a new GUM call.
-        // But since the user reported it DOES NOT work, we should try to use the system audio if available.
-        // The display_id from Electron is usually just the number (e.g. "1", "2").
-        // The screen source ID format is typically "screen:<display_id>:0".
-        if (selection.source.display_id) {
-             audioSourceId = `screen:${selection.source.display_id}:0`;
-             console.log('[VoiceService] Using system audio (screen source) for window share:', audioSourceId);
-        }
-      }
-
-      const audioConstraints: MediaTrackConstraints | boolean = enableAudio
-        ? ({
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: audioSourceId,
-            },
-          } as unknown as MediaTrackConstraints)
-        : false;
-
-      const desktopConstraints: MediaStreamConstraints = {
-        video: { mandatory: mandatoryVideo } as unknown as MediaTrackConstraints,
-        audio: audioConstraints,
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(desktopConstraints);
-      return { stream, cancelled: false };
-    } catch (error) {
-      console.error('[VoiceService] Desktop screenshare fallback failed:', error);
-      return { stream: null, cancelled: false };
-    }
-  }
-
-  private extractConstraintNumber(
-    value: ConstrainULongRange | ConstrainDoubleRange | number | undefined
-  ): number | undefined {
-    if (typeof value === 'number') {
-      return value;
-    }
-
-    if (value && typeof value === 'object') {
-      if (typeof value.exact === 'number') {
-        return value.exact;
-      }
-      if (typeof value.ideal === 'number') {
-        return value.ideal;
-      }
-      if (typeof value.max === 'number') {
-        return value.max;
-      }
-      if (typeof value.min === 'number') {
-        return value.min;
-      }
-    }
-
-    return undefined;
-  }
-
-  private createNotAllowedError(message: string): Error {
-    if (typeof DOMException === 'function') {
-      return new DOMException(message, 'NotAllowedError');
-    }
-
-    const error = new Error(message);
-    (error as Error & { name: string }).name = 'NotAllowedError';
-    return error;
-  }
-
-  private resolveDesktopBridge(): DesktopScreenshareBridge | null {
-    if (this.desktopBridge || typeof window === 'undefined') {
-      return this.desktopBridge;
-    }
-
-    const bridge = (window as typeof window & { desktopAPI?: DesktopScreenshareBridge }).desktopAPI;
-    if (bridge) {
-      this.desktopBridge = bridge;
-    }
-
-    return this.desktopBridge;
   }
 
   getPeerAudioPreference(peerId: string): PeerAudioPreference {

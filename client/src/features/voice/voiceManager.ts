@@ -6,6 +6,8 @@ import { socketClient } from '@/services/socket/client';
 import { sounds } from '@/services/sounds';
 import { updateDesktopVoiceActivity } from '@/services/native/desktop';
 import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '@/services/native/ForegroundServiceManager';
+import { isCancelError, missingAudioHint } from '@/services/screenCapture';
+import { isDesktopApp } from '@/services/native/desktop';
 import { channelsById } from '@/state/channels';
 import { displayNameFor } from '@/state/presence';
 import { account, isAuthenticated } from '@/state/session';
@@ -55,6 +57,7 @@ class VoiceManager {
     const settings = audioSettings.value;
     this.audio = new AudioService(settings);
     this.voice = new VoiceService(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
+    this.voice.setScreenQuality(settings.screenQuality);
   }
 
   /** Attach socket, service and lifecycle listeners. Idempotent. */
@@ -225,8 +228,7 @@ class VoiceManager {
         await this.voice.startScreenShare();
       }
     } catch (error) {
-      const name = (error as { name?: string })?.name;
-      if (name !== 'NotAllowedError') toast.error(describeMediaError(error, 'screen'));
+      if (!isCancelError(error)) toast.error(describeMediaError(error, 'screen'));
     }
   }
 
@@ -252,6 +254,7 @@ class VoiceManager {
   /** Apply saved audio settings to the live pipeline. */
   async applySettings(settings: AudioSettings): Promise<void> {
     this.voice.updateVoiceSettings(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
+    this.voice.setScreenQuality(settings.screenQuality);
     this.voice.setOutputVolume(settings.outputVol);
     try {
       await this.audio.updateSettings(settings);
@@ -423,9 +426,10 @@ class VoiceManager {
       localCameraStream.value = null;
       if (voiceStatus.value === 'connected') api.setVideoState('camera', false);
     });
-    this.voice.on('video:screen:started', ({ stream }) => {
+    this.voice.on('video:screen:started', ({ stream, hasAudio }) => {
       localScreenStream.value = stream;
       api.setVideoState('screen', true);
+      if (!hasAudio) toast.warning(missingAudioHint(isDesktopApp() ? 'desktop' : 'browser'), 9000);
     });
     this.voice.on('video:screen:stopped', () => {
       localScreenStream.value = null;

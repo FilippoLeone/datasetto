@@ -3,10 +3,11 @@ import { Mic } from 'lucide-preact';
 import { Button, Modal, Select, Slider, Toggle } from '@/components';
 import { cn } from '@/lib/cn';
 import { micLevel, voiceStatus } from '@/state/voice';
+import { SCREEN_QUALITY_OPTIONS } from '@/services/screenCapture';
 import { audioSettings, updateAudioSettings } from '@/state/settings';
 import { closeModal, toast } from '@/state/ui';
 import { voiceManager } from './voiceManager';
-import type { AudioSettings, DeviceInfo } from '@/types/protocol';
+import type { AudioSettings, DeviceInfo, ScreenQuality } from '@/types/protocol';
 
 const BITRATES = [
   { value: '32000', label: '32 kbps (data saver)' },
@@ -142,6 +143,12 @@ export const AudioSettingsModal = () => {
           )}
           <Select label="Bitrate" value={String(draft.voiceBitrate)} options={BITRATES} onChange={(value) => patch({ voiceBitrate: Number(value) })} />
           <Toggle label="Send silence efficiently (DTX)" description="Saves bandwidth when you are not talking." checked={draft.dtx} onChange={(value) => patch({ dtx: value })} />
+
+          <h3 className="mt-3 mb-1 text-xs font-semibold tracking-wide text-text-muted uppercase">Screen share</h3>
+          <Select label="Quality" value={draft.screenQuality} options={SCREEN_QUALITY_OPTIONS} onChange={(value) => patch({ screenQuality: value as ScreenQuality })} />
+          <p className="text-xs text-text-muted">
+            Applies to voice channels and screenshare rooms, also while you are sharing. To stream a game with sound, pick <strong>Entire screen</strong> and tick <strong>Share audio</strong> in the picker; wear headphones so your friends are not echoed back.
+          </p>
         </section>
       </div>
       <p className="mt-2 text-xs text-text-faint">Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings.</p>
