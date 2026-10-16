@@ -392,10 +392,12 @@ jobs:
         shell: bash
         run: |
           # electron-updater reads latest.yml (Windows), latest-mac.yml and latest-linux.yml
-          # from the release; the .blockmap files allow differential downloads.
+          # from the release. Windows and macOS builds also carry .blockmap files for
+          # differential downloads; the Linux AppImage and deb have none.
           cd desktop/release
-          ls -l *.yml *.blockmap
-          grep -H '^version:' *.yml
+          ls -l latest*.yml
+          ls -l *.blockmap 2>/dev/null || echo "no .blockmap on this platform"
+          grep -H '^version:' latest*.yml
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -406,7 +408,7 @@ jobs:
             desktop/release/*.dmg
             desktop/release/*.AppImage
             desktop/release/*.deb
-            desktop/release/*.yml
+            desktop/release/latest*.yml
             desktop/release/*.blockmap
           if-no-files-found: error
 
@@ -415,7 +417,8 @@ jobs:
     name: Upload to Release
     needs: [build-android, build-desktop]  # iOS removed since it's disabled
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    # A release event, or a manual run for an existing tag (workflow_dispatch with `tag`).
+    if: github.event_name == 'release' || inputs.tag != ''
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v8
@@ -428,6 +431,7 @@ jobs:
       - name: Upload Android APK to release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ github.event.release.tag_name || inputs.tag }}
           files: artifacts/android-apk/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -438,6 +442,7 @@ jobs:
       - name: Upload Desktop builds to release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ github.event.release.tag_name || inputs.tag }}
           files: |
             artifacts/desktop-win/*
             artifacts/desktop-linux/*
