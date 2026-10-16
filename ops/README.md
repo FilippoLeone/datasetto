@@ -16,7 +16,7 @@ ops/
   turn/entrypoint.sh        coturn settings (ephemeral credentials)
   common/                   egress-guard.sh + its systemd installer, shared by gcp/ and vps/
   gcp/                      create-vm.sh, deploy.sh, destroy.sh, VM-side startup/update/backup
-  vps/                      install.sh and backup.sh for a plain Debian/Ubuntu VPS (OVH, Hetzner); install-ssh-key.ps1 for the first login
+  vps/                      install.sh, backup.sh and restore.sh for a plain Debian/Ubuntu VPS (OVH, Hetzner); install-ssh-key.ps1 for the first login
 ```
 
 ```
@@ -137,8 +137,8 @@ differs, and `--help` lists every option):
   `b2:my-bucket/datasetto`) and run `rclone config` once as root to also push
   each copy off the server; uploads older than 30 days are pruned there. Run it
   by hand with `systemctl start datasetto-backup`; the log is
-  `/var/log/datasetto-backup.log`. Restore as on GCP: stop the stack, copy the
-  file over `datasetto.db` in the `app_data` volume, start.
+  `/var/log/datasetto-backup.log`. Restore with `ops/vps/restore.sh` (see
+  "Restoring a backup" below).
 - **Egress guard** (optional): `--egress-guard` installs the same monthly
   traffic backstop as on GCP (`ops/common/egress-guard.sh`, 5-minute timer);
   `--no-egress-guard` removes it and lifts any throttling. Leave it out on
@@ -171,7 +171,94 @@ cd /opt/datasetto/ops && sudo docker compose ps && sudo docker compose logs --ta
 sudo ufw status verbose                                      # firewall rules
 sudo tail -f /var/log/datasetto-install.log                  # install progress
 ls -l /var/backups/datasetto                                 # nightly copies
+curl -s https://<your domain>/api/health | jq               # database, watchdog and socket state
 ```
+
+### What happens on deploy
+
+Re-running the installer (or `docker compose up -d`) recreates only the
+containers whose image or configuration changed. For the app container, the
+one everybody is connected to, this is the sequence; people in a call do not
+notice more than a thin banner for about ten seconds:
+
+1. Docker sends `SIGTERM`. The server stops accepting new sockets, `/health`
+   and `/api/health` answer `503 {"status":"restarting"}`, timers and the
+   stream watchdog stop, and every connected client receives
+   `server:restarting {expectedWaitMs}` (`RESTART_EXPECTED_WAIT_SECONDS` in
+   `ops/.env`, default 10: roughly the new container's start plus its health
+   start period).
+2. The sockets and the HTTP server are closed, the SQLite WAL is checkpointed
+   into the database file and the handle closed, and the process exits 0. This
+   takes well under a second on the VPS; a deadline inside the server forces
+   the exit after 10 s, and the compose `stop_grace_period` of 15 s keeps
+   Docker from killing it before that. `systemctl stop datasetto` and a reboot
+   take the same path (`TimeoutStopSec=90` covers the four containers).
+3. The new container starts, applies pending migrations, listens and passes
+   its health check.
+4. Clients wait the announced time, then reconnect with exponential backoff
+   (1, 2, 4 … capped at 30 s, with jitter; at once when the browser reports
+   the network is back or the user presses "Retry now" in the banner). Each
+   presents the same session token: the server treats it as the same login,
+   so nobody else is signed out and the one-login-per-account rule holds.
+   They reopen the channel they had open, rejoin their voice room with the
+   same microphone, mute and deafen state, and send the messages typed
+   meanwhile in order (shown as "sending" until the server echoes them,
+   "not sent" with a retry after 60 s).
+5. Voice does not drop. The audio runs peer to peer and never touched the
+   server; after the rejoin each client matches the room's new socket ids
+   with the connections it still holds (same person, same media session:
+   keep it, with an ICE restart only if the transport broke; someone who
+   rebuilt or is new: negotiate afresh). An OBS stream keeps publishing to
+   nginx-rtmp; the watchdog registers it again on its first poll (15 s) and
+   viewers' players pick the stream up by themselves once the socket is back.
+6. The reconnect wave appears in the log as one line per burst
+   (`socket connected (12 in a burst)`), not one line per socket.
+
+A deploy of the `web` (Caddy) or `rtmp` container is a different matter: Caddy
+being recreated drops every connection for a second or two (clients reconnect
+the same way), and recreating `rtmp` ends any running OBS stream, so do those
+when nobody is streaming.
+
+### Restoring a backup
+
+`ops/vps/restore.sh` puts a backup (a `datasetto-<stamp>.db.gz` from
+`/var/backups/datasetto`, the same file fetched back from the rclone remote,
+or any plain copy of `datasetto.db`) into the `app_data` volume. The checks
+and the copy run inside the app image, so nothing has to be installed on the
+host. Always dry-run first:
+
+```bash
+sudo bash /opt/datasetto/ops/vps/restore.sh /var/backups/datasetto/datasetto-2026-10-16_0400.db.gz --dry-run
+```
+
+The dry run unpacks the file, verifies it (SQLite `integrity_check`, the
+`accounts`/`messages` tables present, a schema version this build knows: an
+older one is migrated at the next start, a newer one is refused) and prints its
+schema version and row counts next to those of the live database, without
+touching the stack:
+
+```
+2026-10-16T22:10:04+00:00 checking /var/backups/datasetto/datasetto-2026-10-16_0400.db.gz
+backup /restore/backup.db: schema v10, integrity ok, accounts=7 sessions=5 channels=9 messages=4213 bans=0
+current /data/datasetto.db: schema v10, integrity ok, accounts=7 sessions=6 channels=9 messages=4388 bans=0
+dry run: nothing changed
+2026-10-16T22:10:06+00:00 dry run: the stack was not touched
+```
+
+The real run asks once (`--yes` skips the question), stops the whole stack,
+moves the live file aside as `datasetto.db.pre-restore-<stamp>` (with its
+`-wal` and `-shm`), copies the backup in through SQLite's backup API, verifies
+the result (`integrity_check` again and the same row counts as the backup),
+starts the stack and waits for the app to report healthy:
+
+```bash
+sudo bash /opt/datasetto/ops/vps/restore.sh /var/backups/datasetto/datasetto-2026-10-16_0400.db.gz
+```
+
+Everyone is reconnected by their client as after a deploy. The sessions in the
+backup are the ones valid afterwards: a login made after the backup was taken is
+gone and that person signs in again. Delete the `pre-restore` file from the
+volume once you are sure (`docker compose exec app ls -l /data`).
 
 ### Cost note
 
@@ -402,7 +489,9 @@ in front of ports 80/443; RTMP and TURN would stay direct.
   `/etc/cron.daily/datasetto-backup` (GCP) or the `datasetto-backup.timer`
   systemd timer (VPS) writes a consistent copy to `/var/backups/datasetto`
   and, when configured, to the GCS bucket or the rclone remote.
-  Restore: stop the stack, copy the file over the volume's `datasetto.db`, start.
+  Restore with `ops/vps/restore.sh` (VPS, see "Restoring a backup"); on GCP the
+  same steps by hand: stop the stack, run `node dist/scripts/restore.js` in a
+  one-off app container with the backup mounted, start.
 - **Importing the old JSON stores**: `cd server && npm run import-legacy -- /path/to/old/storage`
   (reads `accounts.json` and `messages.json`; password hashes carry over).
 - **Secrets**: `ops/.env` lives on your machine and in instance metadata (visible

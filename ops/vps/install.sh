@@ -403,8 +403,11 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=$APP_DIR/ops
 ExecStart=$docker_bin compose up -d --remove-orphans
+# compose stop honours each service's stop_grace_period (app: 15 s for its graceful shutdown);
+# four containers in a row stay well inside this.
 ExecStop=$docker_bin compose stop
 TimeoutStartSec=900
+TimeoutStopSec=90
 
 [Install]
 WantedBy=multi-user.target
