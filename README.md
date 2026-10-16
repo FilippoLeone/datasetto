@@ -15,7 +15,7 @@ VM for about the price of a coffee a week.
 
 - **Text channels** with persistent history, moderation (delete, ban, voice timeout)
 - **Voice channels** over WebRTC mesh: echo cancellation, noise suppression, push to talk, camera, screenshare
-- **Live streams**: OBS publishes to RTMP, viewers watch low-latency HLS in a theater layout with chat
+- **Live streams**: OBS publishes over RTMPS (or plain RTMP on the LAN), viewers watch low-latency HLS in a theater layout with chat
 - **Screenshare rooms** for one presenter and many viewers
 - **Minigames** inside voice channels (Slither, Pacman, Fighter) with a persistent leaderboard
 - **Accounts and roles**: superuser, admin, moderator, streamer, user; per-channel permissions; invite-only registration

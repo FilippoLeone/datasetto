@@ -28,7 +28,7 @@
 #   3. Docker Engine and the compose plugin from get.docker.com
 #   4. clone or update the repository and check out --ref
 #   5. copy --env to ops/.env (mode 600, CRLF stripped) and sanity-check it
-#   6. firewall: rate-limited SSH, 80, 443 tcp+udp, 1935, and the TURN ports
+#   6. firewall: rate-limited SSH, 80, 443 tcp+udp, 1935, 1936, and the TURN ports
 #      only when COMPOSE_PROFILES contains "turn"; everything else denied
 #   7. docker compose pull (or build) and up -d; systemd unit datasetto.service
 #      so the stack starts on boot
@@ -285,6 +285,7 @@ configure_firewall() {
   ufw allow 443/tcp >/dev/null
   ufw allow 443/udp >/dev/null
   ufw allow 1935/tcp >/dev/null
+  ufw allow 1936/tcp >/dev/null
   if (( WANT_TURN )); then
     ufw allow "$TURN_PORT/tcp" >/dev/null
     ufw allow "$TURN_PORT/udp" >/dev/null
@@ -295,7 +296,7 @@ configure_firewall() {
     ufw delete allow "$TURN_MIN_PORT:$TURN_MAX_PORT/udp" >/dev/null 2>&1 || true
   fi
   ufw --force enable >/dev/null
-  echo "    ssh ($ssh_mode) on tcp ${ssh_ports% }; open: 80/tcp 443/tcp 443/udp 1935/tcp$( (( WANT_TURN )) && echo " $TURN_PORT/tcp $TURN_PORT/udp $TURN_MIN_PORT:$TURN_MAX_PORT/udp")"
+  echo "    ssh ($ssh_mode) on tcp ${ssh_ports% }; open: 80/tcp 443/tcp 443/udp 1935/tcp 1936/tcp$( (( WANT_TURN )) && echo " $TURN_PORT/tcp $TURN_PORT/udp $TURN_MIN_PORT:$TURN_MAX_PORT/udp")"
   ufw status | sed 's/^/    /'
 }
 

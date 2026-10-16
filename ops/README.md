@@ -12,7 +12,7 @@ ops/
   docker-compose.local.yml  overrides for http://localhost:8080
   .env.example              configuration template -> copy to .env
   caddy/                    web image: builds the client, serves it with Caddy, TLS, reverse proxy
-  rtmp/                     nginx-rtmp image: OBS ingest -> HLS
+  rtmp/                     nginx-rtmp image: OBS ingest (RTMP, RTMPS) -> HLS
   turn/entrypoint.sh        coturn settings (ephemeral credentials)
   common/                   egress-guard.sh + its systemd installer, shared by gcp/ and vps/
   gcp/                      create-vm.sh, deploy.sh, destroy.sh, VM-side startup/update/backup
@@ -23,7 +23,8 @@ ops/
 Internet
   |-- 80/443 ----> web (Caddy) --/api,/socket.io,/health--> app (Node, SQLite in volume app_data)
   |                          \--/hls/*------------------> rtmp (nginx-rtmp, HLS in RAM)
-  |-- 1935 ------> rtmp  (OBS publish; key checked by app via /internal/stream/publish)
+  |-- 1935 ------> rtmp  (OBS publish, plain RTMP; key checked by app via /internal/stream/publish)
+  |-- 1936 ------> rtmp  (OBS publish over TLS: nginx stream module with Caddy's certificate -> 1935)
   '-- 3478 + UDP range ----> turn (coturn, host network, only with COMPOSE_PROFILES=turn)
 ```
 
@@ -105,9 +106,9 @@ differs, and `--help` lists every option):
   are stripped), with the same sanity checks as `create-vm.sh`.
 - **Firewall** (`ufw`): default deny incoming, SSH rate limited (`ufw limit`) on
   the port sshd is configured for (override with `--ssh-port`), and only 80/tcp,
-  443/tcp, 443/udp (HTTP/3) and 1935/tcp (OBS) open. With `COMPOSE_PROFILES=turn`
+  443/tcp, 443/udp (HTTP/3), 1935/tcp and 1936/tcp (OBS, plain and TLS) open. With `COMPOSE_PROFILES=turn`
   it also opens 3478 tcp+udp and the relay range 49152 to 49400/udp, and closes
-  them again when the profile is removed. Docker publishes 80, 443 and 1935
+  them again when the profile is removed. Docker publishes 80, 443, 1935 and 1936
   straight into iptables, bypassing ufw; those are exactly the ports meant to be
   open, and the app and HLS ports (4000, 8080) are not published at all, so ufw
   mainly protects SSH and anything else on the host. `--no-firewall` leaves the
@@ -182,6 +183,55 @@ Everything else in "Keeping the bill small" applies unchanged: viewer tickets,
 the RTMP key check, TURN quotas and the rate limits are in the app and the
 compose file, not in the cloud provider.
 
+## Streaming: RTMP and RTMPS
+
+OBS publishes to the `rtmp` container, which asks the app whether the key is
+valid and remuxes the stream to HLS. Two ingest ports are open:
+
+| Port | OBS server URL | Use |
+| --- | --- | --- |
+| 1936 | `rtmps://chat.example.com:1936/live` | Default in the key dialog (`PUBLIC_RTMP_URL`). TLS, so the stream key never crosses the internet in clear. |
+| 1935 | `rtmp://chat.example.com/live` | Plain RTMP: the local stack, machines on the server's own LAN, encoders without TLS. |
+
+RTMPS reuses the certificate Caddy obtains for `SITE_ADDRESS`. The `caddy_data`
+volume is mounted read-only into the rtmp container at `/caddy`, and
+`ops/rtmp/entrypoint.sh` copies the newest
+`/caddy/caddy/certificates/<issuer>/<host>/<host>.crt` + `.key` pair for that
+host to `/etc/nginx/certs` (Caddy keeps them root-only, which is why the
+entrypoint starts as root; nginx itself runs as the `nginx` user). It then
+writes the TLS listener to `/etc/nginx/rtmps/rtmps.conf`: nginx's `stream`
+module, TLS 1.2+, forwarding to the rtmp server over loopback with a PROXY
+protocol header so the publisher's real address still reaches the logs and the
+app's rate limiter. Without a certificate (`SITE_ADDRESS=:80`, or the first
+minutes after a deploy while Caddy waits for DNS) the listener is left out:
+nginx starts normally and only plain RTMP answers. The entrypoint re-checks
+every 10 minutes (`RTMPS_CERT_CHECK_SECONDS`) and reloads nginx when the
+certificate appears or Let's Encrypt renews it, so nothing ever needs a restart.
+An existing GCP VM needs the new firewall rule: re-run `ops/gcp/create-vm.sh` once
+(idempotent, it only adds what is missing) before `ops/gcp/deploy.sh`.
+
+OBS verifies the certificate like a browser does, so RTMPS needs the real
+certificate of a deployed server. To exercise the TLS path on the local stack,
+put a self-signed pair where Caddy would keep one, start the rtmp container with
+that host and publish with ffmpeg (which can skip verification):
+
+```bash
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 7 \
+  -subj /CN=localhost -keyout localhost.key -out localhost.crt
+for f in crt key; do
+  docker run --rm -i -v datasetto_caddy_data:/data alpine sh -c \
+    "mkdir -p /data/caddy/certificates/local/localhost && cat > /data/caddy/certificates/local/localhost/localhost.$f" < localhost.$f
+done
+SITE_ADDRESS=localhost docker compose -f ops/docker-compose.yml -f ops/docker-compose.local.yml up -d rtmp
+docker compose -f ops/docker-compose.yml -f ops/docker-compose.local.yml logs rtmp | grep RTMPS   # "RTMPS on 1936 with certificate ..."
+ffmpeg -re -f lavfi -i testsrc=size=1280x720:rate=30 -f lavfi -i sine=frequency=440 -t 30 \
+  -c:v libx264 -preset veryfast -b:v 2500k -g 60 -c:a aac -tls_verify 0 \
+  -f flv "rtmps://localhost:1936/live/main-stream?key=<TOKEN>"
+```
+
+`docker compose ... up -d rtmp` without `SITE_ADDRESS=localhost` puts the
+container back to plain RTMP only.
+
 ## Deploy to Google Cloud (alternative)
 
 The original target, kept as the alternative to the VPS path above: one
@@ -202,13 +252,13 @@ thanks to the swap file.
    - `SITE_ADDRESS=chat.example.com`, `CORS_ORIGINS=https://chat.example.com`
    - `REGISTRATION_MODE=invite` and a long `REGISTRATION_INVITE_CODE`
    - `ADMIN_EMAILS=you@example.com`
-   - `PUBLIC_RTMP_URL=rtmp://chat.example.com/live`
+   - `PUBLIC_RTMP_URL=rtmps://chat.example.com:1936/live` (see "Streaming: RTMP and RTMPS")
    - optional TURN: `COMPOSE_PROFILES=turn`, `TURN_SECRET`, `TURN_REALM`, `TURN_URLS=turn:chat.example.com:3478`
 2. Create the VM (idempotent):
    ```bash
    BUDGET_AMOUNT=15EUR BACKUP_BUCKET=datasetto-backups-<something-unique> ops/gcp/create-vm.sh
    ```
-   This enables the Compute API, opens 80/443/1935 (and TURN ports when enabled),
+   This enables the Compute API, opens 80/443/1935/1936 (and TURN ports when enabled),
    creates an `e2-micro` in `europe-west1` with a 10 GB balanced disk on the
    Standard network tier, and passes `ops/.env` to the VM as instance metadata.
    The startup script installs Docker, adds 2 GB swap, clones the repo and runs
@@ -313,7 +363,7 @@ Everything that can cost money is gated or capped. The knobs live in
 - **VM.** Standard network tier, no public SSH: port 22 is only open to the
   Identity-Aware Proxy range (`gcloud compute ssh --tunnel-through-iap`),
   unattended security upgrades, a billing budget with alerts, and only ports
-  80/443/1935 (plus 3478 and the relay range with the `turn` profile) open.
+  80/443/1935/1936 (plus 3478 and the relay range with the `turn` profile) open.
   On a VPS, ufw enforces the same port list and rate-limits SSH instead.
 
 What this does not do: it will not stop a determined volumetric attack from
@@ -341,6 +391,6 @@ in front of ports 80/443; RTMP and TURN would stay direct.
 - **Memory**: the compose file caps containers (web 128 MB, app 320 MB, rtmp 192 MB,
   turn 96 MB) so a leak cannot take the 1 GB VM down; the swap file covers image
   pulls. Move to `MACHINE_TYPE=e2-small` if voice rooms get large.
-- **Firewall**: only 80, 443, 1935 and (optionally) TURN ports are open. The
+- **Firewall**: only 80, 443, 1935, 1936 and (optionally) TURN ports are open. The
   `/internal/*` stream callbacks are not routed by Caddy and are reachable only
   from the Docker network.
