@@ -60,6 +60,8 @@ export const api = {
   deleteChannel: (channelId: string) => emit('channels:delete', channelId),
   /** Open (or reuse) the one-to-one conversation with an account (answered with `dm:opened`). */
   openDm: (accountId: string) => emit('dm:open', { accountId }),
+  /** Hide a conversation from the sidebar until a message arrives in it or it is opened again (answered with `dm:closed` and a fresh list). */
+  closeDm: (channelId: string) => emit('dm:close', { channelId }),
   requestStreamKey: (channelId: string) => emit('stream:key:request', { channelId }),
   regenerateStreamKey: (channelId: string) => emit('stream:key:regenerate', { channelId }),
 

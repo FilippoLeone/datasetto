@@ -104,7 +104,7 @@ rate limits apply.
 
 | Client emits | Server emits |
 | --- | --- |
-| `channel:join id`, `channels:list`, `channels:create {name,type,groupId?,topic?,visibility?,password?}`, `channels:update {channelId,topic?,visibility?,password?,linkPreviews?}`, `channels:joinPrivate {name,password}`, `channels:delete idOrName`, `dm:open {accountId}` | `channel:joined`, `chat:history`, `channels:update {channels, groups}` (each channel with `linkPreviews`), `channels:created`, `channels:updated`, `channels:privateJoined {channelId}`, `channel:deleted {channelId, reason?}`, `dm:opened {channelId, peerId, peerName}` |
+| `channel:join id`, `channels:list`, `channels:create {name,type,groupId?,topic?,visibility?,password?}`, `channels:update {channelId,topic?,visibility?,password?,linkPreviews?}`, `channels:joinPrivate {name,password}`, `channels:delete idOrName`, `dm:open {accountId}`, `dm:close {channelId}` | `channel:joined`, `chat:history`, `channels:update {channels, groups}` (each channel with `linkPreviews`), `channels:created`, `channels:updated`, `channels:privateJoined {channelId}`, `channel:deleted {channelId, reason?}`, `dm:opened {channelId, peerId, peerName}`, `dm:closed {channelId}` |
 | `chat text` or `chat {text?, attachmentIds?, channelId?, clientId?}` (optional acknowledgement), `chat:delete {messageId, channelId}`, `chat:react/unreact {channelId, messageId, emoji}`, `chat:preview:remove {channelId, messageId}`, `media:ticket` (acknowledgement) | `chat message` (with `reactions[]`, `attachments[]`, `preview`; the sender's copy carries its `clientId`), ack `{success, messageId, channelId, clientId, ts}` or `{success: false, error, code}`, `chat:messageDeleted`, `chat:reaction {channelId, messageId, emoji, accountId, displayName, added, reactions[]}`, `chat:messageUpdated {channelId, messageId, preview}`, media ack `{success, ticket, expiresAt}`. `channelId` lets a message queued while offline land in the channel it was typed in; without it the socket's current channel is used |
 | `chat:history:before {channelId, beforeMessageId, limit?}` (acknowledgement) | ack `{success, channelId, messages[], hasMore}`: the page of history older than a message the client has (oldest first, 1 to 200, default `CHAT_HISTORY_LIMIT`); `chat:history:older` when sent without an ack |
 | `search {query, channelId?, authorId?, limit?, offset?}` (acknowledgement) | ack `{success, query, results[], total, hasMore, limit, offset}`, each result `{id, channelId, channelName, channelType, authorId, authorName, authorAvatarUrl, roles, isSuperuser, ts, snippet: [{text, match}]}`; `search:results` when sent without an ack |
@@ -203,6 +203,16 @@ channels. DMs do not count against `MAX_CHANNELS`. Each side's channel list
 entry carries `dm: {peerId, peerName, peerUsername, peerAvatarUrl}` for the
 other person, and `channels.last_message_at` (every channel) lets clients sort
 conversations by recency.
+
+Either participant can close a conversation to get it out of their sidebar:
+`dm:close {channelId}` (participants only, `FORBIDDEN` otherwise; `dm`
+channels only, `NOT_DM` otherwise) sets `channel_members.closed_at` for the
+caller (migration 12), answers `dm:closed {channelId}` and re-sends the
+caller's `channels:update` without it, to every socket of their account.
+Nothing is deleted, access and search are unchanged, and the other participant
+sees nothing. The conversation comes back for them, with their list re-sent,
+when a message is posted in it (by either side), when they open it again with
+`dm:open`, or when they join it (`channel:join`, as a search result does).
 
 ### Message search
 

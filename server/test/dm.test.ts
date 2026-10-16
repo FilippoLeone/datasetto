@@ -44,6 +44,49 @@ describe('direct messages (service)', () => {
     expect(ctx.channels.get(dm.id)?.lastMessageAt).toBe(42);
     expect(channelsPayload(ctx, subject(alice.id)).channels.find((c) => c.id === dm.id)?.lastMessageAt).toBe(42);
   });
+
+  it('hides a closed conversation from that participant only, until they open it again', async () => {
+    const ctx = makeContext();
+    const alice = await ctx.accounts.register({ username: 'alice@example.com', password: 'password123', displayName: 'Alice' });
+    const bob = await ctx.accounts.register({ username: 'bob@example.com', password: 'password123', displayName: 'Bob' });
+    const carol = await ctx.accounts.register({ username: 'carol@example.com', password: 'password123', displayName: 'Carol' });
+    const dm = ctx.channels.openDm(alice.id, bob.id);
+    const listedFor = (accountId: string) => channelsPayload(ctx, subject(accountId)).channels.some((c) => c.id === dm.id);
+
+    ctx.channels.closeDm(dm.id, bob.id);
+    expect(ctx.channels.isDmClosed(dm.id, bob.id)).toBe(true);
+    expect(ctx.channels.isDmClosed(dm.id, alice.id)).toBe(false);
+    expect(listedFor(bob.id)).toBe(false);
+    expect(listedFor(alice.id)).toBe(true);
+    // Only the list entry is gone: access, membership and the row on disk stay.
+    expect(ctx.channels.canAccess(dm, subject(bob.id), 'view')).toBe(true);
+    expect(ctx.channels.listMemberIds(dm.id).sort()).toEqual([alice.id, bob.id].sort());
+    const row = ctx.db.prepare('SELECT closed_at FROM channel_members WHERE channel_id = ? AND account_id = ?').get(dm.id, bob.id) as { closed_at: number | null };
+    expect(row.closed_at).toEqual(expect.any(Number));
+    // Closing twice changes nothing.
+    ctx.channels.closeDm(dm.id, bob.id);
+    expect(ctx.channels.isDmClosed(dm.id, bob.id)).toBe(true);
+
+    // Alice opening the conversation does not bring it back for Bob; Bob opening it does.
+    expect(ctx.channels.openDm(alice.id, bob.id).id).toBe(dm.id);
+    expect(listedFor(bob.id)).toBe(false);
+    expect(ctx.channels.openDm(bob.id, alice.id).id).toBe(dm.id);
+    expect(ctx.channels.isDmClosed(dm.id, bob.id)).toBe(false);
+    expect(listedFor(bob.id)).toBe(true);
+
+    ctx.channels.closeDm(dm.id, bob.id);
+    expect(ctx.channels.reopenDm(dm.id, bob.id)).toBe(true);
+    expect(ctx.channels.reopenDm(dm.id, bob.id)).toBe(false);
+    expect(ctx.channels.reopenDm(dm.id, carol.id)).toBe(false);
+    expect(listedFor(bob.id)).toBe(true);
+
+    // Only the participants, only conversations.
+    expect(() => ctx.channels.closeDm(dm.id, carol.id)).toThrow(/participants/);
+    expect(ctx.channels.isDmClosed(dm.id, carol.id)).toBe(false);
+    const general = ctx.channels.getByName('general')!;
+    expect(() => ctx.channels.closeDm(general.id, alice.id)).toThrow(/Only direct messages/);
+    expect(() => ctx.channels.closeDm('channel-nope', alice.id)).toThrow(/not found/i);
+  });
 });
 
 const once = <T = unknown>(socket: Socket, event: string, timeoutMs = 3000): Promise<T> =>
@@ -94,13 +137,20 @@ describe('direct messages (socket)', () => {
     await server.close();
   });
 
+  // Accounts are created directly (the per-IP registration limit is 5 per minute) and signed in over the socket.
   const signUp = async (username: string, displayName: string) => {
+    await server.ctx.accounts.register({ username, password: 'password123', displayName });
     const socket = await client(server.url);
     sockets.push(socket);
     const auth = once<{ account: { id: string } }>(socket, 'auth:success');
-    socket.emit('auth:register', { username, password: 'password123', profile: { displayName } });
+    socket.emit('auth:login', { username, password: 'password123' });
     return { socket, account: (await auth).account };
   };
+
+  const lists = (socket: Socket, channelId: string) =>
+    waitForEvent<ChannelsUpdate>(socket, 'channels:update', (list) => list.channels.some((c) => c.id === channelId));
+  const drops = (socket: Socket, channelId: string) =>
+    waitForEvent<ChannelsUpdate>(socket, 'channels:update', (list) => !list.channels.some((c) => c.id === channelId));
 
   it('runs a conversation through the normal chat pipeline, restricted to the two participants', async () => {
     const admin = await signUp('admin@example.com', 'Admin');
@@ -162,5 +212,81 @@ describe('direct messages (socket)', () => {
     const missing = once<{ code: string }>(bob.socket, 'error');
     bob.socket.emit('dm:open', { accountId: 'acct-nobody' });
     expect((await missing).code).toBe('NOT_FOUND');
+  });
+
+  it('closes a conversation for one side only and brings it back on a new message, dm:open or channel:join', async () => {
+    const alice = await signUp('alice@example.com', 'Alice');
+    const bob = await signUp('bob@example.com', 'Bob');
+    const carol = await signUp('carol@example.com', 'Carol');
+
+    // Alice messages Bob.
+    const opened = once<{ channelId: string }>(alice.socket, 'dm:opened');
+    alice.socket.emit('dm:open', { accountId: bob.account.id });
+    const { channelId } = await opened;
+    await lists(bob.socket, channelId);
+    const aliceJoined = once(alice.socket, 'channel:joined');
+    alice.socket.emit('channel:join', channelId);
+    await aliceJoined;
+    const bobGotFirst = once<{ id: string }>(bob.socket, 'chat');
+    alice.socket.emit('chat', 'hi bob');
+    const first = await bobGotFirst;
+
+    // Bob closes it: his list loses it, Alice hears nothing.
+    const closed = once<{ channelId: string }>(bob.socket, 'dm:closed');
+    const bobDropped = drops(bob.socket, channelId);
+    const aliceList = once<ChannelsUpdate>(alice.socket, 'channels:update', 300);
+    bob.socket.emit('dm:close', { channelId });
+    expect((await closed).channelId).toBe(channelId);
+    await bobDropped;
+    await expect(aliceList).rejects.toThrow('timeout');
+    expect(server.ctx.channels.isDmClosed(channelId, bob.account.id)).toBe(true);
+    expect(server.ctx.channels.isDmClosed(channelId, alice.account.id)).toBe(false);
+    // A fresh list for Bob leaves it out too; the history is intact.
+    const relisted = once<ChannelsUpdate>(bob.socket, 'channels:update');
+    bob.socket.emit('channels:list');
+    expect((await relisted).channels.some((c) => c.id === channelId)).toBe(false);
+    expect(server.ctx.messages.history(channelId).map((m) => m.id)).toEqual([first.id]);
+
+    // Alice's next message brings it back for Bob, message included.
+    const bobBack = lists(bob.socket, channelId);
+    const bobGotSecond = once<{ text: string; channelId: string }>(bob.socket, 'chat');
+    alice.socket.emit('chat', 'you there?');
+    expect(await bobGotSecond).toMatchObject({ channelId, text: 'you there?' });
+    await bobBack;
+    expect(server.ctx.channels.isDmClosed(channelId, bob.account.id)).toBe(false);
+    expect(server.ctx.messages.history(channelId)).toHaveLength(2);
+
+    // Closed again; Bob opening the conversation himself reopens it.
+    bob.socket.emit('dm:close', { channelId });
+    await drops(bob.socket, channelId);
+    const reopened = once<{ channelId: string }>(bob.socket, 'dm:opened');
+    const bobBackAgain = lists(bob.socket, channelId);
+    bob.socket.emit('dm:open', { accountId: alice.account.id });
+    expect((await reopened).channelId).toBe(channelId);
+    await bobBackAgain;
+    expect(server.ctx.channels.isDmClosed(channelId, bob.account.id)).toBe(false);
+
+    // Closed once more; going to it (a search result) reopens it as well.
+    bob.socket.emit('dm:close', { channelId });
+    await drops(bob.socket, channelId);
+    const bobJoined = once(bob.socket, 'channel:joined');
+    const bobBackViaJoin = lists(bob.socket, channelId);
+    bob.socket.emit('channel:join', channelId);
+    await bobJoined;
+    await bobBackViaJoin;
+    expect(server.ctx.channels.isDmClosed(channelId, bob.account.id)).toBe(false);
+
+    // Outsiders, other channel kinds and unknown channels are refused.
+    const carolError = once<{ code: string }>(carol.socket, 'error');
+    carol.socket.emit('dm:close', { channelId });
+    expect((await carolError).code).toBe('FORBIDDEN');
+    const general = server.ctx.channels.getByName('general')!;
+    const kindError = once<{ code: string }>(bob.socket, 'error');
+    bob.socket.emit('dm:close', { channelId: general.id });
+    expect((await kindError).code).toBe('NOT_DM');
+    const missingError = once<{ code: string }>(bob.socket, 'error');
+    bob.socket.emit('dm:close', { channelId: 'channel-nope' });
+    expect((await missingError).code).toBe('NOT_FOUND');
+    expect(server.ctx.channels.isDmClosed(channelId, bob.account.id)).toBe(false);
   });
 });

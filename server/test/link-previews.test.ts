@@ -385,7 +385,8 @@ describe('link previews in chat', () => {
 
   it('keeps the first link of a message with a preview record while the migration backfills nothing', () => {
     const ctx = makeContext();
-    expect(ctx.db.pragma('user_version', { simple: true })).toBe(11);
+    // Migration 11 brought the tables; later migrations raise the version further.
+    expect(Number(ctx.db.pragma('user_version', { simple: true }))).toBeGreaterThanOrEqual(11);
     expect(ctx.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('message_attachments', 'link_previews')").all()).toHaveLength(2);
   });
 });

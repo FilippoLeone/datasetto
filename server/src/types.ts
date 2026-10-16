@@ -100,6 +100,8 @@ export interface ChannelMemberRecord {
   accountId: string;
   addedBy: string | null;
   joinedAt: number;
+  /** When this member closed the conversation (DMs only); null while it is in their list. */
+  closedAt: number | null;
 }
 
 export interface ChannelGroupRecord {

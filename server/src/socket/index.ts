@@ -76,6 +76,15 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
         socket.emit('channels:update', channelsPayload(ctx, sctx.user));
       }
     }),
+    // One account's list changed for them alone (a conversation closed or reopened): every tab of theirs, nobody else.
+    channelsTo: (accountId) => {
+      for (const socketId of ctx.presence.getSocketsByAccount(accountId)) {
+        const socket = io.sockets.sockets.get(socketId);
+        const sctx = socket?.data.ctx as SocketContext | undefined;
+        if (!socket || !sctx?.user) continue;
+        socket.emit('channels:update', channelsPayload(ctx, sctx.user));
+      }
+    },
     users: coalesce(() => io.emit('user:update', ctx.presence.exportUsers())),
     screenshare: (channelId, targetSocketId = null, extra = {}) => {
       const payload = { ...ctx.presence.screenshareView(channelId), ...extra };

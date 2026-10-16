@@ -76,6 +76,12 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
     let message = app.messages.create(channel.id, user, text, { allowEmpty: attachmentIds.length > 0, previewUrl });
     message = app.messages.attach(message, attachmentIds);
     app.channels.touchActivity(channel.id, message.ts);
+    if (channel.type === 'dm') {
+      // Whoever had closed the conversation gets it back in their list, with this message in it.
+      for (const accountId of app.channels.listMemberIds(channel.id)) {
+        if (app.channels.reopenDm(channel.id, accountId)) app.broadcast.channelsTo(accountId);
+      }
+    }
 
     let pending: string | null = null;
     if (previewUrl) {

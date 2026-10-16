@@ -101,6 +101,7 @@ interface MemberRow {
   account_id: string;
   added_by: string | null;
   joined_at: number;
+  closed_at: number | null;
 }
 
 export const createDefaultPermissions = (): ChannelPermissions => ({
@@ -199,6 +200,7 @@ const rowToMember = (row: MemberRow): ChannelMemberRecord => ({
   accountId: row.account_id,
   addedBy: row.added_by,
   joinedAt: row.joined_at,
+  closedAt: row.closed_at ?? null,
 });
 
 /**
@@ -238,6 +240,7 @@ export class ChannelService {
         ON CONFLICT(channel_id, account_id) DO NOTHING
       `),
       deleteMember: db.prepare('DELETE FROM channel_members WHERE channel_id = ? AND account_id = ?'),
+      setClosed: db.prepare('UPDATE channel_members SET closed_at = ? WHERE channel_id = ? AND account_id = ?'),
     };
     this.load();
   }
@@ -449,12 +452,16 @@ export class ChannelService {
   /**
    * Open (or reuse) the one-to-one conversation between two accounts. DM
    * channels are private, ungrouped, named after a random id, and exempt from
-   * the channel limit; only the two members can ever see them.
+   * the channel limit; only the two members can ever see them. `accountA` is
+   * the one opening it: a conversation they had closed comes back to their list.
    */
   openDm(accountA: string, accountB: string): ChannelRecord {
     if (accountA === accountB) throw new AppError('You cannot message yourself', 'DM_SELF', 400);
     const existing = this.findDm(accountA, accountB);
-    if (existing) return existing;
+    if (existing) {
+      this.reopenDm(existing.id, accountA);
+      return existing;
+    }
     const now = Date.now();
     const channel: ChannelRecord = {
       id: newId('dm', 16),
@@ -489,12 +496,43 @@ export class ChannelService {
       });
       this.channels.set(channel.id, channel);
       for (const accountId of [accountA, accountB]) {
-        const record: ChannelMemberRecord = { channelId: channel.id, accountId, addedBy: null, joinedAt: now };
+        const record: ChannelMemberRecord = { channelId: channel.id, accountId, addedBy: null, joinedAt: now, closedAt: null };
         this.stmts.insertMember.run(channel.id, accountId, null, now);
         this.membersOf(channel.id).set(accountId, record);
       }
     })();
     return channel;
+  }
+
+  /** Has this participant closed the conversation (hidden it from their list)? False for anything but a DM member. */
+  isDmClosed(channelId: string, accountId: string | null | undefined): boolean {
+    if (!accountId) return false;
+    return this.members.get(channelId)?.get(accountId)?.closedAt != null;
+  }
+
+  /**
+   * Hide a conversation from one participant's channel list. Nothing is deleted
+   * and the other participant notices nothing; {@link reopenDm} undoes it.
+   * Only a participant may close, and only a DM channel.
+   */
+  closeDm(channelId: string, accountId: string): void {
+    const channel = this.require(channelId);
+    if (channel.type !== 'dm') throw new AppError('Only direct messages can be closed', 'NOT_DM', 400);
+    const member = this.members.get(channelId)?.get(accountId);
+    if (!member) throw forbidden('Only the participants can close a conversation');
+    if (member.closedAt != null) return;
+    const now = Date.now();
+    this.stmts.setClosed.run(now, channelId, accountId);
+    this.membersOf(channelId).set(accountId, { ...member, closedAt: now });
+  }
+
+  /** Put a closed conversation back in a participant's list. True when it was closed. */
+  reopenDm(channelId: string, accountId: string): boolean {
+    const member = this.members.get(channelId)?.get(accountId);
+    if (!member || member.closedAt == null) return false;
+    this.stmts.setClosed.run(null, channelId, accountId);
+    this.membersOf(channelId).set(accountId, { ...member, closedAt: null });
+    return true;
   }
 
   /** Record that a message was posted (orders the DM list). */
@@ -599,7 +637,7 @@ export class ChannelService {
     }
     const existing = this.members.get(channelId)?.get(accountId);
     if (existing) return existing;
-    const record: ChannelMemberRecord = { channelId, accountId, addedBy, joinedAt: Date.now() };
+    const record: ChannelMemberRecord = { channelId, accountId, addedBy, joinedAt: Date.now(), closedAt: null };
     this.stmts.insertMember.run(channelId, accountId, addedBy, record.joinedAt);
     this.membersOf(channelId).set(accountId, record);
     return record;
