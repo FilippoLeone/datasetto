@@ -392,10 +392,12 @@ jobs:
         shell: bash
         run: |
           # electron-updater reads latest.yml (Windows), latest-mac.yml and latest-linux.yml
-          # from the release; the .blockmap files allow differential downloads.
+          # from the release. Windows and macOS builds also carry .blockmap files for
+          # differential downloads; the Linux AppImage and deb have none.
           cd desktop/release
-          ls -l *.yml *.blockmap
-          grep -H '^version:' *.yml
+          ls -l latest*.yml
+          ls -l *.blockmap 2>/dev/null || echo "no .blockmap on this platform"
+          grep -H '^version:' latest*.yml
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
