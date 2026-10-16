@@ -267,11 +267,13 @@ closed (`datasetto.updates.dismissed.v1`). It is never a dialog, so a call is no
   on Android it links to the APK. Without a build version (a local `npm run dev` or `npm run build`) no
   check runs.
 - `VITE_APP_VERSION` is set by the release workflow from the tag for the desktop and Android bundles, and
-  by the image workflow for the web image (the release tag, or `git describe` for a branch build, which
-  sorts below the next release). Set it yourself for a custom deployment (`ops/caddy/Dockerfile` takes it as
+  by the image workflow for the web image (the release tag, or `git describe` for a branch build, for
+  example `0.1.12-2-gabc123`). Set it yourself for a custom deployment (`ops/caddy/Dockerfile` takes it as
   the `APP_VERSION` build argument).
-- `lib/version.ts` compares versions numerically (`0.1.10` > `0.1.9`, pre-release and `git describe`
-  suffixes sort below the plain release); unit tests cover it and the notice state.
+- `lib/version.ts` compares versions numerically (`0.1.10` > `0.1.9`). A pre-release suffix (`0.2.0-beta.1`)
+  sorts below its plain release. A `git describe` suffix is read as "that release plus N commits", so a web
+  bundle built from a commit after the latest release (`0.1.12-2-gabc123` with release `0.1.12`) counts as
+  current and shows no notice until `0.1.13` exists. Unit tests cover it and the notice state.
 
 ## Game activity ("Playing <game>")
 
