@@ -3,8 +3,8 @@ import { Avatar, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
 import { CHANNEL_ICONS } from '@/app/layout/MainArea';
 import { api } from '@/services/socket/api';
-import { channelsByType, collapsedGroups, selectedChannelId, toggleGroup, unread } from '@/state/channels';
 import { peerAudioPref } from '@/state/peerAudio';
+import { channelsByType, collapsedGroups, mentions, selectedChannelId, toggleGroup, unread } from '@/state/channels';
 import { usersInVoice } from '@/state/presence';
 import { can } from '@/state/session';
 import { localSpeaking, voiceChannelId, voicePeers } from '@/state/voice';
@@ -60,10 +60,31 @@ const VoiceMembers = ({ channel }: { channel: Channel }) => {
   );
 };
 
+/**
+ * Unread badge of a sidebar row. Red with the count; once one of the unread
+ * messages @-mentions us it turns brand-coloured and shows "@" with how many did.
+ */
+const UnreadBadge = ({ unreadCount, mentionCount }: { unreadCount: number; mentionCount: number }) => {
+  if (unreadCount === 0) return null;
+  const label = unreadCount + ' unread' + (mentionCount > 0 ? ', ' + mentionCount + (mentionCount === 1 ? ' mention' : ' mentions') : '');
+  return (
+    <span
+      key={unreadCount + ':' + mentionCount}
+      className={cn('rounded-full px-1.5 text-[10px] font-bold text-white animate-badge-pop', mentionCount > 0 ? 'bg-brand' : 'bg-live')}
+      aria-label={label}
+      title={label}
+      data-mentions={mentionCount > 0 ? mentionCount : undefined}
+    >
+      {mentionCount > 0 ? '@' + mentionCount : unreadCount}
+    </span>
+  );
+};
+
 const ChannelRow = ({ channel }: { channel: Channel }) => {
   const Icon = CHANNEL_ICONS[channel.type];
   const active = selectedChannelId.value === channel.id;
   const unreadCount = unread.value[channel.id] ?? 0;
+  const mentionCount = mentions.value[channel.id] ?? 0;
   const inVoice = voiceChannelId.value === channel.id;
 
   const items: MenuItem[] = [];
@@ -117,11 +138,7 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
           {channel.type === 'voice' && channel.currentMinigame && <Gamepad2 size={14} className="ml-1 shrink-0 text-warning" />}
           {channel.type === 'screenshare' && channel.screenshareHostName && <span className="ml-1 text-[10px] font-bold text-success uppercase">Sharing</span>}
         </button>
-        {unreadCount > 0 && !active && (
-          <span key={unreadCount} className="rounded-full bg-live px-1.5 text-[10px] font-bold text-white animate-badge-pop">
-            {unreadCount}
-          </span>
-        )}
+        {!active && <UnreadBadge unreadCount={unreadCount} mentionCount={mentionCount} />}
         {(channel.type === 'stream' || channel.type === 'screenshare') && channel.count > 0 && (
           <span className="text-[11px] text-text-faint tabular-nums" title="Watching">{channel.count}</span>
         )}
@@ -171,11 +188,7 @@ const DmRow = ({ channel }: { channel: Channel }) => {
           <Avatar seed={peer?.peerId ?? channel.id} name={name} src={peer?.peerAvatarUrl} size={24} />
           <span className={cn('min-w-0 flex-1 truncate', unreadCount > 0 && 'font-semibold')}>{name}</span>
         </button>
-        {unreadCount > 0 && !active && (
-          <span key={unreadCount} className="rounded-full bg-live px-1.5 text-[10px] font-bold text-white animate-badge-pop">
-            {unreadCount}
-          </span>
-        )}
+        {!active && <UnreadBadge unreadCount={unreadCount} mentionCount={0} />}
         <button type="button" aria-label={'Close conversation with ' + name} title="Close conversation" className={ROW_CONTROL} onClick={close}>
           <X size={14} />
         </button>

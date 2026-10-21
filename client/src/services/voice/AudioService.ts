@@ -1,9 +1,18 @@
 /**
  * Audio management service for microphone input and processing
  */
-import type { AudioSettings, DeviceInfo } from '@/types/protocol';
+import type { AudioSettings, DeviceInfo, NoiseSuppressionLevel } from '@/types/protocol';
 import { EventEmitter } from '@/lib/EventEmitter';
 import { fetchNativeAudioRoutes, isNativeAudioRoutingAvailable, selectNativeAudioRoute } from '@/services/native/NativeAudioRouteService';
+import { NeuralSuppressor, preloadEngine, supportsNeuralSuppression, type NeuralStatus } from './neuralSuppression';
+import type { SuppressionTier } from './neuralEngine';
+
+/** A short microphone recording from the settings dialog, raw and as it would be sent. */
+export interface MicSample {
+  sampleRate: number;
+  raw: Float32Array;
+  processed: Float32Array;
+}
 
 const TARGET_SAMPLE_RATE = 48000;
 const MIN_ACCEPTABLE_SAMPLE_RATE = 32000;
@@ -24,6 +33,9 @@ const clamp = (value: number, min: number, max: number): number => {
 export const MICROPHONE_PERMISSION_HELP_TEXT =
   'Microphone permission is blocked. Enable access in your browser or system settings, then reload. On iOS Safari: Settings → Safari → Camera & Microphone. On Android Chrome: Settings → Site Settings → Microphone.';
 
+/** How often the local mic level is sampled (ms); matches the remote speaking detector. */
+const MIC_LEVEL_INTERVAL_MS = 50;
+
 export class AudioService extends EventEmitter {
   private audioContext: AudioContext | null = null;
   private localStream: MediaStream | null = null;
@@ -32,7 +44,8 @@ export class AudioService extends EventEmitter {
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   private analyser: AnalyserNode | null = null;
-  private meterAnimationId: number | null = null;
+  /** Mic level sampling runs on a timer, not animation frames: frames stop when the window is minimized. */
+  private meterTimer: number | null = null;
   private settings: AudioSettings;
   private trackLifecycleCleanup: (() => void) | null = null;
   private shuttingDownStream = false;
@@ -41,6 +54,10 @@ export class AudioService extends EventEmitter {
   private streamRetryAttempts = 0;
   private degradedMode = false;
   private lastSuccessfulConstraints: MediaTrackConstraints | null = null;
+  /** The neural engine behind the `strong` level; one per service, its node lives as long as the AudioContext. */
+  private readonly neural = new NeuralSuppressor();
+  private acquiring = false;
+  private captureModulePromise: Promise<void> | null = null;
 
   constructor(settings: AudioSettings) {
     super();
@@ -52,6 +69,72 @@ export class AudioService extends EventEmitter {
         1
       ),
     };
+    this.neural.on('status', (status) => this.emit('neural:status', status as NeuralStatus));
+    this.neural.on('stepdown', (tier) => this.onNeuralStepDown(tier as SuppressionTier));
+  }
+
+  /** What the neural suppressor is doing (engine, loading state, last notice). */
+  getNeuralStatus(): NeuralStatus {
+    return this.neural.status;
+  }
+
+  /**
+   * The level the chain really runs: `strong` falls back to `standard` once the neural engines
+   * stepped down (or the browser cannot run them at all).
+   */
+  private effectiveLevel(): NoiseSuppressionLevel {
+    const level = this.settings.noiseSuppressionLevel;
+    if (level !== 'strong') return level;
+    return supportsNeuralSuppression() && this.neural.currentTier !== 'standard' ? 'strong' : 'standard';
+  }
+
+  /** Downloads the model ahead of time so joining a call with `strong` on does not wait for it. */
+  prepareNeuralSuppression(): void {
+    if (this.settings.noiseSuppressionLevel !== 'strong' || !supportsNeuralSuppression()) return;
+    const tier = this.neural.currentTier;
+    if (tier === 'standard') return;
+    preloadEngine(tier).catch((error) => {
+      if (import.meta.env.DEV) console.warn('[AudioService] Could not preload the neural suppressor:', error);
+    });
+  }
+
+  /**
+   * The neural engine stepped down. To RNNoise: the chain is rebuilt on the same context without
+   * touching the microphone. To the browser's suppression: the raw track gets its noiseSuppression
+   * constraint back (a restart of the stream only if the browser refuses the live change).
+   */
+  private onNeuralStepDown(tier: SuppressionTier): void {
+    if (!this.localStream || this.acquiring) return;
+    window.setTimeout(() => {
+      if (!this.localStream || this.acquiring || !this.audioContext || !this.sourceNode || !this.micGainNode) return;
+      if (tier === 'standard') {
+        const track = this.rawStream?.getAudioTracks()[0];
+        const restore = track ? track.applyConstraints({ noiseSuppression: true }) : Promise.reject(new Error('no track'));
+        restore
+          .then(() => this.rebuildProcessing())
+          .catch(() => this.getLocalStream(true))
+          .catch((error) => console.error('[AudioService] Could not fall back to standard suppression:', error));
+        return;
+      }
+      this.rebuildProcessing().catch((error) => console.error('[AudioService] Could not switch the neural engine:', error));
+    }, 0);
+  }
+
+  /** Reconnects source -> processing -> gain on the live context after the processing choice changed. */
+  private async rebuildProcessing(): Promise<void> {
+    const ctx = this.audioContext;
+    const source = this.sourceNode;
+    const gain = this.micGainNode;
+    if (!ctx || !source || !gain) return;
+    try {
+      source.disconnect();
+    } catch {
+      /* nothing connected */
+    }
+    const head = await this.insertProcessing(ctx, source);
+    if (this.sourceNode !== source || this.micGainNode !== gain) return; // the stream was replaced meanwhile
+    if (head === source) source.connect(gain);
+    else head.connect(gain);
   }
 
   async getMicrophonePermissionStatus(): Promise<PermissionState | 'unsupported'> {
@@ -184,7 +267,8 @@ export class AudioService extends EventEmitter {
 
     const constraints: MediaTrackConstraints = {
       echoCancellation: this.settings.echoCancel,
-      noiseSuppression: this.settings.noiseSuppression,
+      // `strong` turns the browser's own suppression off: the neural model is the only denoiser in the chain.
+      noiseSuppression: this.effectiveLevel() === 'standard',
       autoGainControl: this.settings.autoGain,
     };
 
@@ -285,6 +369,7 @@ export class AudioService extends EventEmitter {
   }
 
   private async attemptGetLocalStream(_forceNew: boolean, degraded: boolean): Promise<MediaStream> {
+    this.acquiring = true;
     try {
       this.assertMicrophoneSupport();
 
@@ -321,7 +406,7 @@ export class AudioService extends EventEmitter {
       this.sourceNode = source;
 
       let processingNode: AudioNode = source;
-      processingNode = await this.maybeInsertNoiseReducer(ctx, processingNode);
+      processingNode = await this.insertProcessing(ctx, processingNode);
 
       // Create gain node for volume control
       this.micGainNode = ctx.createGain();
@@ -354,7 +439,30 @@ export class AudioService extends EventEmitter {
       console.error('Error getting local stream:', error);
       // Rethrow the raw error: the retry loop decides whether to try again and maps it once.
       throw error;
+    } finally {
+      this.acquiring = false;
     }
+  }
+
+  /**
+   * Puts the chosen processing between the microphone source and the rest of the chain and
+   * returns its last node (the source itself when there is nothing to insert): the neural
+   * suppressor for `strong`, the envelope gate for `standard`, nothing for `off`.
+   */
+  private async insertProcessing(ctx: AudioContext, upstream: AudioNode): Promise<AudioNode> {
+    this.teardownNoiseReducer();
+    this.neural.disconnect();
+    if (this.settings.noiseSuppressionLevel === 'strong' && this.effectiveLevel() === 'strong' && ctx.audioWorklet) {
+      const node = await this.neural.attach(ctx);
+      if (node) {
+        upstream.connect(node);
+        this.neural.setStrength(this.settings.strongSuppressionDb);
+        return node;
+      }
+      // Every neural engine failed to start: the browser's suppression takes over (onNeuralStepDown
+      // restores the constraint on the live track; a stream opened from here on asks for it directly).
+    }
+    return this.maybeInsertNoiseReducer(ctx, upstream);
   }
 
   hasActiveStream(): boolean {
@@ -424,6 +532,7 @@ export class AudioService extends EventEmitter {
     }
 
     this.teardownNoiseReducer();
+    this.neural.disconnect();
 
     if (this.sourceNode) {
       try {
@@ -456,9 +565,9 @@ export class AudioService extends EventEmitter {
       this.rawStream = null;
     }
 
-    if (this.meterAnimationId !== null) {
-      cancelAnimationFrame(this.meterAnimationId);
-      this.meterAnimationId = null;
+    if (this.meterTimer !== null) {
+      window.clearInterval(this.meterTimer);
+      this.meterTimer = null;
     }
 
     this.micGainNode = null;
@@ -480,9 +589,8 @@ export class AudioService extends EventEmitter {
    * Update audio settings and restart stream if needed
    */
   async updateSettings(settings: Partial<AudioSettings>): Promise<void> {
-    const oldDeviceId = this.settings.micDeviceId;
-    const prevNoiseLevel = this.settings.noiseReducerLevel ?? DEFAULT_NOISE_REDUCTION_LEVEL;
-    const prevNoiseSuppression = this.settings.noiseSuppression;
+    const previous = this.settings;
+    const prevNoiseLevel = previous.noiseReducerLevel ?? DEFAULT_NOISE_REDUCTION_LEVEL;
 
     this.settings = { ...this.settings, ...settings };
 
@@ -497,16 +605,20 @@ export class AudioService extends EventEmitter {
       noiseLevelChanged = clampedLevel !== prevNoiseLevel;
     }
 
-    const noiseSuppressionChanged =
-      settings.noiseSuppression !== undefined && settings.noiseSuppression !== prevNoiseSuppression;
+    const changed = <K extends keyof AudioSettings>(key: K): boolean => settings[key] !== undefined && settings[key] !== previous[key];
+    const noiseSuppressionChanged = changed('noiseSuppressionLevel');
+    if (noiseSuppressionChanged && this.settings.noiseSuppressionLevel === 'strong') {
+      // Choosing Strong (again) starts from the device's first engine, even after an earlier step-down.
+      this.neural.resetTier();
+      this.prepareNeuralSuppression();
+    }
+    // The strength is a message to the running worklet: the microphone is not restarted for it.
+    if (changed('strongSuppressionDb')) this.neural.setStrength(this.settings.strongSuppressionDb);
 
-    // If device or constraints changed, restart stream
-    const deviceChanged = oldDeviceId !== this.settings.micDeviceId;
-    const constraintsChanged = 
-      settings.echoCancel !== undefined ||
-      settings.noiseSuppression !== undefined ||
-      settings.autoGain !== undefined ||
-      settings.latencyHint !== undefined;
+    // Only a change of device or of a capture constraint restarts the stream (the settings dialog
+    // sends every setting on save, so presence alone would restart the mic on each save).
+    const deviceChanged = changed('micDeviceId');
+    const constraintsChanged = changed('echoCancel') || noiseSuppressionChanged || changed('autoGain') || changed('latencyHint');
 
     if ((deviceChanged || constraintsChanged) && this.localStream) {
       await this.getLocalStream(true);
@@ -544,23 +656,19 @@ export class AudioService extends EventEmitter {
   }
 
   /**
-   * Start visualizing mic level
+   * Sample the mic level 20 times a second and emit it (`mic:level`). A timer rather than
+   * an animation frame loop: the level feeds your own speaking state (voice ring, overlay,
+   * push-to-talk feedback), which must keep moving while the window is minimized or
+   * behind a game, where frames are paused even with background throttling off.
    */
   private startMeterVisualization(): void {
-    if (this.meterAnimationId !== null) {
-      cancelAnimationFrame(this.meterAnimationId);
+    if (this.meterTimer !== null) {
+      window.clearInterval(this.meterTimer);
     }
-
-    const update = () => {
+    this.meterTimer = window.setInterval(() => {
       if (!this.analyser) return;
-
-      const level = this.getAudioLevel();
-      this.emit('mic:level', level);
-
-      this.meterAnimationId = requestAnimationFrame(update);
-    };
-
-    this.meterAnimationId = requestAnimationFrame(update);
+      this.emit('mic:level', this.getAudioLevel());
+    }, MIC_LEVEL_INTERVAL_MS);
   }
 
   private async loadNoiseReducerModule(ctx: AudioContext): Promise<void> {
@@ -582,9 +690,10 @@ export class AudioService extends EventEmitter {
     }
   }
 
+  /** The envelope gate belongs to the standard level; the neural level brings its own speech gate. */
   private shouldUseNoiseReducer(): boolean {
     const level = this.settings.noiseReducerLevel ?? 0;
-    return Boolean(this.settings.noiseSuppression && level > 0.05);
+    return this.effectiveLevel() === 'standard' && level > 0.05;
   }
 
   private buildNoiseReducerConfig(level = this.settings.noiseReducerLevel ?? DEFAULT_NOISE_REDUCTION_LEVEL) {
@@ -850,13 +959,94 @@ export class AudioService extends EventEmitter {
    */
   dispose(): void {
     this.stopLocalStream();
-    
+    this.neural.dispose();
+
     if (this.audioContext) {
       this.audioContext.close();
       this.audioContext = null;
     }
 
     this.clear();
+  }
+
+  private async loadCaptureModule(ctx: AudioContext): Promise<void> {
+    if (!this.captureModulePromise) {
+      this.captureModulePromise = ctx.audioWorklet.addModule(new URL('../../audio/worklets/capture-processor.js', import.meta.url)).catch((error) => {
+        this.captureModulePromise = null;
+        throw error;
+      });
+    }
+    await this.captureModulePromise;
+  }
+
+  /**
+   * Records the open microphone for `seconds`: the raw capture and the processed signal that would
+   * be sent, side by side, so the settings dialog can play both back. Needs an active stream.
+   */
+  async recordMicSample(seconds = 5): Promise<MicSample> {
+    const ctx = this.audioContext;
+    const source = this.sourceNode;
+    const processedHead = this.micGainNode;
+    if (!ctx || !source || !processedHead || !ctx.audioWorklet) throw new Error('Start the mic test first.');
+    await this.loadCaptureModule(ctx);
+    const tap = (from: AudioNode) => {
+      const node = new AudioWorkletNode(ctx, 'capture-processor', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: 'explicit' });
+      const chunks: Float32Array[] = [];
+      const done = new Promise<Float32Array>((resolve) => {
+        node.port.onmessage = (event: MessageEvent<{ type: string; samples?: Float32Array }>) => {
+          if (event.data.type === 'chunk' && event.data.samples) chunks.push(event.data.samples);
+          if (event.data.type === 'done') {
+            const total = chunks.reduce((n, c) => n + c.length, 0);
+            const out = new Float32Array(total);
+            let at = 0;
+            for (const c of chunks) {
+              out.set(c, at);
+              at += c.length;
+            }
+            resolve(out);
+          }
+        };
+      });
+      from.connect(node);
+      return { node, done };
+    };
+    const raw = tap(source);
+    const processed = tap(processedHead);
+    await this.delay(seconds * 1000);
+    raw.node.port.postMessage({ type: 'stop' });
+    processed.node.port.postMessage({ type: 'stop' });
+    const [rawSamples, processedSamples] = await Promise.all([raw.done, processed.done]);
+    for (const { node } of [raw, processed]) {
+      try {
+        node.disconnect();
+      } catch {
+        /* already gone */
+      }
+    }
+    return { sampleRate: ctx.sampleRate, raw: rawSamples, processed: processedSamples };
+  }
+
+  /** Plays a recorded sample through the chosen output; resolves when it ends. */
+  async playSample(samples: Float32Array, sampleRate: number): Promise<void> {
+    const ctx = this.audioContext ?? this.initAudioContext();
+    if (ctx.state === 'suspended') await ctx.resume();
+    const sink = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
+    const spk = this.settings.spkDeviceId ?? '';
+    if (typeof sink.setSinkId === 'function' && spk && spk !== 'default' && !spk.startsWith('native:')) {
+      await sink.setSinkId(spk).catch(() => undefined);
+    }
+    const buffer = ctx.createBuffer(1, samples.length, sampleRate);
+    buffer.copyToChannel(new Float32Array(samples), 0);
+    const node = ctx.createBufferSource();
+    node.buffer = buffer;
+    node.connect(ctx.destination);
+    await new Promise<void>((resolve) => {
+      node.onended = () => {
+        node.disconnect();
+        resolve();
+      };
+      node.start();
+    });
   }
 
   private assertMicrophoneSupport(): void {

@@ -11,6 +11,8 @@ const subscribeSchema = z.object({
   expirationTime: z.number().nullable().optional(),
   keys: z.object({ p256dh: z.string().min(1).max(256), auth: z.string().min(1).max(256) }),
   userAgent: z.string().max(512).nullable().optional(),
+  // What this device wants to hear about (Notifications settings); omitted means everything.
+  preferences: z.object({ mentions: z.boolean().optional(), dms: z.boolean().optional() }).nullable().optional(),
 });
 
 const unsubscribeSchema = z.object({ endpoint: z.string().trim().min(1).max(2048) });
@@ -43,6 +45,7 @@ export const registerPushHandlers = (sctx: SocketContext): void => {
       endpoint: payload.endpoint,
       keys: payload.keys,
       userAgent: payload.userAgent ?? sctx.userAgent,
+      preferences: payload.preferences ?? null,
     });
     app.log.info({ accountId: user.accountId, subscriptionId: subscription.id }, 'push subscription registered');
     reply(ack, { subscription, subscriptions: app.push.list(user.accountId) });

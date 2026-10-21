@@ -28,6 +28,7 @@ import {
 import {
   channelsById,
   defaultChannelId,
+  markMention,
   markRead,
   markUnread,
   pendingChannelId,
@@ -35,8 +36,9 @@ import {
   selectedChannelId,
   setChannels,
 } from '@/state/channels';
-import { appendMessage, removeMessage, setHistory, setReactions, updateMessage } from '@/state/chat';
+import { appendMessage, applyMessageEdit, markMessageDeleted, messages, setHistory, setReactions, updateMessage } from '@/state/chat';
 import { mediaTicket, mediaTicketStale, setMediaTicket, TICKET_RENEW_MARGIN_MS } from '@/lib/media';
+import { notificationPreferences } from '@/state/notifications';
 import { users } from '@/state/presence';
 import { closeModal, modal, toast } from '@/state/ui';
 import {
@@ -120,6 +122,10 @@ const scheduleTicketRenewal = (): void => {
 
 const SESSION_ENDING_CODES = new Set(['SESSION_FAILED', 'ACCOUNT_DISABLED', 'ACCOUNT_DELETED', 'BANNED', 'PASSWORD_RESET', 'SESSION_REVOKED']);
 
+/** Does the message mention us? The server's resolved mentions decide; a message without them falls back to the text. */
+const mentionsMe = (message: ChatMessage, accountId: string, names: readonly string[]): boolean =>
+  message.mentions ? message.mentions.some((mention) => mention.accountId === accountId) : containsMention(message.text, names);
+
 let installed = false;
 
 /**
@@ -183,6 +189,11 @@ export const installSocketBindings = (): void => {
   if (typeof window !== 'undefined') {
     window.addEventListener('offline', () => {
       if (!socketClient.connected) connectionStatus.value = 'offline';
+    });
+    // Messages that arrived in the open channel while the tab was hidden counted as unread; coming back reads them.
+    document.addEventListener('visibilitychange', () => {
+      const current = selectedChannelId.value;
+      if (document.visibilityState === 'visible' && current) markRead(current);
     });
   }
 
@@ -342,21 +353,26 @@ export const installSocketBindings = (): void => {
     appendMessage(message);
     const own = message.accountId && message.accountId === account.value?.id;
     // Our own message came back: its pending copy leaves the list in the same render.
-    if (own && message.clientId) outbox.confirm(message.clientId);
+    if (own && message.clientId) outbox.confirm(message.clientId, message.id);
     const viewing = selectedChannelId.value === message.channelId && document.visibilityState === 'visible';
     if (own) return;
-    if (!viewing) markUnread(message.channelId);
-    sounds.play('message', viewing ? 0.25 : 0.4);
     const me = account.value;
+    const mentioned = Boolean(me && mentionsMe(message, me.id, [me.displayName, me.username]));
+    if (!viewing) {
+      markUnread(message.channelId);
+      if (mentioned) markMention(message.channelId);
+    }
+    sounds.play('message', viewing ? 0.25 : 0.4);
     const channel = channelsById.value.get(message.channelId);
     const pictures = message.attachments?.length ?? 0;
     const body = message.text || (pictures === 1 ? 'Sent a picture' : pictures > 1 ? 'Sent ' + pictures + ' pictures' : '');
+    const wants = notificationPreferences.value;
     if (channel?.type === 'dm') {
       // Every direct message counts as a mention of its recipient.
-      if (!viewing) void notifyDesktop('Message from ' + message.from, body);
+      if (!viewing && wants.dms) void notifyDesktop('Message from ' + message.from, body);
       return;
     }
-    if (me && containsMention(message.text, [me.displayName, me.username])) {
+    if (mentioned && wants.mentions) {
       void notifyDesktop(message.from + ' in #' + (channel?.name ?? 'chat'), body);
     }
   });
@@ -366,17 +382,38 @@ export const installSocketBindings = (): void => {
     if (channelId) setHistory(channelId, history);
   });
 
+  // The message stays in the list as a tombstone ("message deleted").
   socketClient.on<{ messageId: string; channelId: string }>('chat:messageDeleted', ({ channelId, messageId }) => {
-    removeMessage(channelId, messageId);
+    markMessageDeleted(channelId, messageId);
   });
 
   socketClient.on<ReactionEvent>('chat:reaction', (event) => {
     setReactions(event.channelId, event.messageId, event.reactions);
   });
 
-  // A link card was fetched for a message, or its author took it off.
+  // The author edited a message, a link card was fetched for it, or its author took the card off.
   socketClient.on<MessageUpdatedEvent>('chat:messageUpdated', (event) => {
-    if (event.preview !== undefined) updateMessage(event.channelId, event.messageId, { preview: event.preview });
+    if (event.text === undefined) {
+      if (event.preview !== undefined) updateMessage(event.channelId, event.messageId, { preview: event.preview });
+      return;
+    }
+    const me = account.value;
+    const before = messages.value[event.channelId]?.find((entry) => entry.id === event.messageId);
+    const patch: Partial<ChatMessage> = { text: event.text, edited: event.edited ?? true, editedAt: event.editedAt ?? null, mentions: event.mentions ?? [] };
+    if (event.preview !== undefined) patch.preview = event.preview;
+    applyMessageEdit(event.channelId, event.messageId, patch);
+    // An edit that newly mentions us counts like a new mention, unless we are looking at it.
+    if (!me || !before || before.accountId === me.id) return;
+    const names = [me.displayName, me.username];
+    if (mentionsMe(before, me.id, names) || !mentionsMe({ ...before, ...patch }, me.id, names)) return;
+    const viewing = selectedChannelId.value === event.channelId && document.visibilityState === 'visible';
+    if (viewing) return;
+    markUnread(event.channelId);
+    markMention(event.channelId);
+    if (notificationPreferences.value.mentions) {
+      const channel = channelsById.value.get(event.channelId);
+      void notifyDesktop(before.from + ' in #' + (channel?.name ?? 'chat'), event.text);
+    }
   });
 
   socketClient.on<MediaTicket>('media:ticket', (ticket) => {

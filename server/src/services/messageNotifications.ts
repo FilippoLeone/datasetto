@@ -1,5 +1,6 @@
 import type { AppContext } from '../context.js';
-import type { AccountRecord, ChannelRecord, MessageRecord } from '../types.js';
+import type { AccountRecord, ChannelRecord, MentionRef, MessageRecord } from '../types.js';
+import { MAX_MENTIONS_PER_MESSAGE } from './messages.js';
 import type { PushNotification, PushSendSummary } from './push.js';
 
 export type NotificationReason = 'dm' | 'mention';
@@ -27,6 +28,16 @@ export const mentionedAccounts = (text: string, accounts: readonly AccountRecord
   return accounts.filter((account) => account.status === 'active' && (mentionsName(text, account.displayName) || mentionsName(text, account.username)));
 };
 
+/**
+ * The mentions stored with a message: each mentioned account with the name the text
+ * uses for it (the display name when that matches, else the username), so clients can
+ * highlight exactly that span, names with spaces included. At most MAX_MENTIONS_PER_MESSAGE.
+ */
+export const resolveMentions = (text: string, accounts: readonly AccountRecord[]): MentionRef[] =>
+  mentionedAccounts(text, accounts)
+    .slice(0, MAX_MENTIONS_PER_MESSAGE)
+    .map((account) => ({ accountId: account.id, name: mentionsName(text, account.displayName) ? account.displayName : account.username }));
+
 /** Where a notification takes the user: the app with the conversation selected. */
 export const channelUrl = (channelId: string): string => '/app?channel=' + encodeURIComponent(channelId);
 
@@ -53,13 +64,22 @@ export interface NotifiedRecipient {
   result: PushSendSummary;
 }
 
+export interface NotifyOptions {
+  /**
+   * Only these mentioned accounts are told (an edit that added mentions tells the
+   * new ones only). Without it, everyone in `message.mentions` is a candidate.
+   */
+  mentionIds?: readonly string[];
+}
+
 /**
  * Push a notification to the people a message is for, when they are not looking at
- * the app: the other side of a direct message, or everyone @-mentioned in a channel
- * they may view. Recipients with an attending socket (visible page) get nothing; the
- * client shows the message itself. Never throws.
+ * the app: the other side of a direct message, or everyone @-mentioned (as stored
+ * with the message) in a channel they may view. Recipients with an attending socket
+ * (visible page) get nothing; the client shows the message itself. Each device only
+ * gets what it asked for in its notification settings. Never throws.
  */
-export const notifyMessageRecipients = async (app: AppContext, channel: ChannelRecord, message: MessageRecord): Promise<NotifiedRecipient[]> => {
+export const notifyMessageRecipients = async (app: AppContext, channel: ChannelRecord, message: MessageRecord, options: NotifyOptions = {}): Promise<NotifiedRecipient[]> => {
   if (!app.push.isEnabled()) return [];
   const candidates: Array<{ account: AccountRecord; reason: NotificationReason }> = [];
   try {
@@ -70,8 +90,12 @@ export const notifyMessageRecipients = async (app: AppContext, channel: ChannelR
         if (account) candidates.push({ account, reason: 'dm' });
       }
     } else if (channel.type === 'text' || channel.type === 'stream') {
-      for (const account of mentionedAccounts(message.text, app.accounts.list())) {
-        if (account.id !== message.accountId) candidates.push({ account, reason: 'mention' });
+      const wanted = options.mentionIds ? new Set(options.mentionIds) : null;
+      for (const mention of message.mentions ?? []) {
+        if (mention.accountId === message.accountId) continue;
+        if (wanted && !wanted.has(mention.accountId)) continue;
+        const account = app.accounts.getById(mention.accountId);
+        if (account) candidates.push({ account, reason: 'mention' });
       }
     }
   } catch (error) {
@@ -87,7 +111,7 @@ export const notifyMessageRecipients = async (app: AppContext, channel: ChannelR
     if (!app.channels.canAccess(channel, subject, 'view')) continue;
     if (app.presence.isAttending(account.id)) continue;
     try {
-      const result = await app.push.send(account.id, buildNotification(channel, message, reason), channel.id);
+      const result = await app.push.send(account.id, buildNotification(channel, message, reason), channel.id, reason);
       notified.push({ accountId: account.id, reason, result });
     } catch (error) {
       app.log.error({ err: error, accountId: account.id, channelId: channel.id }, 'push notification failed');

@@ -164,6 +164,26 @@ export interface LinkPreviewView {
   siteName: string | null;
 }
 
+/** Someone a message @-mentions: the account and the name as it appears in the text. */
+export interface MentionRef {
+  accountId: string;
+  name: string;
+}
+
+/** The message a reply quotes, as much of it as the quote shows. */
+export interface ReplyRef {
+  id: string;
+  /** Null when the original is gone (pruned). */
+  from: string | null;
+  accountId: string | null;
+  /** First part of the original's text; empty when it was deleted or carried only pictures. */
+  text: string;
+  /** The original was deleted (or is gone): the quote says so instead of showing text. */
+  deleted: boolean;
+  /** Pictures on the original, so the quote can say "picture" for an image-only message. */
+  pictures: number;
+}
+
 export interface MessageRecord {
   id: string;
   channelId: string;
@@ -175,11 +195,18 @@ export interface MessageRecord {
   roles: RoleName[];
   isSuperuser: boolean;
   edited: boolean;
+  /** When the author last edited the text; null when never. */
+  editedAt: number | null;
+  /** A tombstone: the row stays in history as "message deleted", with nothing else on it. */
   deleted: boolean;
   reactions: ReactionSummary[];
   attachments: AttachmentView[];
   /** The link preview card, once fetched and unless the author removed it. */
   preview: LinkPreviewView | null;
+  /** Accounts @-mentioned in the text (resolved when sent or edited). */
+  mentions: MentionRef[];
+  /** The message this one replies to, or null. */
+  replyTo: ReplyRef | null;
 }
 
 export interface BanRecord {
@@ -214,6 +241,12 @@ export interface ConnectedUser {
   activity: string | null;
 }
 
+/** What a device wants to be told about (Notifications settings); both on by default. */
+export interface NotificationPreferences {
+  mentions: boolean;
+  dms: boolean;
+}
+
 /** A Web Push subscription as listed to its owner (keys are never sent back). */
 export interface PushSubscriptionView {
   id: string;
@@ -221,6 +254,7 @@ export interface PushSubscriptionView {
   userAgent: string | null;
   createdAt: number;
   lastUsedAt: number | null;
+  preferences: NotificationPreferences;
 }
 
 export interface VoiceParticipant {

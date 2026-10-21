@@ -13,9 +13,9 @@ import { isNativeApp } from '@/lib/device';
 import { Storage } from '@/lib/storage';
 import { serverConfig } from '@/services/ServerConfigService';
 import { api } from '@/services/socket/api';
-import { updatePushStatus, type PushPermission } from '@/state/notifications';
+import { notificationPreferences, pushStatus, setNotificationPreferences, updatePushStatus, type PushPermission } from '@/state/notifications';
 import { isAuthenticated } from '@/state/session';
-import type { PushAck } from '@/types/protocol';
+import type { NotificationPreferences, PushAck } from '@/types/protocol';
 
 /** Remembered per browser: the user turned notifications on here. */
 const ENABLED_KEY = 'datasetto.push.v1';
@@ -95,7 +95,19 @@ const registerWithServer = async (subscription: PushSubscription) => {
     expirationTime: json.expirationTime ?? null,
     keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
     userAgent: navigator.userAgent.slice(0, 512),
+    // The server pushes only what this device asked for.
+    preferences: { ...notificationPreferences.value },
   });
+};
+
+/**
+ * Change what this device is told about. The in-app notifications read the new
+ * choice at once; when Web Push is on here, the subscription is sent again so
+ * the server knows too.
+ */
+export const updateNotificationPreferences = async (patch: Partial<NotificationPreferences>): Promise<void> => {
+  setNotificationPreferences(patch);
+  if (pushStatus.value.enabled && isAuthenticated.value) await syncPushSubscription();
 };
 
 const failed = (ack: PushAck): string | null => (ack.success ? null : ack.error || 'The server refused the request');

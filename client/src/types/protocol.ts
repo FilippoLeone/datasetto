@@ -202,6 +202,25 @@ export interface LinkPreview {
   siteName: string | null;
 }
 
+/** Someone a message @-mentions: the account and the name as written after the @. */
+export interface MentionRef {
+  accountId: string;
+  name: string;
+}
+
+/** The message a reply quotes. */
+export interface ReplyRef {
+  id: string;
+  /** Null when the original is gone for good (pruned). */
+  from: string | null;
+  accountId: string | null;
+  /** The start of the original's text; empty when deleted or picture-only. */
+  text: string;
+  deleted: boolean;
+  /** Pictures on the original. */
+  pictures: number;
+}
+
 export interface ChatMessage {
   id: string;
   channelId: string;
@@ -213,19 +232,63 @@ export interface ChatMessage {
   roles?: RoleName[];
   isSuperuser?: boolean;
   edited?: boolean;
+  editedAt?: number | null;
+  /** A tombstone: shown as "message deleted" in place, with nothing else. */
   deleted?: boolean;
   reactions?: ReactionSummary[];
   /** Echo of the sender's queue id (only on the sender's own messages, never stored). */
   clientId?: string | null;
   attachments?: Attachment[];
   preview?: LinkPreview | null;
+  /** Accounts the text @-mentions, resolved by the server. */
+  mentions?: MentionRef[];
+  /** The message this one replies to. */
+  replyTo?: ReplyRef | null;
 }
 
-/** `chat:messageUpdated`: a preview card arrived for, or was removed from, a message. */
+/** `chat:messageUpdated`: the author edited the text, or a preview card arrived for / was removed from a message. */
 export interface MessageUpdatedEvent {
   channelId: string;
   messageId: string;
+  text?: string;
+  edited?: boolean;
+  editedAt?: number | null;
+  mentions?: MentionRef[];
   preview?: LinkPreview | null;
+}
+
+/** Acknowledgement of `chat:edit`. */
+export interface EditAck {
+  success: boolean;
+  messageId?: string;
+  channelId?: string;
+  editedAt?: number | null;
+  error?: string;
+  code?: string;
+}
+
+/** One person who can read a channel, for the composer's @mention autocomplete (`channel:members`). */
+export interface MentionCandidate {
+  accountId: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  roles: RoleName[];
+}
+
+/** `channel:members` answer. */
+export interface ChannelMembersResponse {
+  success: boolean;
+  channelId?: string;
+  members?: MentionCandidate[];
+  error?: string;
+  code?: string;
+}
+
+/** What this device wants to be notified about (both on by default). */
+export interface NotificationPreferences {
+  mentions: boolean;
+  dms: boolean;
 }
 
 /** Signed viewer ticket for pictures (`auth:success` `media`, `media:ticket`). */
@@ -298,9 +361,17 @@ export interface ReactionEvent {
   reactions: ReactionSummary[];
 }
 
+/**
+ * Microphone noise suppression: the browser's own processing (`standard`), or a neural model
+ * running in the client that also removes keyboard typing and chewing (`strong`).
+ */
+export type NoiseSuppressionLevel = 'off' | 'standard' | 'strong';
+
 export interface AudioSettings {
   echoCancel: boolean;
-  noiseSuppression: boolean;
+  noiseSuppressionLevel: NoiseSuppressionLevel;
+  /** `strong` only: how much noise the model may remove while you speak, in dB (6..40). */
+  strongSuppressionDb: number;
   noiseReducerLevel: number;
   autoGain: boolean;
   micGain: number;
@@ -535,6 +606,8 @@ export interface PushSubscriptionPayload {
   expirationTime?: number | null;
   keys: { p256dh: string; auth: string };
   userAgent?: string;
+  /** This device's notification choices; the server pushes only what it asked for. */
+  preferences?: NotificationPreferences;
 }
 
 /** One of the account's subscriptions as the server lists them (never the keys). */
@@ -544,6 +617,7 @@ export interface PushSubscriptionInfo {
   userAgent: string | null;
   createdAt: number;
   lastUsedAt: number | null;
+  preferences?: NotificationPreferences;
 }
 
 /** Acknowledgement of a `push:*` request. */

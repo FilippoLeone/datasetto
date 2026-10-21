@@ -27,7 +27,7 @@ src/
   services/
     socket/                SocketClient (socket.io with our own reconnect pacing), backoff (exponential backoff + jitter scheduler),
                            api (typed emits), bindings (server events -> state)
-    voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate)
+    voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate, neural suppressor)
     native/                Electron bridge, Capacitor foreground service and audio routes
     screenCapture          getDisplayMedia / desktop picker capture with system audio, shared by rooms and voice channels
     pushNotifications      Web Push opt-in per browser: permission, service worker, subscription, sync after sign-in
@@ -36,13 +36,15 @@ src/
     ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs, push
     updates                update notices: the desktop updater's state, or a daily GET /api/releases on the web and Android
     sounds, AudioNotificationService   synthesised UI sounds
-  audio/worklets/          AudioWorklet processors (noise gate)
+  audio/worklets/          AudioWorklet processors (noise gate, DeepFilterNet3 and RNNoise suppressors, mic capture; parts/ are the sources the generated ones are built from)
+  audio/neural/            WebAssembly builds of DeepFilterNet3 and RNNoise, the model, licences
   features/
     auth/                  sign-in / register gate, profile dialog
     channels/              channel list, create/delete, stream key dialog, confirm dialog
-    chat/                  message list, composer (with the picture strip: paste, drop, picker), message rendering (links, mentions),
-                           AttachmentGrid + Lightbox (pictures), LinkPreviewCard, history paging and jump-to-message,
-                           outbox (queue of unconfirmed messages: "sending", failed after 60 s, retry)
+    chat/                  message list (in-place edit box, reply quotes, tombstones, long-press sheet), composer (picture strip,
+                           reply bar, @mention autocomplete), MessageBody (markdown, links, mentions, spoilers), AttachmentGrid +
+                           Lightbox (pictures), LinkPreviewCard, history paging and jump-to-message, outbox (queue of unconfirmed
+                           messages: "sending", failed after 60 s, retry; pending messages can still be edited or dropped)
     search/                Ctrl+K message search: header box, results panel, debounced queries
     stream/                HLS player + live chat page
     voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation, rejoin after a reconnect), voice page, dock,
@@ -67,16 +69,24 @@ scripts/brand-assets.py    redraws the PNG icons and the Open Graph card (Pillow
 
 ## Notifications
 
+Settings (the gear in the sidebar) > Notifications has two switches for what
+this device tells you about, "@mentions" and "Direct messages" (both on by
+default, remembered in `localStorage`, `state/notifications.ts`). They apply to
+the in-app notifications (the desktop app's native ones, the browser's
+`Notification` while a window is visible but not focused) and to Web Push: the
+choice is sent along with the push subscription, so the server pushes only what
+this device asked for.
+
 Browsers (desktop browsers, Android Chrome and the installed PWA) can receive
 Web Push notifications for direct messages and @mentions while no window shows
-the app. It is opt-in per browser: Settings (the gear in the sidebar) >
-Notifications > "Notify me on this device" asks for permission, registers
-`public/sw.js` at the site root, subscribes with the server's VAPID public key
-from `/api/config` and sends the subscription to the server
-(`services/pushNotifications.ts`). The choice is remembered in `localStorage`
-and the subscription is re-sent after every sign-in, so it always belongs to the
-current login; turning it off tells the server and drops the browser
-subscription. "Send a test" asks the server for a notification right away. The
+the app. It is opt-in per browser: "Notify me on this device" asks for
+permission, registers `public/sw.js` at the site root, subscribes with the
+server's VAPID public key from `/api/config` and sends the subscription to the
+server (`services/pushNotifications.ts`). The choice is remembered in
+`localStorage` and the subscription is re-sent after every sign-in (and after
+a switch above changes), so it always belongs to the current login; turning it
+off tells the server and drops the browser subscription. "Send a test" asks
+the server for a notification right away. The
 section explains itself when push is unavailable: no secure context or service
 workers, the server has no keys, or notifications are blocked in the browser.
 
@@ -145,6 +155,58 @@ shared screen's sound and the stream player keep their own 0 to 100 % volume wit
 the same `VolumeSlider` component. The desktop overlay only mirrors mute states
 and is unchanged.
 
+## Noise suppression
+
+Voice & audio settings > Noise suppression has three levels:
+
+- **Off**: the microphone as the browser delivers it (echo cancellation and
+  automatic gain control stay as set).
+- **Standard** (default): the browser's own noise suppression plus the envelope
+  noise gate (`audio/worklets/noise-gate-processor.js`, strength slider).
+  Good against hum and fans; keystrokes and chewing go through.
+- **Strong**: a neural model runs on the microphone inside an `AudioWorklet`
+  and removes keyboard typing, chewing and other non-speech sounds before the
+  track reaches WebRTC. The browser's own suppression is turned off so only
+  one denoiser touches the voice. Nothing leaves the device.
+
+How Strong works (`services/voice/neuralSuppression.ts`,
+`audio/worklets/parts/`):
+
+- The engine is [DeepFilterNet3](https://github.com/Rikorose/DeepFilterNet)
+  (libDF compiled to WebAssembly with SIMD, `audio/neural/`), 480-sample frames
+  at 48 kHz, both model stages on every frame. Measured on clean speech it
+  changes the level by 0.2 dB in every octave band from 125 Hz to 11 kHz
+  (SI-SDR 41 dB); typing in pauses goes down 44 dB with the gate, chewing 22
+  to 54 dB. It costs about 0.6 ms per 10 ms frame on a desktop CPU (11-14 %
+  of the audio thread) and adds 61 ms of delay (30 ms model lookahead, 11 ms
+  reframing, 20 ms gate lookahead).
+- The **Strength** slider (6..40 dB, default 25) is the model's attenuation
+  limit while you speak; unlimited removal makes pauses sound gated and
+  metallic. Pauses are handled by an activity gate after the model, driven by
+  the model's own local-SNR estimate (RNNoise's voice probability), with
+  200 ms of hold, 20 ms of lookahead and -30 dB when closed, so keystrokes do
+  not open it and word attacks are kept.
+- Fallbacks: [RNNoise](https://github.com/xiph/rnnoise) 0.2 is the lighter
+  engine. Phones start on it and move to DeepFilterNet3 only when a benchmark
+  in a worker shows headroom (mean under 2.5 ms and 95th percentile under 5 ms
+  per frame). If the worklet reports more than 70 % of the audio thread for
+  three seconds in a row, or an engine fails to load, the chain steps down
+  DeepFilterNet3 -> RNNoise -> Standard and the settings dialog says why.
+  RNNoise mutes quiet speech (soft consonants below about -40 dBFS come out as
+  silence), which is why it is not the first choice. The AudioContext must run
+  at 48 kHz; otherwise Standard is used.
+- The node is created once per AudioContext and kept; strength and level
+  changes are messages to the worklet, so the microphone is not restarted. The
+  model (8 MB) and the WebAssembly module (15 MB, 4 MB over the wire) are
+  Vite assets, downloaded the first time Strong is selected and cached like
+  the other hashed assets; nothing is fetched from third parties.
+- The mic test in the dialog can record 5 seconds and play it back as it
+  would be sent and as the raw microphone, to hear what the level removes.
+- Rebuilding the worklets after editing a part or the glue:
+  `npm run build:worklets`. Rebuilding the WebAssembly itself:
+  `audio/neural/libdf/README.md`. Licences and the model's status:
+  `audio/neural/NOTICE.md`.
+
 ## Direct messages
 
 Click a member ("Message …" in their menu) to open a conversation; it sits under
@@ -156,6 +218,52 @@ history, and the conversation comes back when a message arrives in it, when you
 open it again from the member list, or when you open one of its messages from a
 search result. Closing the conversation that is on screen takes you back to the
 channel you were in before it.
+
+## Editing, deleting, replying and mentions
+
+Hovering a message (a tap on touch screens, keyboard focus anywhere in the row)
+shows its actions: Reply, Add reaction, and on your own messages Edit and
+Delete; admins see Delete on every message. On phones a long press opens the
+same choices as a bottom sheet (plus quick reactions and Copy text). Edit opens
+the text in place: Enter saves, Escape cancels (Save and Cancel buttons on
+touch screens); an empty or unchanged text just closes it. Arrow up in the
+empty composer edits your newest message in the channel. Edited messages show
+"(edited)" with the time on hover. Deleted messages stay in the list as
+"Message deleted" so nothing jumps and replies to them keep their place. A
+message that is still "sending" can be edited or deleted too: the queued copy
+changes or goes, and if the server had already accepted it the stored message
+is edited or deleted right after (`features/chat/outbox.ts`).
+
+Reply puts a "Replying to …" bar above the composer (Escape or × cancels it);
+the sent message shows the quoted original above its text, and clicking the
+quote scrolls to the original, loading older history on the way, and flashes
+it. A quote says "Message deleted" when the original was deleted and "Original
+message unavailable" when it is gone for good.
+
+Typing `@` in the composer lists the people who can read the channel
+(`channel:members`, cached for a minute, plus whoever is online for a public
+channel): arrow keys move, Enter or Tab inserts `@Display Name `, Escape
+closes, a click picks. Names with a space work. The server resolves the
+mentions when the message is sent, so the exact span is highlighted in the
+list (warm when it is you, with a stripe down the message), the sidebar badge
+of a channel turns into a brand-coloured `@n` while unread messages mention
+you (the phone toolbar's badge too), and you are told about it according to
+your notification switches. `@` before an address (`bob@example.com`) is not a
+mention.
+
+## Message formatting
+
+Messages render a small markdown (`lib/markdown.ts`): `**bold**`, `*italic*`
+or `_italic_` (underscores only as whole words, so `snake_case` stays as
+typed), `` `inline code` `` (a run of backticks closes with a run of the same
+length), fenced code blocks (```` ``` ```` on their own lines, with an optional
+language word after the opening fence), `||spoilers||` (a solid block until
+clicked or activated with the keyboard; a reply quote shows `[spoiler]`),
+http(s) links (clickable, with the preview card as before) and @mentions. A
+backslash escapes any marker (`\*`, `` \` ``, `\|`, `\\`). The text is parsed
+into a tree and rendered as elements, never as HTML, so `<b>`, `<script>` and
+the like are shown as typed. Unbalanced or empty markers stay as typed, and
+nothing spans a line break except a code block.
 
 ## Searching messages
 

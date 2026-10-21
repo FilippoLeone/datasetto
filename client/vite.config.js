@@ -47,9 +47,30 @@ const siteUrlPlugin = () => ({
   },
 });
 
+/**
+ * AudioWorklet modules (src/audio/worklets/*.js) run in a scope without fetch, import.meta.hot or
+ * the DOM. In the build they are copied as plain assets, but the dev server would transform them
+ * like any module and inject the HMR client and the Preact refresh runtime, after which
+ * registerProcessor never runs. Serve them byte for byte in dev instead.
+ */
+const rawWorkletsPlugin = () => ({
+  name: 'datasetto-raw-worklets',
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const file = (req.url || '').split('?')[0];
+      if (!file.startsWith('/src/audio/worklets/') || !file.endsWith('.js')) return next();
+      const source = resolve(import.meta.dirname, file.slice(1));
+      if (!existsSync(source)) return next();
+      res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(readFileSync(source));
+    });
+  },
+});
+
 export default defineConfig({
   base: isDesktopBuild ? './' : '/',
-  plugins: [preact(), tailwindcss(), siteUrlPlugin()],
+  plugins: [preact(), tailwindcss(), siteUrlPlugin(), rawWorkletsPlugin()],
   resolve: {
     alias: {
       '@': resolve(import.meta.dirname, './src'),

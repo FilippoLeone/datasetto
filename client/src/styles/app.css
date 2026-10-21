@@ -614,6 +614,91 @@
   font-weight: 500;
 }
 
+/* A mention of us, and the message that carries it: warm, so it stands out from links. */
+.message-mention.is-me {
+  background: rgba(240, 178, 50, 0.24);
+  color: #f6d48a;
+}
+
+.message-row.is-mention {
+  background: rgba(240, 178, 50, 0.07);
+  box-shadow: inset 2px 0 0 var(--color-warning);
+}
+
+.message-edited {
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--color-text-faint);
+  user-select: none;
+}
+
+/* Lightweight markdown (lib/markdown.ts, rendered by MessageBody). */
+.inline-code,
+.code-block {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.inline-code {
+  font-size: 0.85em;
+  border-radius: 3px;
+  padding: 1px 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.code-block {
+  display: block;
+  max-width: 100%;
+  margin: 4px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--color-text);
+  white-space: pre;
+  overflow-x: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Spoilers: a solid block until clicked; what is underneath is invisible, not merely dimmed. */
+.spoiler {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  padding: 0 2px;
+  cursor: pointer;
+  color: transparent;
+  transition: background-color var(--motion-fast) ease;
+}
+
+.spoiler:not(.is-revealed) .message-mention,
+.spoiler:not(.is-revealed) .inline-code,
+.spoiler:not(.is-revealed) a,
+.spoiler:not(.is-revealed) strong,
+.spoiler:not(.is-revealed) em {
+  color: transparent;
+  background: transparent;
+}
+
+@media (hover: hover) {
+  .spoiler:not(.is-revealed):hover {
+    background: rgba(255, 255, 255, 0.24);
+  }
+}
+
+.spoiler.is-revealed {
+  background: rgba(255, 255, 255, 0.07);
+  color: inherit;
+  cursor: text;
+}
+
+.spoiler:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 1px;
+}
+
 /* Sliders: the input is the hit area (16px, 28px on touch screens), the 6px track is drawn
    on the track pseudo-element. In the components layer so width utilities still apply. */
 @layer components {
