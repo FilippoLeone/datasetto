@@ -312,7 +312,7 @@ export const HlsPlayer = ({ channelId, channelName, live, className }: HlsPlayer
       {/* The viewer's own recording indicator: nobody else sees it. */}
       {clip?.on && (
         <span
-          className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 rounded-sm bg-black/60 px-1.5 py-0.5 text-[11px] font-semibold text-live"
+          className="pointer-events-none absolute top-2 left-2 flex items-center gap-1 rounded-sm bg-black/60 px-1.5 py-0.5 text-[11px] font-semibold text-live"
           title={clip.recording ? 'The last ' + clip.seconds + ' s are kept on this device for the Clip button' : (clip.error ?? 'Clips will record once the stream plays')}
           data-player-clips-indicator
         >

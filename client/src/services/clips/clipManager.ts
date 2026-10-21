@@ -72,6 +72,8 @@ class ClipManager {
       queueMicrotask(() => this.reconcile());
     });
     if (supportsClipStorage()) void this.refreshLibrary();
+    // Dev server only: lets a browser test read the buffered bytes (the memory bound) directly.
+    if (import.meta.env.DEV) (window as unknown as { __datasettoClips?: ClipManager }).__datasettoClips = this;
   }
 
   /** Whether this engine can record clips at all (MediaRecorder with WebM, and somewhere to keep them). */

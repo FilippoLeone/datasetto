@@ -325,14 +325,15 @@ export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId,
   return (
     <div data-state={state} className={cn('motion-tile group @container relative overflow-hidden rounded-lg bg-black', onClick && 'cursor-pointer', className)} onClick={onClick}>
       <video ref={ref} autoPlay playsInline className={cn('h-full w-full object-contain', mirror && 'mirror')} />
-      {statsLabel && (
-        <span className="absolute top-2 left-2 rounded-sm bg-black/60 px-1.5 py-0.5 text-[11px] text-white/90 tabular-nums" title="Resolution and frame rate as played here" data-video-stats>
-          {statsLabel}
-        </span>
-      )}
-      {clip && (
-        <div className="absolute top-2 right-2 flex items-start">
-          <TileClipBar clip={clip} />
+      {/* Top left: the resolution label and the clip controls (the top right corner is where toasts stack). */}
+      {(statsLabel || clip) && (
+        <div className="pointer-events-none absolute top-2 left-2 flex items-start gap-1">
+          {statsLabel && (
+            <span className="rounded-sm bg-black/60 px-1.5 py-0.5 text-[11px] text-white/90 tabular-nums" title="Resolution and frame rate as played here" data-video-stats>
+              {statsLabel}
+            </span>
+          )}
+          {clip && <TileClipBar clip={clip} />}
         </div>
       )}
       {/* Bottom bar: the label truncates, the sound controls keep their place; on small tiles
