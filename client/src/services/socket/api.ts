@@ -112,9 +112,11 @@ export const api = {
     emit('user:ban', { targetSocketId, targetName, reason }),
 
   // screenshare rooms (`rtcSessionId` and `holding`: see joinVoice)
-  startScreenshare: (channelId: string, rtcSessionId: string | null = null, holding: HeldPeerConnection[] = []) =>
-    emit('screenshare:start', { channelId, rtcSessionId, holding }),
+  startScreenshare: (channelId: string, rtcSessionId: string | null = null, holding: HeldPeerConnection[] = [], allowClips = true) =>
+    emit('screenshare:start', { channelId, rtcSessionId, holding, allowClips }),
   stopScreenshare: (channelId: string) => emit('screenshare:stop', { channelId }),
+  /** Host only: let viewers clip the running share or not. */
+  updateScreenshare: (channelId: string, allowClips: boolean) => emit('screenshare:update', { channelId, allowClips }),
   joinScreenshareViewer: (channelId: string, rtcSessionId: string | null = null, holding: HeldPeerConnection[] = []) =>
     emit('screenshare:viewer:join', { channelId, rtcSessionId, holding }),
   leaveScreenshareViewer: (channelId: string) => emit('screenshare:viewer:leave', { channelId }),

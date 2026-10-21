@@ -1,6 +1,9 @@
 import { useEffect } from 'preact/hooks';
-import { MonitorUp, MonitorX } from 'lucide-preact';
-import { Button, Select, Spinner } from '@/components';
+import { MonitorUp, MonitorX, Scissors } from 'lucide-preact';
+import { Button, Select, Spinner, Toggle } from '@/components';
+import { clipManager } from '@/services/clips/clipManager';
+import { shareClipKey } from '@/features/clips/clipKeys';
+import { tileClipControls } from '@/features/clips/tileClip';
 import { cn } from '@/lib/cn';
 import { canCaptureScreen } from '@/lib/device';
 import { SCREEN_QUALITY_OPTIONS } from '@/services/screenCapture';
@@ -24,6 +27,11 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
   // How loud this presenter plays for me, remembered per presenter account.
   const hostKey = role === 'viewer' ? screenHostKey(session?.hostId, session?.hostName) : null;
   const streamAudio = screenAudioPref(hostKey);
+  // Clips: the presenter can always clip their own screen; viewers unless the presenter said no.
+  const clipKey = shareClipKey(channel.id);
+  const clipAllowed = role === 'host' || session?.allowClips !== false;
+  const clipName = role === 'host' ? 'Your screen' : (session?.hostName ?? 'Presenter') + "'s screen";
+  const clipsAllowedByMe = audioSettings.value.shareClipsAllowed;
 
   // Leaving the page ends our part in the room; a presenter going away for a moment (their socket
   // blipped, a deploy) does not: the service keeps the picture and waits for them.
@@ -34,6 +42,12 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
   useEffect(() => {
     if (someoneElseSharing) screenshareService.watch(channel.id);
   }, [channel.id, someoneElseSharing]);
+  // The picture of this room can be clipped while it is here and allowed.
+  useEffect(() => {
+    if (!stream || !clipAllowed) return;
+    clipManager.register({ key: clipKey, kind: 'share', name: clipName }, () => stream);
+    return () => clipManager.unregister(clipKey);
+  }, [stream, clipAllowed, clipKey, clipName]);
 
   return (
     <div className={cn('flex min-h-0 flex-1', mobile ? 'flex-col' : 'flex-row')}>
@@ -47,6 +61,7 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
             sinkId={audioSettings.value.spkDeviceId}
             audioIndicator
             stats
+            clip={clipAllowed ? tileClipControls(clipKey) : undefined}
             audioControls={
               hostKey
                 ? {
@@ -76,6 +91,12 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
                   options={SCREEN_QUALITY_OPTIONS}
                   onChange={(value) => updateAudioSettings({ screenQuality: value as ScreenQuality })}
                 />
+                <Toggle
+                  label="Let viewers clip this share"
+                  description="They can save the last seconds of your screen on their own device. Nothing is recorded on the server."
+                  checked={clipsAllowedByMe}
+                  onChange={(value) => updateAudioSettings({ shareClipsAllowed: value })}
+                />
                 <Button variant="success" onClick={() => void screenshareService.startHosting(channel.id)}>
                   <MonitorUp size={16} /> Share your screen
                 </Button>
@@ -98,6 +119,16 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
           <span className="flex-1" />
           {role === 'host' && (
             <>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-pressed={clipsAllowedByMe}
+                title={clipsAllowedByMe ? 'Viewers may save clips of this share; click to stop that' : 'Viewers cannot clip this share; click to allow it'}
+                onClick={() => updateAudioSettings({ shareClipsAllowed: !clipsAllowedByMe })}
+                data-share-clips={clipsAllowedByMe ? 'allowed' : 'off'}
+              >
+                <Scissors size={14} /> {clipsAllowedByMe ? 'Clips allowed' : 'Clips off'}
+              </Button>
               <select
                 aria-label="Share quality"
                 value={audioSettings.value.screenQuality}

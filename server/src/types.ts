@@ -304,6 +304,8 @@ export interface ScreenshareSession {
   startedAt: number;
   /** The host's media session id (see VoiceParticipant.rtcSessionId). */
   rtcSessionId: string | null;
+  /** Whether viewers may save clips of this share on their own device (the host's choice; nothing is recorded here). */
+  allowClips: boolean;
   viewers: Map<string, ScreenshareViewer>;
 }
 

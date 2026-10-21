@@ -61,6 +61,15 @@ export const formatDuration = (ms: number): string => {
   return hours > 0 ? hours + ':' + mm + ':' + ss : mm + ':' + ss;
 };
 
+/** "27 s" or "1 min 05 s", for clip lengths. */
+export const formatSeconds = (ms: number): string => {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return total + ' s';
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return minutes + ' min' + (seconds > 0 ? ' ' + String(seconds).padStart(2, '0') + ' s' : '');
+};
+
 export const ROLE_LABELS: Record<RoleName, string> = {
   superuser: 'Superuser',
   admin: 'Admin',

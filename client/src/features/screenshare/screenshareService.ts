@@ -67,6 +67,8 @@ class ScreenshareService {
   private rtcSessionId: string | null = null;
   private share: ShareState = initialShareState;
   private tickTimer: number | null = null;
+  /** The clip permission the room was last told about while hosting (null when not hosting). */
+  private sentAllowClips: boolean | null = null;
 
   init(): void {
     if (this.initialized) return;
@@ -85,6 +87,18 @@ class ScreenshareService {
       if (screenshareRole.value !== 'host' || !this.localStream) return;
       applyScreenQualityToStream(this.localStream, quality);
       for (const entry of this.peers.values()) this.applyEncoding(entry.pc);
+    });
+    // Changing "let viewers clip" while hosting tells the room; the start itself carries the flag.
+    effect(() => {
+      const allowClips = audioSettings.value.shareClipsAllowed;
+      const channelId = screenshareChannel.value;
+      if (screenshareRole.value !== 'host' || !channelId) {
+        this.sentAllowClips = null;
+        return;
+      }
+      if (this.sentAllowClips === allowClips || !socketClient.connected) return;
+      this.sentAllowClips = allowClips;
+      api.updateScreenshare(channelId, allowClips);
     });
   }
 
@@ -108,7 +122,8 @@ class ScreenshareService {
         screenshareStatus.value = capture.hasAudio ? 'Sharing your screen with sound' : 'Sharing your screen without sound';
       });
       this.dispatch({ type: 'started', role: 'host', channelId });
-      api.startScreenshare(channelId, this.rtcSessionId, []);
+      this.sentAllowClips = audioSettings.value.shareClipsAllowed;
+      api.startScreenshare(channelId, this.rtcSessionId, [], this.sentAllowClips);
       if (!capture.hasAudio) toast.warning(missingAudioHint(capture.source), 9000);
     } catch (error) {
       if (!isCancelError(error)) toast.error(error instanceof Error ? error.message : 'Could not capture the screen');
@@ -347,7 +362,8 @@ class ScreenshareService {
   private runEffect(effect: ShareEffect): void {
     const channelId = screenshareChannel.value;
     if (effect.type === 'restartHosting') {
-      api.startScreenshare(effect.channelId, this.rtcSessionId, this.holding());
+      this.sentAllowClips = audioSettings.value.shareClipsAllowed;
+      api.startScreenshare(effect.channelId, this.rtcSessionId, this.holding(), this.sentAllowClips);
       return;
     }
     if (effect.type === 'rejoinViewer') {

@@ -14,7 +14,9 @@
   "dependencies": {
     "@capacitor/app": "^8.0.0",
     "@capacitor/core": "^8.0.0",
+    "@capacitor/filesystem": "^8.1.5",
     "@capacitor/keyboard": "^8.0.0",
+    "@capacitor/share": "^8.0.3",
     "@capawesome-team/capacitor-android-foreground-service": "^8.1.0"
   },
   "devDependencies": {

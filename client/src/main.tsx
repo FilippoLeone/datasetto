@@ -12,6 +12,8 @@ import { voiceManager } from '@/features/voice/voiceManager';
 import { installDesktopVoice } from '@/features/voice/desktopVoice';
 import { installDesktopActivity } from '@/features/activity/desktopActivity';
 import { screenshareService } from '@/features/screenshare/screenshareService';
+import { clipManager } from '@/services/clips/clipManager';
+import { installClipSources } from '@/features/clips/clipSources';
 import { installCapacitorAppHandlers } from '@/services/native/capacitorApp';
 import { installInstallPrompt } from '@/services/installPrompt';
 import { installPushListeners, refreshPushStatus } from '@/services/pushNotifications';
@@ -36,6 +38,9 @@ const bootstrap = async (): Promise<void> => {
   installDesktopVoice();
   installDesktopActivity();
   screenshareService.init();
+  // Clips: the rolling buffers follow the settings and the per-source switches; voice-channel screens register themselves.
+  clipManager.install();
+  installClipSources();
   void installCapacitorAppHandlers();
   installUpdateNotices();
   socketClient.connect(runtimeUrls.serverUrl);

@@ -42,6 +42,16 @@ export const localCameraStream = signal<MediaStream | null>(null);
 export const localScreenStream = signal<MediaStream | null>(null);
 /** Remote video streams keyed by peer id. */
 export const remoteVideo = signal<Record<string, { camera?: MediaStream; screen?: MediaStream }>>({});
+/** Whether each friend lets their shared screen be clipped (peer id -> flag); absent means allowed. */
+export const remoteScreenClips = signal<Record<string, boolean>>({});
+
+export const setRemoteScreenClips = (peerId: string, allowed: boolean): void => {
+  if (remoteScreenClips.value[peerId] === allowed) return;
+  remoteScreenClips.value = { ...remoteScreenClips.value, [peerId]: allowed };
+};
+
+/** False only when the friend behind `peerId` said no; unknown or older clients mean yes. */
+export const remoteScreenClipsAllowed = (peerId: string): boolean => remoteScreenClips.value[peerId] !== false;
 
 export const voiceConnected = computed(() => voiceStatus.value === 'connected');
 /** In a call: connected, or holding the call together while the socket reconnects. */
@@ -89,6 +99,12 @@ export const rekeyPeer = (from: string, to: string, patch: Partial<VoicePeer> = 
     delete videos[from];
     remoteVideo.value = videos;
   }
+  if (from in remoteScreenClips.value) {
+    const clips = { ...remoteScreenClips.value };
+    clips[to] = clips[from];
+    delete clips[from];
+    remoteScreenClips.value = clips;
+  }
 };
 
 export const removePeer = (peerId: string): void => {
@@ -100,6 +116,11 @@ export const removePeer = (peerId: string): void => {
     const videos = { ...remoteVideo.value };
     delete videos[peerId];
     remoteVideo.value = videos;
+  }
+  if (peerId in remoteScreenClips.value) {
+    const clips = { ...remoteScreenClips.value };
+    delete clips[peerId];
+    remoteScreenClips.value = clips;
   }
 };
 
@@ -122,4 +143,5 @@ export const resetVoiceState = (): void => {
   localCameraStream.value = null;
   localScreenStream.value = null;
   remoteVideo.value = {};
+  remoteScreenClips.value = {};
 };

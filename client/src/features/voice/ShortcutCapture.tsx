@@ -10,6 +10,13 @@ interface ShortcutCaptureProps {
   /** Stored shortcut (`Ctrl+Shift+KeyV`), empty for none. */
   value: string;
   onChange: (value: string) => void;
+  /**
+   * The key only works while the app has the focus (the clip shortcut): no system-wide
+   * registration, so none of the desktop hints about it.
+   */
+  inApp?: boolean;
+  /** Text before the keys ("Key" by default). */
+  label?: string;
 }
 
 type Hint = { tone: 'ok' | 'warn' | 'muted'; text: string };
@@ -32,12 +39,12 @@ const Keys = ({ shortcut }: { shortcut: Shortcut }) => (
  * (right Ctrl, say) records that modifier; Escape cancels. In the desktop app it also
  * tells whether the combination works while other windows have focus.
  */
-export const ShortcutCapture = ({ value, onChange }: ShortcutCaptureProps) => {
+export const ShortcutCapture = ({ value, onChange, inApp = false, label = 'Key' }: ShortcutCaptureProps) => {
   const [capturing, setCapturing] = useState(false);
   const [available, setAvailable] = useState<boolean | null>(null);
   const shortcut = parseShortcut(value);
   const desktop = isDesktopApp();
-  const globalSupport = supportsGlobalPushToTalk();
+  const globalSupport = !inApp && supportsGlobalPushToTalk();
   const accelerator = toElectronAccelerator(shortcut);
   // The modifier that went down last; released without another key it becomes the shortcut.
   const pendingModifier = useRef<string | null>(null);
@@ -46,7 +53,7 @@ export const ShortcutCapture = ({ value, onChange }: ShortcutCaptureProps) => {
     if (!capturing) return;
     pendingModifier.current = null;
     // Drop the system-wide registration so the key we are about to record reaches this window.
-    globalPttSuspended.value = true;
+    if (!inApp) globalPttSuspended.value = true;
     const finish = (next: Shortcut | null) => {
       setCapturing(false);
       if (next) onChange(serializeShortcut(next));
@@ -78,9 +85,9 @@ export const ShortcutCapture = ({ value, onChange }: ShortcutCaptureProps) => {
       window.removeEventListener('keydown', onKeyDown, { capture: true });
       window.removeEventListener('keyup', onKeyUp, { capture: true });
       window.removeEventListener('blur', onBlur);
-      globalPttSuspended.value = false;
+      if (!inApp) globalPttSuspended.value = false;
     };
-  }, [capturing, onChange]);
+  }, [capturing, onChange, inApp]);
 
   // Ask the shell whether the combination is free (the system or another app may own it).
   useEffect(() => {
@@ -98,7 +105,9 @@ export const ShortcutCapture = ({ value, onChange }: ShortcutCaptureProps) => {
   }, [accelerator, globalSupport]);
 
   const hints: Hint[] = [];
-  if (shortcut) {
+  if (shortcut && inApp) {
+    hints.push({ tone: 'muted', text: 'Works while Datasetto has the focus, in the browser and in the apps.' });
+  } else if (shortcut) {
     const live = globalPttStatus.value;
     if (globalSupport) {
       if (!accelerator) {
@@ -124,7 +133,7 @@ export const ShortcutCapture = ({ value, onChange }: ShortcutCaptureProps) => {
     <div className="py-2 text-sm">
       <div className="flex items-center justify-between gap-3">
         <span className="min-w-0 text-text-bright">
-          <span className="mr-2">Key</span>
+          <span className="mr-2">{label}</span>
           {capturing ? (
             <span className="text-text-muted">Press a key or combination… Esc cancels</span>
           ) : shortcut ? (

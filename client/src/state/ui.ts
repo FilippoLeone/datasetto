@@ -10,6 +10,7 @@ export type Modal =
   | { type: 'joinPrivateChannel' }
   | { type: 'streamKey'; channelId: string }
   | { type: 'audioSettings' }
+  | { type: 'clips' }
   | { type: 'admin'; tab: AdminSection }
   | { type: 'channelPermissions'; channelId: string }
   | { type: 'confirm'; title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void };

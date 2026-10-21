@@ -8,6 +8,8 @@ import { useElementSize } from '@/lib/useElementSize';
 import { peerAccountId, peerAudioPref, setPeerAudioPref, volumePercent } from '@/state/peerAudio';
 import { usersById, usersInVoice } from '@/state/presence';
 import { screenAudioPref, screenHostKey, setScreenAudioPref } from '@/state/screenAudio';
+import { OWN_SHARE_CLIP_KEY, voiceClipKey } from '@/features/clips/clipKeys';
+import { tileClipControls } from '@/features/clips/tileClip';
 import { account, can, socketId } from '@/state/session';
 import { audioSettings } from '@/state/settings';
 import { isLandscapePhone, isMobile, openModal } from '@/state/ui';
@@ -21,6 +23,7 @@ import {
   localSpeaking,
   peerList,
   pttPressed,
+  remoteScreenClipsAllowed,
   remoteVideo,
   voiceChannelId,
   voicePeers,
@@ -198,8 +201,10 @@ const personAudioControls = (peerId: string): TileAudioControls | undefined => {
  */
 const tileAudio = (tile: Tile) => {
   if (!tile.screen) return { muted: true, audioIndicator: false, audioControls: tile.peerId ? personAudioControls(tile.peerId) : undefined };
-  if (!tile.screen.remote || !tile.screen.peerId) return { muted: true, audioIndicator: true, stats: true };
+  // Clips of a shared screen: your own always, a friend's unless they said no (features/clips).
+  if (!tile.screen.remote || !tile.screen.peerId) return { muted: true, audioIndicator: true, stats: true, clip: tileClipControls(OWN_SHARE_CLIP_KEY) };
   const peerId = tile.screen.peerId;
+  const clip = remoteScreenClipsAllowed(peerId) ? tileClipControls(voiceClipKey(peerId)) : undefined;
   const pref = peerAudioPref(peerAccountId(peerId));
   const hostKey = screenHostKey(peerId, peerId) ?? 'peer:' + peerId;
   const streamAudio = screenAudioPref(hostKey);
@@ -218,6 +223,7 @@ const tileAudio = (tile: Tile) => {
     audioIndicator: true,
     stats: true,
     audioControls: controls,
+    clip,
   };
 };
 

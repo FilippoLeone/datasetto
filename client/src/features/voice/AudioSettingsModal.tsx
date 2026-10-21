@@ -16,6 +16,8 @@ import { supportsGameActivity } from '@/features/activity/desktopActivity';
 import { supportsVoiceOverlay } from './desktopVoice';
 import { ShortcutCapture } from './ShortcutCapture';
 import { DesktopUpdatesSection } from '@/features/settings/DesktopUpdatesSection';
+import { ClipsSection } from '@/features/settings/ClipsSection';
+import { formatShortcut, parseShortcut } from '@/lib/shortcut';
 import { voiceManager } from './voiceManager';
 import type { OverlayCorner } from './voiceOverlayState';
 import type { AudioSettings, DeviceInfo, NoiseSuppressionLevel, ScreenQuality } from '@/types/protocol';
@@ -242,11 +244,16 @@ export const AudioSettingsModal = () => {
           )}
         </section>
 
+        <ClipsSection draft={draft} patch={patch} />
         {supportsGameActivity() && <GameActivitySection />}
         <NotificationsSection />
       </div>
       <DesktopUpdatesSection />
-      {!isTouchPrimary() && <p className="mt-2 text-xs text-text-faint">Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings.</p>}
+      {!isTouchPrimary() && (
+        <p className="mt-2 text-xs text-text-faint">
+          Shortcuts: Ctrl+Shift+M mute, Ctrl+Shift+D deafen, Ctrl+Shift+, opens these settings{draft.clipShortcut ? ', ' + formatShortcut(parseShortcut(draft.clipShortcut)) + ' saves a clip' : ''}.
+        </p>
+      )}
     </Modal>
   );
 };
