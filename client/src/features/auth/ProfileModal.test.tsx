@@ -38,7 +38,10 @@ const me: Account = {
 
 const urlInput = (): HTMLInputElement => host.querySelector('input[type="url"]') as HTMLInputElement;
 const form = (): HTMLFormElement => host.querySelector('#profile-form') as HTMLFormElement;
-const submit = () => act(() => form().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+const submit = () =>
+  act(() => {
+    form().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
 /** Type into the URL field and let Preact re-render before anything else happens. */
 const typeUrl = (value: string) =>
   act(() => {
