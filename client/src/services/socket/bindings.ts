@@ -37,6 +37,7 @@ import {
   setChannels,
 } from '@/state/channels';
 import { appendMessage, applyMessageEdit, markMessageDeleted, messages, setHistory, setReactions, updateMessage } from '@/state/chat';
+import { attachmentSummary } from '@/lib/attachments';
 import { mediaTicket, mediaTicketStale, setMediaTicket, TICKET_RENEW_MARGIN_MS } from '@/lib/media';
 import { notificationPreferences } from '@/state/notifications';
 import { users } from '@/state/presence';
@@ -364,8 +365,7 @@ export const installSocketBindings = (): void => {
     }
     sounds.play('message', viewing ? 0.25 : 0.4);
     const channel = channelsById.value.get(message.channelId);
-    const pictures = message.attachments?.length ?? 0;
-    const body = message.text || (pictures === 1 ? 'Sent a picture' : pictures > 1 ? 'Sent ' + pictures + ' pictures' : '');
+    const body = message.text || attachmentSummary(message.attachments);
     const wants = notificationPreferences.value;
     if (channel?.type === 'dm') {
       // Every direct message counts as a mention of its recipient.

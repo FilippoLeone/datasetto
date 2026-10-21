@@ -122,12 +122,15 @@ export interface ReactionSummary {
 }
 
 /** An uploaded picture as stored (`message_attachments`). */
+/** A picture (with a resized preview) or a WebM video (served as it came). */
+export type AttachmentKind = 'image' | 'video';
+
 export interface AttachmentRecord {
   id: string;
   /** Null until the upload is bound to a message. */
   messageId: string | null;
   accountId: string;
-  kind: 'image';
+  kind: AttachmentKind;
   fileName: string;
   mime: string;
   size: number;
@@ -143,7 +146,7 @@ export interface AttachmentRecord {
 /** An attachment as sent to clients: URLs are server-relative and need the viewer's media ticket. */
 export interface AttachmentView {
   id: string;
-  kind: 'image';
+  kind: AttachmentKind;
   fileName: string;
   mime: string;
   size: number;

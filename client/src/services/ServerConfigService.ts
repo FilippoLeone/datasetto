@@ -24,12 +24,14 @@ export interface ServerConfig {
   limits: { maxMessageLength: number; passwordMinLength: number; chatHistoryLimit: number };
   /** Web Push: off without VAPID keys on the server; `publicKey` is what browsers subscribe with. */
   push: { enabled: boolean; publicKey: string | null };
-  /** Pictures in chat: size per file, files per message, accepted MIME types. */
-  uploads: { maxBytes: number; maxFilesPerMessage: number; acceptedTypes: string[] };
+  /** Pictures in chat: size per file, files per message, accepted MIME types; videos (posted clips) have their own cap and types. */
+  uploads: { maxBytes: number; maxFilesPerMessage: number; acceptedTypes: string[]; videoMaxBytes: number; videoTypes: string[] };
   linkPreviews: { enabled: boolean };
 }
 
 export const DEFAULT_UPLOAD_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+export const DEFAULT_VIDEO_TYPES = ['video/webm'];
+const DEFAULT_UPLOAD_LIMITS: ServerConfig['uploads'] = { maxBytes: 10 * 1024 * 1024, maxFilesPerMessage: 10, acceptedTypes: DEFAULT_UPLOAD_TYPES, videoMaxBytes: 50 * 1024 * 1024, videoTypes: DEFAULT_VIDEO_TYPES };
 
 const DEFAULT_STUN: RTCIceServer[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 const FETCH_TIMEOUT_MS = 4000;
@@ -197,17 +199,19 @@ class ServerConfigService {
         publicKey: typeof data.push?.publicKey === 'string' && data.push.publicKey ? data.push.publicKey : null,
       },
       uploads: {
-        maxBytes: typeof data.uploads?.maxBytes === 'number' ? data.uploads.maxBytes : 10 * 1024 * 1024,
-        maxFilesPerMessage: typeof data.uploads?.maxFilesPerMessage === 'number' ? data.uploads.maxFilesPerMessage : 10,
+        maxBytes: typeof data.uploads?.maxBytes === 'number' ? data.uploads.maxBytes : DEFAULT_UPLOAD_LIMITS.maxBytes,
+        maxFilesPerMessage: typeof data.uploads?.maxFilesPerMessage === 'number' ? data.uploads.maxFilesPerMessage : DEFAULT_UPLOAD_LIMITS.maxFilesPerMessage,
         acceptedTypes: Array.isArray(data.uploads?.acceptedTypes) && data.uploads.acceptedTypes.length > 0 ? data.uploads.acceptedTypes.filter((t): t is string => typeof t === 'string') : DEFAULT_UPLOAD_TYPES,
+        videoMaxBytes: typeof data.uploads?.videoMaxBytes === 'number' ? data.uploads.videoMaxBytes : DEFAULT_UPLOAD_LIMITS.videoMaxBytes,
+        videoTypes: Array.isArray(data.uploads?.videoTypes) && data.uploads.videoTypes.length > 0 ? data.uploads.videoTypes.filter((t): t is string => typeof t === 'string') : DEFAULT_VIDEO_TYPES,
       },
       linkPreviews: { enabled: data.linkPreviews?.enabled !== false },
     };
   }
 
-  /** Limits for pictures in chat (server values once loaded, defaults before). */
+  /** Limits for pictures and videos in chat (server values once loaded, defaults before). */
   uploadLimits(): ServerConfig['uploads'] {
-    return this.current?.uploads ?? { maxBytes: 10 * 1024 * 1024, maxFilesPerMessage: 10, acceptedTypes: DEFAULT_UPLOAD_TYPES };
+    return this.current?.uploads ?? DEFAULT_UPLOAD_LIMITS;
   }
 
   private scheduleRefresh(): void {
