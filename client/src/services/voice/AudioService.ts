@@ -24,6 +24,9 @@ const clamp = (value: number, min: number, max: number): number => {
 export const MICROPHONE_PERMISSION_HELP_TEXT =
   'Microphone permission is blocked. Enable access in your browser or system settings, then reload. On iOS Safari: Settings → Safari → Camera & Microphone. On Android Chrome: Settings → Site Settings → Microphone.';
 
+/** How often the local mic level is sampled (ms); matches the remote speaking detector. */
+const MIC_LEVEL_INTERVAL_MS = 50;
+
 export class AudioService extends EventEmitter {
   private audioContext: AudioContext | null = null;
   private localStream: MediaStream | null = null;
@@ -32,7 +35,8 @@ export class AudioService extends EventEmitter {
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   private analyser: AnalyserNode | null = null;
-  private meterAnimationId: number | null = null;
+  /** Mic level sampling runs on a timer, not animation frames: frames stop when the window is minimized. */
+  private meterTimer: number | null = null;
   private settings: AudioSettings;
   private trackLifecycleCleanup: (() => void) | null = null;
   private shuttingDownStream = false;
@@ -456,9 +460,9 @@ export class AudioService extends EventEmitter {
       this.rawStream = null;
     }
 
-    if (this.meterAnimationId !== null) {
-      cancelAnimationFrame(this.meterAnimationId);
-      this.meterAnimationId = null;
+    if (this.meterTimer !== null) {
+      window.clearInterval(this.meterTimer);
+      this.meterTimer = null;
     }
 
     this.micGainNode = null;
@@ -544,23 +548,19 @@ export class AudioService extends EventEmitter {
   }
 
   /**
-   * Start visualizing mic level
+   * Sample the mic level 20 times a second and emit it (`mic:level`). A timer rather than
+   * an animation frame loop: the level feeds your own speaking state (voice ring, overlay,
+   * push-to-talk feedback), which must keep moving while the window is minimized or
+   * behind a game, where frames are paused even with background throttling off.
    */
   private startMeterVisualization(): void {
-    if (this.meterAnimationId !== null) {
-      cancelAnimationFrame(this.meterAnimationId);
+    if (this.meterTimer !== null) {
+      window.clearInterval(this.meterTimer);
     }
-
-    const update = () => {
+    this.meterTimer = window.setInterval(() => {
       if (!this.analyser) return;
-
-      const level = this.getAudioLevel();
-      this.emit('mic:level', level);
-
-      this.meterAnimationId = requestAnimationFrame(update);
-    };
-
-    this.meterAnimationId = requestAnimationFrame(update);
+      this.emit('mic:level', this.getAudioLevel());
+    }, MIC_LEVEL_INTERVAL_MS);
   }
 
   private async loadNoiseReducerModule(ctx: AudioContext): Promise<void> {
