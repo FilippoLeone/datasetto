@@ -23,13 +23,16 @@ the web build served by Caddy needs none of them because everything is same-orig
 src/
   main.tsx                 bootstrap: runtime config -> socket -> render
   app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts, connection banner
-  state/                   signals: session, channels, chat, search, presence, voice, settings, activity (game activity), notifications (push status), ui, peerAudio (per-person volume), screenAudio, misc (streams, screenshare, admin, minigame)
+  state/                   signals: session, channels, chat, search, presence, voice, settings, activity (game activity), notifications (push status), ui, peerAudio (per-person volume), screenAudio, clips (Clips on per source, buffer statuses, library), misc (streams, screenshare, admin, minigame)
   services/
     socket/                SocketClient (socket.io with our own reconnect pacing), backoff (exponential backoff + jitter scheduler),
                            api (typed emits), bindings (server events -> state)
     voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate, neural suppressor)
     native/                Electron bridge, Capacitor foreground service and audio routes
     screenCapture          getDisplayMedia / desktop picker capture with system audio, shared by rooms and voice channels
+    clips/                 clipManager (the rolling buffers behind the Clip buttons), rollingBuffer (two alternating MediaRecorders),
+                           webmDuration (writes the Duration into the recorded WebM), clipStore (IndexedDB library, 500 MB cap),
+                           clipMixer (voice chat mixed into a clip), clipThumbnail, clipDownload (browser, desktop, Android share sheet)
     pushNotifications      Web Push opt-in per browser: permission, service worker, subscription, sync after sign-in
     uploads                POST /api/uploads over XMLHttpRequest (progress) for pictures in chat
     visibilityHeartbeat    tells the server whether this page is visible (push goes out only when no page is)
@@ -54,7 +57,8 @@ src/
     minigames/             canvas engine (slither, pacman, fighter) + panel
     admin/                 members, channel permissions, bans
     activity/              "Playing <game>": own entries and report pacing (gameActivity), the Electron bridge wiring (desktopActivity), catalogue tests
-    settings/              the Notifications, Desktop app (automatic updates) and Game activity sections of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
+    settings/              the Notifications, Desktop app (automatic updates), Game activity and Clips sections of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
+    clips/                 the clips library dialog, the Clip controls of a tile or player (tileClip), source keys, the voice-channel screens' registration
   components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost, UpdateNotice
   lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs, shortcut (push-to-talk keys),
                            version comparison (version.ts) and the running version (appVersion.ts),
@@ -370,6 +374,62 @@ A dropped socket is not an event for the person using the app. What happens
 The backoff schedule, the outbox and the rejoin state machines are unit tested
 (`backoff.test.ts`, `outbox.test.ts`, `voiceRejoin.test.ts`, `peerReconcile.test.ts`,
 `screenshareRejoin.test.ts`).
+
+## Clips: save the last seconds of what you watch
+
+A live stream or a shared screen (a room, a voice channel, your own share) can be clipped like in
+the big chat apps, except that everything happens on your device: the server records nothing and
+only relays one flag.
+
+- **Clips on.** Recording costs CPU, so each source has its own switch: the red dot button in the
+  player bar of a stream, or in the top right corner of a screen tile (shown on hover; on a phone
+  the single button opens a sheet). While it is on, `services/clips/clipManager.ts` keeps the last
+  N seconds of that source in memory and a small red "Clips on" indicator shows on your own view
+  only. The switch is remembered per source (`state/clips.ts`, localStorage key
+  `rtmpdisc.clipsOn.v1`: `stream:<channelId>`, `share:<channelId>`, `voice:account:<accountId>`,
+  `voice:me`), so a stream you always clip starts buffering as soon as it plays again. Sources
+  register themselves while their picture is around: the stream player while it plays
+  (`video.captureStream()`, `mozCaptureStream` in Firefox, so the stream's sound is included), a
+  room while its share is received, and voice-channel screens from the voice state
+  (`features/clips/clipSources.ts`), so a friend's share keeps buffering while you read a text
+  channel.
+- **The buffer.** A MediaRecorder's chunks after the first only continue the file the first one
+  opened, so the last N seconds cannot be cut out of one long recording. `rollingBuffer.ts` runs
+  two recorders instead, each started afresh every N seconds and offset by N/2: one of them always
+  holds between N/2 and N seconds as a complete file, and Clip takes that one. The clip is
+  therefore between 15 and 30 s with the default 30 s window (shorter right after the switch was
+  turned on); the toast, the library and the file say the real length. A recorder's chunks are
+  dropped the moment it restarts, so memory is bounded by two windows at the encoder cap: 6 Mbit/s
+  on a desktop, 2.5 Mbit/s on phones (VP9 or VP8 with Opus, whichever the engine records; phones
+  prefer VP8 for their hardware encoders). The recorded file gets its Duration written into the
+  WebM header (`webmDuration.ts`, the browser leaves it out for live recordings), so players and
+  the library's seek bar know how long it is.
+- **Clip.** The scissors button next to the switch, or the clip key (Alt+C by default, Settings >
+  Clips > Clip key, works while the app has the focus) which saves the source last turned on or
+  clipped. Clips land in IndexedDB on the device (`clipStore.ts`: a record with a thumbnail,
+  source, time, length and size, plus the video blob) up to 500 MB; when a new clip does not fit,
+  the oldest go first and a toast says so.
+- **Library.** The film icon next to Settings in the sidebar (also from Settings > Clips): play
+  inline, download as `datasetto-clip-<source>-<date>.webm` (a download link in browsers and the
+  desktop app; the Android app writes the file to Documents/Datasetto with the Filesystem plugin
+  and opens the share sheet on it, because the WebView cannot download blob URLs), delete. Clips
+  are WebM; there is no MP4 conversion.
+- **Settings > Clips.** Clip length (15, 30 or 60 s), "Include voice chat audio in clips" (off by
+  default: `clipMixer.ts` mixes the friends you hear through a MediaStreamDestination into the
+  recorded track; the mix follows people joining and leaving without restarting the recorder), the
+  clip key, and "Let friends clip my shares".
+- **The sharer's say.** A presenter can disallow clips of their screen: the switch on the room's
+  idle page and the "Clips allowed / Clips off" button in its status bar while sharing, or the
+  settings toggle for voice channels. Rooms carry the flag in `screenshare:start` /
+  `screenshare:update` and `screenshare:session` (`allowClips`); voice channels send it with the
+  screen's `voice:stream-metadata` (`allowClips`, re-sent on change), both only to members of the
+  room or channel. Viewers of a share that may not be clipped get no controls and their buffer
+  stops at once. Streams from OBS have no such switch.
+- Tests: the two-recorder schedule, the clip length, the memory bound and the recorder failure
+  paths (`rollingBuffer.test.ts`), the WebM Duration patch (`webmDuration.test.ts`), eviction and
+  file names (`clipStore.test.ts`), the stored switches and settings (`state/clips.test.ts`), the
+  metadata flag and the voice stream list (`VoiceService.test.ts`), and the server's flag
+  (`server/test/screenshare-clips.test.ts`).
 
 ## Push to talk and the voice overlay while gaming
 

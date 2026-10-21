@@ -1,7 +1,7 @@
 /**
  * WebRTC voice communication service
  */
-import type { EventMap, ScreenQuality } from '@/types/protocol';
+import type { EventMap, ScreenQuality, StreamMetadata } from '@/types/protocol';
 import { EventEmitter } from '@/lib/EventEmitter';
 import { Storage } from '@/lib/storage';
 import { isNativeAudioRoutingAvailable, selectNativeAudioRoute } from '@/services/native/NativeAudioRouteService';
@@ -179,6 +179,12 @@ export class VoiceService extends EventEmitter<EventMap> {
   private screenQuality: ScreenQuality = DEFAULT_SCREEN_QUALITY;
   private remoteVideoTracks: Map<string, { camera?: RemoteVideoTrackInfo; screen?: RemoteVideoTrackInfo }> = new Map();
   private streamMetadata: Map<string, Map<string, 'camera' | 'screen'>> = new Map();
+  /** What each friend said about clipping their screen (absent: allowed). */
+  private remoteScreenClips: Map<string, boolean> = new Map();
+  /** The voice stream of every friend we hear, for the clip mixer. */
+  private remoteAudio: Map<string, MediaStream> = new Map();
+  /** Whether friends may clip our screen share; sent with the screen's metadata. */
+  private shareClipsAllowed = true;
   private audioContext: AudioContext | null = null;
   private outputVolume = 1;
   private outputDeviceId = '';
@@ -403,6 +409,8 @@ export class VoiceService extends EventEmitter<EventMap> {
     move(this.videoSenders);
     move(this.remoteVideoTracks);
     move(this.streamMetadata);
+    move(this.remoteScreenClips);
+    move(this.remoteAudio);
     move(this.peerStatsHistory);
     move(this.lastStatsTimestamp);
     move(this.peerAudioPreferences);
@@ -433,18 +441,52 @@ export class VoiceService extends EventEmitter<EventMap> {
     await this.performIceRestart(peerId, 'rejoin');
   }
 
-  handleStreamMetadata(data: { from: string; metadata: { streamId: string; type: 'camera' | 'screen' } }): void {
+  /**
+   * A peer says what a stream of theirs is. Usually arrives before or with the track
+   * (a track that came first was classified from its settings). A screen carries the
+   * sharer's clip permission; it may change while the share runs.
+   */
+  handleStreamMetadata(data: { from: string; metadata: StreamMetadata }): void {
     const { from, metadata } = data;
+    if (!metadata || typeof metadata.streamId !== 'string' || (metadata.type !== 'camera' && metadata.type !== 'screen')) return;
     if (!this.streamMetadata.has(from)) {
       this.streamMetadata.set(from, new Map());
     }
     this.streamMetadata.get(from)!.set(metadata.streamId, metadata.type);
-    
-    // If we already have tracks for this peer, we might need to re-classify them?
-    // But usually metadata arrives before or with the track.
-    // If track arrived first, it was already classified.
-    // We could check if we have a track with this streamId and if the type mismatches, fix it.
-    // For now, we assume metadata arrives reasonably fast.
+    if (metadata.type === 'screen') {
+      const allowed = metadata.allowClips !== false;
+      if (this.remoteScreenClips.get(from) !== allowed) {
+        this.remoteScreenClips.set(from, allowed);
+        this.emit('video:remote:clips', { peerId: from, allowed } as never);
+      }
+    }
+  }
+
+  /** Whether the friend behind `peerId` lets their screen be clipped (unknown or older clients: yes). */
+  remoteScreenClipsAllowed(peerId: string): boolean {
+    return this.remoteScreenClips.get(peerId) !== false;
+  }
+
+  /** Let friends clip our screen share or not; a running share tells every peer at once. */
+  setShareClipsAllowed(allowed: boolean): void {
+    if (this.shareClipsAllowed === allowed) return;
+    this.shareClipsAllowed = allowed;
+    const stream = this.localScreenStream;
+    if (!stream) return;
+    for (const [peerId, senders] of this.videoSenders) {
+      if (senders.screen) this.sendStreamMetadata(peerId, 'screen', stream);
+    }
+  }
+
+  /** The voice streams of the friends we hear right now (the clip mixer records them when asked). */
+  remoteAudioStreams(): MediaStream[] {
+    return Array.from(this.remoteAudio.values());
+  }
+
+  private sendStreamMetadata(peerId: string, type: 'camera' | 'screen', stream: MediaStream): void {
+    const metadata: StreamMetadata = { streamId: stream.id, type };
+    if (type === 'screen') metadata.allowClips = this.shareClipsAllowed;
+    this.emit('voice:send-stream-metadata', { to: peerId, metadata } as never);
   }
 
   /** A stream the peer announced as its screen, or one that already carries video (the microphone stream never does). */
@@ -579,6 +621,8 @@ export class VoiceService extends EventEmitter<EventMap> {
 
     manager.attachStream(stream, this.outputDeviceId);
     this.applyPeerAudioState(peerId);
+    this.remoteAudio.set(peerId, stream);
+    this.emit('voice:remote-audio', { peerId, stream } as never);
   }
 
   private scheduleIceRestart(peerId: string, reason: string): void {
@@ -930,6 +974,8 @@ export class VoiceService extends EventEmitter<EventMap> {
       manager.dispose();
       this.peerManagers.delete(peerId);
     }
+    if (this.remoteAudio.delete(peerId)) this.emit('voice:remote-audio', { peerId, stream: null } as never);
+    this.remoteScreenClips.delete(peerId);
     // The socket id is gone for good; the setting itself lives with the account (state/peerAudio.ts).
     this.peerAudioPreferences.delete(peerId);
     for (const [from, to] of Array.from(this.aliases.entries())) {
@@ -1552,13 +1598,7 @@ export class VoiceService extends EventEmitter<EventMap> {
         }
       }
 
-      this.emit('voice:send-stream-metadata', {
-        to: peerId,
-        metadata: {
-          streamId: stream.id,
-          type
-        }
-      } as never);
+      this.sendStreamMetadata(peerId, type, stream);
     } catch (error) {
       console.error(`[VoiceService] Failed to add ${type} track to peer ${peerId}:`, error);
     }

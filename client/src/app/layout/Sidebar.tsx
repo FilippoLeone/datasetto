@@ -1,8 +1,9 @@
-import { Settings, Shield, Wifi, WifiOff } from 'lucide-preact';
+import { Film, Settings, Shield, Wifi, WifiOff } from 'lucide-preact';
 import { Avatar, IconButton, RoleBadge } from '@/components';
 import { ChannelList } from '@/features/channels/ChannelList';
 import { InstallHint } from '@/features/settings/InstallHint';
 import { VoiceDock } from '@/features/voice/VoiceDock';
+import { supportsClipStorage } from '@/services/clips/clipStore';
 import { account, canManage, connectionStatus } from '@/state/session';
 import { openModal } from '@/state/ui';
 
@@ -34,6 +35,11 @@ const UserBar = () => {
       {canManage.value && (
         <IconButton label="Server admin" size="sm" onClick={() => openModal({ type: 'admin', tab: 'users' })}>
           <Shield size={18} />
+        </IconButton>
+      )}
+      {supportsClipStorage() && (
+        <IconButton label="Clips" size="sm" onClick={() => openModal({ type: 'clips' })}>
+          <Film size={18} />
         </IconButton>
       )}
       <IconButton label="Settings" size="sm" onClick={() => openModal({ type: 'audioSettings' })}>

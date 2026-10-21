@@ -391,7 +391,18 @@ export interface AudioSettings {
   vadThreshold: number;
   /** Screen share preset (resolution, frame rate, bitrate) for rooms and voice channels. */
   screenQuality: ScreenQuality;
+  /** Clips: how many seconds of what you watch are kept on your device for the Clip button. */
+  clipSeconds: ClipSeconds;
+  /** Clips: mix the voice chat (the friends you hear) into clips of a share or stream. */
+  clipIncludeVoice: boolean;
+  /** Clips: the in-app shortcut that saves a clip (lib/shortcut.ts form, `Alt+KeyC`). Empty for none. */
+  clipShortcut: string;
+  /** Whether friends may save clips of the screens you share (sent with the share's metadata; nothing is recorded). */
+  shareClipsAllowed: boolean;
 }
+
+/** Length of the rolling clip buffer, in seconds. */
+export type ClipSeconds = 15 | 30 | 60;
 
 /**
  * Screen share quality presets; see services/screenCapture.ts for the numbers.
@@ -472,6 +483,8 @@ export interface ScreenshareSessionEvent {
   rtcSessionId?: string | null;
   startedAt: number | null;
   viewerCount: number;
+  /** Whether the host lets viewers save clips of the share on their own device; absent from older servers (allowed). */
+  allowClips?: boolean;
   /** When `active` is false: a deliberate stop (`host`) or the host's socket going away (`disconnect`). */
   endedBy?: 'host' | 'disconnect' | null;
 }
@@ -742,12 +755,25 @@ export interface Notification {
   duration?: number;
 }
 
+/**
+ * What a voice participant says about a stream it sends, relayed by the server
+ * (`voice:stream-metadata`). `allowClips` rides along with a screen: whether the
+ * sharer lets friends save clips of it on their device (absent: allowed).
+ */
+export interface StreamMetadata {
+  streamId: string;
+  type: 'camera' | 'screen';
+  allowClips?: boolean;
+}
+
 /** Events emitted by the media services (VoiceService, AudioService). */
 export type EventMap = {
   'voice:offer': { peerId: string; offer: RTCSessionDescriptionInit };
   'voice:answer': { peerId: string; answer: RTCSessionDescriptionInit };
   'voice:ice-candidate': { peerId: string; candidate: RTCIceCandidateInit };
-  'voice:send-stream-metadata': { to: string; metadata: { streamId: string; type: 'camera' | 'screen' } };
+  'voice:send-stream-metadata': { to: string; metadata: StreamMetadata };
+  /** A friend's voice stream arrived or went (the clip mixer follows them). */
+  'voice:remote-audio': { peerId: string; stream: MediaStream | null };
   'voice:speaking': { id: string; speaking: boolean };
   'voice:stats': {
     peerId: string;
@@ -764,6 +790,8 @@ export type EventMap = {
   'video:screen:stopped': void;
   'video:remote:track': { peerId: string; streamType: 'camera' | 'screen'; stream: MediaStream; track: MediaStreamTrack };
   'video:remote:track:removed': { peerId: string; streamType: 'camera' | 'screen' };
+  /** The sharer said whether their screen may be clipped (`voice:stream-metadata`). */
+  'video:remote:clips': { peerId: string; allowed: boolean };
   notification: Notification;
   [key: string]: unknown;
 };

@@ -18,7 +18,7 @@ export const StreamPage = ({ channel }: { channel: Channel }) => {
     <div className={cn('flex min-h-0 flex-1', stacked ? 'flex-col' : 'flex-row')}>
       <div className={cn('flex min-h-0 flex-col bg-black', stacked ? 'aspect-video w-full shrink-0' : 'min-w-0 flex-1')}>
         {live ? (
-          <HlsPlayer channelName={channel.name} live={live} className="min-h-0 flex-1" />
+          <HlsPlayer channelId={channel.id} channelName={channel.name} live={live} className="min-h-0 flex-1" />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
             <Radio size={40} className="text-text-faint" />

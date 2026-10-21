@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import Hls from 'hls.js';
-import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from 'lucide-preact';
+import { CircleDot, Maximize, Minimize, Pause, Play, Scissors, Volume2, VolumeX } from 'lucide-preact';
 import { IconButton, VolumeSlider } from '@/components';
 import { cn } from '@/lib/cn';
+import { clipManager } from '@/services/clips/clipManager';
+import { streamClipKey } from '@/features/clips/clipKeys';
+import { tileClipControls } from '@/features/clips/tileClip';
+import { clipButtonLabel, clipToggleLabel } from '@/features/voice/VideoTile';
 import { buildHlsUrlCandidates } from '@/lib/hlsUrls';
 import { runtimeUrls } from '@/lib/runtimeConfig';
 import { serverConfig } from '@/services/ServerConfigService';
@@ -21,13 +25,29 @@ const TICKET_RENEW_MARGIN_MS = 60_000;
 const RETICKET_MIN_INTERVAL_MS = 15_000;
 
 interface HlsPlayerProps {
+  channelId: string;
   channelName: string;
   live: boolean;
   className?: string;
 }
 
+type CapturableVideo = HTMLVideoElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream };
+
+/** Whether this engine can turn a playing <video> into a MediaStream (Chromium, Firefox; not Safari). */
+export const supportsVideoCapture = (): boolean =>
+  typeof HTMLVideoElement !== 'undefined' && ('captureStream' in HTMLVideoElement.prototype || 'mozCaptureStream' in HTMLVideoElement.prototype);
+
+/** The stream of what the player shows and plays, for the clip buffer. */
+const captureVideo = (video: CapturableVideo): MediaStream | null => {
+  try {
+    return video.captureStream?.() ?? video.mozCaptureStream?.() ?? null;
+  } catch {
+    return null;
+  }
+};
+
 /** HLS playback with retries, viewer tickets and minimal custom controls. */
-export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
+export const HlsPlayer = ({ channelId, channelName, live, className }: HlsPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -253,6 +273,25 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
     return () => window.clearTimeout(timer);
   }, [touch, controlsShown, controlsTick, status]);
 
+  // Clips: while the stream plays, its picture and sound (video.captureStream) can be buffered on this device.
+  const clipKey = streamClipKey(channelId);
+  const clipSupported = live && supportsVideoCapture() && clipManager.supported();
+  const showing = status === 'playing' || status === 'buffering';
+  useEffect(() => {
+    const video = videoRef.current as CapturableVideo | null;
+    if (!video || !clipSupported || !showing) return;
+    let captured: MediaStream | null = null;
+    clipManager.register({ key: clipKey, kind: 'stream', name: '#' + channelName }, () => {
+      captured ??= captureVideo(video);
+      return captured;
+    });
+    return () => {
+      clipManager.unregister(clipKey);
+      captured?.getTracks().forEach((track) => track.stop());
+    };
+  }, [clipKey, channelName, clipSupported, showing]);
+  const clip = clipSupported ? tileClipControls(clipKey) : undefined;
+
   const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -308,6 +347,16 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
       {overlay && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 px-6 text-center text-sm font-medium text-white">{overlay}</div>
       )}
+      {/* The viewer's own recording indicator: nobody else sees it. */}
+      {clip?.on && (
+        <span
+          className="pointer-events-none absolute top-2 left-2 flex items-center gap-1 rounded-sm bg-black/60 px-1.5 py-0.5 text-[11px] font-semibold text-live"
+          title={clip.recording ? 'The last ' + clip.seconds + ' s are kept on this device for the Clip button' : (clip.error ?? 'Clips will record once the stream plays')}
+          data-player-clips-indicator
+        >
+          <CircleDot size={12} className={clip.recording ? 'animate-pulse' : undefined} /> {clip.recording ? 'Clips on' : 'Clips…'}
+        </span>
+      )}
       {live && (
         <div
           className={cn(
@@ -339,6 +388,25 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
           )}
           <span className="live-dot ml-2 text-xs font-bold text-white uppercase">Live</span>
           <span className="flex-1" />
+          {clip && (
+            <>
+              <IconButton
+                label={clipToggleLabel(clip)}
+                size="sm"
+                active={clip.on}
+                className={cn('hover:bg-white/15', clip.on ? 'text-live' : 'text-white')}
+                onClick={clip.onToggle}
+                data-player-clips-toggle
+                data-clips-on={clip.on ? 'true' : undefined}
+                data-clips-recording={clip.recording ? 'true' : undefined}
+              >
+                <CircleDot size={18} className={clip.recording ? 'animate-pulse' : undefined} />
+              </IconButton>
+              <IconButton label={clipButtonLabel(clip)} size="sm" className="text-white hover:bg-white/15" disabled={!clip.recording || clip.saving} onClick={clip.onClip} data-player-clip>
+                <Scissors size={18} />
+              </IconButton>
+            </>
+          )}
           <IconButton label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} size="sm" className="text-white hover:bg-white/15" onClick={() => void toggleFullscreen()}>
             {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
           </IconButton>

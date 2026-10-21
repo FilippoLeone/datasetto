@@ -1,8 +1,9 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Volume2, VolumeX } from 'lucide-preact';
-import { Menu, VolumeSlider } from '@/components';
+import { CircleDot, Scissors, Volume2, VolumeX } from 'lucide-preact';
+import { Menu, VolumeSlider, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
+import { isTouchPrimary } from '@/lib/device';
 import type { PresenceState } from '@/lib/motion';
 
 /**
@@ -30,6 +31,26 @@ export interface TileAudioControls {
   panelTitle?: string;
 }
 
+/**
+ * The Clip controls of a tile (a shared screen): the "Clips on" switch that keeps the
+ * last N seconds in memory on this device, and the Clip button that saves them. The
+ * state is the clip manager's; the tile only shows it (features/clips/tileClip.ts).
+ */
+export interface TileClipControls {
+  /** Clips on: the rolling buffer should run for this source. */
+  on: boolean;
+  /** The buffer actually runs. */
+  recording: boolean;
+  availableMs: number;
+  saving: boolean;
+  /** Why it is on but not recording. */
+  error: string | null;
+  /** The window length from the settings. */
+  seconds: number;
+  onToggle: () => void;
+  onClip: () => void;
+}
+
 interface VideoTileProps {
   stream: MediaStream;
   label: string;
@@ -45,6 +66,8 @@ interface VideoTileProps {
   audioControls?: TileAudioControls;
   /** Show the resolution and frame rate the stream actually plays at (screen shares). */
   stats?: boolean;
+  /** Clips on/off and the Clip button, top right (screen shares that may be clipped). */
+  clip?: TileClipControls;
   className?: string;
   onClick?: () => void;
   /** From useListPresence: scales the tile in on mount and out while it leaves. */
@@ -187,8 +210,85 @@ const TileAudioBar = ({ controls }: { controls: TileAudioControls }) => {
   );
 };
 
+/** What the Clip button says: the seconds it would save, or why it cannot yet. */
+export const clipButtonLabel = (clip: TileClipControls): string => {
+  if (clip.saving) return 'Saving the clip…';
+  if (clip.recording) return 'Clip the last ' + Math.max(1, Math.round(clip.availableMs / 1000)) + ' s';
+  if (clip.on) return 'Clips are not recording yet' + (clip.error ? ': ' + clip.error : '');
+  return 'Turn Clips on first to clip';
+};
+
+export const clipToggleLabel = (clip: TileClipControls): string => (clip.on ? 'Turn clips off' : 'Turn clips on (keeps the last ' + clip.seconds + ' s on this device)');
+
+/**
+ * Clip controls in a tile's top right corner. With a mouse they show on hover (and
+ * stay while Clips is on, as the recording indicator); on a phone one button opens a
+ * sheet with the two actions. Visible to nobody else: the indicator is this viewer's own.
+ */
+const TileClipBar = ({ clip }: { clip: TileClipControls }) => {
+  const touch = isTouchPrimary();
+  const canClip = clip.recording && !clip.saving;
+  if (touch) {
+    const items: MenuItem[] = [
+      { label: clipToggleLabel(clip), icon: <CircleDot size={16} className={clip.on ? 'text-live' : undefined} />, onSelect: clip.onToggle },
+      { label: clipButtonLabel(clip), icon: <Scissors size={16} />, disabled: !canClip, onSelect: clip.onClip },
+    ];
+    return (
+      <Menu items={items} title="Clips" align="right" className="pointer-events-auto">
+        <span
+          className={cn('flex h-10 w-10 items-center justify-center rounded-sm bg-black/60 text-white', clip.on && 'text-live')}
+          title="Clips"
+          aria-label={clip.on ? (clip.recording ? 'Clips on, recording' : 'Clips on') : 'Clips'}
+          data-tile-clips
+          data-clips-on={clip.on ? 'true' : undefined}
+          data-clips-recording={clip.recording ? 'true' : undefined}
+        >
+          {clip.on ? <CircleDot size={18} className={clip.recording ? 'animate-pulse' : undefined} /> : <Scissors size={18} />}
+        </span>
+      </Menu>
+    );
+  }
+  return (
+    <div
+      className={cn(
+        'pointer-events-auto flex cursor-default items-center gap-0.5 rounded-sm bg-black/60 px-0.5 py-0.5 text-white transition-opacity duration-150',
+        clip.on ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100',
+      )}
+      onClick={stop}
+      onDblClick={stop}
+      data-tile-clips
+      data-clips-on={clip.on ? 'true' : undefined}
+      data-clips-recording={clip.recording ? 'true' : undefined}
+    >
+      <button
+        type="button"
+        aria-label={clipToggleLabel(clip)}
+        title={clipToggleLabel(clip) + (clip.on && clip.error ? ' · ' + clip.error : '')}
+        aria-pressed={clip.on}
+        onClick={clip.onToggle}
+        className={cn('flex items-center gap-1 rounded-sm p-1 text-[11px] font-semibold transition-colors duration-150 hover:bg-white/15', clip.on && 'text-live')}
+        data-tile-clips-toggle
+      >
+        <CircleDot size={14} className={clip.recording ? 'animate-pulse' : undefined} />
+        {clip.on && <span className="hidden pr-0.5 @min-[200px]:inline">{clip.recording ? 'Clips on' : 'Clips…'}</span>}
+      </button>
+      <button
+        type="button"
+        aria-label={clipButtonLabel(clip)}
+        title={clipButtonLabel(clip)}
+        disabled={!canClip}
+        onClick={clip.onClip}
+        className="flex items-center justify-center rounded-sm p-1 transition-colors duration-150 hover:bg-white/15 disabled:opacity-40 disabled:hover:bg-transparent"
+        data-tile-clip
+      >
+        <Scissors size={14} />
+      </button>
+    </div>
+  );
+};
+
 /** Plays a MediaStream in a <video>, re-attaching when the stream changes. */
-export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId, audioIndicator, audioControls, stats, className, onClick, state }: VideoTileProps) => {
+export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId, audioIndicator, audioControls, stats, clip, className, onClick, state }: VideoTileProps) => {
   const ref = useRef<HTMLVideoElement>(null);
   const hasAudio = useStreamHasAudio(stream, Boolean(audioIndicator || audioControls?.onlyWithAudio));
   const statsLabel = useVideoStats(ref, stream, Boolean(stats));
@@ -223,12 +323,18 @@ export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId,
   const controls = audioControls && (!audioControls.onlyWithAudio || hasAudio) ? audioControls : null;
 
   return (
-    <div data-state={state} className={cn('motion-tile @container relative overflow-hidden rounded-lg bg-black', onClick && 'cursor-pointer', className)} onClick={onClick}>
+    <div data-state={state} className={cn('motion-tile group @container relative overflow-hidden rounded-lg bg-black', onClick && 'cursor-pointer', className)} onClick={onClick}>
       <video ref={ref} autoPlay playsInline className={cn('h-full w-full object-contain', mirror && 'mirror')} />
-      {statsLabel && (
-        <span className="absolute top-2 left-2 rounded-sm bg-black/60 px-1.5 py-0.5 text-[11px] text-white/90 tabular-nums" title="Resolution and frame rate as played here" data-video-stats>
-          {statsLabel}
-        </span>
+      {/* Top left: the resolution label and the clip controls (the top right corner is where toasts stack). */}
+      {(statsLabel || clip) && (
+        <div className="pointer-events-none absolute top-2 left-2 flex items-start gap-1">
+          {statsLabel && (
+            <span className="rounded-sm bg-black/60 px-1.5 py-0.5 text-[11px] text-white/90 tabular-nums" title="Resolution and frame rate as played here" data-video-stats>
+              {statsLabel}
+            </span>
+          )}
+          {clip && <TileClipBar clip={clip} />}
+        </div>
       )}
       {/* Bottom bar: the label truncates, the sound controls keep their place; on small tiles
           (container queries) the slider makes way and the percentage opens the full panel. */}

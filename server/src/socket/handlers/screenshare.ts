@@ -18,10 +18,14 @@ const seatPayload = z
     channelId: idSchema.optional().nullable(),
     rtcSessionId: z.string().min(1).max(64).optional().nullable(),
     holding: holdingSchema.optional().nullable(),
+    /** Host only: whether viewers may save clips of the share on their device. Older clients omit it (allowed). */
+    allowClips: z.boolean().optional().nullable(),
   })
   .partial()
   .nullable()
   .optional();
+/** `screenshare:update`: the host changes the clip permission of the running share. */
+const updatePayload = z.object({ channelId: idSchema.optional().nullable(), allowClips: z.boolean() });
 const signalSchema = z.object({ to: idSchema, data: z.unknown().optional(), channelId: idSchema.optional().nullable() });
 
 const extras = (raw: unknown) => ({
@@ -72,6 +76,7 @@ export const registerScreenshareHandlers = (sctx: SocketContext): void => {
           accountId: user.accountId,
           displayName: user.displayName,
           rtcSessionId: payload?.rtcSessionId === undefined ? undefined : (payload.rtcSessionId ?? null),
+          allowClips: payload?.allowClips ?? undefined,
         });
       } catch {
         throw new AppError('Channel already has an active screenshare', 'SCREENSHARE_BUSY', 409);
@@ -108,6 +113,22 @@ export const registerScreenshareHandlers = (sctx: SocketContext): void => {
       // A deliberate stop: viewers end at once instead of waiting for the presenter to come back.
       app.broadcast.screenshare(channelId, null, { endedBy: 'host' });
       app.broadcast.channels();
+    },
+  );
+
+  handle(
+    sctx,
+    'screenshare:update',
+    { schema: updatePayload, errorEvent: 'screenshare:error', code: 'SCREENSHARE_UPDATE_FAILED', errorExtras: extras },
+    (payload) => {
+      const channelId = payload.channelId ?? sctx.screenshareHosting;
+      if (!channelId) throw new AppError('Channel ID is required', 'CHANNEL_REQUIRED', 400);
+      const session = app.presence.getScreenshare(channelId);
+      if (!session || session.hostId !== socket.id) throw new AppError('Not hosting this screenshare', 'NOT_HOST', 403);
+      if (session.allowClips === payload.allowClips) return;
+      app.presence.setScreenshareClips(channelId, payload.allowClips);
+      // Everyone in the room (viewers included) learns the new permission through the usual session event.
+      app.broadcast.screenshare(channelId);
     },
   );
 

@@ -4,6 +4,9 @@ import { isAuthenticated } from '@/state/session';
 import { searchOpen } from '@/state/search';
 import { closeSearch, openSearch } from '@/features/search/searchActions';
 import { voiceManager } from '@/features/voice/voiceManager';
+import { clipManager } from '@/services/clips/clipManager';
+import { parseShortcut, shortcutMatchesEvent } from '@/lib/shortcut';
+import { audioSettings } from '@/state/settings';
 
 const isTypingTarget = (target: EventTarget | null): boolean => {
   const element = target as HTMLElement | null;
@@ -14,7 +17,8 @@ const isTypingTarget = (target: EventTarget | null): boolean => {
 
 /**
  * App-wide keyboard shortcuts: Escape closes dialogs and the search panel, Ctrl+K
- * (Cmd+K) opens message search, Ctrl+Shift+M mutes, Ctrl+Shift+D deafens, push-to-talk.
+ * (Cmd+K) opens message search, Ctrl+Shift+M mutes, Ctrl+Shift+D deafens, the clip
+ * key (Alt+C unless changed in Settings > Clips) saves a clip, push-to-talk.
  */
 export const useGlobalShortcuts = (): void => {
   useEffect(() => {
@@ -56,7 +60,14 @@ export const useGlobalShortcuts = (): void => {
           return;
         }
       }
-      if (!isTypingTarget(event.target)) voiceManager.handlePttKey(event, true);
+      if (isTypingTarget(event.target)) return;
+      const clipShortcut = parseShortcut(audioSettings.value.clipShortcut);
+      if (clipShortcut && !event.repeat && shortcutMatchesEvent(clipShortcut, event, 'down')) {
+        event.preventDefault();
+        void clipManager.clipActive();
+        return;
+      }
+      voiceManager.handlePttKey(event, true);
     };
     const onKeyUp = (event: KeyboardEvent) => {
       voiceManager.handlePttKey(event, false);

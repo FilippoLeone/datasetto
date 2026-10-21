@@ -8,6 +8,7 @@ import { sounds } from '@/services/sounds';
 import { updateDesktopVoiceActivity } from '@/services/native/desktop';
 import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '@/services/native/ForegroundServiceManager';
 import { isCancelError, missingAudioHint } from '@/services/screenCapture';
+import { clipManager } from '@/services/clips/clipManager';
 import { CameraError } from '@/services/voice/cameraCapture';
 import { isDesktopApp } from '@/services/native/desktop';
 import { parseShortcut, shortcutMatchesEvent } from '@/lib/shortcut';
@@ -30,6 +31,7 @@ import {
   rekeyPeer,
   removePeer,
   resetVoiceState,
+  setRemoteScreenClips,
   setRemoteVideo,
   upsertPeer,
   voiceChannelId,
@@ -38,7 +40,7 @@ import {
   voiceStatus,
   type ConnectionQuality,
 } from '@/state/voice';
-import type { AudioSettings, DeviceInfo, HeldPeerConnection, ServerError, VoiceJoinedEvent, VoicePeerEvent, VoicePeerLeaveEvent, VoiceSignalEvent } from '@/types/protocol';
+import type { AudioSettings, DeviceInfo, HeldPeerConnection, ServerError, StreamMetadata, VoiceJoinedEvent, VoicePeerEvent, VoicePeerLeaveEvent, VoiceSignalEvent } from '@/types/protocol';
 import { reconcilePeers, type KnownPeer, type RoomPeer, type SelfIdentity } from './peerReconcile';
 import { initialRejoinState, isRejoinPending, PERMANENT_JOIN_ERRORS, reduceRejoin, type RejoinEffect, type RejoinEvent, type RejoinState } from './voiceRejoin';
 
@@ -89,6 +91,7 @@ class VoiceManager {
     this.audio = new AudioService(settings);
     this.voice = new VoiceService(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
     this.voice.setScreenQuality(settings.screenQuality);
+    this.voice.setShareClipsAllowed(settings.shareClipsAllowed);
     noiseSuppressionStatus.value = this.audio.getNeuralStatus();
   }
 
@@ -466,6 +469,7 @@ class VoiceManager {
   async applySettings(settings: AudioSettings): Promise<void> {
     this.voice.updateVoiceSettings(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
     this.voice.setScreenQuality(settings.screenQuality);
+    this.voice.setShareClipsAllowed(settings.shareClipsAllowed);
     this.voice.setOutputVolume(settings.outputVol);
     try {
       await this.audio.updateSettings(settings);
@@ -588,7 +592,7 @@ class VoiceManager {
     socketClient.on<VoicePeerEvent>('voice:peer-join', (peer) => void this.onPeerJoin(peer));
     socketClient.on<VoicePeerLeaveEvent>('voice:peer-leave', (event) => this.onPeerLeave(event));
     socketClient.on<VoiceSignalEvent>('voice:signal', (data) => void this.onSignal(data));
-    socketClient.on<{ from: string; metadata: { streamId: string; type: 'camera' | 'screen' } }>('voice:stream-metadata', (data) => {
+    socketClient.on<{ from: string; metadata: StreamMetadata }>('voice:stream-metadata', (data) => {
       this.voice.handleStreamMetadata(data);
     });
     socketClient.on<{ id: string; muted: boolean; deafened: boolean }>('voice:state', ({ id, muted, deafened }) => {
@@ -646,6 +650,9 @@ class VoiceManager {
       setRemoteVideo(peerId, streamType, null);
       if (voicePeers.value[peerId]) upsertPeer({ id: peerId, [streamType]: false });
     });
+    // The sharer's say on clipping their screen, and the voices the clip mixer may record.
+    this.voice.on('video:remote:clips', ({ peerId, allowed }) => setRemoteScreenClips(peerId, allowed));
+    this.voice.on('voice:remote-audio', () => clipManager.setVoiceStreams(this.voice.remoteAudioStreams()));
     this.voice.on('video:camera:started', ({ stream }) => {
       localCameraStream.value = stream;
       api.setVideoState('camera', true);

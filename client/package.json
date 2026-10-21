@@ -18,6 +18,8 @@
   "dependencies": {
     "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
     "@capawesome-team/capacitor-android-foreground-service": "^8.1.0",
     "@preact/signals": "^2.11.3",
     "clsx": "^2.1.1",

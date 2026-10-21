@@ -4,11 +4,14 @@ import { parseShortcut, serializeShortcut } from '@/lib/shortcut';
 import { Storage } from '@/lib/storage';
 import { DEFAULT_OVERLAY_CORNER, isOverlayCorner } from '@/features/voice/voiceOverlayState';
 import { clampStrength, DEFAULT_STRENGTH_DB } from '@/services/voice/neuralEngine';
-import type { AudioSettings, NoiseSuppressionLevel, ScreenQuality } from '@/types/protocol';
+import type { AudioSettings, ClipSeconds, NoiseSuppressionLevel, ScreenQuality } from '@/types/protocol';
 
 const SETTINGS_KEY = 'rtmpdisc.settings.v1';
 const SCREEN_QUALITIES: ScreenQuality[] = ['720p30', '1080p60', 'native60', 'native120'];
 const NOISE_LEVELS: NoiseSuppressionLevel[] = ['off', 'standard', 'strong'];
+export const CLIP_SECONDS: ClipSeconds[] = [15, 30, 60];
+/** Saves a clip while the app has the focus; changeable in Settings > Clips. */
+export const DEFAULT_CLIP_SHORTCUT = 'Alt+KeyC';
 
 const num = (value: string | undefined, fallback: number, min: number, max: number): number => {
   const parsed = Number(value);
@@ -38,6 +41,10 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   latencyHint: 'interactive',
   vadThreshold: num(config.VOICE_VAD_THRESHOLD, 0.07, 0.01, 0.5),
   screenQuality: '1080p60',
+  clipSeconds: 30,
+  clipIncludeVoice: false,
+  clipShortcut: DEFAULT_CLIP_SHORTCUT,
+  shareClipsAllowed: true,
 };
 
 /** Merge stored settings over the defaults, dropping values this build does not know. */
@@ -54,6 +61,15 @@ export const normalizeAudioSettings = (stored: Partial<AudioSettings> | null | u
   // The old client stored the bare KeyboardEvent.code; normalise to the shortcut form.
   const shortcut = parseShortcut(typeof next.pttKey === 'string' ? next.pttKey : '');
   next.pttKey = shortcut ? serializeShortcut(shortcut) : '';
+  if (!CLIP_SECONDS.includes(next.clipSeconds)) next.clipSeconds = DEFAULT_AUDIO_SETTINGS.clipSeconds;
+  next.clipIncludeVoice = Boolean(next.clipIncludeVoice);
+  next.shareClipsAllowed = next.shareClipsAllowed !== false;
+  // An unset shortcut stays unset (people may turn the key off); garbage falls back to the default.
+  if (typeof next.clipShortcut !== 'string') next.clipShortcut = DEFAULT_CLIP_SHORTCUT;
+  else if (next.clipShortcut !== '') {
+    const clipShortcut = parseShortcut(next.clipShortcut);
+    next.clipShortcut = clipShortcut ? serializeShortcut(clipShortcut) : DEFAULT_CLIP_SHORTCUT;
+  }
   return next;
 };
 

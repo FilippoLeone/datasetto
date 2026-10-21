@@ -57,6 +57,8 @@ export interface ScreenshareView {
   rtcSessionId: string | null;
   startedAt: number | null;
   viewerCount: number;
+  /** Viewers may save clips of this share on their own device (true while nobody is sharing). */
+  allowClips: boolean;
 }
 
 export interface StartScreenshareInput {
@@ -64,6 +66,8 @@ export interface StartScreenshareInput {
   accountId: string | null;
   displayName: string | null;
   rtcSessionId?: string | null;
+  /** Omitted by clients older than clips: viewers may clip. */
+  allowClips?: boolean | null;
 }
 
 export interface StartStreamInput {
@@ -376,6 +380,7 @@ export class PresenceService {
     if (existing) {
       if (existing.hostId === host.hostId) {
         if (host.rtcSessionId !== undefined) existing.rtcSessionId = host.rtcSessionId;
+        if (typeof host.allowClips === 'boolean') existing.allowClips = host.allowClips;
         return { session: existing, previousHostId: null };
       }
       if (existing.accountId === null || existing.accountId !== host.accountId) {
@@ -385,6 +390,7 @@ export class PresenceService {
       existing.hostId = host.hostId;
       existing.displayName = host.displayName;
       if (host.rtcSessionId !== undefined) existing.rtcSessionId = host.rtcSessionId;
+      if (typeof host.allowClips === 'boolean') existing.allowClips = host.allowClips;
       // The host's own other socket cannot be a viewer of its share.
       existing.viewers.delete(host.hostId);
       return { session: existing, previousHostId };
@@ -396,10 +402,19 @@ export class PresenceService {
       displayName: host.displayName,
       startedAt: Date.now(),
       rtcSessionId: host.rtcSessionId ?? null,
+      allowClips: host.allowClips ?? true,
       viewers: new Map(),
     };
     this.screenshares.set(channelId, session);
     return { session, previousHostId: null };
+  }
+
+  /** The host changed whether viewers may clip the running share; false when nobody shares there. */
+  setScreenshareClips(channelId: string, allowClips: boolean): boolean {
+    const session = this.screenshares.get(channelId);
+    if (!session) return false;
+    session.allowClips = allowClips;
+    return true;
   }
 
   stopScreenshare(channelId: string): ScreenshareSession | null {
@@ -448,6 +463,7 @@ export class PresenceService {
       rtcSessionId: session?.rtcSessionId ?? null,
       startedAt: session?.startedAt ?? null,
       viewerCount: session?.viewers.size ?? 0,
+      allowClips: session?.allowClips ?? true,
     };
   }
 

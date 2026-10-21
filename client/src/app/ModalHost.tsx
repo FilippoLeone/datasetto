@@ -10,6 +10,7 @@ import { ConfirmModal } from '@/features/channels/ConfirmModal';
 import { AudioSettingsModal } from '@/features/voice/AudioSettingsModal';
 import { AdminModal } from '@/features/admin/AdminModal';
 import { ChannelPermissionsModal } from '@/features/admin/ChannelPermissionsModal';
+import { ClipsModal } from '@/features/clips/ClipsModal';
 
 const renderModal = (current: ModalState) => {
   switch (current.type) {
@@ -25,6 +26,8 @@ const renderModal = (current: ModalState) => {
       return <StreamKeyModal channelId={current.channelId} />;
     case 'audioSettings':
       return <AudioSettingsModal />;
+    case 'clips':
+      return <ClipsModal />;
     case 'admin':
       return <AdminModal initialTab={current.tab} />;
     case 'channelPermissions':
