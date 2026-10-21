@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Headphones, HeadphoneOff, Mic, MicOff, MonitorUp, PhoneOff, Signal, Video, VideoOff } from 'lucide-preact';
+import { Headphones, HeadphoneOff, Mic, MicOff, MonitorUp, PhoneOff, Signal, Video, VideoOff, VolumeX } from 'lucide-preact';
 import { IconButton } from '@/components';
 import { cn } from '@/lib/cn';
 import { formatDuration } from '@/lib/format';
 import { MOTION, usePresence } from '@/lib/motion';
 import { channelsById } from '@/state/channels';
+import { peerAccountId, peerAudioPref } from '@/state/peerAudio';
 import {
   localCameraStream,
   localDeafened,
@@ -12,6 +13,7 @@ import {
   localScreenStream,
   overallQuality,
   participantCount,
+  peerList,
   pttPressed,
   voiceChannelId,
   voiceStartedAt,
@@ -50,6 +52,8 @@ export const VoiceDock = () => {
   const muted = localMuted.value || (audioSettings.value.pttEnable && !pttPressed.value);
   const cameraOn = localCameraStream.value !== null;
   const screenOn = localScreenStream.value !== null;
+  // People in the call I muted for me (state/peerAudio.ts): a small badge, since the dock lists nobody by name.
+  const mutedForMe = peerList.value.filter((peer) => peerAudioPref(peerAccountId(peer.id)).muted).map((peer) => peer.name);
 
   return (
     <div data-state={presence.state} className="motion-dock border-t border-border bg-base/40 px-2 py-2">
@@ -63,8 +67,20 @@ export const VoiceDock = () => {
           <span className={cn('block truncate text-xs font-semibold', status === 'connected' ? 'text-success' : 'text-warning')}>
             {status === 'connected' ? 'Voice connected' : status === 'reconnecting' ? 'Reconnecting voice…' : 'Connecting…'}
           </span>
-          <span className="block truncate text-xs text-text-muted">
-            {channel?.name ?? 'voice'} · {participantCount.value} {participantCount.value === 1 ? 'person' : 'people'} · {elapsed}
+          <span className="flex items-center gap-1 truncate text-xs text-text-muted">
+            <span className="truncate">
+              {channel?.name ?? 'voice'} · {participantCount.value} {participantCount.value === 1 ? 'person' : 'people'} · {elapsed}
+            </span>
+            {mutedForMe.length > 0 && (
+              <span
+                className="inline-flex shrink-0 items-center gap-0.5 rounded-sm bg-live/15 px-1 text-[10px] font-semibold text-live tabular-nums"
+                title={'Muted for you: ' + mutedForMe.join(', ')}
+                aria-label={mutedForMe.length + ' muted for you: ' + mutedForMe.join(', ')}
+                data-muted-for-me-count={mutedForMe.length}
+              >
+                <VolumeX size={11} /> {mutedForMe.length}
+              </span>
+            )}
           </span>
         </span>
       </button>

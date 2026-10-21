@@ -5,6 +5,7 @@ export { Avatar } from './Avatar';
 export { RoleBadge } from './RoleBadge';
 export { Toggle } from './Toggle';
 export { Slider } from './Slider';
+export { VolumeSlider } from './VolumeSlider';
 export { Select } from './Select';
 export { TextInput, TextArea } from './TextInput';
 export { Spinner } from './Spinner';

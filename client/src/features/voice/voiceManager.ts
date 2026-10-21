@@ -11,7 +11,8 @@ import { CameraError } from '@/services/voice/cameraCapture';
 import { isDesktopApp } from '@/services/native/desktop';
 import { parseShortcut, shortcutMatchesEvent } from '@/lib/shortcut';
 import { channelsById } from '@/state/channels';
-import { displayNameFor } from '@/state/presence';
+import { DEFAULT_PEER_AUDIO, peerAudioPrefs } from '@/state/peerAudio';
+import { displayNameFor, usersById } from '@/state/presence';
 import { account, isAuthenticated } from '@/state/session';
 import { audioSettings } from '@/state/settings';
 import { toast } from '@/state/ui';
@@ -102,6 +103,18 @@ class VoiceManager {
         speaking: localSpeaking.value,
         muted: localMuted.value || localDeafened.value,
       });
+    });
+
+    // What I hear of each person: the account's remembered volume and "mute for me"
+    // (state/peerAudio.ts) is pushed to the service for every peer in the room, so it
+    // applies when they join, when they come back on a new socket and when I move a slider.
+    effect(() => {
+      const prefs = peerAudioPrefs.value;
+      const people = usersById.value;
+      for (const peer of Object.values(voicePeers.value)) {
+        const accountId = peer.accountId ?? people.get(peer.id)?.accountId ?? null;
+        this.voice.setPeerAudio(peer.id, (accountId && prefs[accountId]) || DEFAULT_PEER_AUDIO);
+      }
     });
   }
 
@@ -500,16 +513,9 @@ class VoiceManager {
     api.timeoutFromVoice(peerId, displayNameFor(peerId, voicePeers.value[peerId]?.name ?? 'user'), minutes * 60_000);
   }
 
-  setPeerVolume(peerId: string, volume: number): void {
-    this.voice.setPeerVolume(peerId, volume);
-  }
-
-  setPeerMuted(peerId: string, muted: boolean): void {
-    this.voice.setPeerMuted(peerId, muted);
-  }
-
-  peerVolume(peerId: string): { muted: boolean; volume: number } {
-    return this.voice.getPeerAudioPreference(peerId);
+  /** The gain a peer's voice plays at for me right now, or null while their audio is not attached. */
+  peerGain(peerId: string): number | null {
+    return this.voice.peerGain(peerId);
   }
 
   // ----------------------------------------------------------- microphone

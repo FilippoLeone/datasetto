@@ -23,7 +23,7 @@ the web build served by Caddy needs none of them because everything is same-orig
 src/
   main.tsx                 bootstrap: runtime config -> socket -> render
   app/                     App shell, layout (sidebar, main area, member list, mobile toolbar), modal host, shortcuts, connection banner
-  state/                   signals: session, channels, chat, search, presence, voice, settings, activity (game activity), notifications (push status), ui, screenAudio, misc (streams, screenshare, admin, minigame)
+  state/                   signals: session, channels, chat, search, presence, voice, settings, activity (game activity), notifications (push status), ui, peerAudio (per-person volume), screenAudio, misc (streams, screenshare, admin, minigame)
   services/
     socket/                SocketClient (socket.io with our own reconnect pacing), backoff (exponential backoff + jitter scheduler),
                            api (typed emits), bindings (server events -> state)
@@ -124,6 +124,26 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
   offers 32 to 128 kbps); the value is applied to our sender through
   `setParameters` and asked of the other side through `maxaveragebitrate` in
   the SDP.
+
+## How loud each friend plays for you
+
+Every place you hear someone has their volume: click a member in the list on the
+right or under a voice channel, click their card or the percentage on their camera
+tile in a voice channel, or tap them on a phone (the menu becomes a bottom sheet).
+The panel has a 0 to 200 % slider (a real range input: arrow keys step 5 %, Home
+and End go to 0 and 200 %), a **Mute for me** switch and **Reset to 100 %**. The
+setting is per account and lives in `state/peerAudio.ts` (localStorage key
+`rtmpdisc.peerAudio.v1`), so it survives reloads and applies again whenever that
+person joins; `voiceManager` pushes it into `VoiceService`, which plays each
+remote voice through its own gain node (`services/voice/PeerAudioManager.ts`):
+above 100 % is a boost, a mute for me is gain 0 on your side only, nothing is
+signalled and their stream is untouched, and the change is heard at once. A
+muted friend shows a crossed speaker on their card, tile and row, and the voice
+dock counts them. Engines without `AudioContext.setSinkId` (Firefox, Safari) play
+through the `<audio>` element instead, where the volume tops out at 100 %. A
+shared screen's sound and the stream player keep their own 0 to 100 % volume with
+the same `VolumeSlider` component. The desktop overlay only mirrors mute states
+and is unchanged.
 
 ## Direct messages
 

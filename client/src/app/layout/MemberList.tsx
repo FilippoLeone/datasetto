@@ -1,11 +1,13 @@
-import { Ban, Gamepad2, Headphones, MessageCircle, MicOff, Radio, ShieldCheck, Volume2 } from 'lucide-preact';
+import { Ban, Gamepad2, Headphones, MessageCircle, MicOff, Radio, ShieldCheck, Volume2, VolumeX } from 'lucide-preact';
 import { Avatar, Menu, RoleBadge, type MenuItem } from '@/components';
 import { channelsById } from '@/state/channels';
+import { peerAudioPref } from '@/state/peerAudio';
 import { onlineCount, sortedUsers } from '@/state/presence';
 import { account, can } from '@/state/session';
 import { openModal } from '@/state/ui';
 import { api } from '@/services/socket/api';
 import { primaryRole, ROLE_ORDER } from '@/lib/format';
+import { PeerVolumePanel } from '@/features/voice/PeerVolumePanel';
 import type { User } from '@/types/protocol';
 
 const statusFor = (user: User): { text: string; icon: typeof Volume2 | null } => {
@@ -33,8 +35,11 @@ const canModerate = (target: User): boolean => {
 const MemberRow = ({ user }: { user: User }) => {
   const status = statusFor(user);
   const Icon = status.icon;
+  const isMe = user.accountId === account.value?.id;
+  // What I hear of them, remembered per account; set from this row's menu while they are in voice.
+  const audio = isMe ? null : peerAudioPref(user.accountId);
   const items: MenuItem[] = [];
-  if (user.accountId !== account.value?.id) {
+  if (!isMe) {
     items.push({ label: 'Message ' + user.displayName, icon: <MessageCircle size={14} />, onSelect: () => api.openDm(user.accountId) });
   }
   if (canModerate(user)) {
@@ -58,15 +63,17 @@ const MemberRow = ({ user }: { user: User }) => {
       items.push({ label: 'Manage roles', icon: <ShieldCheck size={14} />, onSelect: () => openModal({ type: 'admin', tab: 'users' }) });
     }
   }
+  const header = !isMe && user.voiceChannel ? <PeerVolumePanel accountId={user.accountId} name={user.displayName} /> : undefined;
 
   return (
-    <Menu items={items} className="block w-full" title={user.displayName}>
-      <div className="flex cursor-default items-center gap-2.5 rounded-sm px-2 py-1.5 transition-colors duration-150 hover:bg-hover">
+    <Menu items={items} className="block w-full" title={user.displayName} header={header}>
+      <div className="flex cursor-default items-center gap-2.5 rounded-sm px-2 py-1.5 transition-colors duration-150 hover:bg-hover" data-member-row={user.accountId}>
         <Avatar seed={user.accountId} name={user.displayName} src={user.avatarUrl} size={32} status="online" />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium text-text">{user.displayName}</span>
             <RoleBadge roles={user.roles} />
+            {audio?.muted && <VolumeX size={12} className="shrink-0 text-live" aria-label="Muted for you" title="Muted for you" data-muted-for-me />}
           </span>
           <span className="flex items-center gap-1 text-xs text-text-muted" title={status.text} data-status={user.activity ? 'playing' : undefined}>
             {Icon && <Icon size={12} className="shrink-0" />}
