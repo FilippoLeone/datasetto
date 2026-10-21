@@ -108,6 +108,23 @@ Installers for Windows, Linux and macOS and a debug-signed Android APK are
 built by `.github/workflows/release.yml` when a GitHub release is created, and
 the site's downloads page lists the latest ones.
 
+### Datasetto on iPhone
+
+There is no App Store build (the iOS job of the release workflow is switched
+off; shipping one needs a paid Apple developer account). iPhone and iPad use the
+web app in Safari, best added to the Home Screen: open the site in Safari, sign
+in, tap Share, then Add to Home Screen, and open Datasetto from there. Inside
+that Home Screen version, Settings > Notifications turns on push for direct
+messages and @mentions (iOS 16.4 or later; Safari tabs have no Web Push).
+
+What works: text channels, pictures, direct messages, live streams (Safari's
+own player, with fullscreen through the system player) and voice calls with
+camera. What iOS does not allow a web app to do: voice keeps running only
+while Datasetto is on screen and pauses when you switch apps or lock the
+phone (it picks up again when you come back); the phone chooses between
+speaker and earpiece; a friend cannot be played louder than 100 %; screen
+sharing is not available. The app says so once, in the voice channel.
+
 ## License
 
 GNU AGPLv3, see [LICENSE.md](LICENSE.md).

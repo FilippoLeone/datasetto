@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { X } from 'lucide-preact';
-import { openExternal } from '@/services/native/desktop';
+import { onExternalLinkClick } from '@/services/native/desktop';
 import type { LinkPreview } from '@/types/protocol';
 
 const hostOf = (url: string): string => {
@@ -40,11 +40,7 @@ export const LinkPreviewCard = ({ preview, canRemove, onRemove }: LinkPreviewCar
           target="_blank"
           rel="noopener noreferrer"
           className="line-clamp-2 font-semibold text-link hover:underline"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            openExternal(preview.url);
-          }}
+          onClick={(event) => onExternalLinkClick(event, preview.url)}
         >
           {title}
         </a>

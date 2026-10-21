@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import { isAndroid, isIOS, isNativeApp, isTouchPrimary } from '@/lib/device';
+import { isAndroid, isIOS, isNativeApp, isStandaloneDisplay, isTouchPrimary } from '@/lib/device';
 import { installHintFor, type InstallHint } from '@/lib/installPrompt';
 import { Storage } from '@/lib/storage';
 
@@ -17,12 +17,7 @@ let dismissedAt: number | null = Storage.get<number | null>(DISMISSED_KEY, null)
 /** What the sidebar's install card should show right now. */
 export const installHint = signal<InstallHint>('none');
 
-/** Running from the home screen already. */
-export const isStandaloneDisplay = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  if (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) return true;
-  return (navigator as Navigator & { standalone?: boolean }).standalone === true;
-};
+export { isStandaloneDisplay };
 
 const recompute = (): void => {
   installHint.value = installHintFor({

@@ -143,7 +143,9 @@ class VoiceManager {
     }
 
     try {
+      // Both audio contexts start inside the tap on "Join": Safari would keep one created after the permission prompt silent.
       this.voice.prepareAudioPlayback();
+      this.audio.unlock();
       this.pendingJoin = channelId;
       this.rtcSessionId = newRtcSessionId();
       batch(() => {
@@ -488,6 +490,7 @@ class VoiceManager {
   /** Open the microphone outside a call so the settings dialog can show a level meter. */
   async startMicTest(): Promise<void> {
     try {
+      this.audio.unlock();
       await this.audio.getLocalStream(false);
       this.audio.setMuted(false);
     } catch (error) {

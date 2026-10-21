@@ -14,7 +14,7 @@ export const ToastHost = () => {
   // A dismissed toast stays for its slide-out (data-state="closed", see styles/app.css).
   const entries = useListPresence(toasts.value, (toast) => toast.id, MOTION.fast);
   return (
-    <div className="pointer-events-none fixed top-3 right-3 z-[60] flex w-80 max-w-[calc(100vw-24px)] flex-col gap-2 safe-top">
+    <div className="pointer-events-none fixed top-3 right-[max(0.75rem,env(safe-area-inset-right,0px))] z-[60] flex w-80 max-w-[calc(100vw-24px)] flex-col gap-2 safe-top">
       {entries.map(({ key, item: toast, state }) => (
         <div
           key={key}

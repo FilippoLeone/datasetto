@@ -26,6 +26,23 @@ describe('push status', () => {
     expect(describePushStatus(status({ ...ready, permission: 'denied' })).detail).toMatch(/browser settings/);
   });
 
+  it('sends iPhone users to the Home Screen app, where Web Push exists', () => {
+    // A Safari tab on iOS: no PushManager, and no point blaming the browser.
+    const tab = describePushStatus(status({ ...ready, supported: false, ios: true, standalone: false }));
+    expect(tab).toMatchObject({ toggle: 'unavailable', label: 'Needs the Home Screen app', canTest: false });
+    expect(tab.detail).toMatch(/Add to Home Screen/);
+    expect(tab.detail).toMatch(/16\.4/);
+    // Even a tab that somehow reports support stays off: Safari only pushes to the installed app.
+    expect(describePushStatus(status({ ...ready, ios: true, standalone: false })).label).toBe('Needs the Home Screen app');
+    // Installed, but on an iOS without Web Push.
+    expect(describePushStatus(status({ ...ready, supported: false, ios: true, standalone: true }))).toMatchObject({ toggle: 'unavailable', label: 'Needs iOS 16.4 or later' });
+    // Installed on a current iOS: the ordinary switch, like any other browser.
+    expect(describePushStatus(status({ ...ready, ios: true, standalone: true }))).toMatchObject({ toggle: 'off', label: 'Off' });
+    expect(describePushStatus(status({ ...ready, ios: true, standalone: true, permission: 'granted', enabled: true }))).toMatchObject({ toggle: 'on', canTest: true });
+    // The shells keep their own answer.
+    expect(describePushStatus(status({ ...ready, ios: true, native: true })).label).toBe('Handled by the app');
+  });
+
   it('offers the switch when everything is in place and a test once it is on', () => {
     const off = describePushStatus(status(ready));
     expect(off).toMatchObject({ toggle: 'off', label: 'Off', canTest: false });

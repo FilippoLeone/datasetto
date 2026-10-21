@@ -2,6 +2,7 @@ import { Volume1, Volume2, VolumeX } from 'lucide-preact';
 import { Button, Toggle, VolumeSlider } from '@/components';
 import { cn } from '@/lib/cn';
 import { isTouchPrimary } from '@/lib/device';
+import { supportsPlaybackBoost } from '@/services/voice/PeerAudioManager';
 import { DEFAULT_PEER_AUDIO, PEER_VOLUME_STEP_PERCENT, peerAudioPref, resetPeerAudioPref, setPeerAudioPref, volumePercent } from '@/state/peerAudio';
 
 interface PeerVolumePanelProps {
@@ -14,10 +15,13 @@ interface PeerVolumePanelProps {
  * How loud one person plays for me: a 0..200 % slider, "Mute for me" and "Reset to 100 %".
  * Rendered as the header of that person's menu (a dropdown with a mouse, a bottom sheet on
  * a phone). Changes apply at once through the voice service's gain node for that person.
+ * Where voices play through a plain media element (Safari, Firefox) the slider stops at 100 %,
+ * which is as loud as that path goes.
  */
 export const PeerVolumePanel = ({ accountId, name }: PeerVolumePanelProps) => {
   const pref = peerAudioPref(accountId);
-  const percent = volumePercent(pref.volume);
+  const boost = supportsPlaybackBoost();
+  const percent = Math.min(boost ? 200 : 100, volumePercent(pref.volume));
   const atDefault = pref.volume === DEFAULT_PEER_AUDIO.volume && pref.muted === DEFAULT_PEER_AUDIO.muted;
   const roomy = isTouchPrimary();
   const Icon = pref.muted || percent === 0 ? VolumeX : percent < 100 ? Volume1 : Volume2;
@@ -31,13 +35,18 @@ export const PeerVolumePanel = ({ accountId, name }: PeerVolumePanelProps) => {
       <VolumeSlider
         label={'Volume for ' + name}
         value={percent}
-        max={200}
+        max={boost ? 200 : 100}
         step={PEER_VOLUME_STEP_PERCENT}
         showValue
         className={cn('text-sm text-text-muted', roomy && 'py-1')}
         valueClassName="w-12"
         onChange={(value) => setPeerAudioPref(accountId, { volume: value / 100 })}
       />
+      {!boost && (
+        <p className="text-xs text-text-faint" data-no-boost>
+          Louder than 100 % is not available in this browser.
+        </p>
+      )}
       <Toggle label="Mute for me" description="Silences them on your side only." checked={pref.muted} onChange={(muted) => setPeerAudioPref(accountId, { muted })} />
       <Button size="sm" variant="secondary" disabled={atDefault} className="self-start" onClick={() => resetPeerAudioPref(accountId)} data-peer-volume-reset>
         Reset to 100 %

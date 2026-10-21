@@ -193,6 +193,25 @@ export class AudioService extends EventEmitter {
   }
 
   /**
+   * Create (or resume) the AudioContext right now, in the user gesture that started a call
+   * or the mic test. Safari only lets an AudioContext run when it was created or resumed
+   * during a user gesture; by the time the microphone permission has been granted (an await
+   * later) the gesture is over, and a context created then stays silent on iPhone.
+   */
+  unlock(): void {
+    try {
+      const ctx = this.initAudioContext();
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => undefined);
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[AudioService] Could not unlock audio:', error);
+      }
+    }
+  }
+
+  /**
    * Get list of available audio devices
    */
   async getDevices(): Promise<{ mics: DeviceInfo[]; speakers: DeviceInfo[] }> {

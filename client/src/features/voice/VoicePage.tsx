@@ -28,6 +28,8 @@ import {
   type VoicePeer,
 } from '@/state/voice';
 import { api } from '@/services/socket/api';
+import { supportsPlaybackBoost } from '@/services/voice/PeerAudioManager';
+import { IosVoiceNotice } from './IosVoiceNotice';
 import { PeerVolumePanel } from './PeerVolumePanel';
 import { VideoTile, type TileAudioControls } from './VideoTile';
 import { VIDEO_GRID_GAP, videoGridLayout } from './videoGrid';
@@ -179,7 +181,8 @@ const personAudioControls = (peerId: string): TileAudioControls | undefined => {
   return {
     muted: pref.muted,
     volume: pref.volume,
-    max: 2,
+    // Above 100 % only on the Web Audio path (not Safari or Firefox, whose voices play through a media element).
+    max: supportsPlaybackBoost() ? 2 : 1,
     sliderLabel: 'Volume for ' + name,
     muteLabel: 'Mute ' + name + ' for me',
     unmuteLabel: 'Unmute ' + name + ' for me',
@@ -300,6 +303,7 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
         <Button size="lg" variant="success" loading={voiceStatus.value === 'connecting' && voiceChannelId.value === channel.id} onClick={() => void voiceManager.join(channel.id)}>
           <Phone size={18} /> Join voice
         </Button>
+        <IosVoiceNotice />
         {members.length > 0 && (
           <div className="flex flex-wrap justify-center gap-3">
             {members.map((user) => (
@@ -339,6 +343,8 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
         <VideoGrid edge={immersive} />
       ) : (
         <div className="scrollbar-thin flex flex-1 flex-wrap content-start justify-center gap-3 overflow-y-auto p-4">
+          {/* A tap on a voice channel joins it at once, so the one-time iPhone notice is read here, in the call. */}
+          <IosVoiceNotice className="w-full max-w-none" />
           {me && <PeerTile peer={{ id: 'me', name: me.displayName, muted: localMuted.value, deafened: localDeafened.value, speaking: localSpeaking.value, camera: false, screen: false, quality: 'unknown' }} isMe />}
           {peerTiles.map((entry) => (
             <PeerTile key={entry.key} peer={entry.item} isMe={false} state={entry.state} />

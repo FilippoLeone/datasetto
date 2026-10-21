@@ -9,7 +9,7 @@
  * inside the Electron or Capacitor shells, which notify on their own.
  */
 import { openChannelWhenListed } from '@/features/channels/channelActions';
-import { isNativeApp } from '@/lib/device';
+import { isIOS, isNativeApp, isStandaloneDisplay } from '@/lib/device';
 import { Storage } from '@/lib/storage';
 import { serverConfig } from '@/services/ServerConfigService';
 import { api } from '@/services/socket/api';
@@ -112,6 +112,9 @@ export const updateNotificationPreferences = async (patch: Partial<NotificationP
 
 const failed = (ack: PushAck): string | null => (ack.success ? null : ack.error || 'The server refused the request');
 
+/** Where this page runs: iPhone or iPad, and whether it was opened from the Home Screen (iOS has Web Push only there). */
+const platform = () => ({ ios: isIOS(), standalone: isStandaloneDisplay() });
+
 /** Read the current situation into the status signal without changing anything. */
 export const refreshPushStatus = async (): Promise<void> => {
   const native = isNativeApp();
@@ -125,7 +128,7 @@ export const refreshPushStatus = async (): Promise<void> => {
       enabled = false;
     }
   }
-  updatePushStatus({ native, supported, serverEnabled: serverConfig.pushEnabled(), permission: permission(), enabled });
+  updatePushStatus({ ...platform(), native, supported, serverEnabled: serverConfig.pushEnabled(), permission: permission(), enabled });
 };
 
 /** Turn notifications on for this browser: permission prompt, service worker, subscription. */
@@ -197,7 +200,7 @@ export const syncPushSubscription = async (): Promise<void> => {
     const registration = await registerWorker();
     const subscription = await ensureSubscription(registration, serverKey);
     const error = failed(await registerWithServer(subscription));
-    updatePushStatus({ native: false, supported: true, serverEnabled: true, permission: 'granted', enabled: error === null, error });
+    updatePushStatus({ ...platform(), native: false, supported: true, serverEnabled: true, permission: 'granted', enabled: error === null, error });
   } catch (error) {
     updatePushStatus({ enabled: false, error: errorText(error) });
   }

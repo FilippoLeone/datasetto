@@ -42,3 +42,17 @@ export const openExternal = (url: string): void => {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 };
+
+/**
+ * Click handler for an `<a target="_blank" rel="noopener noreferrer">` to a page outside the
+ * app. In the desktop app the link is handed to the system browser. Everywhere else the
+ * anchor's own navigation runs: that is what every browser treats as a real link (no popup
+ * blocking), and what an iPhone web app opened from the Home Screen hands to Safari instead
+ * of swallowing it. `window.open` from script would be blocked or opened inside the web app.
+ */
+export const onExternalLinkClick = (event: MouseEvent, url: string): void => {
+  event.stopPropagation();
+  if (!window.desktopAPI?.openExternal) return;
+  event.preventDefault();
+  void window.desktopAPI.openExternal(url);
+};

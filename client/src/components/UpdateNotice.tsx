@@ -28,7 +28,7 @@ export const UpdateNotice = () => {
       data-version={notice.version}
       className={cn(
         // Same layer as the toasts: usable above the sign-in dialog and the settings dialog.
-        'motion-toast fixed right-3 z-[60] flex w-80 max-w-[calc(100vw-24px)] items-start gap-3 rounded-md border-l-2 border-brand bg-elevated px-3 py-2.5 text-sm shadow-pop',
+        'motion-toast fixed right-[max(0.75rem,env(safe-area-inset-right,0px))] z-[60] flex w-80 max-w-[calc(100vw-24px)] items-start gap-3 rounded-md border-l-2 border-brand bg-elevated px-3 py-2.5 text-sm shadow-pop',
         isPhone.value ? 'bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px)+12px)]' : 'bottom-3 safe-bottom',
       )}
     >
