@@ -3,15 +3,15 @@ import { rolesHavePermission } from '../../core/roles.js';
 import { emojiSchema, idSchema } from '../../core/validation.js';
 import { AppError, forbidden, notFound } from '../../errors.js';
 import { extractFirstUrl, previewView } from '../../services/linkPreviews.js';
-import { notifyMessageRecipients } from '../../services/messageNotifications.js';
-import type { ChannelRecord, MessageRecord } from '../../types.js';
+import { notifyMessageRecipients, resolveMentions } from '../../services/messageNotifications.js';
+import type { ChannelRecord, ChannelType, MessageRecord } from '../../types.js';
 import { handle, requireUser, type SocketContext } from '../context.js';
 
 /**
  * `chat` takes the text alone, or an object with the text and/or the ids of pictures
  * uploaded through POST /api/uploads, the channel (so a message queued while offline
- * lands where it was typed, whatever channel is open now) and a client-side id that is
- * echoed back for matching the pending copy.
+ * lands where it was typed, whatever channel is open now), the message it replies to
+ * and a client-side id that is echoed back for matching the pending copy.
  */
 const chatSchema = z.union([
   z.string().max(20_000),
@@ -20,9 +20,16 @@ const chatSchema = z.union([
     attachmentIds: z.array(idSchema).max(50).optional().nullable(),
     channelId: idSchema.optional().nullable(),
     clientId: z.string().min(1).max(64).optional().nullable(),
+    replyToId: idSchema.optional().nullable(),
   }),
 ]);
+const editSchema = z.object({ messageId: idSchema, channelId: idSchema, text: z.string().max(20_000) });
 const deleteSchema = z.object({ messageId: idSchema, channelId: idSchema });
+const membersSchema = z.object({ channelId: idSchema });
+/** Channel kinds that carry chat (and so can be replied in and have mentionable members). */
+const CHAT_TYPES: ReadonlySet<ChannelType> = new Set<ChannelType>(['text', 'stream', 'dm']);
+/** Longest member list `channel:members` answers with (a friend group is far smaller). */
+const MAX_MEMBERS_LISTED = 500;
 const previewRemoveSchema = z.object({ messageId: idSchema, channelId: idSchema });
 /** Largest page of older history one request may ask for. */
 export const MAX_HISTORY_PAGE = 200;
@@ -72,8 +79,15 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
       throw new AppError('At most ' + app.config.uploads.maxFilesPerMessage + ' pictures per message', 'TOO_MANY_ATTACHMENTS', 400);
     }
     const previewUrl = app.config.linkPreviews.enabled && channel.linkPreviews ? extractFirstUrl(text) : null;
+    // A reply quotes a message of the same channel that still exists.
+    const replyToId = typeof payload === 'string' ? null : (payload.replyToId ?? null);
+    if (replyToId) {
+      const original = app.messages.get(channel.id, replyToId);
+      if (!original || original.deleted) throw new AppError('The message you are replying to is not available any more', 'REPLY_TARGET_MISSING', 404);
+    }
+    const mentions = resolveMentions(text, app.accounts.list());
 
-    let message = app.messages.create(channel.id, user, text, { allowEmpty: attachmentIds.length > 0, previewUrl });
+    let message = app.messages.create(channel.id, user, text, { allowEmpty: attachmentIds.length > 0, previewUrl, replyToId, mentions });
     message = app.messages.attach(message, attachmentIds);
     app.channels.touchActivity(channel.id, message.ts);
     if (channel.type === 'dm') {
@@ -96,6 +110,69 @@ export const registerChatHandlers = (sctx: SocketContext): void => {
     // The other side of a DM and @-mentioned people who are not looking at the app get a push.
     void notifyMessageRecipients(app, channel, message);
     if (ack) ack({ success: true, messageId: message.id, channelId: channel.id, clientId, ts: message.ts });
+  });
+
+  /**
+   * `chat:edit {channelId, messageId, text}`: the author replaces the text of their
+   * own message. Everyone who can see the channel gets `chat:messageUpdated` with the
+   * new text, the edit time and the mentions; people the edit newly mentions are
+   * notified like for a new message. Answered through the acknowledgement.
+   */
+  handle(sctx, 'chat:edit', { schema: editSchema, code: 'EDIT_FAILED', limiter: 'chat' }, ({ messageId, channelId, text }, ack) => {
+    const user = requireUser(sctx);
+    const channel = app.channels.get(channelId);
+    if (!channel) throw notFound('Channel');
+    if (!app.channels.canAccess(channel, user, 'chat')) throw forbidden('No permission to send messages in this channel');
+    const existing = app.messages.get(channel.id, messageId);
+    if (!existing || existing.deleted) throw notFound('Message');
+    if (existing.accountId === null || existing.accountId !== user.accountId) throw forbidden('Only the author can edit a message');
+
+    const previewUrl = app.config.linkPreviews.enabled && channel.linkPreviews ? extractFirstUrl(text) : null;
+    const mentions = resolveMentions(text, app.accounts.list());
+    const message = app.messages.edit(channel.id, messageId, text, { previewUrl, mentions });
+
+    // The card of a fresh cached link is on the message already; a new or stale link is fetched.
+    // A card the author took off stays off while the link is the same (previewUrlOf answers null then).
+    const pending = previewUrl && !message.preview && app.messages.previewUrlOf(channel.id, messageId) === previewUrl ? previewUrl : null;
+    app.broadcast.toChannelViewers(channel.id, 'chat:messageUpdated', {
+      channelId: channel.id,
+      messageId,
+      text: message.text,
+      edited: true,
+      editedAt: message.editedAt,
+      mentions: message.mentions,
+      preview: message.preview,
+    });
+    if (pending) fetchPreviewLater(channel, message, pending);
+    const before = new Set(existing.mentions.map((mention) => mention.accountId));
+    const added = message.mentions.map((mention) => mention.accountId).filter((accountId) => !before.has(accountId));
+    if (added.length > 0) void notifyMessageRecipients(app, channel, message, { mentionIds: added });
+    app.log.info({ messageId, channelId: channel.id, by: user.accountId }, 'message edited');
+    if (ack) ack({ success: true, messageId, channelId: channel.id, editedAt: message.editedAt });
+  });
+
+  /**
+   * `channel:members {channelId}` (acknowledgement): the people who can read the
+   * channel, for the composer's @mention autocomplete. A conversation lists its two
+   * participants; a private channel its members (and the admins who see it); a
+   * public channel everyone with an active account.
+   */
+  handle(sctx, 'channel:members', { schema: membersSchema, code: 'MEMBERS_FAILED' }, ({ channelId }, ack) => {
+    const user = requireUser(sctx);
+    const channel = app.channels.get(channelId);
+    if (!channel) throw notFound('Channel');
+    if (!CHAT_TYPES.has(channel.type)) throw new AppError('This channel does not support chat', 'CHAT_NOT_SUPPORTED', 400);
+    if (!app.channels.canAccess(channel, user, 'view')) throw forbidden('No permission to access this channel');
+    const members = app.accounts
+      .list()
+      .filter((account) => account.status === 'active' && !app.moderation.getBan(account.id))
+      .filter((account) => app.channels.canAccess(channel, { accountId: account.id, roles: account.roles, isSuperuser: account.roles.includes('superuser') }, 'view'))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }))
+      .slice(0, MAX_MEMBERS_LISTED)
+      .map((account) => ({ accountId: account.id, username: account.username, displayName: account.displayName, avatarUrl: account.avatarUrl, roles: account.roles }));
+    const response = { success: true as const, channelId: channel.id, members };
+    if (ack) ack(response);
+    else sctx.socket.emit('channel:members', response);
   });
 
   // The author takes the link card off their own message (moderators may too).

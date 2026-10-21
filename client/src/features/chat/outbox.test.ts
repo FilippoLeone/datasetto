@@ -10,6 +10,8 @@ interface Deferred {
 const make = (online = true) => {
   const sent: Deferred[] = [];
   const changes: PendingMessage[][] = [];
+  const edits: Array<[string, string, string]> = [];
+  const deletes: Array<[string, string]> = [];
   const state = { online };
   let ids = 0;
   const outbox = createOutbox({
@@ -19,9 +21,11 @@ const make = (online = true) => {
       }),
     canSend: () => state.online,
     onChange: (entries) => changes.push(entries),
+    editSent: (channelId, messageId, text) => edits.push([channelId, messageId, text]),
+    deleteSent: (channelId, messageId) => deletes.push([channelId, messageId]),
     newId: () => 'id' + (ids += 1),
   });
-  return { outbox, sent, changes, state };
+  return { outbox, sent, changes, edits, deletes, state };
 };
 
 describe('outgoing message queue', () => {
@@ -122,6 +126,83 @@ describe('outgoing message queue', () => {
     // A late acknowledgement of a message already marked failed still removes it: it did arrive.
     sent[0].resolve({ success: true });
     await vi.advanceTimersByTimeAsync(0);
+    expect(outbox.entries()).toEqual([]);
+  });
+
+  it('keeps the reply target with the message', () => {
+    const { outbox, sent } = make(true);
+    const entry = outbox.enqueue('general', 'yes', [], 'msg-original');
+    expect(entry.replyToId).toBe('msg-original');
+    expect(sent[0].message.replyToId).toBe('msg-original');
+    expect(outbox.enqueue('general', 'plain').replyToId).toBeNull();
+  });
+
+  it('edits a queued message in place, and follows up an edit made while it was in flight', async () => {
+    const { outbox, sent, edits, state } = make(false);
+    outbox.enqueue('general', 'draft');
+    expect(outbox.edit('id1', 'better draft')).toBe(true);
+    expect(outbox.pending('general')[0].text).toBe('better draft');
+    expect(outbox.edit('id-nope', 'x')).toBe(false);
+
+    // Sent as edited; nothing to follow up.
+    state.online = true;
+    outbox.flush();
+    expect(sent[0].message.text).toBe('better draft');
+    sent[0].resolve({ success: true, messageId: 'm1' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(edits).toEqual([]);
+    expect(outbox.entries()).toEqual([]);
+
+    // Edited while in flight: the server stored the old text, so the real message is edited once its id is known.
+    outbox.enqueue('general', 'typo');
+    expect(sent[1].message.status).toBe('sending');
+    expect(outbox.edit('id2', 'fixed')).toBe(true);
+    expect(outbox.entries()[0].text).toBe('fixed');
+    sent[1].resolve({ success: true, messageId: 'm2' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(edits).toEqual([['general', 'm2', 'fixed']]);
+    expect(outbox.entries()).toEqual([]);
+
+    // The echo may come first and carries the id too; the follow-up happens once.
+    outbox.enqueue('general', 'typo again');
+    outbox.edit('id3', 'fixed again');
+    expect(outbox.confirm('id3', 'm3')).toBe(true);
+    sent[2].resolve({ success: true, messageId: 'm3' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(edits).toEqual([
+      ['general', 'm2', 'fixed'],
+      ['general', 'm3', 'fixed again'],
+    ]);
+  });
+
+  it('drops a discarded message, deleting it on the server when it was accepted after all', async () => {
+    const { outbox, sent, deletes, state } = make(false);
+    outbox.enqueue('general', 'never mind');
+    outbox.discard('id1');
+    expect(outbox.entries()).toEqual([]);
+    state.online = true;
+    outbox.flush();
+    expect(sent).toHaveLength(0);
+    expect(deletes).toEqual([]);
+
+    // In flight when discarded: gone from the list at once, deleted on the server once it names the message.
+    outbox.enqueue('general', 'sent already?');
+    expect(sent).toHaveLength(1);
+    outbox.discard('id2');
+    expect(outbox.entries()).toEqual([]);
+    sent[0].resolve({ success: true, messageId: 'm2' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deletes).toEqual([['general', 'm2']]);
+    // The echo arriving afterwards (or first) does not delete it twice.
+    expect(outbox.confirm('id2', 'm2')).toBe(false);
+    expect(deletes).toHaveLength(1);
+
+    // Refused by the server: nothing to delete.
+    outbox.enqueue('general', 'refused');
+    outbox.discard('id3');
+    sent[1].resolve({ success: false, error: 'nope' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deletes).toHaveLength(1);
     expect(outbox.entries()).toEqual([]);
   });
 });

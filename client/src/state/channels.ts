@@ -12,6 +12,8 @@ export const selectedChannelId = signal<string | null>(Storage.get<string | null
 export const previousChannelId = signal<string | null>(null);
 /** Unread message counts per text channel. */
 export const unread = signal<Record<string, number>>({});
+/** How many of the unread messages per channel @-mention us (the badge turns into an @ badge). */
+export const mentions = signal<Record<string, number>>({});
 /** A channel to open as soon as it is listed: from `/app?channel=<id>` (notification click) or the service worker. */
 export const pendingChannelId = signal<string | null>(null);
 
@@ -61,6 +63,7 @@ export const channelLabel = (channel: Channel): string => (channel.type === 'dm'
 export const liveChannels = computed(() => channels.value.filter((channel) => channel.type === 'stream' && channel.isLive));
 
 export const totalUnread = computed(() => Object.values(unread.value).reduce((sum, count) => sum + count, 0));
+export const totalMentions = computed(() => Object.values(mentions.value).reduce((sum, count) => sum + count, 0));
 
 export const setChannels = (next: Channel[], nextGroups?: ChannelGroup[]): void => {
   batch(() => {
@@ -96,11 +99,24 @@ export const markUnread = (channelId: string): void => {
   unread.value = { ...unread.value, [channelId]: (unread.value[channelId] ?? 0) + 1 };
 };
 
+/** An unread message in this channel mentions us. */
+export const markMention = (channelId: string): void => {
+  mentions.value = { ...mentions.value, [channelId]: (mentions.value[channelId] ?? 0) + 1 };
+};
+
 export const markRead = (channelId: string): void => {
-  if (!unread.value[channelId]) return;
-  const next = { ...unread.value };
-  delete next[channelId];
-  unread.value = next;
+  batch(() => {
+    if (unread.value[channelId]) {
+      const next = { ...unread.value };
+      delete next[channelId];
+      unread.value = next;
+    }
+    if (mentions.value[channelId]) {
+      const next = { ...mentions.value };
+      delete next[channelId];
+      mentions.value = next;
+    }
+  });
 };
 
 export const toggleGroup = (type: ChannelType): void => {

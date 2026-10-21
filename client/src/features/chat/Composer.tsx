@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { AlertTriangle, ImagePlus, Send, Smile, X } from 'lucide-preact';
+import { AlertTriangle, CornerUpLeft, ImagePlus, Send, Smile, X } from 'lucide-preact';
 import { IconButton } from '@/components';
 import { addFiles, attachmentIds, canSend, filesFromTransfer, removeDraft, transferHasFiles, updateDraft, type AttachmentDraft } from '@/lib/attachments';
 import { cn } from '@/lib/cn';
@@ -7,10 +7,14 @@ import { sounds } from '@/services/sounds';
 import { serverConfig } from '@/services/ServerConfigService';
 import { uploadImage, type UploadHandle } from '@/services/uploads';
 import { channelLabel } from '@/state/channels';
-import { connectionStatus } from '@/state/session';
+import { messages, pendingMessages, replyTargets, setReplyTarget, startEditing } from '@/state/chat';
+import { account, connectionStatus } from '@/state/session';
 import { isMobile, toast } from '@/state/ui';
-import type { Channel } from '@/types/protocol';
+import type { Channel, MentionCandidate } from '@/types/protocol';
 import { EmojiPicker } from './EmojiPicker';
+import { MentionAutocomplete, optionId } from './MentionAutocomplete';
+import { knownMentionCandidates, loadMentionCandidates } from './mentionCandidates';
+import { insertMention, mentionQueryAt, rankMentionCandidates, type MentionQuery } from './mentions';
 import { sendChatMessage } from './outboxService';
 
 /** One picture in the strip above the text box: thumbnail, progress, error, remove. */
@@ -39,11 +43,20 @@ const DraftTile = ({ draft, onRemove, onRetry }: { draft: AttachmentDraft; onRem
   </div>
 );
 
+interface MentionState {
+  query: MentionQuery;
+  candidates: MentionCandidate[];
+  active: number;
+}
+
+const MENTION_LIST_ID = 'composer-mentions';
+
 export const Composer = ({ channel, compact }: { channel: Channel; compact?: boolean }) => {
   const [text, setText] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [drafts, setDrafts] = useState<AttachmentDraft[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [mention, setMention] = useState<MentionState | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploads = useRef(new Map<string, UploadHandle>());
@@ -55,6 +68,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
   const connected = connectionStatus.value === 'connected';
   const target = (channel.type === 'dm' ? '@' : '#') + channelLabel(channel);
   const sendable = canSend(text, drafts);
+  const reply = replyTargets.value[channel.id] ?? null;
 
   const discardAll = () => {
     for (const handle of uploads.current.values()) handle.abort();
@@ -67,10 +81,17 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
 
   useEffect(() => {
     setText('');
+    setMention(null);
     discardAll();
     if (!isMobile.value) textareaRef.current?.focus();
     return discardAll;
   }, [channel.id]);
+
+  // "Reply" on a message: the quote shows here and the box takes the focus (not on phones, where the keyboard would pop up).
+  const replyId = reply?.id ?? null;
+  useEffect(() => {
+    if (replyId && !isMobile.value) textareaRef.current?.focus();
+  }, [replyId]);
 
   const resize = () => {
     const node = textareaRef.current;
@@ -133,9 +154,11 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
   const send = () => {
     if (!sendable) return;
     const value = text.trim().slice(0, maxLength);
-    sendChatMessage(channel.id, value, attachmentIds(drafts));
+    sendChatMessage(channel.id, value, attachmentIds(drafts), reply?.id ?? null);
     sounds.play('messageSent', 0.2);
     setText('');
+    setMention(null);
+    if (reply) setReplyTarget(channel.id, null);
     for (const draft of drafts) URL.revokeObjectURL(draft.previewUrl);
     setDrafts([]);
     requestAnimationFrame(resize);
@@ -154,6 +177,98 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
     });
   };
 
+  /**
+   * After every keystroke or caret move: is an @mention being typed? Then show
+   * who matches. The server's member list arrives a moment later the first time;
+   * what is known already (people online) shows at once.
+   */
+  const refreshMention = (value: string, caret: number) => {
+    const query = mentionQueryAt(value, caret);
+    if (!query) {
+      if (mention) setMention(null);
+      return;
+    }
+    const show = (candidates: MentionCandidate[]) => {
+      const ranked = rankMentionCandidates(candidates, query.query);
+      setMention(ranked.length > 0 ? { query, candidates: ranked, active: 0 } : null);
+    };
+    show(knownMentionCandidates(channel));
+    void loadMentionCandidates(channel).then((candidates) => {
+      // Still typing the same mention? The list may have grown.
+      const node = textareaRef.current;
+      if (!node) return;
+      const current = mentionQueryAt(node.value, node.selectionStart ?? node.value.length);
+      if (!current || current.start !== query.start) return;
+      const ranked = rankMentionCandidates(candidates, current.query);
+      setMention(ranked.length > 0 ? { query: current, candidates: ranked, active: 0 } : null);
+    });
+  };
+
+  const pickMention = (candidate: MentionCandidate) => {
+    if (!mention) return;
+    const next = insertMention(text, mention.query, candidate);
+    setText(next.text);
+    setMention(null);
+    const node = textareaRef.current;
+    requestAnimationFrame(() => {
+      node?.focus();
+      node?.setSelectionRange(next.caret, next.caret);
+      resize();
+    });
+  };
+
+  /** Arrow up in an empty box edits our newest message here (a pending one first, else the last one sent). */
+  const editLastOwn = (): boolean => {
+    const pending = pendingMessages.value[channel.id] ?? [];
+    const last = pending[pending.length - 1];
+    if (last) {
+      startEditing({ channelId: channel.id, clientId: last.clientId });
+      return true;
+    }
+    const me = account.value?.id;
+    const own = (messages.value[channel.id] ?? []).filter((message) => message.accountId === me && !message.deleted);
+    const latest = own[own.length - 1];
+    if (!latest) return false;
+    startEditing({ channelId: channel.id, messageId: latest.id });
+    return true;
+  };
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (mention) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        setMention({ ...mention, active: (mention.active + step + mention.candidates.length) % mention.candidates.length });
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        pickMention(mention.candidates[mention.active]);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setMention(null);
+        return;
+      }
+    }
+    if (event.key === 'Escape' && reply) {
+      event.preventDefault();
+      event.stopPropagation();
+      setReplyTarget(channel.id, null);
+      return;
+    }
+    if (event.key === 'ArrowUp' && text === '' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      if (editLastOwn()) event.preventDefault();
+      return;
+    }
+    if (event.key === 'Enter' && !event.shiftKey && !isMobile.value) {
+      event.preventDefault();
+      send();
+    }
+  };
+
   return (
     <div className={cn('shrink-0 px-4 pb-4', compact && 'px-3 pb-3')}>
       <div
@@ -169,6 +284,19 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
           if (dragDepth.current === 0) setDragging(false);
         }}
       >
+        {mention && <MentionAutocomplete id={MENTION_LIST_ID} candidates={mention.candidates} activeIndex={mention.active} onPick={pickMention} onActivate={(index) => setMention({ ...mention, active: index })} />}
+        {reply && (
+          <div className="flex items-center gap-2 border-b border-border px-3 py-1 text-xs text-text-muted" data-reply-bar>
+            <CornerUpLeft size={14} className="shrink-0 text-text-faint" aria-hidden="true" />
+            <span className="min-w-0 truncate">
+              Replying to <span className="font-semibold text-text-bright">{reply.from ?? 'a deleted message'}</span>
+              {reply.text && <span className="text-text-faint"> · {reply.text}</span>}
+            </span>
+            <IconButton label="Cancel reply" size="sm" className="ml-auto" onClick={() => setReplyTarget(channel.id, null)}>
+              <X size={16} />
+            </IconButton>
+          </div>
+        )}
         {drafts.length > 0 && (
           <div className="scrollbar-thin flex gap-2 overflow-x-auto px-3 pt-3" aria-label="Pictures to send">
             {drafts.map((draft) => (
@@ -201,23 +329,29 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
             maxLength={maxLength}
             placeholder={connected ? 'Message ' + target : 'Message ' + target + ' (sent when back online)'}
             aria-label={'Message ' + target}
+            aria-autocomplete="list"
+            aria-controls={mention ? MENTION_LIST_ID : undefined}
+            aria-expanded={Boolean(mention)}
+            aria-activedescendant={mention ? optionId(MENTION_LIST_ID, mention.active) : undefined}
             className="scrollbar-thin max-h-[200px] min-h-[40px] flex-1 resize-none bg-transparent py-2.5 text-sm text-text-bright placeholder:text-text-faint outline-none"
             onInput={(event) => {
-              setText((event.target as HTMLTextAreaElement).value);
+              const node = event.target as HTMLTextAreaElement;
+              setText(node.value);
               resize();
+              refreshMention(node.value, node.selectionStart ?? node.value.length);
             }}
+            onClick={(event) => {
+              const node = event.currentTarget;
+              refreshMention(node.value, node.selectionStart ?? node.value.length);
+            }}
+            onBlur={() => setMention(null)}
             onPaste={(event) => {
               const files = filesFromTransfer(event.clipboardData);
               if (files.length === 0) return;
               event.preventDefault();
               attach(files);
             }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !isMobile.value) {
-                event.preventDefault();
-                send();
-              }
-            }}
+            onKeyDown={onKeyDown}
           />
           <div className="relative flex items-center pb-1">
             <IconButton label="Emoji" size="sm" onClick={() => setEmojiOpen((value) => !value)}>

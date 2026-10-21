@@ -58,7 +58,8 @@ describe('MessageService reactions', () => {
 
     ctx.messages.delete(channel.id, message.id, 'Alice');
     expect(() => ctx.messages.addReaction(channel.id, message.id, carol.id, '😀')).toThrow(/not found/);
-    expect(ctx.messages.history(channel.id)).toEqual([]);
+    // The tombstone stays in history but shows no reactions.
+    expect(ctx.messages.history(channel.id).map((entry) => [entry.id, entry.deleted, entry.reactions])).toEqual([[message.id, true, []]]);
     ctx.messages.prune(channel.id);
     const second = ctx.messages.create(channel.id, ctx.presence.getUser('sock-1')!, 'second');
     ctx.messages.addReaction(channel.id, second.id, bob.id, '👍');

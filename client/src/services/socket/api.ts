@@ -1,7 +1,9 @@
 import { socketClient } from './client';
 import type {
   ChatAck,
+  ChannelMembersResponse,
   ChannelPermissions,
+  EditAck,
   HeldPeerConnection,
   CreateChannelInput,
   CreateInviteInput,
@@ -72,9 +74,13 @@ export const api = {
    * echoed `chat` event (features/chat/outbox.ts matches the pending copy with it). Pictures
    * uploaded through `services/uploads.ts` ride along as attachment ids.
    */
-  sendMessage: (channelId: string, text: string, clientId: string, attachmentIds: string[] = []) =>
-    socketClient.request<ChatAck>('chat', { text, channelId, clientId, attachmentIds }, 10_000),
+  sendMessage: (channelId: string, text: string, clientId: string, attachmentIds: string[] = [], replyToId: string | null = null) =>
+    socketClient.request<ChatAck>('chat', { text, channelId, clientId, attachmentIds, replyToId }, 10_000),
+  /** Replace the text of one of our own messages (answered through the acknowledgement; viewers get `chat:messageUpdated`). */
+  editMessage: (channelId: string, messageId: string, text: string) => socketClient.request<EditAck>('chat:edit', { channelId, messageId, text }, 10_000),
   deleteMessage: (channelId: string, messageId: string) => emit('chat:delete', { channelId, messageId }),
+  /** The people who can read a channel, for the @mention autocomplete. */
+  listMentionableMembers: (channelId: string) => socketClient.request<ChannelMembersResponse>('channel:members', { channelId }),
   /** Take the link card off a message (own messages, or any with the delete-any-message right). */
   removePreview: (channelId: string, messageId: string) => emit('chat:preview:remove', { channelId, messageId }),
   /** A fresh media ticket for picture URLs (answered through the acknowledgement). */
