@@ -247,6 +247,36 @@ export const plainText = (blocks: readonly BlockNode[]): string => {
   return blocks.map((block) => (block.type === 'codeblock' ? block.value : inline(block.children))).join('\n');
 };
 
+/**
+ * One line of a message for a quote or a preview: markers gone, code kept, line
+ * breaks collapsed, and spoilers kept hidden (a quote must not give them away).
+ */
+export const quoteText = (raw: string): string => {
+  const inline = (nodes: readonly InlineNode[]): string =>
+    nodes
+      .map((node) => {
+        switch (node.type) {
+          case 'text':
+          case 'code':
+          case 'link':
+          case 'mention':
+            return node.value;
+          case 'break':
+            return ' ';
+          case 'spoiler':
+            return '[spoiler]';
+          default:
+            return inline(node.children);
+        }
+      })
+      .join('');
+  return parseMarkdown(raw)
+    .map((block) => (block.type === 'codeblock' ? block.value : inline(block.children)))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 /** Does the tree mention this account (a resolved mention)? */
 export const mentionsAccount = (blocks: readonly BlockNode[], accountId: string): boolean => {
   const inline = (nodes: readonly InlineNode[]): boolean =>

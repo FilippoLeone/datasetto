@@ -190,6 +190,11 @@ export const installSocketBindings = (): void => {
     window.addEventListener('offline', () => {
       if (!socketClient.connected) connectionStatus.value = 'offline';
     });
+    // Messages that arrived in the open channel while the tab was hidden counted as unread; coming back reads them.
+    document.addEventListener('visibilitychange', () => {
+      const current = selectedChannelId.value;
+      if (document.visibilityState === 'visible' && current) markRead(current);
+    });
   }
 
   // A deploy: the server says goodbye with the time the next container needs. The socket client

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mentionsAccount, parseMarkdown, plainText, type BlockNode, type InlineNode } from './markdown';
+import { mentionsAccount, parseMarkdown, plainText, quoteText, type BlockNode, type InlineNode } from './markdown';
 
 const text = (value: string): InlineNode => ({ type: 'text', value });
 const para = (...children: InlineNode[]): BlockNode => ({ type: 'paragraph', children });
@@ -101,5 +101,11 @@ describe('parseMarkdown', () => {
   it('flattens back to plain text', () => {
     expect(plainText(parseMarkdown('**a** _b_ `c` ||d|| https://e.example/ @f\ng'))).toBe('a b c d https://e.example/ @f\ng');
     expect(plainText(parseMarkdown('x\n```\ny\n```'))).toBe('x\ny');
+  });
+
+  it('makes a one-line quote that keeps spoilers hidden', () => {
+    expect(quoteText('**bold** and\n_italic_ ||the butler|| `x`')).toBe('bold and italic [spoiler] x');
+    expect(quoteText('before\n```js\ncode\n```\nafter')).toBe('before code after');
+    expect(quoteText('  spaced   out  ')).toBe('spaced out');
   });
 });

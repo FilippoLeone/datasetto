@@ -3,6 +3,7 @@ import { AlertTriangle, CornerUpLeft, ImagePlus, Send, Smile, X } from 'lucide-p
 import { IconButton } from '@/components';
 import { addFiles, attachmentIds, canSend, filesFromTransfer, removeDraft, transferHasFiles, updateDraft, type AttachmentDraft } from '@/lib/attachments';
 import { cn } from '@/lib/cn';
+import { quoteText } from '@/lib/markdown';
 import { sounds } from '@/services/sounds';
 import { serverConfig } from '@/services/ServerConfigService';
 import { uploadImage, type UploadHandle } from '@/services/uploads';
@@ -290,7 +291,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
             <CornerUpLeft size={14} className="shrink-0 text-text-faint" aria-hidden="true" />
             <span className="min-w-0 truncate">
               Replying to <span className="font-semibold text-text-bright">{reply.from ?? 'a deleted message'}</span>
-              {reply.text && <span className="text-text-faint"> · {reply.text}</span>}
+              {reply.text && <span className="text-text-faint"> · {quoteText(reply.text)}</span>}
             </span>
             <IconButton label="Cancel reply" size="sm" className="ml-auto" onClick={() => setReplyTarget(channel.id, null)}>
               <X size={16} />

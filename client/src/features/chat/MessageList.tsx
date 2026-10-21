@@ -5,6 +5,7 @@ import { cn } from '@/lib/cn';
 import { isTouchPrimary } from '@/lib/device';
 import { formatDayLabel, formatFullDate, formatMessageTime, sameDay } from '@/lib/format';
 import { LongPressTracker } from '@/lib/gestures';
+import { quoteText } from '@/lib/markdown';
 import { MOTION, prefersReducedMotion, usePresence, type PresenceState } from '@/lib/motion';
 import { serverConfig } from '@/services/ServerConfigService';
 import { api } from '@/services/socket/api';
@@ -128,7 +129,7 @@ const ReplyQuote = ({ reply, channelId }: { reply: ReplyRef; channelId: string }
     ? 'Original message unavailable'
     : reply.deleted
       ? 'Message deleted'
-      : reply.text || (reply.pictures === 1 ? 'Picture' : reply.pictures > 1 ? reply.pictures + ' pictures' : '');
+      : quoteText(reply.text) || (reply.pictures === 1 ? 'Picture' : reply.pictures > 1 ? reply.pictures + ' pictures' : '');
   return (
     <button
       type="button"
@@ -169,12 +170,19 @@ const EditBox = ({ initial, onSave, onCancel }: EditBoxProps) => {
     node.style.height = Math.min(node.scrollHeight, 240) + 'px';
   };
 
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
+  // Focus as soon as the box is in the DOM (not through an animation frame: a background tab has none),
+  // and once more a tick later in case something else took the focus during the same render.
+  useLayoutEffect(() => {
+    const focus = () => {
+      const node = ref.current;
+      if (!node || document.activeElement === node) return;
+      node.focus();
+      node.setSelectionRange(node.value.length, node.value.length);
+    };
     resize();
-    node.focus();
-    node.setSelectionRange(node.value.length, node.value.length);
+    focus();
+    const timer = window.setTimeout(focus, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const save = async () => {
