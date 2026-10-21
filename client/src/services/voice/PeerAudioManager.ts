@@ -29,6 +29,16 @@ export const playbackModeFor = (context: AudioContext): PlaybackMode => {
   return typeof (context as SinkContext).setSinkId === 'function' ? 'webaudio' : 'element';
 };
 
+/**
+ * Whether a friend can be played louder than 100 % here: only on the Web Audio path. Decided
+ * from the engine, not a live context, so the sliders can say so before a call starts.
+ */
+export const supportsPlaybackBoost = (): boolean => {
+  if (isElectron() || isCapacitor()) return true;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return false;
+  return typeof (window.AudioContext.prototype as SinkContext).setSinkId === 'function';
+};
+
 /** Seconds a volume change takes to settle; long enough to avoid clicks, short enough to feel instant. */
 const GAIN_RAMP_S = 0.03;
 

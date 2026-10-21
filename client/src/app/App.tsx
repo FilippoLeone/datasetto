@@ -85,7 +85,8 @@ export const App = () => {
         ref={sidebarRef}
         className={cn(
           'flex h-full w-60 shrink-0 flex-col bg-sidebar',
-          phone && 'fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs shadow-modal transition-transform duration-250 ease-out safe-top',
+          // Held sideways the drawer runs under the notch: the left safe-area inset keeps the rows clear of it.
+          phone && 'fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs shadow-modal transition-transform duration-250 ease-out safe-top pl-[env(safe-area-inset-left,0px)]',
           // The bottom toolbar sits over the drawer: leave room for it so the profile row stays reachable.
           phone && (toolbar ? 'pb-toolbar' : 'safe-bottom'),
           phone && (sidebarOpen.value ? 'translate-x-0' : '-translate-x-full'),
@@ -103,7 +104,10 @@ export const App = () => {
         ? memberDrawer.mounted && (
             <aside
               data-state={memberDrawer.state}
-              className={cn('motion-drawer-right fixed inset-y-0 right-0 z-40 flex h-full w-[85vw] max-w-xs shrink-0 flex-col bg-sidebar shadow-modal safe-top', toolbar ? 'pb-toolbar' : 'safe-bottom')}
+              className={cn(
+                'motion-drawer-right fixed inset-y-0 right-0 z-40 flex h-full w-[85vw] max-w-xs shrink-0 flex-col bg-sidebar shadow-modal safe-top pr-[env(safe-area-inset-right,0px)]',
+                toolbar ? 'pb-toolbar' : 'safe-bottom',
+              )}
               aria-label="Members"
             >
               <MemberList />

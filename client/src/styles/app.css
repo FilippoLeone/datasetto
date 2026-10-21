@@ -76,6 +76,9 @@
     /* The page itself never scrolls (the lists do), so no pull-to-refresh or rubber band.
        Chrome reads the viewport value from the root element, not from body. */
     overscroll-behavior: none;
+    /* Pan and pinch stay; the double-tap zoom goes everywhere, not only on controls (iOS
+       Safari zooms on a double tap on plain text, say a message, when this is left to it). */
+    touch-action: manipulation;
   }
 
   body {
@@ -87,7 +90,15 @@
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
     overscroll-behavior: none;
+    touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  /* iPhone with the keyboard up (lib/keyboard.ts): the root takes the visual viewport's height and
+     offset, so the header stays at the top and the composer sits right above the keyboard. */
+  #app[data-keyboard-pinned] {
+    position: relative;
+    transform-origin: top left;
   }
 
   button {
@@ -132,6 +143,8 @@
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: rgba(0, 0, 0, 0.45) transparent;
+    /* A list scrolled past its end must not hand the gesture to the page (iOS rubber band). */
+    overscroll-behavior: contain;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
@@ -799,6 +812,17 @@ video.mirror {
   /* A long press opens the message sheet (which has "Copy text"), so the browser must not
      start a text selection or a link callout on the same gesture. */
   .message-row {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* Rows that act as buttons (members, voice participants, menu triggers, sheet items): a
+     finger resting on them must open the menu, not select the name or show a callout. */
+  [role='button'],
+  [role='menuitem'],
+  [role='tab'],
+  [role='option'] {
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;

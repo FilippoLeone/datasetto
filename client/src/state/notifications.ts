@@ -34,6 +34,13 @@ export const setNotificationPreferences = (patch: Partial<NotificationPreference
 export interface PushStatus {
   /** The browser can do Web Push (service worker, PushManager, Notification) in a secure context. */
   supported: boolean;
+  /**
+   * iPhone or iPad. Web Push exists there only for a web app opened from the Home Screen
+   * (iOS 16.4 and later); a Safari tab has no PushManager at all.
+   */
+  ios: boolean;
+  /** Opened from the home screen (display-mode standalone, or Safari's navigator.standalone). */
+  standalone: boolean;
   /** Running inside the Electron or Capacitor shell, which notifies on its own. */
   native: boolean;
   /** The server has VAPID keys (`GET /api/config` → `push.enabled`). */
@@ -48,6 +55,8 @@ export interface PushStatus {
 
 export const DEFAULT_PUSH_STATUS: PushStatus = {
   supported: false,
+  ios: false,
+  standalone: false,
   native: false,
   serverEnabled: false,
   permission: 'unsupported',
@@ -81,6 +90,24 @@ export const describePushStatus = (status: PushStatus): PushStatusView => {
       toggle: 'unavailable',
       label: 'Handled by the app',
       detail: 'The desktop and mobile apps show their own notifications; nothing to set up here.',
+      canTest: false,
+    };
+  }
+  if (status.ios && !status.standalone) {
+    // Safari never exposes Web Push to a tab: on iPhone and iPad the Home Screen app is the only way.
+    return {
+      toggle: 'unavailable',
+      label: 'Needs the Home Screen app',
+      detail:
+        'On iPhone and iPad, notifications work only when Datasetto is opened from the Home Screen (iOS 16.4 or later). In Safari tap Share, then Add to Home Screen, open Datasetto from there and turn this on.',
+      canTest: false,
+    };
+  }
+  if (status.ios && !status.supported) {
+    return {
+      toggle: 'unavailable',
+      label: 'Needs iOS 16.4 or later',
+      detail: 'This version of iOS has no Web Push for Home Screen apps. Update iOS to 16.4 or later, then come back here.',
       canTest: false,
     };
   }

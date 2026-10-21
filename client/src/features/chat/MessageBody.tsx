@@ -2,7 +2,7 @@ import type { ComponentChildren } from 'preact';
 import { useMemo, useState } from 'preact/hooks';
 import { cn } from '@/lib/cn';
 import { parseMarkdown, type BlockNode, type InlineNode, type MentionName } from '@/lib/markdown';
-import { openExternal } from '@/services/native/desktop';
+import { onExternalLinkClick } from '@/services/native/desktop';
 
 interface MessageBodyProps {
   text: string;
@@ -67,11 +67,7 @@ const renderInline = (nodes: readonly InlineNode[], selfId: string | null | unde
             target="_blank"
             rel="noopener noreferrer"
             className="hover:underline"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              openExternal(node.href);
-            }}
+            onClick={(event) => onExternalLinkClick(event, node.href)}
           >
             {node.value}
           </a>

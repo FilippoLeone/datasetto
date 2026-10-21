@@ -7,8 +7,9 @@ import { buildHlsUrlCandidates } from '@/lib/hlsUrls';
 import { runtimeUrls } from '@/lib/runtimeConfig';
 import { serverConfig } from '@/services/ServerConfigService';
 import { Storage } from '@/lib/storage';
-import { isTouchPrimary } from '@/lib/device';
+import { isIOS, isTouchPrimary } from '@/lib/device';
 import { connectionStatus } from '@/state/session';
+import { pickHlsEngine } from './hlsEngine';
 import { fetchHlsTicket, HlsTicketError } from './hlsTicket';
 
 type PlayerStatus = 'idle' | 'connecting' | 'playing' | 'buffering' | 'offline' | 'error' | 'denied';
@@ -42,6 +43,8 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
   const [fullscreen, setFullscreen] = useState(false);
   // Touch screens have no hover: a tap shows the control bar, which hides again after a few seconds.
   const touch = isTouchPrimary();
+  // iPhone and iPad: the system owns the media volume (video.volume is read-only), so only mute is offered.
+  const ios = isIOS();
   const [controlsShown, setControlsShown] = useState(true);
   const [controlsTick, setControlsTick] = useState(0);
   const revealControls = () => {
@@ -60,10 +63,15 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
     let disposed = false;
     let renewTimer: number | null = null;
     let lastReticket = 0;
+    let nativeErrorHandler: (() => void) | null = null;
 
     const destroy = () => {
       hlsRef.current?.destroy();
       hlsRef.current = null;
+      if (nativeErrorHandler) {
+        video.removeEventListener('error', nativeErrorHandler);
+        nativeErrorHandler = null;
+      }
     };
 
     const scheduleRetry = (delay = 4000) => {
@@ -107,8 +115,9 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
       destroy();
       setStatus('connecting');
       const source = candidates[index];
+      const engine = pickHlsEngine({ ios: isIOS(), nativeHls: video.canPlayType('application/vnd.apple.mpegurl') !== '', mse: Hls.isSupported() });
 
-      if (Hls.isSupported()) {
+      if (engine === 'hls.js') {
         const hls = new Hls({
           lowLatencyMode: true,
           liveSyncDurationCount: 2,
@@ -149,8 +158,27 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
         });
         return;
       }
-      if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native HLS (Safari) cannot add headers; it relies on the ticket cookie the server set.
+      if (engine === 'native') {
+        // Native HLS (Safari, iPhone) cannot add headers; it relies on the ticket cookie the server set.
+        // A failing playlist (wrong URL variant, expired cookie) surfaces as an `error` on the element.
+        let hadPlayed = false;
+        const onPlaying = () => {
+          hadPlayed = true;
+        };
+        video.addEventListener('playing', onPlaying, { once: true });
+        nativeErrorHandler = () => {
+          video.removeEventListener('playing', onPlaying);
+          if (disposed) return;
+          if (hadPlayed && Date.now() - lastReticket > RETICKET_MIN_INTERVAL_MS) {
+            // It was playing from this URL: the ticket cookie most likely ran out. Renew and reload.
+            lastReticket = Date.now();
+            destroy();
+            void start();
+            return;
+          }
+          load(index + 1);
+        };
+        video.addEventListener('error', nativeErrorHandler);
         video.src = source;
         video.play().catch(() => setPaused(true));
         return;
@@ -204,9 +232,19 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
   }, [volume, muted]);
 
   useEffect(() => {
+    const video = videoRef.current;
     const onChange = () => setFullscreen(Boolean(document.fullscreenElement));
+    // iPhone: the <video> goes fullscreen in the system player and reports it with WebKit's own events.
+    const onBegin = () => setFullscreen(true);
+    const onEnd = () => setFullscreen(false);
     document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
+    video?.addEventListener('webkitbeginfullscreen', onBegin);
+    video?.addEventListener('webkitendfullscreen', onEnd);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      video?.removeEventListener('webkitbeginfullscreen', onBegin);
+      video?.removeEventListener('webkitendfullscreen', onEnd);
+    };
   }, []);
 
   useEffect(() => {
@@ -284,19 +322,21 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
           <IconButton label={muted ? 'Unmute' : 'Mute'} size="sm" className="text-white hover:bg-white/15" onClick={() => setMuted((value) => !value)}>
             {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </IconButton>
-          <VolumeSlider
-            label="Volume"
-            value={muted ? 0 : Math.round(volume * 100)}
-            max={100}
-            step={5}
-            showValue
-            trackClassName="w-24"
-            valueClassName="w-9 text-[11px] text-white/90"
-            onChange={(percent) => {
-              setVolume(percent / 100);
-              setMuted(false);
-            }}
-          />
+          {!ios && (
+            <VolumeSlider
+              label="Volume"
+              value={muted ? 0 : Math.round(volume * 100)}
+              max={100}
+              step={5}
+              showValue
+              trackClassName="w-24"
+              valueClassName="w-9 text-[11px] text-white/90"
+              onChange={(percent) => {
+                setVolume(percent / 100);
+                setMuted(false);
+              }}
+            />
+          )}
           <span className="live-dot ml-2 text-xs font-bold text-white uppercase">Live</span>
           <span className="flex-1" />
           <IconButton label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} size="sm" className="text-white hover:bg-white/15" onClick={() => void toggleFullscreen()}>

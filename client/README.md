@@ -473,6 +473,21 @@ styles use Tailwind's `pointer-coarse:` variant, so a desktop window of the same
   Screen steps. "Not now" hides it for two weeks (`lib/installPrompt.ts`, tested). The manifest
   and icons live in `public/`.
 - **Cropper.** The avatar cropper takes a two-finger pinch to zoom next to drag, wheel and the slider.
+- **iPhone and iPad** (`lib/device.ts` `isIOS`, `isStandaloneDisplay`). Safari ignores
+  `interactive-widget` and scrolls the page when the keyboard comes up, so `lib/keyboard.ts` fits
+  `#app` to the visual viewport (height and offset, `visualViewportPin`, tested) while a text field
+  has the focus. `html` and `body` carry `touch-action: manipulation` (no double-tap zoom on plain
+  text) and scroll containers `overscroll-behavior: contain` (no rubber band); rows that act as
+  buttons do not select text on a long press. Outside links are real `target="_blank"` anchors
+  (`onExternalLinkClick`), which a Home Screen web app hands to Safari instead of swallowing;
+  only the desktop shell intercepts them. The drawers pad for the notch in landscape. Web Push
+  exists on iOS only for the Home Screen app (16.4+): `state/notifications.ts` says so in the
+  settings dialog instead of offering a switch that cannot work. Voice: both AudioContexts are
+  created inside the tap on Join (`AudioService.unlock`), remote voices play through the media
+  element (no boost above 100 %, `supportsPlaybackBoost`), and `features/voice/IosVoiceNotice.tsx`
+  tells iPhone users once that a call pauses in the background. Streams use Safari's native HLS
+  (`features/stream/hlsEngine.ts`, tested) with the ticket cookie, and the player hides its
+  volume slider because iOS owns the media volume.
 
 ## Conventions
 

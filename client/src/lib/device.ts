@@ -75,6 +75,13 @@ export const isNativeApp = (): boolean => {
   return isElectron() || isCapacitor();
 };
 
+/** Opened from the home screen: `display-mode: standalone`, or Safari's `navigator.standalone` on iOS. */
+export const isStandaloneDisplay = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  if (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) return true;
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true;
+};
+
 export const detectDeviceKind = (): DeviceKind => {
   if (isIOS()) {
     return 'ios';
