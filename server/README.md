@@ -29,7 +29,8 @@ src/
     sessions.ts       opaque bearer tokens, hashed at rest, sliding expiry
     channels.ts       persistent channels, groups, permissions, stream keys
     messages.ts       chat history with retention and soft delete, older-history paging, pictures and preview cards per message
-    uploads.ts        pictures shared in chat: sniffing, decoding and previews (sharp), files under DATA_DIR/uploads, media tickets
+    uploads.ts        pictures and WebM clips shared in chat: sniffing, decoding and previews (sharp) for pictures, files under DATA_DIR/uploads, media tickets
+    webm.ts           reads the head of a WebM file: is it WebM, the picture size and duration of its video track
     linkPreviews.ts   fetches Open Graph / title data for the first link of a message (public addresses only), cached per URL
     search.ts         full-text search over messages (FTS5 index, query sanitising, snippets)
     moderation.ts     bans (persistent) and voice timeouts (memory)
@@ -62,8 +63,9 @@ See [.env.example](.env.example). Notable settings:
 | `TURN_URLS`, `TURN_SECRET` | enable TURN; the server mints 12-hour HMAC credentials for clients |
 | `PUBLIC_RTMP_URL` | shown in the OBS dialog: `rtmps://host:1936/live` on a deployed server (TLS through nginx, Caddy's certificate), `rtmp://host/live` for plain RTMP |
 | `DATABASE_PATH` | SQLite file; parent directory is created |
-| `DATA_DIR` | uploads (avatars under `DATA_DIR/avatars`, chat pictures under `DATA_DIR/uploads`); defaults to the database's directory, `/data` in Docker |
+| `DATA_DIR` | uploads (avatars under `DATA_DIR/avatars`, chat pictures and clips under `DATA_DIR/uploads`); defaults to the database's directory, `/data` in Docker |
 | `UPLOAD_MAX_MB` | largest picture accepted by `POST /api/uploads` (default 10, 1 to 100); PNG, JPEG, WebP and GIF only, checked by signature and by decoding |
+| `UPLOAD_VIDEO_MAX_MB` | largest video accepted by `POST /api/uploads` (default 50, 1 to 1000): the WebM clips people post from their clips library (a 60 s desktop clip is about 45 MB), checked by the EBML header (DocType `webm` with a video track) and stored as they came |
 | `LINK_PREVIEWS` | default `true`: fetch a preview card for the first link of a message (see below). `false` stops every outbound request for previews; the per-channel switch stays available but does nothing |
 | `TRUST_PROXY` | read client IPs from `X-Forwarded-For` (true behind Caddy) |
 | `RESTART_EXPECTED_WAIT_SECONDS` | default 10: sent to clients in `server:restarting` on SIGTERM as the time to wait before reconnecting (see "Graceful shutdown") |
@@ -83,8 +85,8 @@ See [.env.example](.env.example). Notable settings:
 | `POST /api/avatars` | Bearer session token, body = raw PNG or WebP bytes (1 MB max, signature-checked): stores `DATA_DIR/avatars/<accountId>.<ext>` and sets `avatarUrl` to `/api/avatars/<accountId>.<ext>?v=<time>` |
 | `DELETE /api/avatars` | removes the uploaded picture (generated avatar again) |
 | `GET /api/avatars/:file` | serves uploaded pictures with `Cache-Control: public, max-age=31536000, immutable` (Caddy already proxies `/api/*`) |
-| `POST /api/uploads` | Bearer session token, `multipart/form-data` with one or more `files` parts (`UPLOAD_MAX_MB` each, up to 10 per request, 30 per minute per account): stores each picture under `DATA_DIR/uploads` with a resized preview and answers `201 {attachments: [{id, kind, fileName, mime, size, width, height, url, previewUrl, previewWidth, previewHeight}]}`; the ids go into the next `chat` event. Uploads never sent are removed after an hour |
-| `GET /api/uploads/:file?t=<media ticket>` | serves originals (`<id>.<ext>`) and previews (`<id>.preview.webp`) to a signed-in viewer allowed to read the message's channel (`401` without a valid ticket, `403` otherwise), with `Cache-Control: private, max-age=31536000, immutable`, `nosniff` and an inline `Content-Disposition` |
+| `POST /api/uploads` | Bearer session token, `multipart/form-data` with one or more `files` parts (pictures up to `UPLOAD_MAX_MB` each, WebM videos up to `UPLOAD_VIDEO_MAX_MB`, up to 10 files per request, 30 per minute per account): stores each picture under `DATA_DIR/uploads` with a resized preview, each video as it came, and answers `201 {attachments: [{id, kind, fileName, mime, size, width, height, url, previewUrl, previewWidth, previewHeight}]}` (`kind` is `image` or `video`; a video's `previewUrl` is the file itself); the ids go into the next `chat` event. Uploads never sent are removed after an hour |
+| `GET /api/uploads/:file?t=<media ticket>` | serves originals (`<id>.<ext>`) and previews (`<id>.preview.webp`) to a signed-in viewer allowed to read the message's channel (`401` without a valid ticket, `403` otherwise), with `Cache-Control: private, max-age=31536000, immutable`, `nosniff`, an inline `Content-Disposition` and range requests honoured (a `<video>` seeks) |
 | `POST /internal/stream/publish` | nginx-rtmp `on_publish`: validates `key` for stream name `<channel>` (OBS key is `channel?key=token`) |
 | `POST /internal/stream/done` | nginx-rtmp `on_publish_done` |
 
@@ -331,9 +333,9 @@ auth bucket) and stay members; admins add and remove members with
 `admin:channels:members:*`. A removed member receives `channel:deleted {reason:
 "removed"}`. Making a channel public clears its password and member list.
 
-### Pictures in chat
+### Pictures and clips in chat
 
-Messages can carry up to 10 pictures (migration 11, `message_attachments`). The
+Messages can carry up to 10 attachments (migration 11, `message_attachments`). The
 client uploads them first (`POST /api/uploads`, multipart, Bearer token, 30 per
 minute per account, `UPLOAD_MAX_MB` per file) and then sends `chat {text,
 attachmentIds}`; the text may be empty when pictures are attached. Only PNG,
@@ -346,6 +348,19 @@ height of both are stored so clients can reserve space. An upload belongs to the
 account that made it until it is bound to a message by that account; one that is
 never sent is swept after an hour. `attachments[]` in `chat` and in history
 carry server-relative `url` / `previewUrl` values.
+
+Videos are the clips people save from streams and shared screens on their own
+device (see the client README, "Clips") and post from their library: the same
+`POST /api/uploads` takes a WebM file, under `UPLOAD_VIDEO_MAX_MB` instead of the
+picture cap. It is recognised by its EBML header (DocType `webm` and a video
+track, read by `services/webm.ts`; an audio-only recording or a Matroska file is
+refused, and the name and declared type are ignored as for pictures). The file is
+stored as it came as `DATA_DIR/uploads/<id>.webm` with `kind: "video"`, the
+picture size the header declares and no preview (`previewUrl` is the file itself),
+and served like a picture, with range requests honoured so a `<video>` can seek.
+A message without text that carries only videos is notified as "Sent a video".
+One request may carry up to ten pictures and one clip-sized video; its body is
+read into memory, so that sum bounds what one upload may cost.
 
 Files are served by `GET /api/uploads/<name>?t=<ticket>` only to a signed-in
 viewer who may `view` the channel of the message (so private channels and

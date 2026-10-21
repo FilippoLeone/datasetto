@@ -44,10 +44,12 @@ export const channelUrl = (channelId: string): string => '/app?channel=' + encod
 /** The text of a notification: the message, or what it carries when it has no text. */
 export const notificationBody = (message: MessageRecord): string => {
   if (message.text) return message.text;
-  const count = message.attachments?.length ?? 0;
-  if (count === 1) return 'Sent a picture';
-  if (count > 1) return 'Sent ' + count + ' pictures';
-  return '';
+  const attachments = message.attachments ?? [];
+  const count = attachments.length;
+  if (count === 0) return '';
+  const videos = attachments.filter((attachment) => attachment.kind === 'video').length;
+  const noun = videos === count ? 'video' : videos === 0 ? 'picture' : 'file';
+  return count === 1 ? 'Sent a ' + noun : 'Sent ' + count + ' ' + noun + 's';
 };
 
 export const buildNotification = (channel: ChannelRecord, message: MessageRecord, reason: NotificationReason): PushNotification => ({

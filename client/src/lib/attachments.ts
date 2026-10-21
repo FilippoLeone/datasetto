@@ -93,6 +93,15 @@ export const canSend = (text: string, drafts: readonly AttachmentDraft[]): boole
 export const attachmentIds = (drafts: readonly AttachmentDraft[]): string[] =>
   drafts.map((draft) => draft.attachment?.id).filter((id): id is string => typeof id === 'string');
 
+/** "Sent a picture", "Sent 2 videos", "Sent 3 files": what a message without text carries, for notifications. */
+export const attachmentSummary = (attachments: ReadonlyArray<Pick<Attachment, 'kind'>> | undefined): string => {
+  const count = attachments?.length ?? 0;
+  if (count === 0 || !attachments) return '';
+  const videos = attachments.filter((attachment) => attachment.kind === 'video').length;
+  const noun = videos === count ? 'video' : videos === 0 ? 'picture' : 'file';
+  return count === 1 ? 'Sent a ' + noun : 'Sent ' + count + ' ' + noun + 's';
+};
+
 /** The picture files of a paste or drop, if any. */
 export const filesFromTransfer = (data: DataTransfer | null | undefined): File[] => {
   if (!data) return [];

@@ -5,7 +5,7 @@ import { emojiSchema, messageTextSchema } from '../core/validation.js';
 import { parseJson, type DB } from '../db/index.js';
 import { AppError, notFound } from '../errors.js';
 import type { AttachmentView, ConnectedUser, LinkPreviewView, MentionRef, MessageRecord, ReactionSummary, ReplyRef } from '../types.js';
-import { attachmentView, type UploadService } from './uploads.js';
+import { attachmentKind, attachmentView, type UploadService } from './uploads.js';
 
 /** Distinct emojis one message can carry, and reactions one account may add to it. */
 export const MAX_REACTIONS_PER_MESSAGE = 20;
@@ -345,7 +345,7 @@ export class MessageService {
           id: row.id,
           messageId: row.message_id,
           accountId: row.account_id,
-          kind: 'image',
+          kind: attachmentKind(row.kind),
           fileName: row.file_name,
           mime: row.mime,
           size: row.size,

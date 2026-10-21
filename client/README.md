@@ -34,7 +34,7 @@ src/
                            webmDuration (writes the Duration into the recorded WebM), clipStore (IndexedDB library, 500 MB cap),
                            clipMixer (voice chat mixed into a clip), clipThumbnail, clipDownload (browser, desktop, Android share sheet)
     pushNotifications      Web Push opt-in per browser: permission, service worker, subscription, sync after sign-in
-    uploads                POST /api/uploads over XMLHttpRequest (progress) for pictures in chat
+    uploads                POST /api/uploads over XMLHttpRequest (progress) for pictures and posted clips in chat
     visibilityHeartbeat    tells the server whether this page is visible (push goes out only when no page is)
     ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs, push
     updates                update notices: the desktop updater's state, or a daily GET /api/releases on the web and Android
@@ -58,7 +58,7 @@ src/
     admin/                 members, channel permissions, bans
     activity/              "Playing <game>": own entries and report pacing (gameActivity), the Electron bridge wiring (desktopActivity), catalogue tests
     settings/              the Notifications, Desktop app (automatic updates), Game activity and Clips sections of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
-    clips/                 the clips library dialog, the Clip controls of a tile or player (tileClip), source keys, the voice-channel screens' registration
+    clips/                 the clips library dialog, posting a clip to a channel (postClip), the Clip controls of a tile or player (tileClip), source keys, the voice-channel screens' registration
   components/              Button, IconButton, Modal, Avatar, RoleBadge, Toggle, Slider, Select, TextInput, Menu, ToastHost, UpdateNotice
   lib/                     formatting, text tokenizer, storage, permissions, device detection, identicons, runtime and HLS URLs, shortcut (push-to-talk keys),
                            version comparison (version.ts) and the running version (appVersion.ts),
@@ -315,6 +315,13 @@ debounced while you type; the last word matches as a prefix (`pine` finds
   arrives with `auth:success`, `lib/media.ts` appends it (`?t=`) and the socket
   bindings renew it an hour before it expires. Only people who can read the channel
   get the bytes, so private channels and direct messages stay private.
+- **Videos** in a message are the clips people post from their library (see "Clips"
+  below); the composer itself still takes pictures only. A video renders as the
+  browser's own player under the text, bounded like a single picture, with the file
+  name, size and length under it (`AttachmentGrid`); only the header is fetched
+  until it is played. The URL carries the same media ticket and the server answers
+  range requests, so seeking works. The server takes WebM only, under its own
+  `UPLOAD_VIDEO_MAX_MB` (50 MB by default), separate from the picture cap.
 - **Link previews**: the first link of a message gets a compact card (site, title,
   description, thumbnail) when the server has fetched it; it arrives a moment after
   the message (`chat:messageUpdated`) or at once for a link seen recently. The
@@ -410,10 +417,19 @@ only relays one flag.
   source, time, length and size, plus the video blob) up to 500 MB; when a new clip does not fit,
   the oldest go first and a toast says so.
 - **Library.** The film icon next to Settings in the sidebar (also from Settings > Clips): play
-  inline, download as `datasetto-clip-<source>-<date>.webm` (a download link in browsers and the
-  desktop app; the Android app writes the file to Documents/Datasetto with the Filesystem plugin
-  and opens the share sheet on it, because the WebView cannot download blob URLs), delete. Clips
-  are WebM; there is no MP4 conversion.
+  inline, post to chat, download as `datasetto-clip-<source>-<date>.webm` (a download link in
+  browsers and the desktop app; the Android app writes the file to Documents/Datasetto with the
+  Filesystem plugin and opens the share sheet on it, because the WebView cannot download blob
+  URLs), delete. Clips are WebM; there is no MP4 conversion.
+- **Post to chat.** The send button of a row opens a strip under it: a picker of the channels that
+  carry chat (text channels, then streams, then direct messages; it starts on the channel being
+  read, else the one a clip was last posted to), Post, and a progress bar with Cancel while the
+  bytes go up (`features/clips/postClip.ts`). The clip is uploaded through the same path as
+  pictures (`services/uploads.ts`, `POST /api/uploads`) and the message is queued like one typed
+  in the composer, so it still lands if the connection drops in between; a toast says where it
+  went. A clip larger than the server's `UPLOAD_VIDEO_MAX_MB` is explained in the strip instead of
+  uploaded. The library can be closed while an upload runs; only Cancel stops it. In the channel
+  the clip shows as a video attachment that everyone who can read the channel can play.
 - **Settings > Clips.** Clip length (15, 30 or 60 s), "Include voice chat audio in clips" (off by
   default: `clipMixer.ts` mixes the friends you hear through a MediaStreamDestination into the
   recorded track; the mix follows people joining and leaving without restarting the recorder), the
