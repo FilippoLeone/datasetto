@@ -4,12 +4,16 @@ import { normalizeRoles } from '../core/roles.js';
 import { emojiSchema, messageTextSchema } from '../core/validation.js';
 import { parseJson, type DB } from '../db/index.js';
 import { AppError, notFound } from '../errors.js';
-import type { AttachmentView, ConnectedUser, LinkPreviewView, MessageRecord, ReactionSummary } from '../types.js';
+import type { AttachmentView, ConnectedUser, LinkPreviewView, MentionRef, MessageRecord, ReactionSummary, ReplyRef } from '../types.js';
 import { attachmentView, type UploadService } from './uploads.js';
 
 /** Distinct emojis one message can carry, and reactions one account may add to it. */
 export const MAX_REACTIONS_PER_MESSAGE = 20;
 export const MAX_REACTIONS_PER_ACCOUNT = 10;
+/** Characters of the original shown in a reply's quote. */
+export const REPLY_QUOTE_LENGTH = 200;
+/** Accounts one message may mention (the rest of the names stay plain text). */
+export const MAX_MENTIONS_PER_MESSAGE = 20;
 
 interface ReactionRow {
   message_id: string;
@@ -56,6 +60,22 @@ interface MessageRow {
   deleted_by: string | null;
   preview_url: string | null;
   preview_removed: number;
+  reply_to_id: string | null;
+}
+
+interface MentionRow {
+  message_id: string;
+  account_id: string;
+  name: string;
+}
+
+interface ReplyRow {
+  id: string;
+  author_name: string;
+  account_id: string | null;
+  text: string;
+  deleted_at: number | null;
+  pictures: number;
 }
 
 interface AttachmentRow {
@@ -88,23 +108,50 @@ interface Extras {
   reactions: Map<string, ReactionSummary[]>;
   attachments: Map<string, AttachmentView[]>;
   previews: Map<string, LinkPreviewView>;
+  mentions: Map<string, MentionRef[]>;
+  /** Keyed by the original's id. */
+  replies: Map<string, ReplyRef>;
 }
 
-const rowToRecord = (row: MessageRow, extras: Extras): MessageRecord => ({
+/** The quote for a reply whose original row is gone (pruned). */
+const missingReply = (id: string): ReplyRef => ({ id, from: null, accountId: null, text: '', deleted: true, pictures: 0 });
+
+/** The first part of a message's text for a reply quote: one line, cut at REPLY_QUOTE_LENGTH. */
+export const quoteOf = (text: string): string => {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > REPLY_QUOTE_LENGTH ? flat.slice(0, REPLY_QUOTE_LENGTH - 1).trimEnd() + '…' : flat;
+};
+
+const rowToRecord = (row: MessageRow, extras: Extras): MessageRecord => {
+  const deleted = row.deleted_at !== null;
+  return {
+    id: row.id,
+    channelId: row.channel_id,
+    from: row.author_name,
+    fromId: row.account_id,
+    accountId: row.account_id,
+    text: deleted ? '' : row.text,
+    ts: row.created_at,
+    roles: normalizeRoles(parseJson<string[]>(row.roles, [])),
+    isSuperuser: Boolean(row.is_superuser),
+    edited: !deleted && row.edited_at !== null,
+    editedAt: deleted ? null : row.edited_at,
+    deleted,
+    reactions: deleted ? [] : (extras.reactions.get(row.id) ?? []),
+    attachments: deleted ? [] : (extras.attachments.get(row.id) ?? []),
+    preview: deleted || row.preview_removed || !row.preview_url ? null : (extras.previews.get(row.preview_url) ?? null),
+    mentions: deleted ? [] : (extras.mentions.get(row.id) ?? []),
+    replyTo: deleted || !row.reply_to_id ? null : (extras.replies.get(row.reply_to_id) ?? missingReply(row.reply_to_id)),
+  };
+};
+
+const replyRowToRef = (row: ReplyRow): ReplyRef => ({
   id: row.id,
-  channelId: row.channel_id,
   from: row.author_name,
-  fromId: row.account_id,
   accountId: row.account_id,
-  text: row.deleted_at ? '' : row.text,
-  ts: row.created_at,
-  roles: normalizeRoles(parseJson<string[]>(row.roles, [])),
-  isSuperuser: Boolean(row.is_superuser),
-  edited: row.edited_at !== null,
+  text: row.deleted_at ? '' : quoteOf(row.text),
   deleted: row.deleted_at !== null,
-  reactions: extras.reactions.get(row.id) ?? [],
-  attachments: row.deleted_at ? [] : (extras.attachments.get(row.id) ?? []),
-  preview: row.deleted_at || row.preview_removed || !row.preview_url ? null : (extras.previews.get(row.preview_url) ?? null),
+  pictures: row.deleted_at ? 0 : Number(row.pictures),
 });
 
 const PRUNE_EVERY = 50;
@@ -114,6 +161,16 @@ export interface CreateMessageOptions {
   allowEmpty?: boolean;
   /** The link a preview card will be fetched for, if any. */
   previewUrl?: string | null;
+  /** The message this one replies to (same channel, not deleted; the caller checks). */
+  replyToId?: string | null;
+  /** Who the text @-mentions (resolved by the caller, which knows the accounts). */
+  mentions?: readonly MentionRef[];
+}
+
+export interface EditMessageOptions {
+  /** The link a preview card is wanted for after the edit (null: none). */
+  previewUrl?: string | null;
+  mentions?: readonly MentionRef[];
 }
 
 export class MessageService {
@@ -127,8 +184,24 @@ export class MessageService {
   ) {
     this.stmts = {
       insert: db.prepare(`
-        INSERT INTO messages (id, channel_id, account_id, author_name, text, roles, is_superuser, created_at, preview_url)
-        VALUES (@id, @channel_id, @account_id, @author_name, @text, @roles, @is_superuser, @created_at, @preview_url)
+        INSERT INTO messages (id, channel_id, account_id, author_name, text, roles, is_superuser, created_at, preview_url, reply_to_id)
+        VALUES (@id, @channel_id, @account_id, @author_name, @text, @roles, @is_superuser, @created_at, @preview_url, @reply_to_id)
+      `),
+      // An edit: new text (the FTS trigger re-indexes it), the edit time, and the link a card is wanted for.
+      // A changed link gets its card back even if the author had removed the old one.
+      edit: db.prepare(`
+        UPDATE messages SET text = @text, edited_at = @edited_at, preview_url = @preview_url,
+          preview_removed = CASE WHEN preview_url IS @preview_url THEN preview_removed ELSE 0 END
+        WHERE id = @id AND channel_id = @channel_id AND deleted_at IS NULL
+      `),
+      mentionsOfMessages: db.prepare('SELECT message_id, account_id, name FROM message_mentions WHERE message_id IN (SELECT value FROM json_each(?)) ORDER BY rowid ASC'),
+      insertMention: db.prepare('INSERT INTO message_mentions (message_id, account_id, name) VALUES (?, ?, ?) ON CONFLICT(message_id, account_id) DO UPDATE SET name = excluded.name'),
+      deleteMentions: db.prepare('DELETE FROM message_mentions WHERE message_id = ?'),
+      // The originals of replies: enough of each for the quote.
+      repliesOf: db.prepare(`
+        SELECT m.id, m.author_name, m.account_id, m.text, m.deleted_at,
+               (SELECT COUNT(*) FROM message_attachments a WHERE a.message_id = m.id) AS pictures
+        FROM messages m WHERE m.id IN (SELECT value FROM json_each(?))
       `),
       attachmentsOfMessages: db.prepare(`
         SELECT * FROM message_attachments WHERE message_id IN (SELECT value FROM json_each(?)) ORDER BY created_at ASC, rowid ASC
@@ -146,10 +219,11 @@ export class MessageService {
           SELECT rowid FROM messages WHERE channel_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?
         )
       `),
+      // Deleted messages stay in history as tombstones (rowToRecord strips them).
       history: db.prepare(`
         SELECT * FROM (
           SELECT m.*, m.rowid AS rid FROM messages m
-          WHERE m.channel_id = ? AND m.deleted_at IS NULL
+          WHERE m.channel_id = ?
           ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?
         ) ORDER BY created_at ASC, rid ASC
       `),
@@ -157,14 +231,15 @@ export class MessageService {
       historyBefore: db.prepare(`
         SELECT * FROM (
           SELECT m.*, m.rowid AS rid FROM messages m
-          WHERE m.channel_id = ? AND m.deleted_at IS NULL
+          WHERE m.channel_id = ?
             AND (m.created_at < ? OR (m.created_at = ? AND m.rowid < ?))
           ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?
         ) ORDER BY created_at ASC, rid ASC
       `),
       cursor: db.prepare('SELECT created_at, rowid AS rid FROM messages WHERE id = ? AND channel_id = ?'),
       byId: db.prepare('SELECT * FROM messages WHERE id = ? AND channel_id = ?'),
-      softDelete: db.prepare('UPDATE messages SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL'),
+      // The text goes too, so the search index (FTS trigger on text) forgets the message.
+      softDelete: db.prepare("UPDATE messages SET deleted_at = ?, deleted_by = ?, text = '' WHERE id = ? AND deleted_at IS NULL"),
       countChannel: db.prepare('SELECT COUNT(*) AS n FROM messages WHERE channel_id = ?'),
       countAll: db.prepare('SELECT COUNT(*) AS n FROM messages WHERE deleted_at IS NULL'),
       prune: db.prepare(`
@@ -213,10 +288,13 @@ export class MessageService {
       roles: [...author.roles],
       isSuperuser: author.isSuperuser,
       edited: false,
+      editedAt: null,
       deleted: false,
       reactions: [],
       attachments: [],
       preview: null,
+      mentions: (options.mentions ?? []).slice(0, MAX_MENTIONS_PER_MESSAGE).map((mention) => ({ ...mention })),
+      replyTo: null,
     };
 
     this.stmts.insert.run({
@@ -229,7 +307,10 @@ export class MessageService {
       is_superuser: record.isSuperuser ? 1 : 0,
       created_at: record.ts,
       preview_url: options.previewUrl ?? null,
+      reply_to_id: options.replyToId ?? null,
     });
+    for (const mention of record.mentions) this.stmts.insertMention.run(record.id, mention.accountId, mention.name);
+    if (options.replyToId) record.replyTo = this.replyRef(options.replyToId);
 
     this.insertsSincePrune += 1;
     if (this.insertsSincePrune >= PRUNE_EVERY) {
@@ -287,11 +368,30 @@ export class MessageService {
         previews.set(row.url, { url: row.url, title: row.title, description: row.description, image: row.image, siteName: row.site_name });
       }
     }
+    const mentions = new Map<string, MentionRef[]>();
+    for (const row of this.stmts.mentionsOfMessages.all(ids) as MentionRow[]) {
+      const list = mentions.get(row.message_id) ?? [];
+      list.push({ accountId: row.account_id, name: row.name });
+      mentions.set(row.message_id, list);
+    }
+    const replies = new Map<string, ReplyRef>();
+    const originals = Array.from(new Set(rows.filter((row) => row.reply_to_id && !row.deleted_at).map((row) => row.reply_to_id as string)));
+    if (originals.length > 0) {
+      for (const row of this.stmts.repliesOf.all(JSON.stringify(originals)) as ReplyRow[]) replies.set(row.id, replyRowToRef(row));
+    }
     return {
       reactions: reactions ?? summarize(this.stmts.reactionsOfMessages.all(ids) as ReactionRow[]),
       attachments,
       previews,
+      mentions,
+      replies,
     };
+  }
+
+  /** The quote of one original message, or a placeholder when its row is gone. */
+  private replyRef(messageId: string): ReplyRef {
+    const row = (this.stmts.repliesOf.all(JSON.stringify([messageId])) as ReplyRow[])[0];
+    return row ? replyRowToRef(row) : missingReply(messageId);
   }
 
   history(channelId: string, limit = this.config.limits.chatHistoryLimit): MessageRecord[] {
@@ -379,13 +479,38 @@ export class MessageService {
     return this.reactions(messageId);
   }
 
+  /**
+   * Replace the text of a message (the author's own; the caller checks). The edit
+   * time is set, mentions are replaced, and the search index follows through the
+   * FTS trigger. Returns the message as it now reads.
+   */
+  edit(channelId: string, messageId: string, rawText: unknown, options: EditMessageOptions = {}): MessageRecord {
+    const existing = this.get(channelId, messageId);
+    if (!existing || existing.deleted) throw notFound('Message');
+    const text = messageTextSchema(this.config.limits.maxMessageLength, existing.attachments.length > 0).parse(rawText);
+    const editedAt = Date.now();
+    this.stmts.edit.run({ id: messageId, channel_id: channelId, text, edited_at: editedAt, preview_url: options.previewUrl ?? null });
+    this.stmts.deleteMentions.run(messageId);
+    const mentions = (options.mentions ?? []).slice(0, MAX_MENTIONS_PER_MESSAGE).map((mention) => ({ ...mention }));
+    for (const mention of mentions) this.stmts.insertMention.run(messageId, mention.accountId, mention.name);
+    const updated = this.get(channelId, messageId);
+    if (!updated) throw notFound('Message');
+    return updated;
+  }
+
+  /**
+   * Soft delete: the row stays as a tombstone ("message deleted") so history and
+   * replies keep their place, but the text, pictures, mentions and card are gone,
+   * and so is the search index entry.
+   */
   delete(channelId: string, messageId: string, deletedBy: string): MessageRecord {
     const existing = this.get(channelId, messageId);
     if (!existing) throw notFound('Message');
     this.stmts.softDelete.run(Date.now(), deletedBy.slice(0, 100), messageId);
+    this.stmts.deleteMentions.run(messageId);
     // Deleted messages keep their row (soft delete) but their pictures are gone for good.
     this.uploads.deleteForMessage(messageId);
-    return { ...existing, text: '', deleted: true, attachments: [], preview: null };
+    return { ...existing, text: '', edited: false, editedAt: null, deleted: true, reactions: [], attachments: [], preview: null, mentions: [], replyTo: null };
   }
 
   prune(channelId: string): number {

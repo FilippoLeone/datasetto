@@ -40,9 +40,10 @@ src/
   features/
     auth/                  sign-in / register gate, profile dialog
     channels/              channel list, create/delete, stream key dialog, confirm dialog
-    chat/                  message list, composer (with the picture strip: paste, drop, picker), message rendering (links, mentions),
-                           AttachmentGrid + Lightbox (pictures), LinkPreviewCard, history paging and jump-to-message,
-                           outbox (queue of unconfirmed messages: "sending", failed after 60 s, retry)
+    chat/                  message list (in-place edit box, reply quotes, tombstones, long-press sheet), composer (picture strip,
+                           reply bar, @mention autocomplete), MessageBody (markdown, links, mentions, spoilers), AttachmentGrid +
+                           Lightbox (pictures), LinkPreviewCard, history paging and jump-to-message, outbox (queue of unconfirmed
+                           messages: "sending", failed after 60 s, retry; pending messages can still be edited or dropped)
     search/                Ctrl+K message search: header box, results panel, debounced queries
     stream/                HLS player + live chat page
     voice/                 voiceManager (joins, mute/deafen, PTT, camera, screen, moderation, rejoin after a reconnect), voice page, dock,
@@ -67,16 +68,24 @@ scripts/brand-assets.py    redraws the PNG icons and the Open Graph card (Pillow
 
 ## Notifications
 
+Settings (the gear in the sidebar) > Notifications has two switches for what
+this device tells you about, "@mentions" and "Direct messages" (both on by
+default, remembered in `localStorage`, `state/notifications.ts`). They apply to
+the in-app notifications (the desktop app's native ones, the browser's
+`Notification` while a window is visible but not focused) and to Web Push: the
+choice is sent along with the push subscription, so the server pushes only what
+this device asked for.
+
 Browsers (desktop browsers, Android Chrome and the installed PWA) can receive
 Web Push notifications for direct messages and @mentions while no window shows
-the app. It is opt-in per browser: Settings (the gear in the sidebar) >
-Notifications > "Notify me on this device" asks for permission, registers
-`public/sw.js` at the site root, subscribes with the server's VAPID public key
-from `/api/config` and sends the subscription to the server
-(`services/pushNotifications.ts`). The choice is remembered in `localStorage`
-and the subscription is re-sent after every sign-in, so it always belongs to the
-current login; turning it off tells the server and drops the browser
-subscription. "Send a test" asks the server for a notification right away. The
+the app. It is opt-in per browser: "Notify me on this device" asks for
+permission, registers `public/sw.js` at the site root, subscribes with the
+server's VAPID public key from `/api/config` and sends the subscription to the
+server (`services/pushNotifications.ts`). The choice is remembered in
+`localStorage` and the subscription is re-sent after every sign-in (and after
+a switch above changes), so it always belongs to the current login; turning it
+off tells the server and drops the browser subscription. "Send a test" asks
+the server for a notification right away. The
 section explains itself when push is unavailable: no secure context or service
 workers, the server has no keys, or notifications are blocked in the browser.
 
@@ -136,6 +145,52 @@ history, and the conversation comes back when a message arrives in it, when you
 open it again from the member list, or when you open one of its messages from a
 search result. Closing the conversation that is on screen takes you back to the
 channel you were in before it.
+
+## Editing, deleting, replying and mentions
+
+Hovering a message (a tap on touch screens, keyboard focus anywhere in the row)
+shows its actions: Reply, Add reaction, and on your own messages Edit and
+Delete; admins see Delete on every message. On phones a long press opens the
+same choices as a bottom sheet (plus quick reactions and Copy text). Edit opens
+the text in place: Enter saves, Escape cancels (Save and Cancel buttons on
+touch screens); an empty or unchanged text just closes it. Arrow up in the
+empty composer edits your newest message in the channel. Edited messages show
+"(edited)" with the time on hover. Deleted messages stay in the list as
+"Message deleted" so nothing jumps and replies to them keep their place. A
+message that is still "sending" can be edited or deleted too: the queued copy
+changes or goes, and if the server had already accepted it the stored message
+is edited or deleted right after (`features/chat/outbox.ts`).
+
+Reply puts a "Replying to …" bar above the composer (Escape or × cancels it);
+the sent message shows the quoted original above its text, and clicking the
+quote scrolls to the original, loading older history on the way, and flashes
+it. A quote says "Message deleted" when the original was deleted and "Original
+message unavailable" when it is gone for good.
+
+Typing `@` in the composer lists the people who can read the channel
+(`channel:members`, cached for a minute, plus whoever is online for a public
+channel): arrow keys move, Enter or Tab inserts `@Display Name `, Escape
+closes, a click picks. Names with a space work. The server resolves the
+mentions when the message is sent, so the exact span is highlighted in the
+list (warm when it is you, with a stripe down the message), the sidebar badge
+of a channel turns into a brand-coloured `@n` while unread messages mention
+you (the phone toolbar's badge too), and you are told about it according to
+your notification switches. `@` before an address (`bob@example.com`) is not a
+mention.
+
+## Message formatting
+
+Messages render a small markdown (`lib/markdown.ts`): `**bold**`, `*italic*`
+or `_italic_` (underscores only as whole words, so `snake_case` stays as
+typed), `` `inline code` `` (a run of backticks closes with a run of the same
+length), fenced code blocks (```` ``` ```` on their own lines, with an optional
+language word after the opening fence), `||spoilers||` (a solid block until
+clicked or activated with the keyboard; a reply quote shows `[spoiler]`),
+http(s) links (clickable, with the preview card as before) and @mentions. A
+backslash escapes any marker (`\*`, `` \` ``, `\|`, `\\`). The text is parsed
+into a tree and rendered as elements, never as HTML, so `<b>`, `<script>` and
+the like are shown as typed. Unbalanced or empty markers stay as typed, and
+nothing spans a line break except a code block.
 
 ## Searching messages
 

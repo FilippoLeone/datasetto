@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'preact/hooks';
 import { BellRing } from 'lucide-preact';
 import { Button, Toggle } from '@/components';
-import { disablePush, enablePush, refreshPushStatus, sendTestNotification } from '@/services/pushNotifications';
-import { describePushStatus, pushStatus } from '@/state/notifications';
+import { disablePush, enablePush, refreshPushStatus, sendTestNotification, updateNotificationPreferences } from '@/services/pushNotifications';
+import { describePushStatus, notificationPreferences, pushStatus } from '@/state/notifications';
 import { toast } from '@/state/ui';
 
 /**
- * "Notifications" in the settings dialog: one switch per browser for Web Push, the
- * current state in words, and a test button once it is on. Changes apply at once
- * (they are not part of the dialog's Save).
+ * "Notifications" in the settings dialog: what this device is told about (@mentions,
+ * direct messages), one switch per browser for Web Push, the current state in words,
+ * and a test button once it is on. Changes apply at once (they are not part of the
+ * dialog's Save).
  */
 export const NotificationsSection = () => {
   const status = pushStatus.value;
   const view = describePushStatus(status);
+  const preferences = notificationPreferences.value;
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
@@ -41,6 +43,13 @@ export const NotificationsSection = () => {
     <section className="md:col-span-2">
       <h3 className="mt-3 mb-1 text-xs font-semibold tracking-wide text-text-muted uppercase">Notifications</h3>
       <Toggle
+        label="@mentions"
+        description="Tell me when someone mentions me in a channel."
+        checked={preferences.mentions}
+        onChange={(next) => void updateNotificationPreferences({ mentions: next })}
+      />
+      <Toggle label="Direct messages" description="Tell me about new direct messages." checked={preferences.dms} onChange={(next) => void updateNotificationPreferences({ dms: next })} />
+      <Toggle
         label="Notify me on this device"
         description={view.detail}
         checked={view.toggle === 'on'}
@@ -60,8 +69,8 @@ export const NotificationsSection = () => {
       </div>
       {status.error && <p className="py-1 text-xs text-danger">{status.error}</p>}
       <p className="text-xs text-text-faint">
-        Applies at once, per browser. Direct messages and @mentions are pushed only while none of your windows shows the app, at most once per
-        conversation every 30 seconds.
+        Applies at once, per browser. The two switches above decide what you hear about, in the app and as push notifications. Pushes go out only while
+        none of your windows shows the app, at most once per conversation every 30 seconds.
       </p>
     </section>
   );

@@ -1,6 +1,6 @@
 import { batch, signal } from '@preact/signals';
 import type { PendingMessage } from '@/features/chat/outbox';
-import type { ChatMessage, ReactionSummary } from '@/types/protocol';
+import type { ChatMessage, ReactionSummary, ReplyRef } from '@/types/protocol';
 
 /** Kept per channel; matches the server's default retention so a jump can reach any message. */
 const MAX_PER_CHANNEL = 2000;
@@ -21,6 +21,33 @@ export const scrollTarget = signal<{ channelId: string; messageId: string } | nu
 export const highlightedMessageId = signal<string | null>(null);
 /** Our own messages not yet confirmed by the server, per channel, in send order (features/chat/outbox.ts). */
 export const pendingMessages = signal<Record<string, PendingMessage[]>>({});
+
+/** The message being edited in place: a stored one (by id) or a pending one (by client id). */
+export type EditingTarget = { channelId: string; messageId: string; clientId?: undefined } | { channelId: string; clientId: string; messageId?: undefined };
+export const editing = signal<EditingTarget | null>(null);
+/** Per channel, the message the next sent message replies to (shown above the composer). */
+export const replyTargets = signal<Record<string, ReplyRef>>({});
+
+export const startEditing = (target: EditingTarget | null): void => {
+  editing.value = target;
+};
+
+export const setReplyTarget = (channelId: string, target: ReplyRef | null): void => {
+  const next = { ...replyTargets.value };
+  if (target) next[channelId] = target;
+  else delete next[channelId];
+  replyTargets.value = next;
+};
+
+/** The quote a reply to this message would carry (what the server would put in `replyTo`). */
+export const replyRefOf = (message: ChatMessage): ReplyRef => ({
+  id: message.id,
+  from: message.from,
+  accountId: message.accountId ?? null,
+  text: message.text.replace(/\s+/g, ' ').trim().slice(0, 200),
+  deleted: message.deleted === true,
+  pictures: message.attachments?.length ?? 0,
+});
 
 export const setPendingMessages = (entries: PendingMessage[]): void => {
   const next: Record<string, PendingMessage[]> = {};
@@ -90,6 +117,45 @@ export const removeMessage = (channelId: string, messageId: string): void => {
   const existing = messages.value[channelId];
   if (!existing) return;
   messages.value = { ...messages.value, [channelId]: existing.filter((entry) => entry.id !== messageId) };
+};
+
+/**
+ * A message was deleted: it stays in place as a tombstone, and replies that quote
+ * it now quote a deleted message. An edit of it in progress is dropped.
+ */
+export const markMessageDeleted = (channelId: string, messageId: string): void => {
+  const existing = messages.value[channelId];
+  if (!existing) return;
+  batch(() => {
+    messages.value = {
+      ...messages.value,
+      [channelId]: existing.map((entry) => {
+        if (entry.id === messageId) {
+          return { ...entry, text: '', deleted: true, edited: false, editedAt: null, reactions: [], attachments: [], preview: null, mentions: [], replyTo: null };
+        }
+        if (entry.replyTo?.id === messageId) return { ...entry, replyTo: { ...entry.replyTo, text: '', deleted: true, pictures: 0 } };
+        return entry;
+      }),
+    };
+    if (editing.value?.channelId === channelId && editing.value.messageId === messageId) editing.value = null;
+    if (replyTargets.value[channelId]?.id === messageId) setReplyTarget(channelId, null);
+  });
+};
+
+/** The author changed the text: replies quoting the message show the new text too. */
+export const applyMessageEdit = (channelId: string, messageId: string, patch: Partial<ChatMessage>): void => {
+  const existing = messages.value[channelId];
+  if (!existing?.some((entry) => entry.id === messageId)) return;
+  const quote = patch.text !== undefined ? patch.text.replace(/\s+/g, ' ').trim().slice(0, 200) : null;
+  messages.value = {
+    ...messages.value,
+    [channelId]: existing.map((entry) => {
+      if (entry.id === messageId) return { ...entry, ...patch };
+      if (quote !== null && entry.replyTo?.id === messageId && !entry.replyTo.deleted) return { ...entry, replyTo: { ...entry.replyTo, text: quote } };
+      return entry;
+    }),
+  };
+  if (quote !== null && replyTargets.value[channelId]?.id === messageId) setReplyTarget(channelId, { ...replyTargets.value[channelId], text: quote });
 };
 
 export const clearChannelMessages = (channelId: string): void => {

@@ -298,6 +298,33 @@ export const migrations: Migration[] = [
       ALTER TABLE channel_members ADD COLUMN closed_at INTEGER;
     `,
   },
+  {
+    // Replies, @mentions and per-device notification choices.
+    // messages.reply_to_id names the message a reply quotes (same channel; the quote is
+    // hydrated at read time, so a pruned or deleted original just shows as unavailable).
+    // message_mentions holds who a message @-mentions, resolved when it is sent or edited
+    // (name = the display name or username as it appears in the text), for highlighting,
+    // sidebar badges and notifications. push_subscriptions.notify_* are the device's
+    // choices from the Notifications settings (both on unless switched off).
+    // Deleted messages become tombstones: history keeps the row, the text is cleared
+    // (the FTS trigger drops it from the search index). Rows deleted before this
+    // migration are cleared the same way so they leave the index too.
+    version: 13,
+    name: 'replies_mentions_tombstones',
+    up: `
+      ALTER TABLE messages ADD COLUMN reply_to_id TEXT;
+      CREATE TABLE message_mentions (
+        message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        PRIMARY KEY (message_id, account_id)
+      );
+      CREATE INDEX message_mentions_account_idx ON message_mentions(account_id);
+      ALTER TABLE push_subscriptions ADD COLUMN notify_mentions INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE push_subscriptions ADD COLUMN notify_dms INTEGER NOT NULL DEFAULT 1;
+      UPDATE messages SET text = '' WHERE deleted_at IS NOT NULL AND text <> '';
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

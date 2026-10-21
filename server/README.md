@@ -105,8 +105,8 @@ rate limits apply.
 | Client emits | Server emits |
 | --- | --- |
 | `channel:join id`, `channels:list`, `channels:create {name,type,groupId?,topic?,visibility?,password?}`, `channels:update {channelId,topic?,visibility?,password?,linkPreviews?}`, `channels:joinPrivate {name,password}`, `channels:delete idOrName`, `dm:open {accountId}`, `dm:close {channelId}` | `channel:joined`, `chat:history`, `channels:update {channels, groups}` (each channel with `linkPreviews`), `channels:created`, `channels:updated`, `channels:privateJoined {channelId}`, `channel:deleted {channelId, reason?}`, `dm:opened {channelId, peerId, peerName}`, `dm:closed {channelId}` |
-| `chat text` or `chat {text?, attachmentIds?, channelId?, clientId?}` (optional acknowledgement), `chat:delete {messageId, channelId}`, `chat:react/unreact {channelId, messageId, emoji}`, `chat:preview:remove {channelId, messageId}`, `media:ticket` (acknowledgement) | `chat message` (with `reactions[]`, `attachments[]`, `preview`; the sender's copy carries its `clientId`), ack `{success, messageId, channelId, clientId, ts}` or `{success: false, error, code}`, `chat:messageDeleted`, `chat:reaction {channelId, messageId, emoji, accountId, displayName, added, reactions[]}`, `chat:messageUpdated {channelId, messageId, preview}`, media ack `{success, ticket, expiresAt}`. `channelId` lets a message queued while offline land in the channel it was typed in; without it the socket's current channel is used |
-| `chat:history:before {channelId, beforeMessageId, limit?}` (acknowledgement) | ack `{success, channelId, messages[], hasMore}`: the page of history older than a message the client has (oldest first, 1 to 200, default `CHAT_HISTORY_LIMIT`); `chat:history:older` when sent without an ack |
+| `chat text` or `chat {text?, attachmentIds?, channelId?, clientId?, replyToId?}` (optional acknowledgement), `chat:edit {channelId, messageId, text}` (acknowledgement), `chat:delete {messageId, channelId}`, `chat:react/unreact {channelId, messageId, emoji}`, `chat:preview:remove {channelId, messageId}`, `channel:members {channelId}` (acknowledgement), `media:ticket` (acknowledgement) | `chat message` (with `reactions[]`, `attachments[]`, `preview`, `mentions: [{accountId, name}]`, `replyTo: {id, from, accountId, text, deleted, pictures}` or null, `edited`, `editedAt`; the sender's copy carries its `clientId`), ack `{success, messageId, channelId, clientId, ts}` or `{success: false, error, code}` (`REPLY_TARGET_MISSING` for a reply to a message that is gone), edit ack `{success, messageId, channelId, editedAt}` (`FORBIDDEN` unless the caller wrote it), `chat:messageDeleted {messageId, channelId, deletedBy}` (the message stays in history as a tombstone: `deleted: true`, empty text), `chat:reaction {channelId, messageId, emoji, accountId, displayName, added, reactions[]}`, `chat:messageUpdated {channelId, messageId, text?, edited?, editedAt?, mentions?, preview?}` (an edit, or a preview card that arrived or was removed), members ack `{success, channelId, members: [{accountId, username, displayName, avatarUrl, roles}]}`, media ack `{success, ticket, expiresAt}`. `channelId` lets a message queued while offline land in the channel it was typed in; without it the socket's current channel is used |
+| `chat:history:before {channelId, beforeMessageId, limit?}` (acknowledgement) | ack `{success, channelId, messages[], hasMore}`: the page of history older than a message the client has (oldest first, tombstones included, 1 to 200, default `CHAT_HISTORY_LIMIT`); `chat:history:older` when sent without an ack |
 | `search {query, channelId?, authorId?, limit?, offset?}` (acknowledgement) | ack `{success, query, results[], total, hasMore, limit, offset}`, each result `{id, channelId, channelName, channelType, authorId, authorName, authorAvatarUrl, roles, isSuperuser, ts, snippet: [{text, match}]}`; `search:results` when sent without an ack |
 | `voice:join id` or `voice:join {channelId, rtcSessionId?, holding?: [{accountId, rtcSessionId}]}`, `voice:leave`, `voice:signal {to,data}`, `voice:stream-metadata`, `voice:state {muted,deafened}`, `voice:video:state` | `voice:joined {peers: [{id, accountId, name, muted, deafened, rtcSessionId}], startedAt, sessionId}`, `voice:peer-join {id, accountId, name, muted, deafened, rtcSessionId, holding?}`, `voice:peer-leave {id, accountId, reason: "left" or "replaced"}`, `voice:replaced {channelId, bySocketId}` (to a socket whose seat another socket of the same account took over), `voice:signal`, `voice:state`, `voice:video:state`. `rtcSessionId` is the client's id for its set of peer connections: unchanged across its reconnects, new when it rebuilt them, so peers know whether to keep or renegotiate; `holding` lists the connections the joining client still has (relayed as is in `peer-join`), so an existing member whose connection the newcomer lost negotiates afresh instead of waiting. A `voice:join` by a socket whose account already holds a seat in that room (its own dead predecessor, a second tab) takes the seat over: peers get `peer-leave` with `reason: "replaced"` and keep their media connection. No `peer-leave` is sent while the process shuts down |
 | `voice:kick`, `voice:timeout`, `user:ban {targetSocketId,...}` | `voice:kicked`, `voice:timeout`, `user:banned`, `moderation:success` |
@@ -118,7 +118,7 @@ rate limits apply.
 | `admin:settings:get`, `admin:settings:update {channelPermissionTemplates?: {text?, voice?, stream?, screenshare?}}` | `admin:settings {settings, saved?}` |
 | `admin:accounts:update {accountId, displayName}`, `admin:accounts:resetPassword {accountId, temporaryPassword}`, `admin:accounts:delete {accountId}`, `admin:accounts:sessions:list {accountId}`, `admin:accounts:sessions:revoke {accountId, sessionId?}` | `admin:accounts:updated/passwordReset/deleted {account}`, `admin:accounts:sessions {accountId, sessions[]}` |
 | `admin:usage:get` (admins), `admin:server:info` (superusers) | `admin:usage {currentMonth, months[], budgetBytes, online, liveStreams[]}`, `admin:server:info {version, registration, sessions, limits, streaming, turn, push, storage, counts, …}` (no secrets) |
-| `push:subscribe {endpoint, keys: {p256dh, auth}, userAgent?}`, `push:unsubscribe {endpoint}`, `push:list`, `push:test` (all answered through the acknowledgement: `{success, subscription?, subscriptions[], removed?, sent?}`), `presence:visibility {visible}` | `push:subscriptions` / `push:tested` when no acknowledgement was passed; errors on `push:error` (`PUSH_DISABLED`, `PUSH_INVALID`, `PUSH_NO_SUBSCRIPTIONS`) |
+| `push:subscribe {endpoint, keys: {p256dh, auth}, userAgent?, preferences?: {mentions?, dms?}}`, `push:unsubscribe {endpoint}`, `push:list`, `push:test` (all answered through the acknowledgement: `{success, subscription?, subscriptions[], removed?, sent?}`; each subscription carries its `preferences`), `presence:visibility {visible}` | `push:subscriptions` / `push:tested` when no acknowledgement was passed; errors on `push:error` (`PUSH_DISABLED`, `PUSH_INVALID`, `PUSH_NO_SUBSCRIPTIONS`) |
 | `voice:game:start/join/leave/input/end/leaderboard` | `voice:game:state/update/started/ended/leaderboard` |
 | `presence:activity {title}` (a game title of up to 64 characters, or `null`; one per socket per 10 s) | `user:update` with the user's `activity`; refusals on `presence:error` (`VALIDATION_FAILED`, `RATE_LIMITED`) |
 
@@ -221,9 +221,12 @@ socket acknowledgement (the client's Ctrl+K panel). Migration 9 creates
 `messages_fts`, an FTS5 index with the `unicode61` tokenizer (case and accent
 insensitive) that reads its text from `messages` and is kept in step by three
 triggers (insert, update of `text`, delete); the migration also indexes every
-message that already exists. Soft-deleted messages stay in the table and are
-filtered out at query time, pruned or cascaded rows leave the index through
-the delete trigger, so a deleted message never comes back in results.
+message that already exists. An edit re-indexes the message through the update
+trigger. Soft-deleted messages stay in the table as tombstones but their text
+is cleared (migration 13 clears older ones too), so they leave the index the
+same way, and the query filters `deleted_at` as well; pruned or cascaded rows
+leave it through the delete trigger. A deleted message never comes back in
+results.
 
 Only channels the caller may `view` are searched: public channels, private
 channels they belong to (or manage, for admins), and their own conversations;
@@ -249,10 +252,46 @@ the index is keyed on; `INSERT INTO messages_fts(messages_fts) VALUES
 
 `chat:history:before` pages backwards through a channel's history for the
 same reader (view permission required): it returns the messages older than a
-message the client already holds, with reactions, skipping deleted ones, and
+message the client already holds, with reactions, quotes and tombstones, and
 `hasMore` tells whether the channel's start has been reached. The client uses
 it when scrolling to the top of a channel and to reach a search hit that is
 older than the history on screen.
+
+### Editing, deleting, replies and mentions
+
+The author of a message replaces its text with `chat:edit` (chat permission on
+the channel still required; nobody else may, admins included). The server sets
+`edited_at`, resolves the mentions again, re-indexes the search and tells
+everyone who can see the channel with `chat:messageUpdated {text, edited,
+editedAt, mentions, preview}`. A link card the author had taken off stays off
+while the link is the same; a new link gets its own card. People the edit newly
+mentions are notified like for a new message; those mentioned before are not
+told again.
+
+`chat:delete` is the author's, or anyone's with `canDeleteAnyMessage` (admins
+and superusers). Deleted messages are tombstones: the row keeps its place in
+history (`deleted: true`, empty text, no pictures, reactions, mentions or card),
+so the list shows "message deleted" where it was and replies that quoted it say
+so, while the text leaves the search index. Pictures are removed from disk.
+
+A reply names the message it quotes with `replyToId` (same channel, not
+deleted, else `REPLY_TARGET_MISSING`). The message carries `replyTo` with the
+original's author, the first 200 characters of its text (one line) and its
+number of pictures; `deleted: true` once the original was deleted, and `from:
+null` when its row was pruned. Quotes are hydrated when read, so they always
+show the original as it is now.
+
+Mentions are resolved on the server when a message is sent or edited:
+`@displayName` or `@username` as a whole word (names with spaces work, the
+longest match wins, case does not matter, disabled accounts are skipped), at
+most 20 per message, stored in `message_mentions` with the name as it appears
+in the text. Messages carry `mentions: [{accountId, name}]`, which clients use
+to highlight the exact span, count @ badges and decide who is notified; the
+text itself is never rewritten. `channel:members {channelId}` lists who can
+read a channel for the composer's autocomplete: the two participants of a
+conversation, the members and managing admins of a private channel, every
+active account for a public one (banned and disabled accounts left out, 500 at
+most, sorted by name).
 
 ### Reactions
 
@@ -355,8 +394,11 @@ referrer.
 
 With `PUSH_VAPID_PUBLIC_KEY`, `PUSH_VAPID_PRIVATE_KEY` and a subject set, the
 server sends Web Push notifications (`web-push`, VAPID) for direct messages and
-for `@displayName` / `@username` mentions in text and stream channels, to the
-recipient's subscribed browsers, but only while the recipient is away: no
+for the `@displayName` / `@username` mentions stored with a message in text and
+stream channels, to the recipient's subscribed browsers that asked for that
+kind (each subscription carries the device's `preferences: {mentions, dms}`
+from its Notifications settings, both on unless switched off; a test
+notification always goes), but only while the recipient is away: no
 authenticated socket at all, or every socket's page reports itself hidden. Pages
 send `presence:visibility {visible}` on every change and every 30 s while
 visible; a visible page silent for 90 s (`VISIBILITY_STALE_MS`, a frozen tab or a

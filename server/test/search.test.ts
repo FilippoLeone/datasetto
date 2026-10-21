@@ -168,10 +168,11 @@ describe('SearchService', () => {
 
     ctx.channels.delete(secret.id);
     expect(searchAs(ctx, users.bob, 'walrus').results.map((hit) => hit.id)).toEqual([kept.id]);
-    expect(ctx.db.prepare("SELECT COUNT(*) AS n FROM messages_fts WHERE messages_fts MATCH '\"walrus\"'").get()).toEqual({ n: 2 });
+    // The soft-deleted tombstone has no text any more, so the index only knows the kept message.
+    expect(ctx.db.prepare("SELECT COUNT(*) AS n FROM messages_fts WHERE messages_fts MATCH '\"walrus\"'").get()).toEqual({ n: 1 });
 
-    // Editing the stored text re-indexes it (no API does this yet; the trigger is ready for it).
-    ctx.db.prepare('UPDATE messages SET text = ? WHERE id = ?').run('now a narwhal', kept.id);
+    // Editing the text re-indexes it.
+    ctx.messages.edit(general.id, kept.id, 'now a narwhal');
     expect(searchAs(ctx, users.bob, 'walrus').results).toEqual([]);
     expect(searchAs(ctx, users.bob, 'narwhal').results.map((hit) => hit.id)).toEqual([kept.id]);
   });
@@ -392,8 +393,10 @@ describe('search (socket)', () => {
     expect(first.hasMore).toBe(true);
     expect(first.messages.map((message) => message.id)).toEqual(ids.slice(10, 20));
     const second = await request<Page>(carol.socket, 'chat:history:before', { channelId: general.id, beforeMessageId: ids[10], limit: 10 });
-    // The deleted message is skipped, so nine remain before index 10 and nothing older exists.
-    expect(second.messages.map((message) => message.id)).toEqual(ids.slice(0, 10).filter((id) => id !== ids[3]));
+    // The deleted message keeps its place as a tombstone, so ten remain before index 10 and nothing older exists.
+    expect(second.messages.map((message) => message.id)).toEqual(ids.slice(0, 10));
+    expect((second.messages[3] as { deleted?: boolean; text?: string }).deleted).toBe(true);
+    expect((second.messages[3] as { deleted?: boolean; text?: string }).text).toBe('');
     expect(second.hasMore).toBe(false);
     expect(second.messages.find((message) => message.id === ids[1])?.reactions).toEqual([expect.objectContaining({ emoji: '👍' })]);
     // A deleted message is still a valid cursor; the page before the first message is empty.

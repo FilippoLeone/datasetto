@@ -4,7 +4,7 @@ import { RateLimiter } from '../core/rateLimit.js';
 import type { DB } from '../db/index.js';
 import { AppError } from '../errors.js';
 import type { Logger } from '../logger.js';
-import type { PushSubscriptionView } from '../types.js';
+import type { NotificationPreferences, PushSubscriptionView } from '../types.js';
 
 export interface PushConfig {
   publicKey: string | null;
@@ -17,7 +17,12 @@ export interface PushSubscriptionInput {
   endpoint: string;
   keys: { p256dh: string; auth: string };
   userAgent?: string | null;
+  /** What this device wants to hear about; anything left out stays on. */
+  preferences?: Partial<NotificationPreferences> | null;
 }
+
+/** Why a notification is sent; a device may have switched a reason off. `test` always goes. */
+export type PushReason = 'dm' | 'mention' | 'test';
 
 /** The JSON the service worker receives (client/public/sw.js). Kept well under 2 KB. */
 export interface PushNotification {
@@ -70,6 +75,8 @@ interface SubscriptionRow {
   user_agent: string | null;
   created_at: number;
   last_used_at: number | null;
+  notify_mentions: number;
+  notify_dms: number;
 }
 
 const rowToView = (row: SubscriptionRow): PushSubscriptionView => ({
@@ -78,7 +85,15 @@ const rowToView = (row: SubscriptionRow): PushSubscriptionView => ({
   userAgent: row.user_agent,
   createdAt: row.created_at,
   lastUsedAt: row.last_used_at,
+  preferences: { mentions: Boolean(row.notify_mentions), dms: Boolean(row.notify_dms) },
 });
+
+/** Does this device want notifications for this reason? */
+const wants = (row: SubscriptionRow, reason: PushReason): boolean => {
+  if (reason === 'mention') return Boolean(row.notify_mentions);
+  if (reason === 'dm') return Boolean(row.notify_dms);
+  return true;
+};
 
 /** Collapse whitespace and cut to `max` characters with an ellipsis. */
 export const clip = (text: string, max: number): string => {
@@ -125,14 +140,16 @@ export class PushService {
     this.limiter = new RateLimiter(1, options.windowMs ?? NOTIFICATION_WINDOW_MS);
     this.stmts = {
       upsert: db.prepare(`
-        INSERT INTO push_subscriptions (id, account_id, session_hash, endpoint, p256dh, auth, user_agent, created_at, last_used_at)
-        VALUES (@id, @account_id, @session_hash, @endpoint, @p256dh, @auth, @user_agent, @created_at, NULL)
+        INSERT INTO push_subscriptions (id, account_id, session_hash, endpoint, p256dh, auth, user_agent, created_at, last_used_at, notify_mentions, notify_dms)
+        VALUES (@id, @account_id, @session_hash, @endpoint, @p256dh, @auth, @user_agent, @created_at, NULL, @notify_mentions, @notify_dms)
         ON CONFLICT(endpoint) DO UPDATE SET
           account_id = excluded.account_id,
           session_hash = excluded.session_hash,
           p256dh = excluded.p256dh,
           auth = excluded.auth,
-          user_agent = excluded.user_agent
+          user_agent = excluded.user_agent,
+          notify_mentions = excluded.notify_mentions,
+          notify_dms = excluded.notify_dms
       `),
       byEndpoint: db.prepare('SELECT * FROM push_subscriptions WHERE endpoint = ?'),
       byAccount: db.prepare('SELECT * FROM push_subscriptions WHERE account_id = ? ORDER BY created_at ASC'),
@@ -189,6 +206,8 @@ export class PushService {
       auth,
       user_agent: input.userAgent ? input.userAgent.slice(0, 256) : null,
       created_at: now,
+      notify_mentions: input.preferences?.mentions === false ? 0 : 1,
+      notify_dms: input.preferences?.dms === false ? 0 : 1,
     });
     this.stmts.trim.run(accountId, accountId, MAX_SUBSCRIPTIONS_PER_ACCOUNT);
     const row = this.stmts.byEndpoint.get(endpoint) as SubscriptionRow | undefined;
@@ -217,14 +236,15 @@ export class PushService {
   }
 
   /**
-   * Send one notification to every device of an account, at most once per
-   * `conversationKey` within the window. Gone subscriptions (404/410) are deleted.
+   * Send one notification to every device of an account that wants this kind
+   * (`reason`), at most once per `conversationKey` within the window. Gone
+   * subscriptions (404/410) are deleted.
    */
-  async send(accountId: string, notification: PushNotification, conversationKey: string): Promise<PushSendSummary> {
+  async send(accountId: string, notification: PushNotification, conversationKey: string, reason: PushReason = 'test'): Promise<PushSendSummary> {
     const summary: PushSendSummary = { skipped: null, sent: 0, failed: 0, dropped: 0 };
     if (!this.enabled) return { ...summary, skipped: 'disabled' };
     this.purgeOrphans();
-    const rows = this.stmts.byAccount.all(accountId) as SubscriptionRow[];
+    const rows = (this.stmts.byAccount.all(accountId) as SubscriptionRow[]).filter((row) => wants(row, reason));
     if (rows.length === 0) return { ...summary, skipped: 'no-subscriptions' };
     if (!this.limiter.hit(accountId + '|' + conversationKey).allowed) return { ...summary, skipped: 'rate-limited' };
 

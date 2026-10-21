@@ -1,24 +1,37 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { AlertCircle, ArrowDown, Clock, Copy, Hash, MessageCircle, SmilePlus, Trash2 } from 'lucide-preact';
-import { Avatar, RoleBadge, Sheet, SheetItem, Spinner } from '@/components';
+import { AlertCircle, ArrowDown, Clock, Copy, CornerUpLeft, Hash, MessageCircle, Pencil, SmilePlus, Trash2 } from 'lucide-preact';
+import { Avatar, Button, RoleBadge, Sheet, SheetItem, Spinner } from '@/components';
 import { cn } from '@/lib/cn';
 import { isTouchPrimary } from '@/lib/device';
 import { formatDayLabel, formatFullDate, formatMessageTime, sameDay } from '@/lib/format';
 import { LongPressTracker } from '@/lib/gestures';
+import { quoteText } from '@/lib/markdown';
 import { MOTION, prefersReducedMotion, usePresence, type PresenceState } from '@/lib/motion';
 import { serverConfig } from '@/services/ServerConfigService';
 import { api } from '@/services/socket/api';
-import { highlightedMessageId, historyExhausted, historyLoading, loadedChannels, messages, pendingMessages, scrollTarget } from '@/state/chat';
+import {
+  editing,
+  highlightedMessageId,
+  historyExhausted,
+  historyLoading,
+  loadedChannels,
+  messages,
+  pendingMessages,
+  replyRefOf,
+  scrollTarget,
+  setReplyTarget,
+  startEditing,
+} from '@/state/chat';
 import { account, can } from '@/state/session';
 import { AttachmentGrid } from './AttachmentGrid';
-import { toast } from '@/state/ui';
+import { isMobile, toast } from '@/state/ui';
 import { EmojiPicker } from './EmojiPicker';
-import { flashMessage, loadOlderMessages } from './history';
+import { flashMessage, jumpToMessage, loadOlderMessages } from './history';
 import { LinkPreviewCard } from './LinkPreviewCard';
 import { MessageBody } from './MessageBody';
-import { outbox } from './outboxService';
+import { editChatMessage, outbox } from './outboxService';
 import type { PendingMessage } from './outbox';
-import type { Channel, ChatMessage, ReactionSummary } from '@/types/protocol';
+import type { Channel, ChatMessage, ReactionSummary, ReplyRef } from '@/types/protocol';
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 /** The row of one-tap reactions at the top of the message sheet. */
@@ -37,7 +50,8 @@ const buildRows = (list: ChatMessage[]): Row[] => {
     const newDay = !previous || !sameDay(previous.ts, message.ts);
     const sameAuthor = previous && previous.accountId === message.accountId && previous.from === message.from;
     const close = previous && message.ts - previous.ts < GROUP_WINDOW_MS;
-    rows.push({ message, showHeader: newDay || !sameAuthor || !close, dayLabel: newDay ? formatDayLabel(message.ts) : null });
+    // A reply starts its own block so the quote sits under the author's name.
+    rows.push({ message, showHeader: newDay || !sameAuthor || !close || Boolean(message.replyTo), dayLabel: newDay ? formatDayLabel(message.ts) : null });
     previous = message;
   }
   return rows;
@@ -56,6 +70,11 @@ const toggleReaction = (channelId: string, message: ChatMessage, emoji: string):
   const existing = message.reactions?.find((entry) => entry.emoji === emoji);
   if (existing && me && existing.accountIds.includes(me)) api.removeReaction(channelId, message.id, emoji);
   else api.addReaction(channelId, message.id, emoji);
+};
+
+/** Start a reply: the composer shows the quote and sends the next message as a reply. */
+const replyTo = (channelId: string, message: ChatMessage): void => {
+  setReplyTarget(channelId, replyRefOf(message));
 };
 
 const Reactions = ({ message, channelId, onAdd }: { message: ChatMessage; channelId: string; onAdd: () => void }) => {
@@ -103,17 +122,131 @@ const Reactions = ({ message, channelId, onAdd }: { message: ChatMessage; channe
   );
 };
 
+/** The quoted original above a reply; a click scrolls to it (loading older history on the way). */
+const ReplyQuote = ({ reply, channelId }: { reply: ReplyRef; channelId: string }) => {
+  const gone = reply.from === null;
+  const label = gone
+    ? 'Original message unavailable'
+    : reply.deleted
+      ? 'Message deleted'
+      : quoteText(reply.text) || (reply.pictures === 1 ? 'Picture' : reply.pictures > 1 ? reply.pictures + ' pictures' : '');
+  return (
+    <button
+      type="button"
+      className="reply-quote mb-0.5 flex max-w-full items-center gap-1.5 rounded-sm text-xs text-text-muted hover:text-text disabled:cursor-default disabled:hover:text-text-muted"
+      aria-label={gone ? 'Replying to a message that is no longer available' : 'Jump to the message from ' + reply.from}
+      title={gone ? undefined : 'Jump to the original message'}
+      disabled={gone}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (!gone) void jumpToMessage(channelId, reply.id);
+      }}
+    >
+      <CornerUpLeft size={12} className="shrink-0 text-text-faint" aria-hidden="true" />
+      {!gone && <span className="shrink-0 font-semibold text-text-bright">{reply.from}</span>}
+      <span className={cn('min-w-0 truncate', (gone || reply.deleted) && 'italic')}>{label}</span>
+    </button>
+  );
+};
+
+interface EditBoxProps {
+  initial: string;
+  /** Resolve true when the new text was accepted (the box closes). */
+  onSave: (text: string) => Promise<boolean> | boolean;
+  onCancel: () => void;
+}
+
+/** In-place editor for one of our own messages: Enter saves, Escape cancels (buttons on touch screens). */
+const EditBox = ({ initial, onSave, onCancel }: EditBoxProps) => {
+  const [text, setText] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const maxLength = serverConfig.get()?.limits.maxMessageLength ?? 2000;
+
+  const resize = () => {
+    const node = ref.current;
+    if (!node) return;
+    node.style.height = 'auto';
+    node.style.height = Math.min(node.scrollHeight, 240) + 'px';
+  };
+
+  // Focus as soon as the box is in the DOM (not through an animation frame: a background tab has none),
+  // and once more a tick later in case something else took the focus during the same render.
+  useLayoutEffect(() => {
+    const focus = () => {
+      const node = ref.current;
+      if (!node || document.activeElement === node) return;
+      node.focus();
+      node.setSelectionRange(node.value.length, node.value.length);
+    };
+    resize();
+    focus();
+    const timer = window.setTimeout(focus, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const save = async () => {
+    const value = text.trim().slice(0, maxLength);
+    if (!value || value === initial) {
+      onCancel();
+      return;
+    }
+    setSaving(true);
+    const accepted = await onSave(value);
+    setSaving(false);
+    if (accepted) onCancel();
+  };
+
+  return (
+    <div className="mt-1 rounded-md bg-input px-3 py-2" data-editing>
+      <textarea
+        ref={ref}
+        value={text}
+        rows={1}
+        maxLength={maxLength}
+        aria-label="Edit message"
+        className="scrollbar-thin max-h-[240px] w-full resize-none bg-transparent text-sm text-text-bright outline-none"
+        onInput={(event) => {
+          setText((event.target as HTMLTextAreaElement).value);
+          resize();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel();
+          } else if (event.key === 'Enter' && !event.shiftKey && !isMobile.value) {
+            event.preventDefault();
+            void save();
+          }
+        }}
+      />
+      <div className="mt-1.5 flex items-center justify-end gap-2 text-[11px] text-text-muted">
+        <span className="mr-auto pointer-coarse:hidden">escape to cancel, enter to save</span>
+        <Button size="sm" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" loading={saving} onClick={() => void save()}>
+          Save
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 interface MessageSheetProps {
   message: ChatMessage;
   channelId: string;
+  editable: boolean;
   deletable: boolean;
   state: PresenceState;
   onClose: () => void;
+  onEdit: () => void;
   onMoreReactions: () => void;
 }
 
-/** Long-press menu of a message on touch screens: quick reactions, copy, delete, who reacted. */
-const MessageSheet = ({ message, channelId, deletable, state, onClose, onMoreReactions }: MessageSheetProps) => {
+/** Long-press menu of a message on touch screens: quick reactions, reply, copy, edit, delete, who reacted. */
+const MessageSheet = ({ message, channelId, editable, deletable, state, onClose, onEdit, onMoreReactions }: MessageSheetProps) => {
   const me = account.value?.id;
   const mine = (emoji: string) => Boolean(me && message.reactions?.some((entry) => entry.emoji === emoji && entry.accountIds.includes(me)));
   const copy = async () => {
@@ -146,8 +279,26 @@ const MessageSheet = ({ message, channelId, deletable, state, onClose, onMoreRea
         ))}
       </div>
       <div role="menu" className="py-1">
+        <SheetItem
+          icon={<CornerUpLeft size={18} />}
+          label="Reply"
+          onSelect={() => {
+            replyTo(channelId, message);
+            onClose();
+          }}
+        />
         <SheetItem icon={<SmilePlus size={18} />} label="More reactions…" onSelect={onMoreReactions} />
-        <SheetItem icon={<Copy size={18} />} label="Copy text" onSelect={() => void copy()} />
+        {message.text && <SheetItem icon={<Copy size={18} />} label="Copy text" onSelect={() => void copy()} />}
+        {editable && (
+          <SheetItem
+            icon={<Pencil size={18} />}
+            label="Edit message"
+            onSelect={() => {
+              onClose();
+              onEdit();
+            }}
+          />
+        )}
         {deletable && (
           <SheetItem
             danger
@@ -173,18 +324,61 @@ const MessageSheet = ({ message, channelId, deletable, state, onClose, onMoreRea
   );
 };
 
+/** A hover/focus action on a message row. */
+const RowAction = ({ label, danger, onClick, children }: { label: string; danger?: boolean; onClick: () => void; children: preact.ComponentChildren }) => (
+  <button
+    type="button"
+    aria-label={label}
+    title={label}
+    className={cn('p-1.5 text-text-muted pointer-coarse:p-3', danger ? 'hover:text-live' : 'hover:text-text-bright')}
+    onClick={(event) => {
+      event.stopPropagation();
+      onClick();
+    }}
+  >
+    {children}
+  </button>
+);
+
+/** Avatar for the first message of a block, the time (shown on hover) for the following ones. */
+const Gutter = ({ message, showHeader }: { message: ChatMessage; showHeader: boolean }) => (
+  <div className="w-10 shrink-0">
+    {showHeader ? (
+      <Avatar seed={message.accountId ?? message.from} name={message.from} size={40} />
+    ) : (
+      <span className="message-time block pt-1 text-right text-[10px] text-text-faint opacity-0 group-hover:opacity-100 tabular-nums">
+        {formatMessageTime(message.ts).slice(-5)}
+      </span>
+    )}
+  </div>
+);
+
+const MessageHeader = ({ message }: { message: ChatMessage }) => (
+  <div className="flex items-baseline gap-2">
+    <span className="font-semibold text-text-bright">{message.from}</span>
+    <RoleBadge roles={message.roles} />
+    <time className="text-xs text-text-faint" dateTime={new Date(message.ts).toISOString()} title={formatFullDate(message.ts)}>
+      {formatMessageTime(message.ts)}
+    </time>
+  </div>
+);
+
 const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
   const { message, showHeader } = row;
   const me = account.value;
   const own = Boolean(me && message.accountId === me.id);
-  // Briefly lit after jumping here from a search result; the flash is feedback, so it survives reduced motion.
+  // Briefly lit after jumping here from a search result or a reply quote; the flash is feedback, so it survives reduced motion.
   const highlighted = highlightedMessageId.value === message.id;
-  const deletable = own || can('canDeleteAnyMessage');
+  const deleted = message.deleted === true;
+  const deletable = !deleted && (own || can('canDeleteAnyMessage'));
+  const editable = !deleted && own;
+  const mentionsMe = Boolean(me && message.mentions?.some((mention) => mention.accountId === me.id));
+  const isEditing = editing.value?.channelId === channelId && editing.value.messageId === message.id;
   // Touch screens have no hover: a tap on the message toggles its actions, a long press opens the sheet.
   const [active, setActive] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const sheet = usePresence(sheetOpen, MOTION.base);
+  const sheet = usePresence(sheetOpen && !deleted, MOTION.base);
   const press = useMemo(
     () =>
       new LongPressTracker(() => {
@@ -201,6 +395,20 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
     setPickerOpen(false);
     toggleReaction(channelId, message, emoji);
   };
+  const edit = () => startEditing({ channelId, messageId: message.id });
+
+  if (deleted) {
+    return (
+      <div className={cn('message-row relative flex gap-3 px-4 py-0.5 pointer-coarse:py-1', showHeader && 'mt-3', highlighted && 'is-highlighted motion-essential')} data-deleted>
+        <Gutter message={message} showHeader={showHeader} />
+        <div className="min-w-0 flex-1">
+          {showHeader && <MessageHeader message={message} />}
+          <p className="text-sm text-text-faint italic">Message deleted</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -208,9 +416,11 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
         showHeader && 'mt-3',
         (active || pickerOpen || sheetOpen) && 'is-active',
         highlighted && 'is-highlighted motion-essential',
+        mentionsMe && 'is-mention',
       )}
+      data-mentions-me={mentionsMe ? 'true' : undefined}
       onPointerDown={(event) => {
-        if (event.pointerType === 'touch') press.down(event.clientX, event.clientY, event.pointerId);
+        if (event.pointerType === 'touch' && !isEditing) press.down(event.clientX, event.clientY, event.pointerId);
       }}
       onPointerMove={(event) => press.move(event.clientX, event.clientY, event.pointerId)}
       onPointerUp={(event) => press.up(event.pointerId)}
@@ -225,72 +435,66 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
           event.preventDefault();
           return;
         }
-        if (!isTouchPrimary()) return;
+        if (!isTouchPrimary() || isEditing) return;
         const target = event.target as HTMLElement | null;
-        if (target?.closest('a, button')) return;
+        if (target?.closest('a, button, textarea')) return;
         setActive((value) => !value);
       }}
     >
-      <div className="w-10 shrink-0">
-        {showHeader ? (
-          <Avatar seed={message.accountId ?? message.from} name={message.from} size={40} />
-        ) : (
-          <span className="message-time block pt-1 text-right text-[10px] text-text-faint opacity-0 group-hover:opacity-100 tabular-nums">
-            {formatMessageTime(message.ts).slice(-5)}
-          </span>
-        )}
-      </div>
+      <Gutter message={message} showHeader={showHeader} />
       <div className="min-w-0 flex-1">
-        {showHeader && (
-          <div className="flex items-baseline gap-2">
-            <span className={cn('font-semibold', own ? 'text-text-bright' : 'text-text-bright')}>{message.from}</span>
-            <RoleBadge roles={message.roles} />
-            <time className="text-xs text-text-faint" dateTime={new Date(message.ts).toISOString()} title={formatFullDate(message.ts)}>
-              {formatMessageTime(message.ts)}
-            </time>
-          </div>
+        {showHeader && <MessageHeader message={message} />}
+        {message.replyTo && <ReplyQuote reply={message.replyTo} channelId={channelId} />}
+        {isEditing ? (
+          <EditBox initial={message.text} onSave={(text) => editChatMessage(channelId, message.id, text)} onCancel={() => startEditing(null)} />
+        ) : (
+          <MessageBody
+            text={message.text}
+            mentions={message.mentions}
+            selfId={me?.id}
+            trailer={
+              message.edited ? (
+                <span className="message-edited" title={message.editedAt ? 'Edited ' + formatFullDate(message.editedAt) : 'Edited'}>
+                  (edited)
+                </span>
+              ) : undefined
+            }
+          />
         )}
-        {message.text && <MessageBody text={message.text} />}
         <AttachmentGrid attachments={message.attachments} />
         <LinkPreviewCard preview={message.preview} canRemove={deletable} onRemove={() => api.removePreview(channelId, message.id)} />
         <Reactions message={message} channelId={channelId} onAdd={() => setPickerOpen(true)} />
       </div>
-      <div className="message-actions absolute top-0 right-4 flex -translate-y-1/2 rounded-sm bg-elevated shadow-pop">
-        <button
-          type="button"
-          aria-label="Add reaction"
-          title="Add reaction"
-          className="p-1.5 text-text-muted hover:text-text-bright pointer-coarse:p-3"
-          onClick={(event) => {
-            event.stopPropagation();
-            setPickerOpen((value) => !value);
-          }}
-        >
-          <SmilePlus size={16} />
-        </button>
-        {deletable && (
-          <button
-            type="button"
-            aria-label="Delete message"
-            title="Delete message"
-            className="p-1.5 text-text-muted hover:text-live pointer-coarse:p-3"
-            onClick={(event) => {
-              event.stopPropagation();
-              api.deleteMessage(channelId, message.id);
-            }}
-          >
-            <Trash2 size={16} />
-          </button>
-        )}
-      </div>
+      {!isEditing && (
+        <div className="message-actions absolute top-0 right-4 flex -translate-y-1/2 rounded-sm bg-elevated shadow-pop" role="toolbar" aria-label="Message actions">
+          <RowAction label="Reply" onClick={() => replyTo(channelId, message)}>
+            <CornerUpLeft size={16} />
+          </RowAction>
+          <RowAction label="Add reaction" onClick={() => setPickerOpen((value) => !value)}>
+            <SmilePlus size={16} />
+          </RowAction>
+          {editable && (
+            <RowAction label="Edit message" onClick={edit}>
+              <Pencil size={16} />
+            </RowAction>
+          )}
+          {deletable && (
+            <RowAction label="Delete message" danger onClick={() => api.deleteMessage(channelId, message.id)}>
+              <Trash2 size={16} />
+            </RowAction>
+          )}
+        </div>
+      )}
       {pickerOpen && <EmojiPicker onPick={pick} onClose={() => setPickerOpen(false)} className="absolute top-full right-4 z-30 mt-1" title="React to this message" />}
       {sheet.mounted && (
         <MessageSheet
           message={message}
           channelId={channelId}
+          editable={editable}
           deletable={deletable}
           state={sheet.state}
           onClose={() => setSheetOpen(false)}
+          onEdit={edit}
           onMoreReactions={() => {
             setSheetOpen(false);
             setPickerOpen(true);
@@ -304,13 +508,17 @@ const MessageRow = ({ row, channelId }: { row: Row; channelId: string }) => {
 /**
  * One of our own messages the server has not confirmed yet: "sending" (also while the
  * socket is down: it goes out on reconnect) or, after 60 s or a refusal, "not sent" with
- * a retry. Rendered after the confirmed history, in send order.
+ * a retry. Rendered after the confirmed history, in send order. It can still be edited
+ * (the queued text changes) or deleted (the entry is dropped).
  */
 const PendingRow = ({ entry }: { entry: PendingMessage }) => {
   const me = account.value;
   const failed = entry.status === 'failed';
+  const isEditing = editing.value?.channelId === entry.channelId && editing.value.clientId === entry.clientId;
+  const original = entry.replyToId ? messages.value[entry.channelId]?.find((message) => message.id === entry.replyToId) : undefined;
+  const reply: ReplyRef | null = entry.replyToId ? (original ? replyRefOf(original) : { id: entry.replyToId, from: null, accountId: null, text: '', deleted: true, pictures: 0 }) : null;
   return (
-    <div className={cn('message-row relative mt-3 flex gap-3 px-4 py-0.5', !failed && 'opacity-60')} data-pending={entry.status} aria-live="polite">
+    <div className={cn('message-row group relative mt-3 flex gap-3 px-4 py-0.5 hover:bg-black/10', !failed && 'opacity-60')} data-pending={entry.status} aria-live="polite">
       <div className="w-10 shrink-0">
         <Avatar seed={me?.id ?? 'me'} name={me?.displayName ?? 'You'} src={me?.avatarUrl} size={40} />
       </div>
@@ -322,7 +530,12 @@ const PendingRow = ({ entry }: { entry: PendingMessage }) => {
             {failed ? (entry.error ?? 'Not sent') : 'Sending…'}
           </span>
         </div>
-        <MessageBody text={entry.text || (entry.attachmentIds.length === 1 ? '1 picture' : entry.attachmentIds.length + ' pictures')} />
+        {reply && <ReplyQuote reply={reply} channelId={entry.channelId} />}
+        {isEditing ? (
+          <EditBox initial={entry.text} onSave={(text) => outbox.edit(entry.clientId, text)} onCancel={() => startEditing(null)} />
+        ) : (
+          <MessageBody text={entry.text || (entry.attachmentIds.length === 1 ? '1 picture' : entry.attachmentIds.length + ' pictures')} selfId={me?.id} />
+        )}
         {failed && (
           <div className="mt-1 flex gap-3 text-xs">
             <button type="button" className="font-semibold text-link hover:underline" onClick={() => outbox.retry(entry.clientId)}>
@@ -334,6 +547,16 @@ const PendingRow = ({ entry }: { entry: PendingMessage }) => {
           </div>
         )}
       </div>
+      {!isEditing && (
+        <div className="message-actions absolute top-0 right-4 flex -translate-y-1/2 rounded-sm bg-elevated shadow-pop" role="toolbar" aria-label="Message actions">
+          <RowAction label="Edit message" onClick={() => startEditing({ channelId: entry.channelId, clientId: entry.clientId })}>
+            <Pencil size={16} />
+          </RowAction>
+          <RowAction label="Delete message" danger onClick={() => outbox.discard(entry.clientId)}>
+            <Trash2 size={16} />
+          </RowAction>
+        </div>
+      )}
     </div>
   );
 };
@@ -408,7 +631,7 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
     if (delta > 0) node.scrollTop = saved.top + delta;
   }, [list.length]);
 
-  // A search result asked for one of these messages: bring it into view and light it up.
+  // A search result or a reply quote asked for one of these messages: bring it into view and light it up.
   useEffect(() => {
     if (!target || target.channelId !== channel.id) return;
     const node = scrollRef.current?.querySelector<HTMLElement>('[data-message-id="' + CSS.escape(target.messageId) + '"]');
@@ -418,6 +641,13 @@ export const MessageList = ({ channel, compact }: { channel: Channel; compact?: 
     node.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
     flashMessage(target.messageId);
   }, [target, channel.id, list.length]);
+
+  // An edit of a pending message ends when the server confirms it (the pending row is gone).
+  const pendingIds = pending.map((entry) => entry.clientId).join(' ');
+  useEffect(() => {
+    const current = editing.value;
+    if (current?.clientId && current.channelId === channel.id && !pendingIds.split(' ').includes(current.clientId)) startEditing(null);
+  }, [pendingIds, channel.id]);
 
   const onScroll = () => {
     const node = scrollRef.current;

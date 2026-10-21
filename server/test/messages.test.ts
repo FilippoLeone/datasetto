@@ -39,13 +39,16 @@ describe('MessageService', () => {
     expect(ctx.messages.count(channel.id)).toBe(100);
   });
 
-  it('soft deletes and hides deleted messages from history', async () => {
+  it('soft deletes: the message stays in history as a tombstone without its text', async () => {
     const { ctx, author, channel } = await setup();
     const msg = ctx.messages.create(channel.id, author, 'oops');
     const deleted = ctx.messages.delete(channel.id, msg.id, 'Mod');
     expect(deleted.deleted).toBe(true);
     expect(deleted.text).toBe('');
-    expect(ctx.messages.history(channel.id)).toHaveLength(0);
+    const history = ctx.messages.history(channel.id);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ id: msg.id, deleted: true, text: '', from: 'Alice', reactions: [], attachments: [], preview: null, mentions: [], replyTo: null });
+    expect(ctx.db.prepare('SELECT text, deleted_by FROM messages WHERE id = ?').get(msg.id)).toEqual({ text: '', deleted_by: 'Mod' });
     expect(() => ctx.messages.delete(channel.id, 'msg-missing', 'Mod')).toThrow(/not found/);
   });
 });
