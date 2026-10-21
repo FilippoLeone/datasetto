@@ -1,8 +1,9 @@
-import { ChevronDown, ChevronRight, Gamepad2, Key, Lock, MessageCircle, Plus, Trash2, Volume2, X } from 'lucide-preact';
+import { ChevronDown, ChevronRight, Gamepad2, Key, Lock, MessageCircle, Plus, Trash2, Volume2, VolumeX, X } from 'lucide-preact';
 import { Avatar, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
 import { CHANNEL_ICONS } from '@/app/layout/MainArea';
 import { api } from '@/services/socket/api';
+import { peerAudioPref } from '@/state/peerAudio';
 import { channelsByType, collapsedGroups, mentions, selectedChannelId, toggleGroup, unread } from '@/state/channels';
 import { usersInVoice } from '@/state/presence';
 import { can } from '@/state/session';
@@ -10,6 +11,7 @@ import { localSpeaking, voiceChannelId, voicePeers } from '@/state/voice';
 import { account } from '@/state/session';
 import { openModal } from '@/state/ui';
 import { closeConversation, selectChannel } from './channelActions';
+import { PeerVolumePanel } from '@/features/voice/PeerVolumePanel';
 import { voiceManager } from '@/features/voice/voiceManager';
 import type { Channel, ChannelType, CreatableChannelType } from '@/types/protocol';
 
@@ -23,6 +25,10 @@ const GROUP_LABELS: Record<ChannelType, string> = {
 
 const ORDER: CreatableChannelType[] = ['text', 'voice', 'stream', 'screenshare'];
 
+/**
+ * Who is in a voice channel, under its row. A friend's row opens their menu: how loud they
+ * play for me (state/peerAudio.ts) and a message shortcut.
+ */
 const VoiceMembers = ({ channel }: { channel: Channel }) => {
   const members = usersInVoice(channel.id);
   if (members.length === 0) return null;
@@ -33,10 +39,20 @@ const VoiceMembers = ({ channel }: { channel: Channel }) => {
         const isMe = user.accountId === me?.id;
         const peer = voicePeers.value[user.id];
         const speaking = isMe ? localSpeaking.value : (peer?.speaking ?? false);
+        const audio = isMe ? null : peerAudioPref(user.accountId);
+        const items: MenuItem[] = isMe ? [] : [{ label: 'Message ' + user.displayName, icon: <MessageCircle size={14} />, onSelect: () => api.openDm(user.accountId) }];
         return (
-          <li key={user.id} className="flex items-center gap-2 rounded-sm px-1 py-0.5 text-sm text-text-muted">
-            <Avatar seed={user.accountId} name={user.displayName} src={user.avatarUrl} size={20} speaking={speaking} />
-            <span className={cn('truncate', speaking && 'text-text-bright')}>{user.displayName}</span>
+          <li key={user.id}>
+            <Menu items={items} className="block w-full" title={user.displayName} header={isMe ? undefined : <PeerVolumePanel accountId={user.accountId} name={user.displayName} />}>
+              <div
+                className={cn('flex items-center gap-2 rounded-sm px-1 py-0.5 text-sm text-text-muted', !isMe && 'cursor-pointer hover:bg-hover pointer-coarse:min-h-10')}
+                data-voice-member={user.accountId}
+              >
+                <Avatar seed={user.accountId} name={user.displayName} src={user.avatarUrl} size={20} speaking={speaking} />
+                <span className={cn('min-w-0 flex-1 truncate', speaking && 'text-text-bright')}>{user.displayName}</span>
+                {audio?.muted && <VolumeX size={12} className="shrink-0 text-live" aria-label="Muted for you" title="Muted for you" data-muted-for-me />}
+              </div>
+            </Menu>
           </li>
         );
       })}

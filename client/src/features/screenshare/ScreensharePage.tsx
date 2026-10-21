@@ -52,6 +52,8 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
                 ? {
                     muted: streamAudio.muted,
                     volume: streamAudio.volume,
+                    max: 1,
+                    onlyWithAudio: true,
                     onMutedChange: (muted) => setScreenAudioPref(hostKey, { muted }),
                     onVolumeChange: (volume) => setScreenAudioPref(hostKey, { volume }),
                   }

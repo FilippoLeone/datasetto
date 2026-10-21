@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import Hls from 'hls.js';
 import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from 'lucide-preact';
-import { IconButton } from '@/components';
+import { IconButton, VolumeSlider } from '@/components';
 import { cn } from '@/lib/cn';
 import { buildHlsUrlCandidates } from '@/lib/hlsUrls';
 import { runtimeUrls } from '@/lib/runtimeConfig';
@@ -284,16 +284,16 @@ export const HlsPlayer = ({ channelName, live, className }: HlsPlayerProps) => {
           <IconButton label={muted ? 'Unmute' : 'Mute'} size="sm" className="text-white hover:bg-white/15" onClick={() => setMuted((value) => !value)}>
             {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </IconButton>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={muted ? 0 : volume}
-            aria-label="Volume"
-            className="range-input w-24"
-            onInput={(event) => {
-              setVolume(Number((event.target as HTMLInputElement).value));
+          <VolumeSlider
+            label="Volume"
+            value={muted ? 0 : Math.round(volume * 100)}
+            max={100}
+            step={5}
+            showValue
+            trackClassName="w-24"
+            valueClassName="w-9 text-[11px] text-white/90"
+            onChange={(percent) => {
+              setVolume(percent / 100);
               setMuted(false);
             }}
           />

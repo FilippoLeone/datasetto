@@ -1,10 +1,11 @@
 import { useState } from 'preact/hooks';
-import { Gamepad2, Headphones, HeadphoneOff, MessageCircle, Mic, MicOff, MonitorUp, Phone, PhoneOff, RefreshCw, Settings, Video, VideoOff, Volume2 } from 'lucide-preact';
+import { Gamepad2, Headphones, HeadphoneOff, MessageCircle, Mic, MicOff, MonitorUp, Phone, PhoneOff, RefreshCw, Settings, Video, VideoOff, Volume2, VolumeX } from 'lucide-preact';
 import { Avatar, Button, IconButton, Menu, type MenuItem } from '@/components';
 import { cn } from '@/lib/cn';
 import { canCaptureScreen } from '@/lib/device';
 import { MOTION, useListPresence, type PresenceState } from '@/lib/motion';
 import { useElementSize } from '@/lib/useElementSize';
+import { peerAccountId, peerAudioPref, setPeerAudioPref, volumePercent } from '@/state/peerAudio';
 import { usersById, usersInVoice } from '@/state/presence';
 import { screenAudioPref, screenHostKey, setScreenAudioPref } from '@/state/screenAudio';
 import { account, can, socketId } from '@/state/session';
@@ -22,11 +23,13 @@ import {
   pttPressed,
   remoteVideo,
   voiceChannelId,
+  voicePeers,
   voiceStatus,
   type VoicePeer,
 } from '@/state/voice';
 import { api } from '@/services/socket/api';
-import { VideoTile } from './VideoTile';
+import { PeerVolumePanel } from './PeerVolumePanel';
+import { VideoTile, type TileAudioControls } from './VideoTile';
 import { VIDEO_GRID_GAP, videoGridLayout } from './videoGrid';
 import { useVoiceTimer } from './VoiceDock';
 import { voiceManager } from './voiceManager';
@@ -41,16 +44,14 @@ const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state
   const speaking = isMe ? localSpeaking.value : peer.speaking;
   const muted = isMe ? localMuted.value || (audioSettings.value.pttEnable && !pttPressed.value) : peer.muted;
   const deafened = isMe ? localDeafened.value : peer.deafened;
-  const pref = !isMe ? voiceManager.peerVolume(peer.id) : null;
+  // What I hear of them: remembered per account, shown and set from this tile's menu.
+  const accountId = isMe ? null : peerAccountId(peer.id);
+  const pref = peerAudioPref(accountId);
+  const percent = volumePercent(pref.volume);
 
   const items: MenuItem[] = [];
   if (!isMe) {
     if (user) items.push({ label: 'Message', icon: <MessageCircle size={14} />, onSelect: () => api.openDm(user.accountId) });
-    items.push({
-      label: pref?.muted ? 'Unmute for me' : 'Mute for me',
-      icon: <Volume2 size={14} />,
-      onSelect: () => voiceManager.setPeerMuted(peer.id, !pref?.muted),
-    });
     if (can('canModerate') && !user?.isSuperuser) {
       items.push({ label: 'Kick from voice', danger: true, onSelect: () => voiceManager.kick(peer.id) });
       items.push({ label: 'Timeout 5 min', danger: true, onSelect: () => voiceManager.timeout(peer.id, 5) });
@@ -72,14 +73,17 @@ const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state
     }
   }
 
+  const header = accountId ? <PeerVolumePanel accountId={accountId} name={peer.name} /> : undefined;
+
   return (
-    <Menu items={items} title={peer.name}>
+    <Menu items={items} title={peer.name} header={header}>
       <div
         data-state={state}
+        data-peer-tile={peer.id}
         className={cn(
           'motion-tile flex w-36 flex-col items-center gap-2 rounded-lg bg-sidebar p-4 transition-[box-shadow,background-color] duration-150',
           speaking && 'ring-2 ring-success',
-          items.length > 0 && 'cursor-pointer hover:bg-hover',
+          (items.length > 0 || header) && 'cursor-pointer hover:bg-hover',
         )}
       >
         <Avatar seed={user?.accountId ?? peer.id} name={peer.name} src={user?.avatarUrl} size={64} speaking={speaking} />
@@ -95,6 +99,13 @@ const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state
           {deafened && <HeadphoneOff size={14} className="text-live" />}
           {peer.camera && <Video size={14} className="text-success" />}
           {peer.screen && <MonitorUp size={14} className="text-success" />}
+          {/* My side only: crossed speaker while they are muted for me, their level when it is not 100 %. */}
+          {!isMe && pref.muted && <VolumeX size={14} className="text-live" aria-label="Muted for you" title="Muted for you" data-muted-for-me />}
+          {!isMe && !pref.muted && percent !== 100 && (
+            <span className="flex items-center gap-0.5 text-[11px] tabular-nums" title={'Plays at ' + percent + '% for you'} data-peer-volume-badge>
+              <Volume2 size={12} /> {percent}%
+            </span>
+          )}
         </span>
       </div>
     </Menu>
@@ -153,34 +164,60 @@ interface Tile {
   stream: MediaStream;
   label: string;
   mirror?: boolean;
+  /** Whose camera this is (remote camera tiles carry that person's volume controls). */
+  peerId?: string;
   /** Remote screen shares play their sound through the tile; everything else stays muted. */
   screen?: { remote: boolean; peerId?: string };
 }
 
+/** The controls for one person's voice as shown on their camera tile (state/peerAudio.ts). */
+const personAudioControls = (peerId: string): TileAudioControls | undefined => {
+  const accountId = peerAccountId(peerId);
+  if (!accountId) return undefined;
+  const name = usersById.value.get(peerId)?.displayName ?? voicePeers.value[peerId]?.name ?? 'them';
+  const pref = peerAudioPref(accountId);
+  return {
+    muted: pref.muted,
+    volume: pref.volume,
+    max: 2,
+    sliderLabel: 'Volume for ' + name,
+    muteLabel: 'Mute ' + name + ' for me',
+    unmuteLabel: 'Unmute ' + name + ' for me',
+    onMutedChange: (muted) => setPeerAudioPref(accountId, { muted }),
+    onVolumeChange: (volume) => setPeerAudioPref(accountId, { volume }),
+    panel: <PeerVolumePanel accountId={accountId} name={name} />,
+    panelTitle: name,
+  };
+};
+
 /**
- * Sound settings for a tile: own and camera tiles are silent. A friend's screen has its own
- * mute and volume (remembered per friend) on top of deafen, their per-peer mute and volume
- * from the voice menu, the output volume and the output device.
+ * Sound settings for a tile. Own tiles are silent. A friend's camera tile is silent too (their
+ * voice plays through the mesh's own audio path) but carries the controls for that voice. A
+ * friend's screen has its own mute and volume (remembered per friend) on top of deafen, that
+ * person's volume and mute for me, the output volume and the output device.
  */
 const tileAudio = (tile: Tile) => {
-  if (!tile.screen) return { muted: true, audioIndicator: false };
+  if (!tile.screen) return { muted: true, audioIndicator: false, audioControls: tile.peerId ? personAudioControls(tile.peerId) : undefined };
   if (!tile.screen.remote || !tile.screen.peerId) return { muted: true, audioIndicator: true, stats: true };
   const peerId = tile.screen.peerId;
-  const pref = voiceManager.peerVolume(peerId);
+  const pref = peerAudioPref(peerAccountId(peerId));
   const hostKey = screenHostKey(peerId, peerId) ?? 'peer:' + peerId;
   const streamAudio = screenAudioPref(hostKey);
+  const controls: TileAudioControls = {
+    muted: streamAudio.muted,
+    volume: streamAudio.volume,
+    max: 1,
+    onlyWithAudio: true,
+    onMutedChange: (muted) => setScreenAudioPref(hostKey, { muted }),
+    onVolumeChange: (volume) => setScreenAudioPref(hostKey, { volume }),
+  };
   return {
     muted: localDeafened.value || pref.muted || streamAudio.muted,
     volume: streamAudio.volume * pref.volume * audioSettings.value.outputVol,
     sinkId: audioSettings.value.spkDeviceId,
     audioIndicator: true,
     stats: true,
-    audioControls: {
-      muted: streamAudio.muted,
-      volume: streamAudio.volume,
-      onMutedChange: (muted: boolean) => setScreenAudioPref(hostKey, { muted }),
-      onVolumeChange: (volume: number) => setScreenAudioPref(hostKey, { volume }),
-    },
+    audioControls: controls,
   };
 };
 
@@ -195,7 +232,7 @@ const VideoGrid = ({ edge = false }: { edge?: boolean }) => {
   for (const [peerId, streams] of Object.entries(remoteVideo.value)) {
     const name = usersById.value.get(peerId)?.displayName ?? 'Peer';
     if (streams.screen) tiles.push({ key: peerId + ':screen', stream: streams.screen, label: name + "'s screen", screen: { remote: true, peerId } });
-    if (streams.camera) tiles.push({ key: peerId + ':camera', stream: streams.camera, label: name });
+    if (streams.camera) tiles.push({ key: peerId + ':camera', stream: streams.camera, label: name, peerId });
   }
   // Tiles scale in when a stream appears and out when it ends (lib/motion.ts).
   const present = useListPresence(tiles, (tile) => tile.key, MOTION.base);

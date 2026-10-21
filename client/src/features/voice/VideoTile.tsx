@@ -1,15 +1,33 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Volume2, VolumeX } from 'lucide-preact';
+import { Menu, VolumeSlider } from '@/components';
 import { cn } from '@/lib/cn';
 import type { PresenceState } from '@/lib/motion';
 
-/** Viewer-side mute and volume for a shared screen's sound (the values shown on the tile). */
+/**
+ * Viewer-side mute and volume shown on a tile: a shared screen's sound, or the voice of the
+ * person on a camera tile. The values are what the tile shows; the owner of the controls
+ * applies them (video element volume, or the person's gain node in the voice service).
+ */
 export interface TileAudioControls {
   muted: boolean;
-  /** 0..1 */
+  /** 0..max multiplier. */
   volume: number;
+  /** 1 for a stream that cannot play louder than it is, 2 for a person (boost up to 200 %). */
+  max?: 1 | 2;
   onMutedChange: (muted: boolean) => void;
   onVolumeChange: (volume: number) => void;
+  /** Accessible names; the defaults speak of a stream. */
+  sliderLabel?: string;
+  muteLabel?: string;
+  unmuteLabel?: string;
+  /** Show the controls only while the stream carries sound (screen shares). */
+  onlyWithAudio?: boolean;
+  /** Full controls behind the percentage: a dropdown with a mouse, a sheet on a phone (slider, mute switch, reset). */
+  panel?: ComponentChildren;
+  /** Heading of that sheet. */
+  panelTitle?: string;
 }
 
 interface VideoTileProps {
@@ -23,7 +41,7 @@ interface VideoTileProps {
   sinkId?: string;
   /** Show whether the stream carries sound (screen shares). */
   audioIndicator?: boolean;
-  /** Mute button and volume slider, shown while the stream carries sound. */
+  /** Mute button, volume slider and percentage in the bottom bar. */
   audioControls?: TileAudioControls;
   /** Show the resolution and frame rate the stream actually plays at (screen shares). */
   stats?: boolean;
@@ -114,10 +132,65 @@ const useStreamHasAudio = (stream: MediaStream, enabled: boolean): boolean => {
 
 const stop = (event: Event) => event.stopPropagation();
 
+/**
+ * The sound controls in a tile's bottom bar: mute button, slider (where the tile is wide
+ * enough, container queries) and the percentage, which opens the full panel when one is
+ * given, so the volume can be set on a narrow tile and on a phone too.
+ */
+const TileAudioBar = ({ controls }: { controls: TileAudioControls }) => {
+  const max = controls.max ?? 1;
+  const percent = Math.round(controls.volume * 100);
+  const sliderLabel = controls.sliderLabel ?? 'Stream volume';
+  return (
+    <div
+      className="pointer-events-auto flex shrink-0 cursor-default items-center gap-0.5 rounded-sm bg-black/60 px-1 py-0.5 text-white"
+      data-audio="on"
+      data-audio-controls
+      data-muted={controls.muted ? 'true' : undefined}
+      onClick={stop}
+      onDblClick={stop}
+    >
+      <button
+        type="button"
+        aria-label={controls.muted ? (controls.unmuteLabel ?? 'Unmute stream') : (controls.muteLabel ?? 'Mute stream')}
+        title={controls.muted ? (controls.unmuteLabel ?? 'Unmute this stream') : (controls.muteLabel ?? 'Mute this stream')}
+        aria-pressed={controls.muted}
+        onClick={() => controls.onMutedChange(!controls.muted)}
+        className={cn('flex items-center justify-center rounded-sm p-1 transition-colors duration-150 hover:bg-white/15 pointer-coarse:min-h-10 pointer-coarse:min-w-10', controls.muted && 'text-live')}
+        data-tile-mute
+      >
+        {controls.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+      </button>
+      <VolumeSlider
+        label={sliderLabel}
+        value={percent}
+        max={max === 2 ? 200 : 100}
+        step={5}
+        className="hidden @min-[260px]:flex"
+        trackClassName="w-16 @min-[360px]:w-24"
+        onChange={(value) => controls.onVolumeChange(value / 100)}
+      />
+      {controls.panel ? (
+        <Menu items={[]} header={controls.panel} title={controls.panelTitle} align="right" className="shrink-0">
+          <span
+            className="flex min-w-8 items-center justify-end rounded-sm px-1 py-0.5 text-[10px] tabular-nums transition-colors duration-150 hover:bg-white/15 pointer-coarse:min-h-10 pointer-coarse:px-2 pointer-coarse:text-xs"
+            title="Volume options"
+            data-volume-options
+          >
+            {percent}%
+          </span>
+        </Menu>
+      ) : (
+        <span className="hidden w-8 text-right text-[10px] tabular-nums @min-[320px]:inline">{percent}%</span>
+      )}
+    </div>
+  );
+};
+
 /** Plays a MediaStream in a <video>, re-attaching when the stream changes. */
 export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId, audioIndicator, audioControls, stats, className, onClick, state }: VideoTileProps) => {
   const ref = useRef<HTMLVideoElement>(null);
-  const hasAudio = useStreamHasAudio(stream, Boolean(audioIndicator || audioControls));
+  const hasAudio = useStreamHasAudio(stream, Boolean(audioIndicator || audioControls?.onlyWithAudio));
   const statsLabel = useVideoStats(ref, stream, Boolean(stats));
 
   useEffect(() => {
@@ -147,8 +220,7 @@ export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId,
     node.setSinkId(sinkId ?? '').catch(() => undefined);
   }, [sinkId, muted]);
 
-  const controls = hasAudio && audioControls ? audioControls : null;
-  const percent = controls ? Math.round(controls.volume * 100) : 0;
+  const controls = audioControls && (!audioControls.onlyWithAudio || hasAudio) ? audioControls : null;
 
   return (
     <div data-state={state} className={cn('motion-tile @container relative overflow-hidden rounded-lg bg-black', onClick && 'cursor-pointer', className)} onClick={onClick}>
@@ -159,40 +231,14 @@ export const VideoTile = ({ stream, label, mirror, muted = true, volume, sinkId,
         </span>
       )}
       {/* Bottom bar: the label truncates, the sound controls keep their place; on small tiles
-          (container queries) the slider and the percentage make way. */}
+          (container queries) the slider makes way and the percentage opens the full panel. */}
       <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-end justify-between gap-2">
-        <span className="min-w-0 truncate rounded-sm bg-black/60 px-1.5 py-0.5 text-xs font-medium text-white">{label}</span>
+        <span className="flex min-w-0 items-center gap-1 truncate rounded-sm bg-black/60 px-1.5 py-0.5 text-xs font-medium text-white">
+          {controls?.muted && controls.max === 2 && <VolumeX size={12} className="shrink-0 text-live" aria-label="Muted for you" data-muted-for-me />}
+          <span className="truncate">{label}</span>
+        </span>
         {controls ? (
-          <div
-            className="pointer-events-auto flex shrink-0 cursor-default items-center gap-1.5 rounded-sm bg-black/60 px-1.5 py-1 text-white"
-            data-audio="on"
-            data-audio-controls
-            onClick={stop}
-            onDblClick={stop}
-          >
-            <button
-              type="button"
-              aria-label={controls.muted ? 'Unmute stream' : 'Mute stream'}
-              title={controls.muted ? 'Unmute this stream' : 'Mute this stream'}
-              aria-pressed={controls.muted}
-              onClick={() => controls.onMutedChange(!controls.muted)}
-              className={cn('rounded-sm p-0.5 transition-colors duration-150 hover:text-success', controls.muted && 'text-live')}
-            >
-              {controls.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-            </button>
-            <input
-              type="range"
-              aria-label="Stream volume"
-              title="Stream volume"
-              className="range-input hidden w-16 @min-[240px]:block @min-[360px]:w-20"
-              min={0}
-              max={100}
-              step={5}
-              value={percent}
-              onInput={(event) => controls.onVolumeChange(Number((event.target as HTMLInputElement).value) / 100)}
-            />
-            <span className="hidden w-8 text-right text-[10px] tabular-nums @min-[320px]:inline">{percent}%</span>
-          </div>
+          <TileAudioBar controls={controls} />
         ) : (
           audioIndicator && (
             <span

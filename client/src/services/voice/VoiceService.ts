@@ -5,11 +5,13 @@ import type { EventMap, ScreenQuality } from '@/types/protocol';
 import { EventEmitter } from '@/lib/EventEmitter';
 import { Storage } from '@/lib/storage';
 import { isNativeAudioRoutingAvailable, selectNativeAudioRoute } from '@/services/native/NativeAudioRouteService';
-import { isElectron, isCapacitor } from '@/lib/device';
 import { config } from '@/config';
 import { serverConfig } from '@/services/ServerConfigService';
 import { DEFAULT_SCREEN_QUALITY, applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError } from '@/services/screenCapture';
 import { captureCamera } from './cameraCapture';
+import { PeerAudioManager, type PeerAudioPreference } from './PeerAudioManager';
+
+export type { PeerAudioPreference } from './PeerAudioManager';
 
 const parseNumberEnv = (
   value: string | undefined,
@@ -125,11 +127,6 @@ const normalizeVoiceBitrate = (value: number): number => {
   return rounded;
 };
 
-export interface PeerAudioPreference {
-  muted: boolean;
-  volume: number;
-}
-
 interface VoiceCodecOptions {
   stereo?: boolean;
   maxPtime?: number;
@@ -137,7 +134,8 @@ interface VoiceCodecOptions {
   maxPlaybackRate?: number;
 }
 
-const PEER_PREFERENCE_STORAGE_KEY = 'datasetto.voice.peerPreferences.v1';
+/** Where an old client kept per-socket volume settings; socket ids never repeat, so the file is dead weight. */
+const LEGACY_PEER_PREFERENCE_STORAGE_KEY = 'datasetto.voice.peerPreferences.v1';
 const STATS_POLLING_INTERVAL_MS = 2000;
 const CONNECTION_QUALITY_HISTORY_SIZE = 5;
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -167,234 +165,6 @@ type RemoteVideoTrackInfo = {
 /** Senders for one peer: the camera track, the screen's video and (when captured) its audio. */
 type PeerVideoSenders = { camera?: RTCRtpSender; screen?: RTCRtpSender; screenAudio?: RTCRtpSender };
 
-class SpeakingMonitor {
-  private interval: number | null = null;
-  private history: number[] = [];
-  private readonly historySize = 10;
-  private isSpeaking = false;
-  private speakingStartTime = 0;
-  private silenceStartTime = 0;
-  private readonly silenceHoldMs = 350;
-  private hysteresisLow: number;
-  private hysteresisHigh: number;
-
-  constructor(
-    private analyser: AnalyserNode,
-    private onSpeakingChange: (speaking: boolean) => void,
-    threshold: number
-  ) {
-    this.hysteresisHigh = threshold;
-    this.hysteresisLow = threshold * 0.6;
-  }
-
-  start(): void {
-    if (this.interval) return;
-    this.interval = window.setInterval(() => this.check(), 50);
-  }
-
-  stop(): void {
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
-    this.isSpeaking = false;
-    this.history = [];
-  }
-
-  setThreshold(threshold: number): void {
-    this.hysteresisHigh = threshold;
-    this.hysteresisLow = threshold * 0.6;
-  }
-
-  private check(): void {
-    const data = new Uint8Array(this.analyser.frequencyBinCount);
-    this.analyser.getByteFrequencyData(data);
-
-    const voiceBins = Math.min(18, data.length);
-    let sum = 0;
-    for (let i = 0; i < voiceBins; i++) {
-      sum += data[i];
-    }
-    const average = sum / voiceBins / 255;
-
-    this.history.push(average);
-    if (this.history.length > this.historySize) {
-      this.history.shift();
-    }
-
-    const smoothed = this.history.reduce((a, b) => a + b, 0) / this.history.length;
-    const now = performance.now();
-
-    if (this.isSpeaking) {
-      if (smoothed < this.hysteresisLow) {
-        if (this.silenceStartTime === 0) {
-          this.silenceStartTime = now;
-        }
-        if (now - this.silenceStartTime >= this.silenceHoldMs) {
-          this.isSpeaking = false;
-          this.onSpeakingChange(false);
-          this.speakingStartTime = 0;
-        }
-      } else {
-        this.silenceStartTime = 0;
-      }
-    } else {
-      if (smoothed > this.hysteresisHigh) {
-        if (this.speakingStartTime === 0) {
-          this.speakingStartTime = now;
-        }
-        this.isSpeaking = true;
-        this.onSpeakingChange(true);
-        this.silenceStartTime = 0;
-      }
-    }
-  }
-}
-
-class PeerAudioManager {
-  private audioElement: HTMLAudioElement | null = null;
-  private sourceNode: AudioNode | null = null;
-  private gainNode: GainNode | null = null;
-  private analyserNode: AnalyserNode | null = null;
-  private speakingMonitor: SpeakingMonitor | null = null;
-
-  constructor(
-    private peerId: string,
-    private context: AudioContext,
-    private onSpeaking: (speaking: boolean) => void,
-    private vadThreshold: number
-  ) {}
-
-  attachStream(stream: MediaStream, outputDeviceId: string | null) {
-    this.dispose();
-
-    this.audioElement = document.createElement('audio');
-    this.audioElement.id = `audio-${this.peerId}`;
-    this.audioElement.autoplay = true;
-    this.audioElement.setAttribute('playsinline', 'true');
-    this.audioElement.dataset.peerId = this.peerId;
-    
-    if (isElectron() || isCapacitor()) {
-      // Native shells play through the AudioContext: the gain node allows a boost above
-      // 100 % and the output device is picked with AudioContext.setSinkId. The element
-      // stays attached but muted, because Chromium only feeds remote WebRTC audio to Web
-      // Audio while a media element consumes the stream. The graph is fed by a
-      // MediaStreamSource: createMediaElementSource on an element playing a MediaStream
-      // yields silence in Chromium (measured in Electron 44), which made the desktop app
-      // both mute remote voices and blind to who was speaking.
-      console.log(`[PeerAudioManager] Using ${isElectron() ? 'Electron' : 'Capacitor'} strategy for ${this.peerId}`);
-      this.audioElement.srcObject = stream;
-      this.audioElement.muted = true;
-      this.audioElement.play().catch(() => {});
-      
-      this.sourceNode = this.context.createMediaStreamSource(stream);
-      this.gainNode = this.context.createGain();
-      this.analyserNode = this.context.createAnalyser();
-      
-      this.sourceNode.connect(this.gainNode);
-      this.gainNode.connect(this.analyserNode);
-      this.analyserNode.connect(this.context.destination);
-    }
-    else {
-      console.log(`[PeerAudioManager] Using Web strategy for ${this.peerId}`);
-      this.audioElement.srcObject = stream;
-      this.audioElement.muted = false;
-      this.audioElement.play().catch(() => {});
-      
-      this.sourceNode = this.context.createMediaStreamSource(stream);
-      this.analyserNode = this.context.createAnalyser();
-      this.sourceNode.connect(this.analyserNode);
-      
-      if (outputDeviceId && typeof (this.audioElement as any).setSinkId === 'function') {
-        (this.audioElement as any).setSinkId(outputDeviceId).catch(console.error);
-      }
-    }
-
-    if (this.analyserNode) {
-      this.analyserNode.fftSize = 256;
-      this.analyserNode.smoothingTimeConstant = 0.8;
-      this.speakingMonitor = new SpeakingMonitor(this.analyserNode, this.onSpeaking, this.vadThreshold);
-      this.speakingMonitor.start();
-    }
-    
-    document.body.appendChild(this.audioElement);
-  }
-
-  applyState(deafened: boolean, localMuted: boolean, localVolume: number, masterVolume: number = 1) {
-    const effectiveMuted = deafened || localMuted;
-    const effectiveVolume = localVolume * masterVolume;
-    
-    if (isElectron() || isCapacitor()) {
-      if (this.gainNode) {
-        // For Electron/Capacitor, we use the gain node for all volume control including boost
-        this.gainNode.gain.value = effectiveMuted ? 0 : effectiveVolume;
-      }
-    } else {
-      if (this.audioElement) {
-        // For Web, we clamp volume to 1.0 as HTMLMediaElement doesn't support > 1.0
-        this.audioElement.volume = Math.min(effectiveVolume, 1.0);
-        this.audioElement.muted = effectiveMuted;
-      }
-    }
-  }
-  
-  async setSinkId(deviceId: string): Promise<void> {
-    if (this.audioElement && !isElectron() && !isCapacitor() && typeof (this.audioElement as any).setSinkId === 'function') {
-       return (this.audioElement as any).setSinkId(deviceId).catch(console.error);
-    }
-  }
-  
-  setThreshold(threshold: number) {
-    this.vadThreshold = threshold;
-    if (this.speakingMonitor) {
-      this.speakingMonitor.setThreshold(threshold);
-    }
-  }
-
-  /** The peer came back on a new socket id: keep playing, relabel the element. */
-  rename(peerId: string) {
-    this.peerId = peerId;
-    if (this.audioElement) {
-      this.audioElement.id = `audio-${peerId}`;
-      this.audioElement.dataset.peerId = peerId;
-    }
-  }
-
-  resume() {
-    if (this.audioElement && this.audioElement.paused && this.audioElement.srcObject) {
-      this.audioElement.play().catch(() => {});
-    }
-  }
-
-  dispose() {
-    if (this.speakingMonitor) {
-      this.speakingMonitor.stop();
-      this.speakingMonitor = null;
-    }
-    
-    if (this.sourceNode) {
-      try { this.sourceNode.disconnect(); } catch {}
-      this.sourceNode = null;
-    }
-    
-    if (this.gainNode) {
-      try { this.gainNode.disconnect(); } catch {}
-      this.gainNode = null;
-    }
-    
-    if (this.analyserNode) {
-      try { this.analyserNode.disconnect(); } catch {}
-      this.analyserNode = null;
-    }
-    
-    if (this.audioElement) {
-      this.audioElement.pause();
-      this.audioElement.srcObject = null;
-      this.audioElement.remove();
-      this.audioElement = null;
-    }
-  }
-}
 
 export class VoiceService extends EventEmitter<EventMap> {
   private peers: Map<string, RTCPeerConnection> = new Map();
@@ -441,7 +211,9 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.dtxEnabled = Boolean(dtxEnabled);
     this.vadThreshold = clampNumber(vadThreshold, 0.01, 0.5, DEFAULT_VAD_THRESHOLD);
 
-    this.loadPeerAudioPreferences();
+    // Per-person volume lives in state/peerAudio.ts (keyed by account) and is pushed in with
+    // setPeerAudio; the old per-socket file cannot be mapped to anyone and is dropped.
+    Storage.remove(LEGACY_PEER_PREFERENCE_STORAGE_KEY);
 
     if (typeof window !== 'undefined') {
       const unlock = () => {
@@ -633,10 +405,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     move(this.streamMetadata);
     move(this.peerStatsHistory);
     move(this.lastStatsTimestamp);
-    if (this.peerAudioPreferences.has(from) && !this.peerAudioPreferences.has(to)) {
-      this.peerAudioPreferences.set(to, this.peerAudioPreferences.get(from)!);
-      this.persistPeerAudioPreferences();
-    }
+    move(this.peerAudioPreferences);
     this.peerManagers.get(to)?.rename(to);
     this.aliases.delete(to);
     this.aliases.set(from, to);
@@ -783,6 +552,14 @@ export class VoiceService extends EventEmitter<EventMap> {
    * Handle incoming remote audio track
    */
   private handleRemoteTrack(peerId: string, stream: MediaStream): void {
+    this.attachRemoteAudio(peerId, stream);
+  }
+
+  /**
+   * Play a peer's voice stream through its own gain node, applying what I have set for
+   * that person. Called for every remote audio track; public for the unit tests.
+   */
+  attachRemoteAudio(peerId: string, stream: MediaStream): void {
     const context = this.ensureAudioContext();
     if (!context) {
       console.warn(`[VoiceService] No AudioContext available for peer ${peerId}`);
@@ -1153,6 +930,8 @@ export class VoiceService extends EventEmitter<EventMap> {
       manager.dispose();
       this.peerManagers.delete(peerId);
     }
+    // The socket id is gone for good; the setting itself lives with the account (state/peerAudio.ts).
+    this.peerAudioPreferences.delete(peerId);
     for (const [from, to] of Array.from(this.aliases.entries())) {
       if (to === peerId) this.aliases.delete(from);
     }
@@ -1283,13 +1062,6 @@ export class VoiceService extends EventEmitter<EventMap> {
         this.applySenderQualityHints(sender);
       }
     }
-  }
-
-  /**
-   * Mute/unmute a specific remote peer
-   */
-  muteRemotePeer(peerId: string, muted: boolean): void {
-    this.setPeerMuted(peerId, muted);
   }
 
   /**
@@ -1864,6 +1636,13 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.emit('video:screen:stopped', undefined as never);
   }
 
+  // --------------------------------------------------------- what I hear of each person
+
+  /**
+   * What this peer plays at for me (volume 0..2 and "mute for me"). The service keeps it
+   * per socket id for as long as the peer is here; features/voice/voiceManager.ts pushes the
+   * account's remembered setting (state/peerAudio.ts) in whenever a peer or a setting changes.
+   */
   getPeerAudioPreference(peerId: string): PeerAudioPreference {
     const pref = this.peerAudioPreferences.get(peerId);
     return {
@@ -1872,62 +1651,22 @@ export class VoiceService extends EventEmitter<EventMap> {
     };
   }
 
-  getAllPeerAudioPreferences(): Map<string, PeerAudioPreference> {
-    return new Map(this.peerAudioPreferences);
-  }
-
-  setPeerVolume(peerId: string, volume: number): void {
-    const clampedVolume = this.normalizePeerVolume(volume);
-    const existing = this.peerAudioPreferences.get(peerId) ?? {
-      muted: false,
-      volume: DEFAULT_PEER_VOLUME,
-    };
-    this.peerAudioPreferences.set(peerId, { ...existing, volume: clampedVolume });
+  /**
+   * Set what I hear of this peer. Applied at once to their gain node when their audio is
+   * already playing, remembered for the moment it starts otherwise. No signalling, no change
+   * to their stream: it is my side only. A no-op when nothing changed.
+   */
+  setPeerAudio(peerId: string, pref: PeerAudioPreference): void {
+    const next: PeerAudioPreference = { muted: Boolean(pref.muted), volume: this.normalizePeerVolume(pref.volume) };
+    const current = this.peerAudioPreferences.get(peerId);
+    if (current && current.muted === next.muted && current.volume === next.volume) return;
+    this.peerAudioPreferences.set(peerId, next);
     this.applyPeerAudioState(peerId);
-    this.persistPeerAudioPreferences();
   }
 
-  setPeerMuted(peerId: string, muted: boolean): void {
-    const existing = this.peerAudioPreferences.get(peerId) ?? {
-      muted: false,
-      volume: DEFAULT_PEER_VOLUME,
-    };
-    this.peerAudioPreferences.set(peerId, { ...existing, muted });
-    this.applyPeerAudioState(peerId);
-    this.persistPeerAudioPreferences();
-  }
-
-  clearPeerAudioPreference(peerId: string): void {
-    if (this.peerAudioPreferences.delete(peerId)) {
-      this.persistPeerAudioPreferences();
-      this.applyPeerAudioState(peerId);
-    }
-  }
-
-  private loadPeerAudioPreferences(): void {
-    const stored = Storage.get<Record<string, PeerAudioPreference>>(PEER_PREFERENCE_STORAGE_KEY, {});
-    if (!stored || typeof stored !== 'object') {
-      return;
-    }
-
-    for (const [peerId, pref] of Object.entries(stored)) {
-      if (!peerId) continue;
-      const volume = this.normalizePeerVolume(pref?.volume);
-      const muted = Boolean(pref?.muted);
-      this.peerAudioPreferences.set(peerId, { muted, volume });
-    }
-  }
-
-  private persistPeerAudioPreferences(): void {
-    const serialized: Record<string, PeerAudioPreference> = {};
-    for (const [peerId, pref] of this.peerAudioPreferences.entries()) {
-      serialized[peerId] = {
-        muted: pref.muted,
-        volume: this.normalizePeerVolume(pref.volume),
-      };
-    }
-
-    Storage.set(PEER_PREFERENCE_STORAGE_KEY, serialized);
+  /** The gain a peer's voice currently plays at for me, or null while their audio is not attached. */
+  peerGain(peerId: string): number | null {
+    return this.peerManagers.get(peerId)?.gain() ?? null;
   }
 
   private applyPeerAudioState(peerId: string): void {
@@ -1939,16 +1678,9 @@ export class VoiceService extends EventEmitter<EventMap> {
     const pref = this.peerAudioPreferences.get(peerId);
     const localMuted = pref?.muted ?? false;
     const localVolume = this.normalizePeerVolume(pref?.volume);
-    
+
     manager.applyState(this.deafened, localMuted, localVolume, this.outputVolume);
   }
-
-
-
-
-
-
-
 
   private normalizePeerVolume(volume: number | undefined): number {
     const numeric = typeof volume === 'number' ? volume : DEFAULT_PEER_VOLUME;
