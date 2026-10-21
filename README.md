@@ -14,7 +14,7 @@ VM for about the price of a coffee a week.
 ## Features
 
 - **Text channels** with persistent history, moderation (delete, ban, voice timeout)
-- **Voice channels** over WebRTC mesh: echo cancellation, noise suppression, push to talk, camera, screenshare
+- **Voice channels** over WebRTC mesh: echo cancellation, noise suppression (with an optional neural level that removes keyboard typing and chewing on the device), push to talk, camera, screenshare
 - **Live streams**: OBS publishes over RTMPS (or plain RTMP on the LAN), viewers watch low-latency HLS in a theater layout with chat
 - **Screenshare rooms** for one presenter and many viewers
 - **Minigames** inside voice channels (Slither, Pacman, Fighter) with a persistent leaderboard

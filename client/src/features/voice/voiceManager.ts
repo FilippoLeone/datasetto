@@ -1,5 +1,6 @@
 import { batch, effect } from '@preact/signals';
-import { AudioService } from '@/services/voice/AudioService';
+import { AudioService, type MicSample } from '@/services/voice/AudioService';
+import type { NeuralStatus } from '@/services/voice/neuralSuppression';
 import { VoiceService, type PeerConnectionStats } from '@/services/voice/VoiceService';
 import { api } from '@/services/socket/api';
 import { socketClient } from '@/services/socket/client';
@@ -22,6 +23,7 @@ import {
   localScreenStream,
   localSpeaking,
   micLevel,
+  noiseSuppressionStatus,
   overallQuality,
   pttPressed,
   rekeyPeer,
@@ -86,6 +88,7 @@ class VoiceManager {
     this.audio = new AudioService(settings);
     this.voice = new VoiceService(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
     this.voice.setScreenQuality(settings.screenQuality);
+    noiseSuppressionStatus.value = this.audio.getNeuralStatus();
   }
 
   /** Attach socket, service and lifecycle listeners. Idempotent. */
@@ -486,6 +489,20 @@ class VoiceManager {
     }
   }
 
+  /** Records the open microphone, raw and processed, for the settings dialog's playback. */
+  recordMicSample(seconds = 5): Promise<MicSample> {
+    return this.audio.recordMicSample(seconds);
+  }
+
+  playMicSample(sample: MicSample, which: 'raw' | 'processed'): Promise<void> {
+    return this.audio.playSample(which === 'raw' ? sample.raw : sample.processed, sample.sampleRate);
+  }
+
+  /** Downloads the neural model early when the saved level is `strong` (called once the user is signed in). */
+  prepareNoiseSuppression(): void {
+    this.audio.prepareNeuralSuppression();
+  }
+
   runDiagnostics() {
     return this.voice.runDiagnostics();
   }
@@ -650,6 +667,9 @@ class VoiceManager {
     });
     this.audio.on('stream:interrupted', () => {
       if (voiceStatus.value !== 'idle') this.scheduleMicRecovery();
+    });
+    this.audio.on('neural:status', (status) => {
+      noiseSuppressionStatus.value = status as NeuralStatus;
     });
   }
 
@@ -831,4 +851,12 @@ effect(() => {
   const first = lastApplied === null;
   lastApplied = settings;
   if (!first && account.value) void voiceManager.applySettings(settings);
+});
+
+// With the strong level saved, fetch the model once signed in so the first call does not wait for it.
+let prepared = false;
+effect(() => {
+  if (prepared || !account.value || audioSettings.value.noiseSuppressionLevel !== 'strong') return;
+  prepared = true;
+  voiceManager.prepareNoiseSuppression();
 });

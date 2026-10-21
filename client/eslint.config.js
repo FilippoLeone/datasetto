@@ -2,7 +2,7 @@ import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
-  { ignores: ['dist', 'legacy-src', 'node_modules', 'src/audio/worklets/**'] },
+  { ignores: ['dist', 'legacy-src', 'node_modules', 'src/audio/worklets/**', 'src/audio/neural/**'] },
   ...tseslint.configs.recommended,
   {
     files: ['src/**/*.{ts,tsx}'],
