@@ -191,9 +191,15 @@ export class NeuralSuppressor extends EventEmitter {
     }
     // A phone that measured headroom for DeepFilterNet3 moves up before the node is created.
     if (this.tier === 'rnnoise' && isPhoneLike() && !this.node) {
+      this.update({ state: 'loading', notice: null });
       const benchmark = await benchmarkDeepFilter();
       const better = chooseInitialEngine({ phone: true, simd: true, benchmark });
       if (better === 'deepfilternet3') this.tier = 'deepfilternet3';
+      else if (benchmark) {
+        this.update({ notice: `DeepFilterNet3 needs ${benchmark.meanMs.toFixed(1)} ms per 10 ms frame on this device (${benchmark.p95Ms.toFixed(1)} ms at the 95th percentile); RNNoise is used instead.` });
+      } else {
+        this.update({ notice: 'DeepFilterNet3 could not be measured on this device; RNNoise is used instead.' });
+      }
     }
     while (this.tier !== 'standard') {
       const engine = this.tier;

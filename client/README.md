@@ -27,7 +27,7 @@ src/
   services/
     socket/                SocketClient (socket.io with our own reconnect pacing), backoff (exponential backoff + jitter scheduler),
                            api (typed emits), bindings (server events -> state)
-    voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate)
+    voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate, neural suppressor)
     native/                Electron bridge, Capacitor foreground service and audio routes
     screenCapture          getDisplayMedia / desktop picker capture with system audio, shared by rooms and voice channels
     pushNotifications      Web Push opt-in per browser: permission, service worker, subscription, sync after sign-in
@@ -36,7 +36,8 @@ src/
     ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs, push
     updates                update notices: the desktop updater's state, or a daily GET /api/releases on the web and Android
     sounds, AudioNotificationService   synthesised UI sounds
-  audio/worklets/          AudioWorklet processors (noise gate)
+  audio/worklets/          AudioWorklet processors (noise gate, DeepFilterNet3 and RNNoise suppressors, mic capture; parts/ are the sources the generated ones are built from)
+  audio/neural/            WebAssembly builds of DeepFilterNet3 and RNNoise, the model, licences
   features/
     auth/                  sign-in / register gate, profile dialog
     channels/              channel list, create/delete, stream key dialog, confirm dialog
@@ -124,6 +125,58 @@ button of a voice channel. Both capture through `services/screenCapture.ts`.
   offers 32 to 128 kbps); the value is applied to our sender through
   `setParameters` and asked of the other side through `maxaveragebitrate` in
   the SDP.
+
+## Noise suppression
+
+Voice & audio settings > Noise suppression has three levels:
+
+- **Off**: the microphone as the browser delivers it (echo cancellation and
+  automatic gain control stay as set).
+- **Standard** (default): the browser's own noise suppression plus the envelope
+  noise gate (`audio/worklets/noise-gate-processor.js`, strength slider).
+  Good against hum and fans; keystrokes and chewing go through.
+- **Strong**: a neural model runs on the microphone inside an `AudioWorklet`
+  and removes keyboard typing, chewing and other non-speech sounds before the
+  track reaches WebRTC. The browser's own suppression is turned off so only
+  one denoiser touches the voice. Nothing leaves the device.
+
+How Strong works (`services/voice/neuralSuppression.ts`,
+`audio/worklets/parts/`):
+
+- The engine is [DeepFilterNet3](https://github.com/Rikorose/DeepFilterNet)
+  (libDF compiled to WebAssembly with SIMD, `audio/neural/`), 480-sample frames
+  at 48 kHz, both model stages on every frame. Measured on clean speech it
+  changes the level by 0.2 dB in every octave band from 125 Hz to 11 kHz
+  (SI-SDR 41 dB); typing in pauses goes down 44 dB with the gate, chewing 22
+  to 54 dB. It costs about 0.6 ms per 10 ms frame on a desktop CPU (11-14 %
+  of the audio thread) and adds 61 ms of delay (30 ms model lookahead, 11 ms
+  reframing, 20 ms gate lookahead).
+- The **Strength** slider (6..40 dB, default 25) is the model's attenuation
+  limit while you speak; unlimited removal makes pauses sound gated and
+  metallic. Pauses are handled by an activity gate after the model, driven by
+  the model's own local-SNR estimate (RNNoise's voice probability), with
+  200 ms of hold, 20 ms of lookahead and -30 dB when closed, so keystrokes do
+  not open it and word attacks are kept.
+- Fallbacks: [RNNoise](https://github.com/xiph/rnnoise) 0.2 is the lighter
+  engine. Phones start on it and move to DeepFilterNet3 only when a benchmark
+  in a worker shows headroom (mean under 2.5 ms and 95th percentile under 5 ms
+  per frame). If the worklet reports more than 70 % of the audio thread for
+  three seconds in a row, or an engine fails to load, the chain steps down
+  DeepFilterNet3 -> RNNoise -> Standard and the settings dialog says why.
+  RNNoise mutes quiet speech (soft consonants below about -40 dBFS come out as
+  silence), which is why it is not the first choice. The AudioContext must run
+  at 48 kHz; otherwise Standard is used.
+- The node is created once per AudioContext and kept; strength and level
+  changes are messages to the worklet, so the microphone is not restarted. The
+  model (8 MB) and the WebAssembly module (15 MB, 4 MB over the wire) are
+  Vite assets, downloaded the first time Strong is selected and cached like
+  the other hashed assets; nothing is fetched from third parties.
+- The mic test in the dialog can record 5 seconds and play it back as it
+  would be sent and as the raw microphone, to hear what the level removes.
+- Rebuilding the worklets after editing a part or the glue:
+  `npm run build:worklets`. Rebuilding the WebAssembly itself:
+  `audio/neural/libdf/README.md`. Licences and the model's status:
+  `audio/neural/NOTICE.md`.
 
 ## Direct messages
 
