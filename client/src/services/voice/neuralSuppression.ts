@@ -205,7 +205,8 @@ export class NeuralSuppressor extends EventEmitter {
       const engine = this.tier;
       if (this.node && this.nodeEngine === engine) return this.node;
       this.releaseNode();
-      this.update({ state: 'loading', notice: null });
+      // The notice (why a phone stays on RNNoise, or an earlier step-down) stays until the tier is reset.
+      this.update({ state: 'loading' });
       try {
         this.node = await this.createNode(ctx, engine);
         this.nodeEngine = engine;
