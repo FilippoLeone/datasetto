@@ -6,7 +6,7 @@ import { cn } from '@/lib/cn';
 import { quoteText } from '@/lib/markdown';
 import { sounds } from '@/services/sounds';
 import { serverConfig } from '@/services/ServerConfigService';
-import { uploadImage, type UploadHandle } from '@/services/uploads';
+import { uploadFile, type UploadHandle } from '@/services/uploads';
 import { channelLabel } from '@/state/channels';
 import { messages, pendingMessages, replyTargets, setReplyTarget, startEditing } from '@/state/chat';
 import { account, connectionStatus } from '@/state/session';
@@ -102,7 +102,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
   };
 
   const startUpload = (draft: AttachmentDraft) => {
-    const handle = uploadImage(draft.file, (progress) => setDrafts((current) => updateDraft(current, draft.key, { progress })));
+    const handle = uploadFile(draft.file, (progress) => setDrafts((current) => updateDraft(current, draft.key, { progress })));
     uploads.current.set(draft.key, handle);
     handle.done
       .then((attachment) => setDrafts((current) => updateDraft(current, draft.key, { status: 'ready', progress: 1, attachment })))
