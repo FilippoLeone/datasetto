@@ -7,14 +7,15 @@ import { account, updateAccount } from '@/state/session';
 import { closeModal, toast } from '@/state/ui';
 import { voiceManager } from '@/features/voice/voiceManager';
 import { AvatarCropper } from './AvatarCropper';
-
-const isUploadedAvatar = (url: string | null | undefined): boolean => Boolean(url && url.startsWith('/api/avatars/'));
+import { avatarFormState, effectiveAvatarUrl } from './avatarForm';
 
 export const ProfileModal = () => {
   const me = account.value;
   const [displayName, setDisplayName] = useState(me?.displayName ?? '');
   const [bio, setBio] = useState(me?.bio ?? '');
-  const [avatarUrl, setAvatarUrl] = useState(me?.avatarUrl ?? '');
+  // The uploaded picture and the typed link are kept apart: the URL input only accepts absolute
+  // links, so our own /api/avatars path must never be written into it.
+  const [avatar, setAvatar] = useState(() => avatarFormState(me?.avatarUrl));
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -23,7 +24,8 @@ export const ProfileModal = () => {
   const fileInput = useRef<HTMLInputElement>(null);
   if (!me) return null;
 
-  const uploaded = isUploadedAvatar(avatarUrl);
+  const uploaded = avatar.uploadedUrl !== null;
+  const avatarUrl = effectiveAvatarUrl(avatar);
 
   const save = (event: Event) => {
     event.preventDefault();
@@ -38,7 +40,8 @@ export const ProfileModal = () => {
     api.updateAccount({
       displayName: displayName.trim() || me.displayName,
       bio: bio.trim() || null,
-      avatarUrl: avatarUrl.trim() || null,
+      // Only sent when it changed: the server drops the uploaded file when it receives anything else.
+      ...(avatarUrl !== (me.avatarUrl ?? null) ? { avatarUrl } : {}),
       ...(newPassword ? { currentPassword, newPassword } : {}),
     });
     closeModal();
@@ -68,7 +71,7 @@ export const ProfileModal = () => {
     try {
       const result = await uploadAvatar(image);
       updateAccount(result.account);
-      setAvatarUrl(result.avatarUrl ?? '');
+      setAvatar({ uploadedUrl: result.avatarUrl ?? null, externalUrl: '' });
       toast.success('Profile picture updated');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Upload failed');
@@ -82,7 +85,7 @@ export const ProfileModal = () => {
     try {
       const result = await deleteAvatar();
       updateAccount(result.account);
-      setAvatarUrl('');
+      setAvatar((prev) => ({ ...prev, uploadedUrl: null }));
       toast.success('Profile picture removed');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not remove the picture');
@@ -119,7 +122,7 @@ export const ProfileModal = () => {
       }
     >
       <div className="mb-3 flex items-center gap-3">
-        <Avatar seed={me.id} name={displayName || me.displayName} src={avatarUrl || null} size={64} />
+        <Avatar seed={me.id} name={displayName || me.displayName} src={avatarUrl} size={64} />
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold text-text-bright">{me.displayName}</p>
           <p className="truncate text-sm text-text-muted">{me.username}</p>
@@ -146,7 +149,15 @@ export const ProfileModal = () => {
           <TextArea value={bio} maxLength={500} onInput={(e) => setBio((e.target as HTMLTextAreaElement).value)} />
         </Field>
         <Field label="Avatar URL" hint={uploaded ? 'Your uploaded picture is in use. Paste a link here to use that instead.' : 'Alternative to uploading: link to an image. Leave empty for a generated avatar.'}>
-          <TextInput type="url" value={avatarUrl} onInput={(e) => setAvatarUrl((e.target as HTMLInputElement).value)} placeholder="https://…" />
+          <TextInput
+            type="url"
+            value={avatar.externalUrl}
+            onInput={(e) => {
+              const externalUrl = (e.target as HTMLInputElement).value;
+              setAvatar((prev) => ({ ...prev, externalUrl }));
+            }}
+            placeholder="https://…"
+          />
         </Field>
         <p className="mt-4 mb-1 text-xs font-semibold tracking-wide text-text-muted uppercase">Change password</p>
         <Field label="Current password">
