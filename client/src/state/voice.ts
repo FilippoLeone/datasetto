@@ -1,4 +1,5 @@
 import { computed, signal } from '@preact/signals';
+import type { NeuralStatus } from '@/services/voice/neuralSuppression';
 
 /** `reconnecting`: the socket is gone but the call is kept; it rejoins by itself when the socket is back. */
 export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting';
@@ -32,6 +33,8 @@ export const localDeafened = signal(false);
 export const localSpeaking = signal(false);
 /** 0..1 microphone level for the meter. */
 export const micLevel = signal(0);
+/** What the "strong" noise suppression runs right now (engine, loading state, last notice). */
+export const noiseSuppressionStatus = signal<NeuralStatus>({ tier: 'deepfilternet3', state: 'idle', notice: null, load: null });
 export const pttPressed = signal(false);
 export const overallQuality = signal<ConnectionQuality>('unknown');
 

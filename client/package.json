@@ -12,7 +12,8 @@
     "lint": "eslint src",
     "test": "vitest run",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
+    "build:worklets": "node scripts/build-worklets.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",

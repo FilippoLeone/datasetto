@@ -298,9 +298,17 @@ export interface ReactionEvent {
   reactions: ReactionSummary[];
 }
 
+/**
+ * Microphone noise suppression: the browser's own processing (`standard`), or a neural model
+ * running in the client that also removes keyboard typing and chewing (`strong`).
+ */
+export type NoiseSuppressionLevel = 'off' | 'standard' | 'strong';
+
 export interface AudioSettings {
   echoCancel: boolean;
-  noiseSuppression: boolean;
+  noiseSuppressionLevel: NoiseSuppressionLevel;
+  /** `strong` only: how much noise the model may remove while you speak, in dB (6..40). */
+  strongSuppressionDb: number;
   noiseReducerLevel: number;
   autoGain: boolean;
   micGain: number;
