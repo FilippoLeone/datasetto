@@ -68,6 +68,8 @@ const envSchema = z.object({
 
   // Pictures in chat: largest file accepted per upload (PNG, JPEG, WebP, GIF), stored under DATA_DIR/uploads.
   UPLOAD_MAX_MB: intFromEnv(10, 1, 100),
+  // Videos in chat (WebM clips of streams and shared screens, posted from the clips library): their own cap.
+  UPLOAD_VIDEO_MAX_MB: intFromEnv(50, 1, 1000),
   // Link previews fetch the first http(s) link of a message server side; off = never make outbound requests for them.
   LINK_PREVIEWS: boolFromEnv(true),
 
@@ -122,9 +124,11 @@ export interface AppConfig {
     maxMessagesPerMinute: number;
   };
   uploads: {
-    /** Largest accepted file in bytes. */
+    /** Largest accepted picture in bytes. */
     maxBytes: number;
-    /** Pictures one message may carry. */
+    /** Largest accepted video (WebM) in bytes. */
+    videoMaxBytes: number;
+    /** Attachments one message may carry. */
     maxFilesPerMessage: number;
     /** Longest side of the resized preview that sits next to the original. */
     previewMaxPx: number;
@@ -203,7 +207,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       messageRetentionPerChannel: env.MESSAGE_RETENTION_PER_CHANNEL,
       maxMessagesPerMinute: env.MAX_MESSAGES_PER_MINUTE,
     },
-    uploads: { maxBytes: env.UPLOAD_MAX_MB * 1024 * 1024, maxFilesPerMessage: 10, previewMaxPx: 1280 },
+    uploads: { maxBytes: env.UPLOAD_MAX_MB * 1024 * 1024, videoMaxBytes: env.UPLOAD_VIDEO_MAX_MB * 1024 * 1024, maxFilesPerMessage: 10, previewMaxPx: 1280 },
     linkPreviews: { enabled: env.LINK_PREVIEWS },
     turn: {
       urls: env.TURN_URLS,

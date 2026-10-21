@@ -101,7 +101,7 @@ export const createContext = (config: AppConfig, db: DB, options: ContextOptions
   const settings = new SettingsService(db);
   const uploads = new UploadService(
     db,
-    { dataDir: config.storage.dataDir, maxBytes: config.uploads.maxBytes, previewMaxPx: config.uploads.previewMaxPx },
+    { dataDir: config.storage.dataDir, maxBytes: config.uploads.maxBytes, videoMaxBytes: config.uploads.videoMaxBytes, previewMaxPx: config.uploads.previewMaxPx },
     settings.secret('mediaTicketSecret'),
   );
 

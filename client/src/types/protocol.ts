@@ -181,7 +181,8 @@ export interface ReactionSummary {
 /** A picture on a message. URLs are server-relative and need the media ticket (`lib/media.ts`). */
 export interface Attachment {
   id: string;
-  kind: 'image';
+  /** A picture with a resized preview, or a WebM video (a posted clip) served as it came. */
+  kind: 'image' | 'video';
   fileName: string;
   mime: string;
   size: number;

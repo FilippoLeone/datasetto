@@ -9,11 +9,12 @@ export interface UploadHandle {
 }
 
 /**
- * Send one picture to `POST /api/uploads` (multipart). XMLHttpRequest because `fetch`
- * has no upload progress. The server sniffs the bytes and answers with the attachment
- * to reference from the next message.
+ * Send one file (a picture from the composer, a clip from the library) to
+ * `POST /api/uploads` (multipart). XMLHttpRequest because `fetch` has no upload
+ * progress. The server sniffs the bytes and answers with the attachment to
+ * reference from the next message.
  */
-export const uploadImage = (file: File, onProgress?: (fraction: number) => void): UploadHandle => {
+export const uploadFile = (file: File, onProgress?: (fraction: number) => void): UploadHandle => {
   const xhr = new XMLHttpRequest();
   const done = new Promise<Attachment>((resolve, reject) => {
     const token = sessionToken.value;
@@ -22,7 +23,7 @@ export const uploadImage = (file: File, onProgress?: (fraction: number) => void)
       return;
     }
     const body = new FormData();
-    body.append('files', file, file.name || 'image');
+    body.append('files', file, file.name || 'file');
     xhr.open('POST', runtimeUrls.apiBaseUrl + '/api/uploads');
     xhr.setRequestHeader('Authorization', 'Bearer ' + token);
     xhr.withCredentials = true;
@@ -42,8 +43,12 @@ export const uploadImage = (file: File, onProgress?: (fraction: number) => void)
       }
       reject(new Error(data.error || 'Upload failed (' + xhr.status + ')'));
     };
-    xhr.timeout = 120_000;
+    // A clip of tens of megabytes on a slow uplink takes a while; pictures finish long before this.
+    xhr.timeout = 10 * 60_000;
     xhr.send(body);
   });
   return { done, abort: () => xhr.abort() };
 };
+
+/** The message is rejected by `uploadFile` when the user cancelled it. */
+export const UPLOAD_CANCELLED = 'Upload cancelled';

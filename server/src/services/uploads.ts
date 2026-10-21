@@ -5,7 +5,8 @@ import sharp from 'sharp';
 import { newId } from '../core/ids.js';
 import type { DB } from '../db/index.js';
 import { AppError } from '../errors.js';
-import type { AttachmentRecord, AttachmentView } from '../types.js';
+import type { AttachmentKind, AttachmentRecord, AttachmentView } from '../types.js';
+import { isWebm, readWebmInfo, WEBM_HEAD_BYTES } from './webm.js';
 
 export type ImageFormat = 'png' | 'jpeg' | 'webp' | 'gif';
 
@@ -16,8 +17,15 @@ export const IMAGE_TYPES: Record<ImageFormat, { mime: string; ext: string }> = {
   gif: { mime: 'image/gif', ext: 'gif' },
 };
 
-/** MIME types the upload endpoint accepts (what the client offers in its file picker). */
+/** MIME types the upload endpoint accepts as pictures (what the composer offers in its file picker). */
 export const ACCEPTED_IMAGE_TYPES = Object.values(IMAGE_TYPES).map((type) => type.mime);
+
+/** The one video container accepted: what browsers record (clips of streams and shared screens). */
+export const VIDEO_TYPE = { mime: 'video/webm', ext: 'webm' } as const;
+export const ACCEPTED_VIDEO_TYPES = [VIDEO_TYPE.mime];
+
+/** The kind stored in a row, read back defensively (rows written before videos existed say "image"). */
+export const attachmentKind = (value: unknown): AttachmentKind => (value === 'video' ? 'video' : 'image');
 
 /** Uploads that are never bound to a message are removed after this long. */
 export const PENDING_UPLOAD_TTL_MS = 60 * 60 * 1000;
@@ -26,7 +34,7 @@ export const MEDIA_TICKET_TTL_MS = 24 * 60 * 60 * 1000;
 /** Decoded images above this many pixels are refused (decompression bombs). */
 const MAX_INPUT_PIXELS = 40_000_000;
 
-const FILE_PATTERN = /^(att-[a-z0-9]{20})(\.preview\.webp|\.(?:png|jpg|webp|gif))$/;
+const FILE_PATTERN = /^(att-[a-z0-9]{20})(\.preview\.webp|\.(?:png|jpg|webp|gif|webm))$/;
 
 /** Sniff the container signature so the extension or the declared type cannot lie. */
 export const detectImageFormat = (bytes: Buffer): ImageFormat | null => {
@@ -50,7 +58,10 @@ export const sanitizeFileName = (name: unknown, fallback: string): string => {
 
 export interface UploadConfig {
   dataDir: string;
+  /** Largest picture. */
   maxBytes: number;
+  /** Largest video (clips are tens of megabytes). */
+  videoMaxBytes: number;
   previewMaxPx: number;
 }
 
@@ -75,7 +86,7 @@ const rowToRecord = (row: AttachmentRow): AttachmentRecord => ({
   id: row.id,
   messageId: row.message_id,
   accountId: row.account_id,
-  kind: 'image',
+  kind: attachmentKind(row.kind),
   fileName: row.file_name,
   mime: row.mime,
   size: row.size,
@@ -109,14 +120,16 @@ export interface MediaTicket {
 }
 
 /**
- * Pictures posted in chat. Files live under `DATA_DIR/uploads`: the original as
- * `<id>.<ext>` (signature-checked, decoded once to prove it is an image) and a
- * resized WebP preview as `<id>.preview.webp`. Rows are created by the upload and
+ * Pictures and videos posted in chat. Files live under `DATA_DIR/uploads`: the
+ * original as `<id>.<ext>` (signature-checked; pictures are decoded once to prove
+ * they are images) and, for pictures, a resized WebP preview as `<id>.preview.webp`.
+ * Videos are WebM only (what browsers record: the clips of streams and shared
+ * screens) and keep their own, larger size cap. Rows are created by the upload and
  * bound to a message when it is sent; unbound rows are swept after an hour.
  *
  * Files are served only to viewers who may read the message's channel. Since an
- * `<img>` cannot send a bearer token, viewers get a signed media ticket (bound to
- * their account, one day) that the client appends to every file URL.
+ * `<img>` or `<video>` cannot send a bearer token, viewers get a signed media
+ * ticket (bound to their account, one day) that the client appends to every file URL.
  */
 export class UploadService {
   readonly dir: string;
@@ -150,7 +163,7 @@ export class UploadService {
       const bound: AttachmentRecord[] = [];
       for (const id of ids) {
         const changed = this.stmts.bind.run(messageId, id, accountId).changes;
-        if (changed !== 1) throw new AppError('One of the pictures is no longer available', 'ATTACHMENT_UNAVAILABLE', 409);
+        if (changed !== 1) throw new AppError('One of the attachments is no longer available', 'ATTACHMENT_UNAVAILABLE', 409);
         const row = this.stmts.byId.get(id) as AttachmentRow;
         bound.push(rowToRecord(row));
       }
@@ -164,23 +177,32 @@ export class UploadService {
     return this.config.maxBytes;
   }
 
+  get videoMaxBytes(): number {
+    return this.config.videoMaxBytes;
+  }
+
   /**
-   * Validate and store one picture for `accountId`. The bytes are sniffed (PNG, JPEG,
-   * WebP, GIF), decoded to make sure they really are an image and to read the size,
-   * then written as they came, next to a preview resized to at most `previewMaxPx`
-   * on its longest side (EXIF orientation applied, animation dropped).
+   * Validate and store one file for `accountId`. The bytes are sniffed: a picture
+   * (PNG, JPEG, WebP, GIF) is decoded to make sure it really is an image and to read
+   * the size, then written as it came, next to a preview resized to at most
+   * `previewMaxPx` on its longest side (EXIF orientation applied, animation dropped);
+   * a WebM video is checked for a video track in its header and written as it came.
+   * Each kind has its own size cap.
    */
   async store(accountId: string, input: { fileName: unknown; bytes: Buffer }): Promise<AttachmentRecord> {
     if (!/^[a-z0-9-]{1,64}$/.test(accountId)) throw new AppError('Invalid account id', 'INVALID_ACCOUNT', 400);
     if (input.bytes.length === 0) throw new AppError('The file is empty', 'UPLOAD_EMPTY', 400);
-    if (input.bytes.length > this.config.maxBytes) {
-      throw new AppError('Pictures must be ' + Math.floor(this.config.maxBytes / (1024 * 1024)) + ' MB or smaller', 'UPLOAD_TOO_LARGE', 413);
-    }
     const format = detectImageFormat(input.bytes);
-    if (!format) throw new AppError('Only PNG, JPEG, WebP and GIF pictures can be shared', 'UPLOAD_FORMAT', 415);
+    const video = !format && isWebm(input.bytes.subarray(0, WEBM_HEAD_BYTES));
+    if (!format && !video) throw new AppError('Only PNG, JPEG, WebP and GIF pictures and WebM videos can be shared', 'UPLOAD_FORMAT', 415);
+    const maxBytes = video ? this.config.videoMaxBytes : this.config.maxBytes;
+    if (input.bytes.length > maxBytes) {
+      throw new AppError((video ? 'Videos' : 'Pictures') + ' must be ' + Math.floor(maxBytes / (1024 * 1024)) + ' MB or smaller', 'UPLOAD_TOO_LARGE', 413);
+    }
     // Too many half-finished uploads from one account: the composer never keeps more than a handful.
     const pending = Number((this.stmts.countPendingByAccount.get(accountId) as { n: number }).n);
-    if (pending >= 40) throw new AppError('Send or remove your pending pictures first', 'UPLOAD_PENDING_LIMIT', 429);
+    if (pending >= 40) throw new AppError('Send or remove your pending uploads first', 'UPLOAD_PENDING_LIMIT', 429);
+    if (!format) return this.storeVideo(accountId, input);
 
     let width: number;
     let height: number;
@@ -222,6 +244,37 @@ export class UploadService {
     };
     this.writeFile(record.storedName, input.bytes);
     this.writeFile(record.previewName as string, preview.data);
+    this.insert(record);
+    return record;
+  }
+
+  /** A WebM with a video track, kept as it came; the header gives the picture size when it says. */
+  private storeVideo(accountId: string, input: { fileName: unknown; bytes: Buffer }): AttachmentRecord {
+    const info = readWebmInfo(input.bytes.subarray(0, WEBM_HEAD_BYTES));
+    if (!info) throw new AppError('The file could not be read as a video', 'UPLOAD_FORMAT', 415);
+    const id = newId('att', 20);
+    const record: AttachmentRecord = {
+      id,
+      messageId: null,
+      accountId,
+      kind: 'video',
+      fileName: sanitizeFileName(input.fileName, 'video.' + VIDEO_TYPE.ext),
+      mime: VIDEO_TYPE.mime,
+      size: input.bytes.length,
+      width: info.width,
+      height: info.height,
+      storedName: id + '.' + VIDEO_TYPE.ext,
+      previewName: null,
+      previewWidth: null,
+      previewHeight: null,
+      createdAt: Date.now(),
+    };
+    this.writeFile(record.storedName, input.bytes);
+    this.insert(record);
+    return record;
+  }
+
+  private insert(record: AttachmentRecord): void {
     this.stmts.insert.run({
       id: record.id,
       account_id: record.accountId,
@@ -237,7 +290,6 @@ export class UploadService {
       preview_height: record.previewHeight,
       created_at: record.createdAt,
     });
-    return record;
   }
 
   private writeFile(name: string, bytes: Buffer): void {

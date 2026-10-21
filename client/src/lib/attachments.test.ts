@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addFiles, attachmentIds, canSend, filesFromTransfer, isAcceptedImage, removeDraft, transferHasFiles, updateDraft, type AttachmentDraft } from './attachments';
+import { addFiles, attachmentIds, attachmentSummary, canSend, filesFromTransfer, isAcceptedImage, removeDraft, transferHasFiles, updateDraft, type AttachmentDraft } from './attachments';
 import type { Attachment } from '@/types/protocol';
 
 const limits = { maxBytes: 1024, maxFiles: 3, acceptedTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] };
@@ -8,6 +8,16 @@ const url = (f: File) => 'blob:' + f.name;
 const attachment = (id: string): Attachment => ({ id, kind: 'image', fileName: id + '.png', mime: 'image/png', size: 1, width: 1, height: 1, url: '/api/uploads/' + id + '.png', previewUrl: '/api/uploads/' + id + '.preview.webp', previewWidth: 1, previewHeight: 1 });
 
 describe('composer attachments', () => {
+  it('summarises what a message without text carries', () => {
+    expect(attachmentSummary(undefined)).toBe('');
+    expect(attachmentSummary([])).toBe('');
+    expect(attachmentSummary([{ kind: 'image' }])).toBe('Sent a picture');
+    expect(attachmentSummary([{ kind: 'video' }])).toBe('Sent a video');
+    expect(attachmentSummary([{ kind: 'image' }, { kind: 'image' }])).toBe('Sent 2 pictures');
+    expect(attachmentSummary([{ kind: 'video' }, { kind: 'video' }, { kind: 'video' }])).toBe('Sent 3 videos');
+    expect(attachmentSummary([{ kind: 'image' }, { kind: 'video' }])).toBe('Sent 2 files');
+  });
+
   it('accepts pictures by type, or by extension when the browser reports none', () => {
     expect(isAcceptedImage(file('a.png', 'image/png'), limits.acceptedTypes)).toBe(true);
     expect(isAcceptedImage(file('a.PNG', 'IMAGE/PNG'), limits.acceptedTypes)).toBe(true);
