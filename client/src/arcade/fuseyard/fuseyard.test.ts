@@ -28,6 +28,7 @@ import { AXIS_SWITCH, KEYMAP, createSteering, layoutFor } from './controls';
 import chunk, { STATS_KEY, localConfig } from './index';
 import { meta } from './meta';
 import { createPredictor } from './predict';
+import { fontSafe } from './render';
 
 let fake: FakeFrames;
 let canvas: ReturnType<typeof stubCanvas>;
@@ -454,5 +455,14 @@ describe('prediction', () => {
       }
       expect(compared).toBeGreaterThan(500);
     }
+  });
+});
+
+describe('names on the board', () => {
+  it('keep to the ASCII font: other characters fall back, long names are shortened', () => {
+    expect(fontSafe('Pip', 20)).toBe('Pip');
+    expect(fontSafe('Zoë', 20)).toBe('');
+    expect(fontSafe('\u{1F525} hot', 20)).toBe('');
+    expect(fontSafe('A very long display name here', 20)).toBe('A very long displa..');
   });
 });

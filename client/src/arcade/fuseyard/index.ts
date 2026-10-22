@@ -31,7 +31,7 @@ import { uiPalette, uiSheets, wickPalettes, wickSheets } from './art';
 import { KEYMAP, createSteering, layoutFor, touchLayout } from './controls';
 import { createMenus, type MenuSettings, type Standing } from './menus';
 import { createPredictor } from './predict';
-import { LOGICAL_H, LOGICAL_W, WICK_NAMES, createRenderer, type DrawState, type Renderer } from './render';
+import { LOGICAL_H, LOGICAL_W, WICK_NAMES, createRenderer, fontSafe, type DrawState, type Renderer } from './render';
 import { RECIPES, createSfx, musicFor } from './sound';
 
 export const STATS_KEY = 'datasetto.arcade.fuseyard.stats.v1';
@@ -765,7 +765,7 @@ const mount = (el: HTMLElement, firstHost: MatchHost, opts: MountOpts): GameHand
       draw.closing = w.roundTick >= closeStart(cfg.mode);
       let waiting = -1;
       if (w.phase === Phase.Frozen) for (let i = 0; i < w.fighters && waiting < 0; i += 1) if (w.fight[i]!.alive && w.fight[i]!.seat === Seat.Ghost) waiting = i;
-      draw.waitingFor = waiting >= 0 ? names[waiting] || WICK_NAMES[waiting] || null : null;
+      draw.waitingFor = waiting >= 0 ? fontSafe(names[waiting] ?? '', 20) || WICK_NAMES[waiting] || null : null;
       draw.holdSeconds = w.phase === Phase.Frozen && w.holdWinner >= 0 ? (150 - (w.tick - w.holdStart)) / 30 : null;
       // Countdown blips.
       if ((w.phase === Phase.Countdown || w.phase === Phase.Resuming) && audioReady) {

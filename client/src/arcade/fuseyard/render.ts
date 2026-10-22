@@ -15,6 +15,19 @@ export const LOGICAL_H = 224;
 export const HUD_H = 16;
 export const WICK_NAMES = ['Ember', 'Tide', 'Fern', 'Dusk'];
 
+/**
+ * A player name for the board's 5 × 7 font, which has only printable ASCII (anything else draws '?'):
+ * '' when the name has other characters (the caller falls back to the Wick's name), shortened to
+ * `max` characters.
+ */
+export const fontSafe = (name: string, max: number): string => {
+  for (let i = 0; i < name.length; i += 1) {
+    const c = name.charCodeAt(i);
+    if (c < 32 || c > 126) return '';
+  }
+  return name.length > max ? name.slice(0, max - 2) + '..' : name;
+};
+
 /** What a frame shows beyond the world itself. */
 export interface DrawState {
   w: World;
@@ -321,7 +334,7 @@ export const createRenderer = (ctx: CanvasRenderingContext2D, ui: Atlas, wick: A
     } else if (w.phase === Phase.RoundEnd || w.phase === Phase.MatchEnd) {
       panel(40, mid - 26, 160, 52);
       const who = w.winner >= 0 ? WICK_NAMES[w.winner] + ' wins' : 'Draw';
-      const name = w.winner >= 0 ? s.names[w.winner] ?? '' : '';
+      const name = w.winner >= 0 ? fontSafe(s.names[w.winner] ?? '', 24) : '';
       bigText(who, w.winner >= 0 ? (SLOT_TEXT[w.winner] as number) : UI.light, 120, mid - 12, 2);
       if (name) centreText(name, UI.light, mid + 2);
       centreText(w.phase === Phase.MatchEnd ? 'Match over' : 'Round ' + (w.round + 1), UI.grey, mid + 12);
@@ -338,7 +351,7 @@ export const createRenderer = (ctx: CanvasRenderingContext2D, ui: Atlas, wick: A
       ctx.fillStyle = '#0b0b12';
       ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
       if (!w.ready) {
-        centreText('Loading the yard…', UI.light, 110);
+        centreText('Loading the yard...', UI.light, 110);
         return;
       }
       refreshLayer(w);
