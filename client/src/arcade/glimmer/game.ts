@@ -36,7 +36,7 @@ import { createGlimmerHost } from './hosts/remote';
 import { paytable } from './paytable';
 import { createReels, type Reels } from './reels';
 import { cryptoRng, newSpinId } from './rng';
-import { recipes, type SoundId } from './sounds';
+import { MACHINE_SOUNDS, machineRecipes, sharedRecipes, type MachineSound, type SoundId } from './sounds';
 import { loadGlimmerPrefs, saveGlimmerPrefs } from './store';
 import { button, fmt, h, hueOf, listen, onTap, signed, times, type Off } from './ui';
 
@@ -191,13 +191,13 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
   };
 
   const play = (id: SoundId, o?: { gain?: number; detune?: number }): void => {
-    if (audioUnlocked && visible) audio.play(machine + ':' + id, o);
+    if (audioUnlocked && visible) audio.play((MACHINE_SOUNDS as readonly string[]).includes(id) ? machine + ':' + id : id, o);
   };
 
   const prerender = (m: MachineIdx): void => {
-    const r = recipes(m);
-    const named: Record<string, (typeof r)[SoundId]> = {};
-    for (const [id, rec] of Object.entries(r)) named[m + ':' + id] = rec;
+    const own = machineRecipes(m);
+    const named: Record<string, (typeof own)[MachineSound]> = { ...sharedRecipes() };
+    for (const id of MACHINE_SOUNDS) named[m + ':' + id] = own[id];
     void audio.prerender(named);
   };
 
@@ -735,6 +735,9 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
     doorsState = null;
     st.picked = ack.f.d;
     st.labels = ack.dr.map((p) => PRIZE_LABEL(d, p));
+    pending = null;
+    hall.setSub('Door ' + (ack.f.d + 1) + ': ' + (st.labels[ack.f.d] ?? '').replace(' x', ' spins ×'));
+    showSpinState();
     const at = now();
     // The picked door first, then the other two in turn.
     [ack.f.d, (ack.f.d + 1) % 3, (ack.f.d + 2) % 3].forEach((door, i) => (st.openedAt[door] = at + i * 450));
