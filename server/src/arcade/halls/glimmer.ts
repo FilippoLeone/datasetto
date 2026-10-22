@@ -354,6 +354,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     if (hall.members.size === 0) {
       if (hall.flushTimer !== null) clock.clearTimeout(hall.flushTimer);
       halls.delete(hall.ch);
+      dashes.onHallClosed(hall.ch);
       // The last one out closes the channel's hall lobby.
       const record = liveLobby(hall.ch);
       if (record && !record.seats.some((s) => s.accountId && s.accountId !== seat.accountId)) {
@@ -378,11 +379,15 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     }
     if (hall.members.has(seat.accountId)) return true;
     if (hall.members.size >= maxMembers()) return false;
-    let slot = hall.slots.indexOf(null);
+    // A live Dash names its entrants by seat: an entrant coming back gets theirs again, and nobody
+    // else gets one of theirs until the Dash ends.
+    const { own, held } = dashes.seatsFor(ch, seat.accountId);
+    let slot = own !== null && (hall.slots[own] ?? null) === null ? own : hall.slots.findIndex((s, i) => s === null && !held.has(i));
     if (slot < 0) {
       slot = hall.slots.length;
-      hall.slots.push(null);
+      while (held.has(slot)) slot += 1;
     }
+    while (hall.slots.length <= slot) hall.slots.push(null);
     hall.slots[slot] = seat.accountId;
     hall.members.set(seat.accountId, seat);
     seat.hall = ch;

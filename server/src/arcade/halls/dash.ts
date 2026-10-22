@@ -85,6 +85,14 @@ export interface Dashes {
   /** A Dash is forming or running in this hall (the activity summary says `dash`). */
   live(ch: string): boolean;
   onMemberLeft(ch: string, accountId: string): void;
+  /**
+   * Hall seats a live Dash in this channel refers to: `own` is this account's seat as an entrant (or
+   * null), `held` the other entrants' seats. The Dash's view names entrants by seat, so a seat stays
+   * theirs until the Dash ends, even after they leave the call.
+   */
+  seatsFor(ch: string, accountId: string): { own: number | null; held: ReadonlySet<number> };
+  /** The channel's hall closed: a finished or void Dash is let go; a live one stays with the channel. */
+  onHallClosed(ch: string): void;
   voidAll(kind: 'refund' | 'restart-refund'): void;
   stop(): void;
   readonly all: ReadonlyMap<string, Dash>;
@@ -338,7 +346,20 @@ export const createDashes = (deps: DashDeps): Dashes => {
           push(d);
         }
       }
-      if (!deps.hallOf(ch)) byHall.delete(ch);
+    },
+    seatsFor(ch, accountId) {
+      const d = byHall.get(ch);
+      const held = new Set<number>();
+      let own: number | null = null;
+      if (!open(d)) return { own, held };
+      for (const e of d.entrants.values()) {
+        if (e.accountId === accountId) own = e.slot;
+        else held.add(e.slot);
+      }
+      return { own, held };
+    },
+    onHallClosed(ch) {
+      if (!open(byHall.get(ch))) byHall.delete(ch);
     },
     voidAll(kind) {
       for (const d of [...byId.values()]) cancel(d, kind);

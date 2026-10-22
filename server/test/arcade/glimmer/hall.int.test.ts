@@ -280,6 +280,42 @@ describe('Glimmerhall on the server', () => {
     sound(h);
   });
 
+  it("keeps a running Dash's seats for its entrants: newcomers get others, an entrant coming back gets theirs", () => {
+    const h = createHarness({ rng: scripted(29).rng, potRng: () => 999_999 });
+    hallOf(h, 'a', 'b', 'c');
+    const d = h.call<{ ok: true; dash: DashView }>(h.ctx('a'), 'glimmer:dash:create', { m: 1, len: 3, buy: 0 }).dash;
+    expect(h.call(h.ctx('b'), 'glimmer:dash:join', { id: d.id })).toMatchObject({ ok: true });
+    expect(h.call(h.ctx('a'), 'glimmer:dash:start', { id: d.id })).toEqual({ ok: true });
+    // b leaves the call: seat 1 stays b's while the Dash runs.
+    h.game.onVoiceLeft('b', CH);
+    h.voice.delete('b');
+    h.addAccount('d');
+    h.voice.set('d', CH);
+    const dIn = h.call<EnterOk>(h.ctx('d'), 'glimmer:enter', { ch: CH, v: V });
+    expect(dIn.me).toBe(3);
+    expect(dIn.dash?.s.filter((_, i) => i % 3 === 0)).toEqual([0, 1]);
+    h.voice.set('b', CH);
+    const bIn = h.call<EnterOk>(h.ctx('b'), 'glimmer:enter', { ch: CH, v: V });
+    expect(bIn.me).toBe(1);
+    expect(h.call<{ ok: boolean }>(h.ctx('b'), 'glimmer:dash:spin', { d: d.id, id: sid() }).ok).toBe(true);
+    // Everyone leaves: the hall closes, the Dash stays with the channel, and a new hall keeps its seats.
+    for (const id of ['a', 'b', 'c', 'd']) h.call(h.ctx(id), 'glimmer:leave', {});
+    expect(h.game.debug.halls.has(CH)).toBe(false);
+    expect(h.game.activity(CH)).toEqual([]);
+    h.addAccount('e');
+    h.voice.set('e', CH);
+    const eIn = h.call<EnterOk>(h.ctx('e'), 'glimmer:enter', { ch: CH, v: V });
+    expect(eIn.me).toBe(2);
+    expect(eIn.dash?.st).toBe(DASH_ST.running);
+    expect(h.game.activity(CH)[0]?.st).toBe('dash');
+    // Once the Dash is over and the hall closes, it is let go.
+    h.clock.advance(3 * 60_000 + 1000);
+    expect(h.game.debug.dashes.viewFor(CH)?.st).toBe(DASH_ST.done);
+    h.call(h.ctx('e'), 'glimmer:leave', {});
+    expect(h.game.debug.dashes.viewFor(CH)).toBeNull();
+    sound(h);
+  });
+
   it('shows away and back to the hall at most once per 5 s, and a change inside the gap when the gap ends', () => {
     const h = createHarness({ rng: scripted(23).rng, potRng: () => 999_999 });
     hallOf(h, 'a', 'b');
