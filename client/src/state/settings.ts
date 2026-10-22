@@ -42,11 +42,11 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   latencyHint: 'interactive',
   vadThreshold: num(config.VOICE_VAD_THRESHOLD, 0.07, 0.01, 0.5),
   screenQuality: '1080p60',
+  cameraBlur: 'off',
   clipSeconds: 30,
   clipIncludeVoice: false,
   clipShortcut: DEFAULT_CLIP_SHORTCUT,
   shareClipsAllowed: true,
-  cameraBlur: 'off',
 };
 
 /** Merge stored settings over the defaults, dropping values this build does not know. */
@@ -58,6 +58,8 @@ export const normalizeAudioSettings = (stored: Partial<AudioSettings> | null | u
   delete (next as { noiseSuppression?: unknown }).noiseSuppression;
   next.strongSuppressionDb = clampStrength(next.strongSuppressionDb);
   if (!SCREEN_QUALITIES.includes(next.screenQuality)) next.screenQuality = DEFAULT_AUDIO_SETTINGS.screenQuality;
+  // Settings saved before background blur existed (or a value this build does not know) mean Off.
+  next.cameraBlur = normalizeBlurLevel(next.cameraBlur);
   if (!isOverlayCorner(next.overlayCorner)) next.overlayCorner = DEFAULT_OVERLAY_CORNER;
   next.overlayEnabled = Boolean(next.overlayEnabled);
   // The old client stored the bare KeyboardEvent.code; normalise to the shortcut form.
@@ -66,8 +68,6 @@ export const normalizeAudioSettings = (stored: Partial<AudioSettings> | null | u
   if (!CLIP_SECONDS.includes(next.clipSeconds)) next.clipSeconds = DEFAULT_AUDIO_SETTINGS.clipSeconds;
   next.clipIncludeVoice = Boolean(next.clipIncludeVoice);
   next.shareClipsAllowed = next.shareClipsAllowed !== false;
-  // Settings saved before background blur existed (or a value this build does not know) mean Off.
-  next.cameraBlur = normalizeBlurLevel(next.cameraBlur);
   // An unset shortcut stays unset (people may turn the key off); garbage falls back to the default.
   if (typeof next.clipShortcut !== 'string') next.clipShortcut = DEFAULT_CLIP_SHORTCUT;
   else if (next.clipShortcut !== '') {

@@ -1,6 +1,9 @@
 import { batch, effect } from '@preact/signals';
 import { AudioService, type MicSample } from '@/services/voice/AudioService';
 import type { NeuralStatus } from '@/services/voice/neuralSuppression';
+import { captureCamera } from '@/services/voice/cameraCapture';
+import { CameraEffects } from '@/services/voice/cameraEffects';
+import type { CameraBlurLevel, CameraBlurStatus } from '@/services/voice/backgroundBlur';
 import { VoiceService, type PeerConnectionStats } from '@/services/voice/VoiceService';
 import { api } from '@/services/socket/api';
 import { socketClient } from '@/services/socket/client';
@@ -9,9 +12,7 @@ import { updateDesktopVoiceActivity } from '@/services/native/desktop';
 import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '@/services/native/ForegroundServiceManager';
 import { isCancelError, missingAudioHint } from '@/services/screenCapture';
 import { clipManager } from '@/services/clips/clipManager';
-import { CameraError, captureCamera } from '@/services/voice/cameraCapture';
-import { CameraEffects } from '@/services/voice/cameraEffects';
-import type { CameraBlurLevel, CameraBlurStatus } from '@/services/voice/backgroundBlur';
+import { CameraError } from '@/services/voice/cameraCapture';
 import { isDesktopApp } from '@/services/native/desktop';
 import { parseShortcut, shortcutMatchesEvent } from '@/lib/shortcut';
 import { channelsById } from '@/state/channels';
@@ -82,6 +83,9 @@ class VoiceManager {
   private appActive = true;
   private micRecoveryTimer: number | null = null;
   private facingMode: 'user' | 'environment' = 'user';
+  /** The settings dialog's camera preview: its own camera and blur, or the call's camera. */
+  private cameraPreview: { inCall: boolean; source: MediaStream | null; effects: CameraEffects | null; off: (() => void) | null } | null = null;
+  private callBlurStatus: CameraBlurStatus = cameraBlurStatus.value;
   private initialized = false;
   private readonly pttSources = { window: false, global: false };
   /** Our media session id: peers keep their connection to us as long as it does not change. */
@@ -89,9 +93,6 @@ class VoiceManager {
   private rejoin: RejoinState = initialRejoinState;
   private tickTimer: number | null = null;
   private readonly iceGraceTimers = new Map<string, number>();
-  /** The settings dialog's camera preview: its own camera and blur, or the call's camera. */
-  private cameraPreview: { inCall: boolean; source: MediaStream | null; effects: CameraEffects | null; off: (() => void) | null } | null = null;
-  private callBlurStatus: CameraBlurStatus = cameraBlurStatus.value;
 
   constructor() {
     const settings = audioSettings.value;
