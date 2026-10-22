@@ -125,7 +125,7 @@ export interface Room {
   /** Room events this tick (game wire format) and their count. */
   ev: ByteWriter;
   evCount: number;
-  /** Rewind ring: 16 ticks × 14 entities × (id, x px, y px), and the tick of each row. */
+  /** Rewind ring: 16 ticks × 14 entities × (id, x, y in sub), and the tick of each row. */
   ringIds: Uint8Array;
   ringXY: Int16Array;
   ringTick: Int32Array;

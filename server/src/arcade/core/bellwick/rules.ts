@@ -294,6 +294,10 @@ export const PARTY_RULES = {
   autosaveTicks: 60,
   /** A room that empties is frozen for 5 s, then freed. */
   freezeTicks: 150,
+  /** Online, a visible hero with no input for 3 minutes rests on the server until the next input. */
+  napTicks: 5400,
+  /** Hero records of heroes who left, kept for the save (most recent first). */
+  departedMax: 16,
 } as const;
 
 /** Max hp in half hearts: 6 + 2·vessels + 2·floor(shards/4), capped at 6 hearts (12). */

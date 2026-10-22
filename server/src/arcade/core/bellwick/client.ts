@@ -94,6 +94,8 @@ export interface ClientWorld {
   hasRoom: boolean;
   awaitingKey: boolean;
   tiles: Uint8Array;
+  /** Tiles cut on a claim before the server confirmed it: the code to put back if it refuses (-1: none). */
+  cutPred: Int16Array;
   edges: Int32Array;
   roomCleared: boolean;
   ents: CEnt[];
@@ -147,6 +149,7 @@ export const createClientWorld = (slot: number, hooks: ClientHooks = {}): Client
     hasRoom: false,
     awaitingKey: true,
     tiles: new Uint8Array(108),
+    cutPred: new Int16Array(108).fill(-1),
     edges: new Int32Array(4),
     roomCleared: false,
     ents,
@@ -316,6 +319,7 @@ export const onKeyframe = (c: ClientWorld, r: ByteReader, tick: number): boolean
     return r.ok;
   }
   readTiles(r, c.tiles);
+  c.cutPred.fill(-1);
   r.u8();
   c.roomCleared = (r.u8() & 1) !== 0;
   const nh = r.u8();
@@ -374,19 +378,18 @@ export const onKeyframe = (c: ClientWorld, r: ByteReader, tick: number): boolean
     c.boss.timer = r.u8();
     c.boss.clapperT = r.u8();
   }
-  if (entry === ENTRY.join || entry === ENTRY.resume) {
-    for (let i = 0; i < 32; i += 1) c.flags[i] = r.u8();
-    c.purse = r.u16();
-    c.keys = r.u8();
-    c.items = r.u8();
-    c.shards = r.u8();
-    c.vessels = r.u8();
-    c.lantern = r.u8();
-    r.u8();
-    c.cleared = r.u16();
-    syncMaxHp(c);
-    c.victory = hasFlagC(c, 32);
-  }
+  // Every keyframe carries the party block.
+  for (let i = 0; i < 32; i += 1) c.flags[i] = r.u8();
+  c.purse = r.u16();
+  c.keys = r.u8();
+  c.items = r.u8();
+  c.shards = r.u8();
+  c.vessels = r.u8();
+  c.lantern = r.u8();
+  r.u8();
+  c.cleared = r.u16();
+  syncMaxHp(c);
+  c.victory = hasFlagC(c, 32);
   if (!r.ok) return false;
   c.hasRoom = true;
   c.awaitingKey = false;
@@ -433,6 +436,7 @@ const applyEvent = (c: ClientWorld, e: EvView, tick: number): void => {
       break;
     case EV.Tile:
       if (e.a < 108) {
+        c.cutPred[e.a] = -1;
         c.tiles[e.a] = e.b;
         computeEdges(c.room, c.tiles, c.edges, c.flags);
       }
@@ -475,6 +479,12 @@ const applyEvent = (c: ClientWorld, e: EvView, tick: number): void => {
       break;
     }
     case EV.Refused:
+      if (e.a === 0x01 && e.b >= 128 && e.b - 128 < 108 && (c.cutPred[e.b - 128] as number) >= 0) {
+        // A cut the server did not accept: the bush grows back.
+        c.tiles[e.b - 128] = c.cutPred[e.b - 128] as number;
+        c.cutPred[e.b - 128] = -1;
+        computeEdges(c.room, c.tiles, c.edges, c.flags);
+      }
       if (e.a === 0x06 && c.awaitingKey) {
         // The exit was closed after all: back into the room on screen (a Correct follows with the spot).
         c.awaitingKey = false;
@@ -736,7 +746,10 @@ export const stepOwn = (c: ClientWorld, buttons: number, tick: number, seenTick:
       const t = o.hitTargets[i] as number;
       if (t >= 128) {
         const code = c.tiles[t - 128] as number;
-        if (((TILE_FLAGS[code] ?? 0) & F.CUT) !== 0 && o.hitAttack !== Attack.Hook) c.tiles[t - 128] = CUT_TO(code);
+        if (((TILE_FLAGS[code] ?? 0) & F.CUT) !== 0 && o.hitAttack !== Attack.Hook) {
+          c.cutPred[t - 128] = code;
+          c.tiles[t - 128] = CUT_TO(code);
+        }
       }
     }
     for (let base = 0; base < o.hitN && base < 24; base += 8) {

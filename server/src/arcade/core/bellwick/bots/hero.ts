@@ -15,6 +15,7 @@ import {
 } from "../content/parse.js";
 import walkthrough from "../content/walkthrough.js";
 import { edgeOpen, F, TILE_FLAGS, walkable } from "../rules.js";
+import { interactTile } from "../sim/hero.js";
 import {
   Act,
   Btn,
@@ -1109,6 +1110,9 @@ export const createHeroBot = (
         if (!sent) {
           if (me.facing !== step.dir || me.act !== Act.Idle)
             return me.facing !== step.dir ? (BTN_OF[step.dir] as number) : 0;
+          // A fight may have pushed the hero back: step up to the thing first.
+          if (interactTile(me, c.tiles) < 0 && bot.stepT < 60)
+            return BTN_OF[step.dir] as number;
           sent = true;
           bot.stepT = 0;
           return Btn.a;

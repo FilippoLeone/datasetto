@@ -518,6 +518,8 @@ export interface SaveV1 {
   flags: string;
   playSec: number;
   imported?: true;
+  /** Started as a Party Tale on the server (only those count for the fastest-clear board). */
+  online?: true;
   purse: number;
   keys: number;
   bossKey: boolean;
@@ -606,6 +608,7 @@ export const parseSave = (raw: unknown): SaveV1 | null => {
     flags: o.flags,
     playSec,
     ...(o.imported === true ? { imported: true as const } : {}),
+    ...(o.online === true ? { online: true as const } : {}),
     purse,
     keys,
     bossKey: bits[0] as boolean,
