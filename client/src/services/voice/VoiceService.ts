@@ -989,7 +989,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       this.postponeIceRestart(peerId);
       // An answer only covers what the offer listed. When we send something it did not (our
       // camera, on a connection they rebuilt after we reconnected), we offer it ourselves now.
-      if (needsOwnOffer(pc.getTransceivers())) {
+      if (typeof pc.getTransceivers === 'function' && needsOwnOffer(pc.getTransceivers())) {
         await this.createAndSendOffer(peerId, pc);
       }
     } catch (error) {
