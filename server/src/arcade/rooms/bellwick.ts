@@ -14,7 +14,7 @@ import { BUDGET } from '../core/bellwick/budget.js';
 import { fromBase64, parseSave, type SaveHero, type SaveV1 } from '../core/bellwick/codec.js';
 import { flagId } from '../core/bellwick/content/flags.js';
 import { maxHp } from '../core/bellwick/rules.js';
-import { createBellwick, type PartyHero, type PartyPersist } from '../core/bellwick/runtime.js';
+import { createBellwick, type BellwickMatch, type PartyHero, type PartyPersist } from '../core/bellwick/runtime.js';
 import { Status } from '../core/bellwick/types.js';
 import { utf8Decode, utf8Encode } from '../core/bytes.js';
 import type { CoreMatch } from '../core/net/match.js';
@@ -54,12 +54,13 @@ interface Session {
   restored: Set<number>;
   members: string[];
   cleared: boolean;
+  core: BellwickMatch | null;
 }
 
 const sessions = new Map<string, Session>();
 
-/** Test hook: how many sessions the room holds (each is removed on dispose). */
-export const bellwickSessionCount = (): number => sessions.size;
+/** Test hook: the runtimes of the sessions running now (each is removed on dispose). */
+export const bellwickRunning = (): BellwickMatch[] => [...sessions.values()].flatMap((s) => (s.core ? [s.core] : []));
 
 const readSave = (data: Uint8Array | null): SaveV1 | null => {
   if (!data) return null;
@@ -235,6 +236,7 @@ const bellwick: MatchGameDef = {
       restored: new Set(),
       members: [],
       cleared: false,
+      core: null,
     };
     sessions.set(ctx.id, sess);
     const core = createBellwick({
@@ -244,6 +246,7 @@ const bellwick: MatchGameDef = {
       taleSlot: loaded ? (ctx.save?.slot ?? 0xff) : 0xff,
       matchId: ctx.id,
     });
+    sess.core = core;
     const log = createInputLog();
 
     /** Saved heroes for accounts the room has just learned; the longest-present hero marks the host. */

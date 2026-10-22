@@ -612,9 +612,10 @@ export const createBellwick = (o: BellwickOpts): BellwickMatch => {
             // The save keeps the hero's tunic, Hearthbrew and counts under its account.
             departed.unshift({ j: h.joinOrder, s: -1, t: h.tunic, b: h.brew, d: h.downs, f: h.foes, r: h.revives });
             departed.length = Math.min(departed.length, PARTY_RULES.departedMax);
-            w.saveNow = true;
           }
           heroLeave(w, slot);
+          // Saved at once: on a restart the platform drains this before the session is gone.
+          if (!trusted) persist();
         }
         ghost[slot] = false;
         nap[slot] = false;
