@@ -243,6 +243,28 @@ function buildPickerPayload(sources) {
   });
 }
 
+// The picker and the voice overlay are never offered as windows to share (picker/own-windows.js).
+const ownWindows = require('./picker/own-windows.js');
+
+/** One of this app's helper windows, as picker/own-windows.js wants it (null once closed). */
+function helperWindowRef(window) {
+  if (!window || window.isDestroyed()) {
+    return null;
+  }
+  const read = (getter) => {
+    try {
+      return getter();
+    } catch {
+      return null;
+    }
+  };
+  return {
+    mediaSourceId: read(() => window.getMediaSourceId()),
+    // On Windows this is the HWND that desktopCapturer puts in its window ids.
+    nativeHandle: process.platform === 'win32' ? read(() => window.getNativeWindowHandle()) : null,
+  };
+}
+
 function fetchPickerSources() {
   return desktopCapturer.getSources({
     types: ['screen', 'window'],
@@ -305,7 +327,7 @@ async function promptScreenshareSource(options = {}) {
       maximizable: false,
       minimizable: false,
       fullscreenable: false,
-      title: 'Share your screen',
+      title: ownWindows.PICKER_TITLE,
       modal: true,
       parent: mainWindow ?? undefined,
       autoHideMenuBar: true,
@@ -319,9 +341,11 @@ async function promptScreenshareSource(options = {}) {
     });
 
     activePickerWindow = pickerWindow;
-    // Neither the picker itself nor the voice overlay must be offered as a window to share.
-    const ownSourceIds = new Set([pickerWindow.getMediaSourceId(), overlayMediaSourceId()].filter(Boolean));
-    const withoutPicker = (list) => list.filter((source) => !ownSourceIds.has(source.id));
+    // Neither the picker nor the voice overlay may be offered as a window to share, not even
+    // another running copy's. Worked out again on every refresh: the overlay window is
+    // created the first time it shows, which can happen while the picker is open.
+    const withoutPicker = (list) =>
+      ownWindows.withoutHelperWindows(list, [pickerWindow, activePickerWindow, overlayWindow].map(helperWindowRef));
 
     let refreshTimer = null;
     let refreshing = false;
@@ -508,14 +532,6 @@ const overlayConfig = { enabled: false, corner: 'top-right' };
 let overlayState = null;
 let overlayHeight = 120;
 
-function overlayMediaSourceId() {
-  try {
-    return overlayWindow && !overlayWindow.isDestroyed() ? overlayWindow.getMediaSourceId() : null;
-  } catch {
-    return null;
-  }
-}
-
 function overlayBounds() {
   const area = screen.getPrimaryDisplay().workArea;
   const height = Math.max(OVERLAY_MIN_HEIGHT, Math.min(OVERLAY_MAX_HEIGHT, Math.round(overlayHeight)));
@@ -543,7 +559,7 @@ function createOverlayWindow() {
   const bounds = overlayBounds();
   overlayWindow = new BrowserWindow({
     ...bounds,
-    title: 'Datasetto voice overlay',
+    title: ownWindows.OVERLAY_TITLE,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
