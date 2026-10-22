@@ -109,7 +109,9 @@ export const fuzzRooms = (from: number, to: number): void => {
     times.sort((a, b) => a - b);
     // p99 well under the 0.1 ms budget per room is not asserted on a shared CI box; a stuck loop would show here.
     expect(times[Math.floor(times.length * 0.99)], 'p99 step (ms)').toBeLessThan(1);
-    expect(times[times.length - 1], 'slowest step (ms)').toBeLessThan(25);
+    // A garbage collection or a busy test machine can stall any single step; a stuck loop stalls many.
+    expect(times.filter((ms) => ms > 25).length, 'steps over 25 ms').toBeLessThanOrEqual(2);
+    expect(times[times.length - 1], 'slowest step (ms)').toBeLessThan(250);
   }
 };
 

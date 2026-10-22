@@ -903,3 +903,59 @@ Repo practice applies: one VPS redeploy and one release per wave, and a PR only 
 5. **Deploys end sessions.** Saves keep all progress, and "Continue offline" bridges the gap.
 6. **Party saves belong to the host.** Members cannot continue a shared tale without the host in v1.
 7. **The web build cannot start offline**; only the desktop and Android shells can (P§12).
+
+## 17. As built (Bellwick package)
+
+Where the build fills in or differs from this spec. Each row also says why.
+
+### 17.1 Rules and content
+
+| # | Where | As built |
+|---|---|---|
+| 1 | Interact (§1.2) | Reach is 7 px ahead (`interactReach` 112 sub), not 6. At 6 px, standing one pixel off a tile's centre turned the press into a slash. |
+| 2 | Pebble Sentinels (§1.3) | They fire repel shots every 20 ticks, alternating by spawn order. A repel shot deals no damage but pushes the hero back 64 sub per tick for 12 ticks, even through invincibility. The Buckler stops it, so Gloam Gate still needs the Buckler. |
+| 3 | Gloam Gate | The south entrance moved to columns 2–3, with two rocks and the sign beside it, and the Meadow's north exit moved to match. With the old entrance, a repel shot pushed a hero straight back out of the screen. |
+| 4 | Buckler | It blocks a projectile whose direction of travel points against the hero's facing. A projectile from behind or from the side always hits. |
+| 5 | Shellback | Only a frontal slash clinks. A spin always lands. |
+| 6 | Old Clapper | Rolls at 36 sub per tick in phase 2, so an ideal solo hero needs at least 45 s and four heroes at least 35 s (§13 test 12). The phase 3 chase is normalised: 14 sub per tick per axis on diagonals. |
+
+### 17.2 Authority (§3.5)
+
+| # | Check | As built |
+|---|---|---|
+| 7 | Slack | 4 px plus two ticks of walking, because UPs go out every 2 ticks and a claim can arrive before the UP of its tick. |
+| 8 | Moves | Checked over at most 1 s since the last accepted UP; a hero standing still sends none. The sweep ignores walls the hero already stood in (a shutter that closed on it). After a `Correct`, failing UPs that were already in flight are dropped quietly for 20 ticks. |
+| 9 | `seenTick` | Must not be in the future. The room must have stepped fewer than 16 times since then, counted in the ring, not in server ticks: a room whose only hero is in a slide does not step, and its entities stay where the client saw them. The spec's bound "not later than the hero's heroTick" uses the server tick instead, again because a still hero sends no UPs. |
+| 10 | Claims | Each target counts once per swing (keyed by the swing's start), at most 24 per swing, instead of "one claim per swing". A slash adds targets over 4 ticks, and the client sends them as it finds them. A claim on a target that is already gone (killed by a claim that arrived first) gets no `Refused`. |
+| 11 | Damage and blocks | A projectile or slam ring is checked along its path from `seenTick` to the server's tick. The client draws projectiles at its current tick, about a round trip later than `seenTick`. A repel shot is accepted through invincibility; a real hit allows 3 ticks of it for clock jitter. A refused hit sends `Hp` to the hero. |
+| 12 | Resync | Three `Correct`s within 2 s send a keyframe with entry 5 (resync). |
+
+### 17.3 Wire and routing (§4)
+
+| # | Where | As built |
+|---|---|---|
+| 13 | KEYFRAME | Every keyframe carries the party block (flags, purse, keys, items, shards, vessels, lantern, max hp, cleared rooms). That is 42 B; the worst case still fits in 384 B. A rekey drops the recipient's pending events, so a party event pending at that moment would otherwise be lost. |
+| 14 | Entry reason | A keyframe within 3 s of a rekey carries that rekey's entry, and later ones say resume. Reading a keyframe changes nothing, because the sender may hold one back a while. |
+| 15 | Joining | Online, a joining hero is not rekeyed: the platform's WELCOME already brings its keyframe. Offline it is, because a Solo Tale starts after the local host's first frame. A joiner wears the first tunic nobody present wears. |
+
+### 17.4 Sessions and saves (§5, §6)
+
+| # | Where | As built |
+|---|---|---|
+| 16 | Accounts | The runtime knows heroes by seat and join order. Persist events carry the match id plus every hero of the session, present or departed. `persist`, which gets `accountOf` for the seats at that moment, learns a hero's account at its first save, one tick after it joins. On the next step the hero gets its saved tunic, Hearthbrew and counts back. A hero who leaves is saved at once, because on a restart the platform drains that save before the session goes. |
+| 17 | Lobby options | The sheet's `saveSlot` field gives `'new'` or an existing slot, so `meta.ts` adds "New tale in" (Slot 1–3). The cfg schema turns both into `{tale, slot}`. The sheet does not ask before a new tale overwrites an occupied slot. That confirmation is the platform's (§4.1). |
+| 18 | Clears | A clear adds `clears` for every hero at the bell. Results and the fastest-clear board count only clears with at least 2 heroes there, in tales started online (`online: true` in SaveV1) and not imported. |
+| 19 | 3-minute rule | A visible hero with no input for 5,400 ticks rests on the server until its next input. When everyone rests, the session is idle and does no work. |
+| 20 | Replay | `replay()` holds the world now plus the last 10 s of UPs and EVTs, deflated, at most 8 KB (inputs are cut from the oldest end). It does not hold the world as it was at the start of the ring. |
+| 21 | HANDOVER | The game keeps a Party copy (SaveV1 with the device's own hero as `solo`) and says that Solo Tale can carry on from it. The game cannot switch its own host to offline, so "Continue offline" means opening Solo Tale. |
+| 22 | Downed online | After 1.5 s the game offers "Wait" or "Rest at the lantern". Offline it offers rest at once. |
+
+### 17.5 Tests (§13)
+
+| # | Test | As built |
+|---|---|---|
+| 23 | 9, routing | `deltaFuzz` over a Party Tale that drives itself. Projectiles are left out of the comparison: a client also ends them by its own clock, and the fuzz's event sections carry no tick to replay that with. |
+| 24 | 13, lossy link | Two halves. Bellwick's own traffic in the boss room (4 bot heroes, 167 ms each way) is sized frame by frame against the budget, and the claim acceptance is counted. The platform's `lossyLink` scenarios then run with a probe shaped like that traffic, because the scenario runner drives only its probe runtime. |
+| 25 | 10, session | Runs on the live test server. It uses its own lane client (`test/arcade/bellwick/live.ts`), because the harness's HELLO names Fuseyard's codec only. |
+| 26 | Bot | The walkthrough bot's "use" step first walks up to the thing it uses, because a fight can push it out of reach. |
+| 27 | Not built | Pip, the helper hero, and the solo save import (both M7). |
