@@ -44,6 +44,7 @@ import {
 import type { AudioSettings, DeviceInfo, HeldPeerConnection, ServerError, StreamMetadata, VoiceJoinedEvent, VoicePeerEvent, VoicePeerLeaveEvent, VoiceSignalEvent } from '@/types/protocol';
 import { reconcilePeers, type KnownPeer, type RoomPeer, type SelfIdentity } from './peerReconcile';
 import { initialRejoinState, isRejoinPending, PERMANENT_JOIN_ERRORS, reduceRejoin, type RejoinEffect, type RejoinEvent, type RejoinState } from './voiceRejoin';
+import { isPolitePeer } from '@/services/voice/negotiation';
 
 const JOIN_TIMEOUT_MS = 15_000;
 const SPEAKING_HOLD_MS = 350;
@@ -289,6 +290,8 @@ class VoiceManager {
       return;
     }
     voiceStatus.value = 'reconnecting';
+    // Offers made from now on go nowhere; they are sent again once the room is rejoined.
+    this.voice.setSignallingUp(false);
     this.clearJoinTimeout();
     this.dispatch({ type: 'socketLost', at: Date.now() });
     this.startTick();
@@ -663,8 +666,10 @@ class VoiceManager {
   }
 
   private bindServices(): void {
-    this.voice.on('voice:offer', ({ peerId, offer }) => api.sendVoiceSignal(peerId, { sdp: offer }));
-    this.voice.on('voice:answer', ({ peerId, answer }) => api.sendVoiceSignal(peerId, { sdp: answer }));
+    // When both sides offer at once (both restart ICE after a drop), the larger account id yields.
+    this.voice.setPolitePeer((peerId) => isPolitePeer(account.value?.id, voicePeers.value[peerId]?.accountId ?? usersById.value.get(peerId)?.accountId));
+    this.voice.on('voice:offer', ({ peerId, offer, offerId }) => api.sendVoiceSignal(peerId, { sdp: offer, offerId }));
+    this.voice.on('voice:answer', ({ peerId, answer, offerId }) => api.sendVoiceSignal(peerId, offerId === undefined ? { sdp: answer } : { sdp: answer, offerId }));
     this.voice.on('voice:ice-candidate', ({ peerId, candidate }) => api.sendVoiceSignal(peerId, { candidate }));
     this.voice.on('voice:send-stream-metadata', ({ to, metadata }) => api.sendStreamMetadata(to, metadata));
     this.voice.on('voice:speaking', ({ id, speaking }) => {
@@ -777,6 +782,8 @@ class VoiceManager {
         switch (action.action) {
           case 'keep':
             upsertPeer({ id: action.id, ...this.peerFields(byId.get(action.id)!) });
+            // Same socket on their side, but our network may have changed while we were away.
+            if (rejoining && this.voice.peerHealth(action.id) === 'broken') this.restartIceSoon(action.id);
             break;
           case 'rekey':
             this.voice.rekeyPeer(action.from, action.to);
@@ -798,6 +805,8 @@ class VoiceManager {
       }
     });
     this.dispatch({ type: 'joined', channelId: data.channelId });
+    // Back in the room: offers lost while away (an ICE restart, our camera) go out again.
+    this.voice.setSignallingUp(true);
 
     this.voice.startStatsMonitoring();
     await this.syncMicrophone();
@@ -833,6 +842,8 @@ class VoiceManager {
       this.voice.rekeyPeer(action.from, action.to);
       rekeyPeer(action.from, action.to, this.peerFields(peer));
       if (action.restartIce) this.restartIceSoon(action.to);
+      // An offer we sent to their old socket never arrived: send it to the new one.
+      else void this.voice.resendLostOffer(action.to);
       return;
     }
     if (action.action !== 'rebuild') return;
@@ -874,8 +885,9 @@ class VoiceManager {
       return;
     }
     try {
-      if (data.data.sdp?.type === 'offer') await this.voice.handleOffer(data.from, data.data.sdp);
-      else if (data.data.sdp?.type === 'answer') await this.voice.handleAnswer(data.from, data.data.sdp);
+      const offerId = typeof data.data.offerId === 'number' ? data.data.offerId : undefined;
+      if (data.data.sdp?.type === 'offer') await this.voice.handleOffer(data.from, data.data.sdp, offerId);
+      else if (data.data.sdp?.type === 'answer') await this.voice.handleAnswer(data.from, data.data.sdp, offerId);
       else if (data.data.candidate) await this.voice.handleIceCandidate(data.from, data.data.candidate);
     } catch (error) {
       console.error('[voice] signal failed', error);

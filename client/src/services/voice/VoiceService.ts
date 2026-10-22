@@ -10,6 +10,7 @@ import { serverConfig } from '@/services/ServerConfigService';
 import { DEFAULT_SCREEN_QUALITY, applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError, screenAudioNotice } from '@/services/screenCapture';
 import { captureCamera } from './cameraCapture';
 import { PeerAudioManager, type PeerAudioPreference } from './PeerAudioManager';
+import { iceRestartDelay, isOfferStale, needsOwnOffer, resolveOfferCollision, type PendingOffer } from './negotiation';
 
 export type { PeerAudioPreference } from './PeerAudioManager';
 
@@ -57,7 +58,7 @@ const parseBooleanEnv = (value: string | undefined, fallback: boolean): boolean 
 
 /** ICE servers are provided by the server (ephemeral TURN credentials) with a build-time fallback. */
 const getIceServers = (): RTCIceServer[] => serverConfig.iceServers();
-const ICE_RESTART_DELAY_MS = 2000;
+/** ICE restarts without TURN after which the "configure a TURN server" warning shows (they keep going). */
 const ICE_RESTART_MAX_ATTEMPTS = 3;
 const OPUS_BITRATE_MIN = 6000;
 const OPUS_BITRATE_MAX = 128000;
@@ -210,6 +211,13 @@ export class VoiceService extends EventEmitter<EventMap> {
   private statsPollingHandle: number | null = null;
   private peerStatsHistory: Map<string, PeerConnectionStats[]> = new Map();
   private lastStatsTimestamp: Map<string, number> = new Map();
+  /** Our unanswered offer to each peer (negotiation.ts): its id, when it went out, whether it was probably lost. */
+  private pendingOffers: Map<string, PendingOffer> = new Map();
+  private offerSeq = 0;
+  /** False while the socket is down or the room is not rejoined yet: offers made then are lost. */
+  private signallingUp = true;
+  /** Who yields when both sides offer at once; the voice manager decides from the account ids. */
+  private politeFor: (peerId: string) => boolean = () => true;
   /**
    * Old socket id -> the id the same connection lives under now (see rekeyPeer).
    * Callbacks created with the old id look the current one up when they fire.
@@ -324,12 +332,15 @@ export class VoiceService extends EventEmitter<EventMap> {
       console.log(`Peer ${id} connection state: ${pc.connectionState}`);
 
       if (pc.connectionState === 'failed') {
-        this.emit('notification', {
-          id: `peer-failed-${id}`,
-          type: 'warning',
-          message: 'Voice connection issue detected',
-          duration: 3000,
-        });
+        // Once per outage; the restarts that follow keep going quietly.
+        if (!this.iceRestartAttempts.has(id)) {
+          this.emit('notification', {
+            id: `peer-failed-${id}`,
+            type: 'warning',
+            message: 'Voice connection issue detected',
+            duration: 3000,
+          });
+        }
         this.scheduleIceRestart(id, 'connection-state-failed');
       }
 
@@ -416,6 +427,10 @@ export class VoiceService extends EventEmitter<EventMap> {
     move(this.peerManagers);
     move(this.iceRestartTimers);
     move(this.iceRestartAttempts);
+    move(this.pendingOffers);
+    // An offer still waiting for its answer went to the old socket, which is gone.
+    const pending = this.pendingOffers.get(to);
+    if (pending) pending.lost = true;
     move(this.remoteVideoElements);
     move(this.videoSenders);
     move(this.remoteVideoTracks);
@@ -451,6 +466,40 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
     this.iceRestartAttempts.delete(peerId);
     await this.performIceRestart(peerId, 'rejoin');
+  }
+
+  /** Who yields when both sides offer at once (negotiation.ts); the voice manager decides from the account ids. */
+  setPolitePeer(polite: (peerId: string) => boolean): void {
+    this.politeFor = polite;
+  }
+
+  /**
+   * Whether offers reach the room right now. While the socket is down (or the room is not
+   * rejoined yet) whatever we offer is lost; once signalling is back those offers go out again.
+   */
+  setSignallingUp(up: boolean): void {
+    this.signallingUp = up;
+    if (!up) {
+      for (const pending of this.pendingOffers.values()) pending.lost = true;
+      return;
+    }
+    for (const peerId of Array.from(this.peers.keys())) void this.resendLostOffer(peerId);
+  }
+
+  /**
+   * Our unanswered offer to this peer was probably lost (made while the socket was down, or
+   * sent to a socket id that is gone): make a fresh one, with an ICE restart when the
+   * transport is broken. Without it a camera added in that offer would never be negotiated.
+   */
+  async resendLostOffer(peerId: string): Promise<void> {
+    const pc = this.peers.get(peerId);
+    const pending = this.pendingOffers.get(peerId);
+    if (!pc || !pending?.lost || !this.signallingUp || pc.signalingState !== 'have-local-offer') return;
+    try {
+      await this.createAndSendOffer(peerId, pc, this.peerHealth(peerId) === 'broken' ? { iceRestart: true } : {});
+    } catch (error) {
+      console.error(`[VoiceService] Could not offer again to ${peerId}:`, error);
+    }
   }
 
   /**
@@ -637,19 +686,14 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.emit('voice:remote-audio', { peerId, stream } as never);
   }
 
+  /**
+   * Restart ICE on a broken transport, and keep at it while it stays broken: after 2 s, 4 s,
+   * 8 s, then every 10 s (negotiation.ts), until the connection is back or the peer is gone.
+   * A phone in a tunnel or between two networks has nothing to connect over for a while.
+   */
   private scheduleIceRestart(peerId: string, reason: string): void {
     const pc = this.peers.get(peerId);
     if (!pc || pc.connectionState === 'closed') {
-      return;
-    }
-
-    if (this.iceRestartAttempts.get(peerId) ?? 0 >= ICE_RESTART_MAX_ATTEMPTS) {
-      if (import.meta.env.DEV) {
-        console.warn(`[VoiceService] ICE restart limit reached for ${peerId}`);
-      }
-      if (!isTurnConfigured()) {
-        this.warnMissingTurn(peerId, new Error('restart attempts exhausted'));
-      }
       return;
     }
 
@@ -658,11 +702,26 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     const timer = window.setTimeout(() => {
-      this.iceRestartTimers.delete(peerId);
-      void this.performIceRestart(peerId, reason);
-    }, ICE_RESTART_DELAY_MS);
+      // The peer may have moved to a new socket id meanwhile (rekeyPeer moved this timer).
+      const id = this.resolve(peerId);
+      this.iceRestartTimers.delete(id);
+      void this.performIceRestart(id, reason);
+    }, iceRestartDelay(this.iceRestartAttempts.get(peerId) ?? 0));
 
     this.iceRestartTimers.set(peerId, timer);
+  }
+
+  /** Their offer arrived (maybe their own ICE restart): give it time before ours, if one is due, goes out. */
+  private postponeIceRestart(peerId: string): void {
+    const timer = this.iceRestartTimers.get(peerId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.iceRestartTimers.delete(peerId);
+    this.scheduleIceRestart(peerId, 'retry');
+  }
+
+  private transportUp(pc: RTCPeerConnection): boolean {
+    return pc.connectionState === 'connected' && (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed');
   }
 
   private resetIceRecovery(peerId: string): void {
@@ -678,22 +737,30 @@ export class VoiceService extends EventEmitter<EventMap> {
 
   private async performIceRestart(peerId: string, reason: string): Promise<void> {
     const pc = this.peers.get(peerId);
-    if (!pc) {
+    if (!pc || pc.connectionState === 'closed') {
+      return;
+    }
+
+    if (this.transportUp(pc)) {
+      // Back by itself while we waited.
+      this.resetIceRecovery(peerId);
+      return;
+    }
+
+    if (pc.signalingState === 'have-local-offer' && !isOfferStale(this.pendingOffers.get(peerId), Date.now())) {
+      // An offer of ours is still on its way; replacing it now would only make its answer useless.
+      this.scheduleIceRestart(peerId, reason);
       return;
     }
 
     const attempts = (this.iceRestartAttempts.get(peerId) ?? 0) + 1;
-    if (attempts > ICE_RESTART_MAX_ATTEMPTS) {
-      if (import.meta.env.DEV) {
-        console.warn(`[VoiceService] Aborting ICE restart for ${peerId}; attempts exhausted.`);
-      }
-      return;
-    }
-
     this.iceRestartAttempts.set(peerId, attempts);
 
     if (import.meta.env.DEV) {
       console.info(`[VoiceService] Performing ICE restart for ${peerId} (attempt ${attempts}) due to ${reason}`);
+    }
+    if (attempts === ICE_RESTART_MAX_ATTEMPTS && !isTurnConfigured()) {
+      this.warnMissingTurn(peerId, new Error('ICE restarts are not getting through'));
     }
 
     try {
@@ -714,6 +781,9 @@ export class VoiceService extends EventEmitter<EventMap> {
         this.warnMissingTurn(peerId, error);
       }
     }
+
+    // The next try is set up now and dropped as soon as the connection is back.
+    this.scheduleIceRestart(this.resolve(peerId), 'retry');
   }
 
   private async createAndSendOffer(peerId: string, pc: RTCPeerConnection, options: RTCOfferOptions = {}): Promise<void> {
@@ -727,9 +797,15 @@ export class VoiceService extends EventEmitter<EventMap> {
       sdp: local.sdp,
     };
 
+    // The answer echoes the id, so an answer to an older offer of ours can be told apart.
+    const target = this.resolve(peerId);
+    const offerId = ++this.offerSeq;
+    this.pendingOffers.set(target, { id: offerId, at: Date.now(), lost: !this.signallingUp });
+
     this.emit('voice:offer', {
-      peerId,
+      peerId: target,
       offer: normalized,
+      offerId,
     } as never);
   }
 
@@ -859,7 +935,8 @@ export class VoiceService extends EventEmitter<EventMap> {
    */
   async handleOffer(
     peerId: string,
-    offer: RTCSessionDescriptionInit
+    offer: RTCSessionDescriptionInit,
+    offerId?: number
   ): Promise<void> {
     let pc = this.peers.get(peerId);
 
@@ -881,10 +958,16 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     try {
-      // Our own offer may be sitting unanswered (sent while the socket was down and lost):
-      // take it back, the incoming one wins. Without this, setRemoteDescription throws.
+      // Our own offer is unanswered: both sides offered at once (both restarted ICE after a
+      // drop), or ours was lost while the socket was down. One side yields (negotiation.ts);
+      // when it is us, ours is taken back, without which setRemoteDescription throws.
       if (pc.signalingState === 'have-local-offer') {
+        if (resolveOfferCollision(this.politeFor(peerId), this.pendingOffers.get(peerId), Date.now()) === 'ignore') {
+          if (import.meta.env.DEV) console.info(`[VoiceService] ${peerId} offered while ours is out; ours stands`);
+          return;
+        }
         await pc.setLocalDescription({ type: 'rollback' });
+        this.pendingOffers.delete(peerId);
       }
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
@@ -912,7 +995,16 @@ export class VoiceService extends EventEmitter<EventMap> {
           type: local.type,
           sdp: local.sdp,
         },
+        ...(offerId !== undefined ? { offerId } : {}),
       } as never);
+
+      // Their offer may be their own ICE restart: let it finish before ours, if one is due.
+      this.postponeIceRestart(peerId);
+      // An answer only covers what the offer listed. When we send something it did not (our
+      // camera, on a connection they rebuilt after we reconnected), we offer it ourselves now.
+      if (typeof pc.getTransceivers === 'function' && needsOwnOffer(pc.getTransceivers())) {
+        await this.createAndSendOffer(peerId, pc);
+      }
     } catch (error) {
       console.error(`Error handling offer from ${peerId}:`, error);
       throw error;
@@ -924,18 +1016,31 @@ export class VoiceService extends EventEmitter<EventMap> {
    */
   async handleAnswer(
     peerId: string,
-    answer: RTCSessionDescriptionInit
+    answer: RTCSessionDescriptionInit,
+    offerId?: number
   ): Promise<void> {
     const pc = this.peers.get(peerId);
-    
+
     if (!pc) {
       console.error(`No peer connection found for ${peerId}`);
       return;
     }
 
+    if (pc.signalingState !== 'have-local-offer') {
+      // The answer to an offer we took back when theirs crossed it.
+      if (import.meta.env.DEV) console.info(`[VoiceService] Answer from ${peerId} to an offer we took back; ignored`);
+      return;
+    }
+    const pending = this.pendingOffers.get(peerId);
+    if (typeof offerId === 'number' && pending && pending.id !== offerId) {
+      // The answer to an older offer of ours (a stalled socket delivering late); the newer one is still out.
+      if (import.meta.env.DEV) console.info(`[VoiceService] Answer from ${peerId} to an older offer; ignored`);
+      return;
+    }
+
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      this.resetIceRecovery(peerId);
+      this.pendingOffers.delete(peerId);
       this.applyScreenSenderEncoding(peerId);
       this.reapplyVoiceSender(peerId, pc);
     } catch (error) {
@@ -977,8 +1082,9 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     this.resetIceRecovery(peerId);
+    this.pendingOffers.delete(peerId);
     this.clearRemoteVideoTracks(peerId);
-    
+
     // Clean up video senders
     this.videoSenders.delete(peerId);
 
@@ -1426,6 +1532,8 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.stopStatsMonitoring();
     this.peerStatsHistory.clear();
     this.lastStatsTimestamp.clear();
+    this.pendingOffers.clear();
+    this.signallingUp = true;
 
     // Stop video streams
     this.stopCamera();
@@ -1712,8 +1820,10 @@ export class VoiceService extends EventEmitter<EventMap> {
         delete senders[type];
         if (type === 'screen') delete senders.screenAudio;
 
-        // Renegotiate connection
-        void this.createAndSendOffer(peerId, pc);
+        // Renegotiate connection (it may be closing: the call is being left)
+        this.createAndSendOffer(peerId, pc).catch((error) => {
+          if (pc.signalingState !== 'closed') console.error(`[VoiceService] Could not renegotiate the ${type} removal with ${peerId}:`, error);
+        });
       } catch (error) {
         console.error(`[VoiceService] Failed to remove ${type} track from peer ${peerId}:`, error);
       }
