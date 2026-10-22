@@ -4,7 +4,24 @@ import { parseShortcut, serializeShortcut } from '@/lib/shortcut';
 import { Storage } from '@/lib/storage';
 import { DEFAULT_OVERLAY_CORNER, isOverlayCorner } from '@/features/voice/voiceOverlayState';
 import { clampStrength, DEFAULT_STRENGTH_DB } from '@/services/voice/neuralEngine';
+import { normalizeBlurLevel } from '@/services/voice/backgroundBlur';
 import type { AudioSettings, ClipSeconds, NoiseSuppressionLevel, ScreenQuality } from '@/types/protocol';
+
+/**
+ * "Data-saver voice": cap voice at 24 kbps per person on mobile data or a slow link
+ * (services/voice/linkConstraint.ts). `auto` decides from the connection.
+ */
+export type DataSaverVoice = 'auto' | 'on' | 'off';
+export const DATA_SAVER_VOICE: DataSaverVoice[] = ['auto', 'on', 'off'];
+
+// The field is declared here rather than in types/protocol.ts, which the Arcade platform
+// work owns while it is being built; fold it into AudioSettings there afterwards.
+declare module '@/types/protocol' {
+  interface AudioSettings {
+    /** Data-saver voice: Auto (mobile data or a slow link), On or Off. */
+    dataSaverVoice: DataSaverVoice;
+  }
+}
 
 const SETTINGS_KEY = 'rtmpdisc.settings.v1';
 const SCREEN_QUALITIES: ScreenQuality[] = ['720p30', '1080p60', 'native60', 'native120'];
@@ -41,10 +58,12 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   latencyHint: 'interactive',
   vadThreshold: num(config.VOICE_VAD_THRESHOLD, 0.07, 0.01, 0.5),
   screenQuality: '1080p60',
+  cameraBlur: 'off',
   clipSeconds: 30,
   clipIncludeVoice: false,
   clipShortcut: DEFAULT_CLIP_SHORTCUT,
   shareClipsAllowed: true,
+  dataSaverVoice: 'auto',
 };
 
 /** Merge stored settings over the defaults, dropping values this build does not know. */
@@ -56,6 +75,8 @@ export const normalizeAudioSettings = (stored: Partial<AudioSettings> | null | u
   delete (next as { noiseSuppression?: unknown }).noiseSuppression;
   next.strongSuppressionDb = clampStrength(next.strongSuppressionDb);
   if (!SCREEN_QUALITIES.includes(next.screenQuality)) next.screenQuality = DEFAULT_AUDIO_SETTINGS.screenQuality;
+  // Settings saved before background blur existed (or a value this build does not know) mean Off.
+  next.cameraBlur = normalizeBlurLevel(next.cameraBlur);
   if (!isOverlayCorner(next.overlayCorner)) next.overlayCorner = DEFAULT_OVERLAY_CORNER;
   next.overlayEnabled = Boolean(next.overlayEnabled);
   // The old client stored the bare KeyboardEvent.code; normalise to the shortcut form.
@@ -64,6 +85,7 @@ export const normalizeAudioSettings = (stored: Partial<AudioSettings> | null | u
   if (!CLIP_SECONDS.includes(next.clipSeconds)) next.clipSeconds = DEFAULT_AUDIO_SETTINGS.clipSeconds;
   next.clipIncludeVoice = Boolean(next.clipIncludeVoice);
   next.shareClipsAllowed = next.shareClipsAllowed !== false;
+  if (!DATA_SAVER_VOICE.includes(next.dataSaverVoice)) next.dataSaverVoice = DEFAULT_AUDIO_SETTINGS.dataSaverVoice;
   // An unset shortcut stays unset (people may turn the key off); garbage falls back to the default.
   if (typeof next.clipShortcut !== 'string') next.clipShortcut = DEFAULT_CLIP_SHORTCUT;
   else if (next.clipShortcut !== '') {

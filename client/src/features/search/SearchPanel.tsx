@@ -7,6 +7,7 @@ import { cn } from '@/lib/cn';
 import { formatFullDate, formatRelative } from '@/lib/format';
 import { MOTION, usePresence } from '@/lib/motion';
 import { MIN_SEARCH_CHARS, flattenGroups, groupResultsByChannel, searchableLength } from '@/lib/search';
+import { avatarOf } from '@/state/avatars';
 import { channelLabel, channelsById, selectedChannel, selectedChannelId } from '@/state/channels';
 import {
   searchActiveIndex,
@@ -88,7 +89,7 @@ const ResultRow = ({ result, index }: { result: SearchResult; index: number }) =
         searchActiveIndex.value = index;
       }}
     >
-      <Avatar seed={result.authorId ?? result.authorName} name={result.authorName} src={result.authorAvatarUrl} size={28} className="mt-0.5" />
+      <Avatar seed={result.authorId ?? result.authorName} name={result.authorName} src={avatarOf(result.authorId, result.authorAvatarUrl)} size={28} className="mt-0.5" />
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
           <span className="truncate text-sm font-semibold text-text-bright">{result.authorName}</span>

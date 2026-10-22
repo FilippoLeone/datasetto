@@ -3,9 +3,13 @@ import { isCapacitor } from '@/lib/device';
 import { closeDrawers, closeModal, membersOpen, modal, sidebarOpen } from '@/state/ui';
 import { searchOpen } from '@/state/search';
 import { closeSearch } from '@/features/search/searchActions';
+import { startAppStateTracking } from './appState';
 
 /**
  * Capacitor App plugin hooks. A no-op on the web and in Electron.
+ *
+ * Foreground and background: the one shared `appStateChange` listener (appState.ts)
+ * starts here, so the state is known before anything subscribes to it.
  *
  * Android back (button or gesture): close whatever is open first (newest
  * first: a sheet, a picker, a dialog, the search page, a drawer), then put the
@@ -13,6 +17,7 @@ import { closeSearch } from '@/features/search/searchActions';
  */
 export const installCapacitorAppHandlers = async (): Promise<void> => {
   if (!isCapacitor()) return;
+  startAppStateTracking();
   try {
     const { App } = await import('@capacitor/app');
     await App.addListener('backButton', () => {

@@ -7,6 +7,22 @@ const DEFAULT_SERVER_URL = 'https://datasetto.com';
 
 const runtimeConfig = Object.freeze(resolveRuntimeConfig());
 
+// Main window visibility (main.js sends it on minimize, restore, hide, show and every
+// page load). One IPC listener fans out to the page's subscribers; the last state is
+// replayed to a subscriber that arrives after it was sent.
+let windowVisible = null;
+const windowVisibilityHandlers = new Set();
+ipcRenderer.on('window:visibility', (_event, payload) => {
+  windowVisible = Boolean(payload?.visible);
+  for (const handler of [...windowVisibilityHandlers]) {
+    try {
+      handler(windowVisible);
+    } catch (error) {
+      console.warn('[desktop][preload] Window visibility handler failed:', error);
+    }
+  }
+});
+
 defineGlobals();
 
 /**
@@ -25,6 +41,11 @@ function defineGlobals() {
     getLogPath: () => ipcRenderer.invoke('app:get-log-path'),
     openLogFile: () => ipcRenderer.invoke('app:open-log-file'),
     log: (level, ...args) => ipcRenderer.send('renderer:log', { level, args }),
+
+    // The page draws the window's title bar (main.js "Title bar"); null with a native frame.
+    titleBar: readTitleBar(),
+    setTitleBarColors: (colors) =>
+      ipcRenderer.send('titlebar:colors', { color: String(colors?.color ?? ''), symbolColor: String(colors?.symbolColor ?? '') }),
 
     // System-wide push to talk and the voice overlay (client feature-detects these).
     setPushToTalkShortcut: (accelerator) => ipcRenderer.invoke('ptt:set', { accelerator }),
@@ -57,7 +78,22 @@ function defineGlobals() {
       const listener = (_event, payload) => handler(payload);
       ipcRenderer.on('activity:detected', listener);
       return () => ipcRenderer.removeListener('activity:detected', listener);
-    }
+    },
+
+    // Window visibility and attention (client feature-detects these as well).
+    onWindowVisibility: (handler) => {
+      if (typeof handler !== 'function') {
+        return () => {};
+      }
+      windowVisibilityHandlers.add(handler);
+      if (windowVisible !== null) {
+        handler(windowVisible);
+      }
+      return () => {
+        windowVisibilityHandlers.delete(handler);
+      };
+    },
+    requestAttention: (on) => ipcRenderer.send('window:attention', { on: Boolean(on) })
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);
@@ -162,4 +198,11 @@ function hostnameOf(url) {
   } catch {
     return 'localhost';
   }
+}
+
+/** Height of the page-drawn title bar, from main.js (`--datasetto-title-bar=<px>`), or null. */
+function readTitleBar() {
+  const arg = process.argv.find((value) => value.startsWith('--datasetto-title-bar='));
+  const height = arg ? Number(arg.slice('--datasetto-title-bar='.length)) : NaN;
+  return Number.isFinite(height) && height > 0 ? { height, platform: process.platform } : null;
 }

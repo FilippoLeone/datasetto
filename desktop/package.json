@@ -52,6 +52,7 @@
       "main.js",
       "preload.js",
       "updater.js",
+      "app-identity.js",
       "package.json",
       "renderer/**/*",
       "picker/**/*",

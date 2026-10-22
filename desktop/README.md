@@ -67,6 +67,10 @@ During packaging the build script also regenerates the desktop icon (PNG + ICO) 
 
 The published installers come from `.github/workflows/release.yml`: on every GitHub release it runs these same steps on Windows, Linux and macOS runners, sets the package version from the release tag (`v0.1.9` → `0.1.9`) and attaches the installers together with the `latest*.yml` and `.blockmap` files to the release. The metadata must sit next to the installers in the release, that is what installed apps read.
 
+## Title bar
+
+The main window has no native title bar; the client draws its own 32 px bar (logo and name, `client/src/app/TitleBar.tsx`) and the system's caption buttons stay on top of it. On Windows and Linux they are the Window Controls Overlay buttons (`titleBarStyle: 'hidden'` + `titleBarOverlay`), so Snap Layouts on hover over maximize, double-click to maximize, drag to snap and the system menu (right click on the bar) behave as with a native frame. On macOS the traffic lights sit inset at the left end of the bar (`hiddenInset`). The bar is a drag region (`app-region: drag`); anything clickable added to it needs `no-drag`. The preload exposes `desktopAPI.titleBar` (`{ height, platform }`, only when `main.js` asks for the page-drawn bar) and `setTitleBarColors({ color, symbolColor })`, which the client calls with the bar's computed colours whenever the theme changes, so the buttons always sit on the bar's background (IPC `titlebar:colors`, `#rrggbb` only). The client sets `data-titlebar` on `<html>`, and its `.safe-top` / `.p-safe` paddings clear the bar the way they clear a phone's notch. The browser and Android builds have no `titleBar` and look as before; the picker, overlay and video pop-out windows keep their own frames.
+
 ## Automatic updates
 
 The packaged app keeps itself current through [electron-updater](https://www.electron.build/auto-update) and the releases of `FilippoLeone/datasetto` (`updater.js`):
@@ -94,7 +98,7 @@ Both features are plain operating-system facilities. Nothing is injected into ot
 - A modifier on its own (right Ctrl, say) cannot be a global shortcut; the dialog explains it. A bare letter, digit or Space can, but other apps will not receive that key while you are in voice, so prefer a function key, a numpad key or a Ctrl/Alt combination.
 - While the settings dialog records a new key, the registration is paused so the key reaches the window.
 
-**Voice overlay.** A frameless, transparent, always-on-top window (`overlay/`) in a corner of the primary display shows the voice channel, every participant with a speaking ring and mute/deafen icons, and your own state (Muted, Deafened, Hold to talk, Live). It ignores the mouse (`setIgnoreMouseEvents`), never takes focus, is excluded from screen captures (`setContentProtection`, so it does not show up in your own screen share) and is hidden from the screen share picker. The client feeds it over IPC from its voice state and hides it when you leave voice; the toggle and the corner live in Voice & audio settings. Because it is an ordinary window, games running in **exclusive fullscreen** cover it; borderless (windowed fullscreen) and windowed games show it.
+**Voice overlay.** A frameless, transparent, always-on-top window (`overlay/`) in a corner of the primary display shows the voice channel, every participant with a speaking ring and mute/deafen icons, and your own state (Muted, Deafened, Hold to talk, Live). It ignores the mouse (`setIgnoreMouseEvents`), never takes focus, is excluded from screen captures (`setContentProtection`, so it does not show up in your own screen share) and is hidden from the screen share picker, like the picker itself (`picker/own-windows.js`: this app's windows by their native handle, checked on every thumbnail refresh, and any window titled exactly "Datasetto voice overlay" or "Share your screen", so a second running copy of the app, such as a test build next to the installed one, cannot offer its overlay either). The client feeds it over IPC from its voice state and hides it when you leave voice; the toggle and the corner live in Voice & audio settings. Because it is an ordinary window, games running in **exclusive fullscreen** cover it; borderless (windowed fullscreen) and windowed games show it.
 
 ## Game activity: "Playing <game>"
 
@@ -108,6 +112,32 @@ Off by default. Settings > Game activity > "Show what I'm playing" turns it on; 
 
 The matcher and the parsers are plain CommonJS in `games/match.js`, with no Electron in them, so the client's unit tests (`client/src/features/activity/catalogue.test.ts`) exercise them and the catalogue as shipped.
 
+## Test builds next to the installed app (Windows)
+
+Every Windows build is a `Datasetto.exe` with the product name Datasetto, so on their own Windows and Electron cannot tell the installed app from a test build. Two things used to leak from a test build into the installed app:
+
+- **Taskbar.** Windows groups windows by their AppUserModelID. With the installed app's ID (`com.datasetto.desktop`), a test window joined the installed app's pinned taskbar button.
+- **Start Menu shortcut.** The first time a process touches notifications (`Notification.isSupported()` at startup is enough), Electron points `Start Menu\Programs\<product name>.lnk` at the running exe and registers that exe as the handler for notification clicks (`HKCU\Software\Classes\CLSID\{…}\LocalServer32`). This happens in `EnsureShortcut` in Electron's `shell/browser/notifications/win/windows_toast_activator.cc`. A test build that ran for three seconds took over the installed app's `Datasetto.lnk` this way, and a dev run left an `Electron` entry in the Start Menu. The installed app took the shortcut back the next time it started.
+
+`app-identity.js` decides which copy is running, and only the installed one uses the app's ID and native notifications:
+
+| Build | Recognised by | App ID | Native notifications | Window title |
+| --- | --- | --- | --- | --- |
+| Installed | `Uninstall Datasetto.exe` next to the exe | `com.datasetto.desktop` | on | `Datasetto` |
+| Portable exe | `PORTABLE_EXECUTABLE_DIR` is set | `com.datasetto.desktop.portable` | only while no other copy owns `Datasetto.lnk` | `Datasetto` |
+| Unpacked (`win-unpacked`, any scratch build) | any other packaged build | `com.datasetto.desktop.dev` | off, written to the log instead | `… (test build)` |
+| Dev (`npm start`, `npm run dev`) | not packaged | `com.datasetto.desktop.dev` | off on Windows | `… (dev)` |
+
+The installed app's ID is the same in every version, so its pin, shortcut and notifications carry over through updates. macOS and Linux packaged builds count as installed; Electron writes no shortcut there.
+
+A packaged test run on a PC that has the installed app:
+
+1. Build outside the repository, never into `desktop/release/` (Windows also repairs a broken shortcut to a same-named exe nearby): `npm run build:renderer && npm run prepare:renderer`, then `npx electron-builder --publish never --win --dir --config.directories.output=<scratch>/desktop-out`.
+2. Give it its own profile with updates off: write `<scratch>/profile/desktop-settings.json` as `{"autoUpdate":false}` and start `<scratch>/desktop-out/win-unpacked/Datasetto.exe --user-data-dir=<scratch>/profile --mute-audio`. Without `--user-data-dir` it shares the installed app's settings, single-instance lock and sign-in.
+3. Its title ends in "(test build)", it has its own taskbar button, and notifications only show up in its log as `Notification not shown`.
+4. Quit it from its tray menu, or stop it by path (`Get-Process Datasetto | Where-Object Path -like '*desktop-out*' | Stop-Process`), never by name alone: the installed app is a `Datasetto` process too.
+5. Builds made before this change still take the shortcut over. Afterwards, read where it points (read-only): `(New-Object -ComObject WScript.Shell).CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Datasetto.lnk").TargetPath` should be `%LOCALAPPDATA%\Programs\datasetto-desktop\Datasetto.exe`. If it is not, restarting the installed app repairs it.
+
 ## Project structure
 
 ```
@@ -115,6 +145,7 @@ desktop/
 ├─ main.js              # Electron main process: window, tray, notifications, screen picker, global push to talk, voice overlay, game activity, IPC
 ├─ preload.js           # contextBridge: window.desktopAPI + window.datasettoDesktopConfig
 ├─ updater.js           # electron-updater wiring: GitHub feed, background download, notices, the on/off setting
+├─ app-identity.js      # Installed app or test build: taskbar ID, native notifications, title label (pure, unit-tested from client/)
 ├─ games/
 │  ├─ catalogue.json    # Executable name -> game title, plus launchers that never count
 │  └─ match.js          # Process-list parsing and matching (pure, unit-tested from client/)
@@ -135,6 +166,7 @@ desktop/
 
 - `window.desktopAPI`: `getInfo`, `getRuntimeConfig`, `showNotification`, `checkNotificationPermission`, `updateVoiceActivity` (tray icon state), `pickScreenshareSource` (native picker, returns the chosen `desktopCapturer` source and whether to share system audio), `openExternal`, `getLogPath`, `openLogFile`, `log`, and the updater: `getUpdateState`, `setAutoUpdate`, `checkForUpdates`, `installUpdate`, `onUpdateState` (the state shape is `DesktopUpdateState` in `globals.d.ts`; the client feature-detects these, so older shells simply show no update section).
   The picker (`picker/`) is a modal window styled like the client (tokens copied from `client/src/styles/app.css`): tabs for entire screens and windows, thumbnails refreshed every two seconds while it is open, display size on screen cards, a "Share system audio" switch, and arrow/Enter/Escape keyboard control. The client may pass `{ audio, quality: { width, height, fps, label } }`; the quality is only shown as a hint in the footer and the result object is unchanged.
+  **Sound in a screen share** (`picker/share-audio.js`). System audio is a loopback of everything the computer plays, which would include Datasetto's own playback (friends' voices, alert sounds, a watched stream), so viewers would hear themselves. Clients that pass `displayMedia: true` get the pick handed to their next `getDisplayMedia()` call: the shell keeps it for 30 s (bound to the asking window, at most three requests, so the client can retry without the exclusion and then without audio) and its `session.setDisplayMediaRequestHandler` answers with that source and `audio: 'loopback'`. Because the page asks with `restrictOwnAudio: true`, Electron 44 turns that into Chromium's `loopbackWithoutChrome` device: WASAPI process loopback without the app's audio process tree on Windows 11, a CoreAudio tap without it on macOS 14.2+. Windows 10, older macOS and Linux get plain system audio; the picker's audio line says so (in amber) and the client shows a toast once the share runs. The answer also carries `displayMedia` (whether the hand-over was armed) and `ownAudioExcluded`. The old route (`getUserMedia` with `chromeMediaSource: 'desktop'` and the returned source id) still works for older clients but always captures plain `loopback`. A page that calls `getDisplayMedia()` without picking first gets the picker from the handler; frames inside a page never get a capture. The log records the kind of source and the audio mode, never window titles.
   Gaming additions, all optional on the client side (it feature-detects them, so a client paired with an older shell simply has no background key and no overlay): `setPushToTalkShortcut(accelerator | null)` returns `{ accelerator, registered, error? }` (`taken` or `invalid`), `checkPushToTalkShortcut(accelerator)` returns `{ available }` without changing the registration, `onPushToTalkPressed(handler)` delivers `{ accelerator, at }` for every press (and OS key repeat) and returns an unsubscribe function, `configureVoiceOverlay({ enabled, corner })` and `updateVoiceOverlay(state | null)` with the state shape described in `client/src/types/globals.d.ts` (`DesktopVoiceOverlayState`). The accelerator is an Electron accelerator string such as `Control+Shift+F9`, built by `client/src/lib/shortcut.ts`. IPC channels: `ptt:set`, `ptt:check`, `ptt:pressed`, `overlay:configure`, `overlay:state`, `overlay:size` (the overlay page reports its height so the window hugs the card).
   Game activity, also optional and feature-detected (`client/src/features/activity/desktopActivity.ts`): `configureGameActivity({ enabled, custom: [{ exe, title }] })` applies the settings and resolves with `{ enabled, title, catalogueSize }` after an immediate scan; `listProcesses()` resolves with `{ processes }`, the lower-cased names of the running programs for the picker (launchers, Windows system processes and the app itself left out); `onGameActivity(handler)` delivers `{ title }` whenever the matched title changes and returns an unsubscribe function. The shell forgets the settings on every page load (reload, window closed), so the client sends them again at start-up. IPC channels: `activity:configure`, `activity:processes`, `activity:detected`.
 - `window.datasettoDesktopConfig`: `{ serverUrl, apiBaseUrl, hlsBaseUrl, rtmpServerUrl }`, read by `client/src/lib/runtimeConfig.ts` before the build-time `VITE_*` fallbacks.

@@ -1,5 +1,6 @@
 import { Hash, Lock, Menu as MenuIcon, MessageCircle, MonitorUp, Radio, Search, Users, Volume2 } from 'lucide-preact';
 import { Avatar, IconButton } from '@/components';
+import { avatarOf } from '@/state/avatars';
 import { channelLabel, selectedChannel } from '@/state/channels';
 import { onlineCount } from '@/state/presence';
 import { isMobile, isPhone, membersOpen, showMembers, sidebarOpen } from '@/state/ui';
@@ -31,7 +32,7 @@ const Header = ({ channel }: { channel: Channel | null }) => {
         </IconButton>
       )}
       {channel?.type === 'dm' && channel.dm ? (
-        <Avatar seed={channel.dm.peerId} name={channel.dm.peerName} src={channel.dm.peerAvatarUrl} size={24} />
+        <Avatar seed={channel.dm.peerId} name={channel.dm.peerName} src={avatarOf(channel.dm.peerId, channel.dm.peerAvatarUrl)} size={24} />
       ) : (
         <Icon size={20} className="shrink-0 text-text-muted" />
       )}

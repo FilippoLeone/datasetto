@@ -215,6 +215,8 @@ export interface ReplyRef {
   /** Null when the original is gone for good (pruned). */
   from: string | null;
   accountId: string | null;
+  /** The original author's current profile picture (absent from older servers). */
+  avatarUrl?: string | null;
   /** The start of the original's text; empty when deleted or picture-only. */
   text: string;
   deleted: boolean;
@@ -228,6 +230,12 @@ export interface ChatMessage {
   from: string;
   fromId?: string | null;
   accountId?: string | null;
+  /**
+   * The author's profile picture as it is now (null: none, or the account was deleted;
+   * absent from older servers). Render through `avatarOf` (state/avatars.ts), which
+   * also follows later changes.
+   */
+  authorAvatarUrl?: string | null;
   text: string;
   ts: number;
   roles?: RoleName[];
@@ -400,6 +408,8 @@ export interface AudioSettings {
   clipShortcut: string;
   /** Whether friends may save clips of the screens you share (sent with the share's metadata; nothing is recorded). */
   shareClipsAllowed: boolean;
+  /** Camera: blur the background before the video is sent (services/voice/backgroundBlur.ts). */
+  cameraBlur: 'off' | 'light' | 'strong';
 }
 
 /** Length of the rolling clip buffer, in seconds. */
@@ -470,7 +480,8 @@ export interface VoiceJoinedEvent {
 
 export interface VoiceSignalEvent {
   from: string;
-  data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
+  /** `offerId` rides with an offer and is echoed by its answer (older clients send none). */
+  data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; offerId?: number };
 }
 
 export interface ScreenshareSessionEvent {
@@ -769,8 +780,9 @@ export interface StreamMetadata {
 
 /** Events emitted by the media services (VoiceService, AudioService). */
 export type EventMap = {
-  'voice:offer': { peerId: string; offer: RTCSessionDescriptionInit };
-  'voice:answer': { peerId: string; answer: RTCSessionDescriptionInit };
+  'voice:offer': { peerId: string; offer: RTCSessionDescriptionInit; offerId?: number };
+  /** `offerId`: the offer this answers, when the offer carried one. */
+  'voice:answer': { peerId: string; answer: RTCSessionDescriptionInit; offerId?: number };
   'voice:ice-candidate': { peerId: string; candidate: RTCIceCandidateInit };
   'voice:send-stream-metadata': { to: string; metadata: StreamMetadata };
   /** A friend's voice stream arrived or went (the clip mixer follows them). */
@@ -786,8 +798,13 @@ export type EventMap = {
     timestamp: number;
   };
   'video:camera:started': { stream: MediaStream };
+  /** The sent camera track changed (blur on or off, a flip): a new stream for the local preview. */
+  'video:camera:track': { stream: MediaStream };
+  /** Where the camera's background blur runs, what it costs, any notice (services/voice/cameraEffects.ts). */
+  'video:camera:blur': unknown;
   'video:camera:stopped': void;
-  'video:screen:started': { stream: MediaStream; hasAudio: boolean };
+  /** `audioNotice`: the host's toast about the share's sound (none, or Datasetto's own sound in it), null when all is well. */
+  'video:screen:started': { stream: MediaStream; hasAudio: boolean; audioNotice: string | null };
   'video:screen:stopped': void;
   'video:remote:track': { peerId: string; streamType: 'camera' | 'screen'; stream: MediaStream; track: MediaStreamTrack };
   'video:remote:track:removed': { peerId: string; streamType: 'camera' | 'screen' };

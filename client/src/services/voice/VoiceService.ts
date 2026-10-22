@@ -7,9 +7,12 @@ import { Storage } from '@/lib/storage';
 import { isNativeAudioRoutingAvailable, selectNativeAudioRoute } from '@/services/native/NativeAudioRouteService';
 import { config } from '@/config';
 import { serverConfig } from '@/services/ServerConfigService';
-import { DEFAULT_SCREEN_QUALITY, applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError } from '@/services/screenCapture';
+import { DEFAULT_SCREEN_QUALITY, applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError, screenAudioNotice } from '@/services/screenCapture';
 import { captureCamera } from './cameraCapture';
+import { OFF_STATUS, type CameraBlurLevel, type CameraBlurStatus } from './backgroundBlur';
+import { CameraEffects } from './cameraEffects';
 import { PeerAudioManager, type PeerAudioPreference } from './PeerAudioManager';
+import { iceRestartDelay, isOfferStale, needsOwnOffer, resolveOfferCollision, type PendingOffer } from './negotiation';
 
 export type { PeerAudioPreference } from './PeerAudioManager';
 
@@ -57,7 +60,7 @@ const parseBooleanEnv = (value: string | undefined, fallback: boolean): boolean 
 
 /** ICE servers are provided by the server (ephemeral TURN credentials) with a build-time fallback. */
 const getIceServers = (): RTCIceServer[] => serverConfig.iceServers();
-const ICE_RESTART_DELAY_MS = 2000;
+/** ICE restarts without TURN after which the "configure a TURN server" warning shows (they keep going). */
 const ICE_RESTART_MAX_ATTEMPTS = 3;
 const OPUS_BITRATE_MIN = 6000;
 const OPUS_BITRATE_MAX = 128000;
@@ -68,6 +71,13 @@ const OPUS_TARGET_BITRATE = Math.round(
     max: OPUS_BITRATE_MAX,
   })
 );
+/**
+ * Data-saver voice (linkConstraint.ts): the cap per voice stream while this device's link,
+ * or the peer's, is constrained.
+ */
+export const CONSTRAINED_VOICE_BITRATE = 24000;
+/** Packet overhead of one voice stream: 50 packets/s x 62 B of IP, UDP, RTP, header extensions and the SRTP tag. */
+export const VOICE_PACKET_OVERHEAD_BPS = 25000;
 const DEFAULT_DTX_ENABLED = parseBooleanEnv(config.VOICE_DTX_ENABLED, true);
 const DEFAULT_VAD_THRESHOLD = parseNumberEnv(config.VOICE_VAD_THRESHOLD, 0.07, {
   min: 0.01,
@@ -152,6 +162,8 @@ export interface PeerConnectionStats {
   packetLoss: number | null;
   jitter: number | null;
   bitrate: number | null;
+  /** The browser's estimate of what this connection may send, in bit/s (`availableOutgoingBitrate`). */
+  availableOutgoingBitrate: number | null;
   timestamp: number;
 }
 
@@ -172,7 +184,13 @@ export class VoiceService extends EventEmitter<EventMap> {
   private iceRestartTimers: Map<string, number> = new Map();
   private iceRestartAttempts: Map<string, number> = new Map();
   private localStream: MediaStream | null = null;
+  /** What the call sends as the camera: the camera's own track, or its blurred copy. */
   private localVideoStream: MediaStream | null = null;
+  /** The camera as captured. */
+  private cameraSource: MediaStream | null = null;
+  private cameraStarting: Promise<MediaStream> | null = null;
+  private cameraEffects: CameraEffects | null = null;
+  private cameraBlur: CameraBlurLevel = 'off';
   private localScreenStream: MediaStream | null = null;
   private remoteVideoElements: Map<string, HTMLVideoElement> = new Map();
   private videoSenders: Map<string, PeerVideoSenders> = new Map();
@@ -201,11 +219,22 @@ export class VoiceService extends EventEmitter<EventMap> {
   private statsPollingHandle: number | null = null;
   private peerStatsHistory: Map<string, PeerConnectionStats[]> = new Map();
   private lastStatsTimestamp: Map<string, number> = new Map();
+  /** Our unanswered offer to each peer (negotiation.ts): its id, when it went out, whether it was probably lost. */
+  private pendingOffers: Map<string, PendingOffer> = new Map();
+  private offerSeq = 0;
+  /** False while the socket is down or the room is not rejoined yet: offers made then are lost. */
+  private signallingUp = true;
+  /** Who yields when both sides offer at once; the voice manager decides from the account ids. */
+  private politeFor: (peerId: string) => boolean = () => true;
   /**
    * Old socket id -> the id the same connection lives under now (see rekeyPeer).
    * Callbacks created with the old id look the current one up when they fire.
    */
   private aliases: Map<string, string> = new Map();
+  /** Our own link is constrained (data-saver voice): every voice sender is capped. */
+  private linkConstrained = false;
+  /** Peers that said their link is constrained (`voice:link`): our sender to them is capped. */
+  private peerLinkConstrained: Map<string, boolean> = new Map();
 
   constructor(
     voiceBitrate = OPUS_TARGET_BITRATE,
@@ -255,23 +284,21 @@ export class VoiceService extends EventEmitter<EventMap> {
     peerId: string,
     pc: RTCPeerConnection
   ): Promise<void> {
-    // The screen share's audio is a second audio sender; never swap the microphone into it.
-    const screenAudio = this.videoSenders.get(peerId)?.screenAudio;
-    const sender = pc.getSenders().find((s) => s !== screenAudio && s.track?.kind === 'audio');
+    const sender = this.voiceSender(peerId, pc);
     const newTrack = this.localStream?.getAudioTracks()[0];
 
     if (newTrack) {
       if (sender) {
         try {
           await sender.replaceTrack(newTrack);
-          this.applySenderQualityHints(sender);
+          this.applySenderQualityHints(sender, peerId);
         } catch (error) {
           console.error(`Error replacing track for peer ${peerId}:`, error);
         }
       } else if (this.localStream) {
         // No sender yet, add the track
         const newSender = pc.addTrack(newTrack, this.localStream);
-        this.applySenderQualityHints(newSender);
+        this.applySenderQualityHints(newSender, peerId);
       }
     } else if (sender) {
       try {
@@ -313,12 +340,15 @@ export class VoiceService extends EventEmitter<EventMap> {
       console.log(`Peer ${id} connection state: ${pc.connectionState}`);
 
       if (pc.connectionState === 'failed') {
-        this.emit('notification', {
-          id: `peer-failed-${id}`,
-          type: 'warning',
-          message: 'Voice connection issue detected',
-          duration: 3000,
-        });
+        // Once per outage; the restarts that follow keep going quietly.
+        if (!this.iceRestartAttempts.has(id)) {
+          this.emit('notification', {
+            id: `peer-failed-${id}`,
+            type: 'warning',
+            message: 'Voice connection issue detected',
+            duration: 3000,
+          });
+        }
         this.scheduleIceRestart(id, 'connection-state-failed');
       }
 
@@ -405,6 +435,10 @@ export class VoiceService extends EventEmitter<EventMap> {
     move(this.peerManagers);
     move(this.iceRestartTimers);
     move(this.iceRestartAttempts);
+    move(this.pendingOffers);
+    // An offer still waiting for its answer went to the old socket, which is gone.
+    const pending = this.pendingOffers.get(to);
+    if (pending) pending.lost = true;
     move(this.remoteVideoElements);
     move(this.videoSenders);
     move(this.remoteVideoTracks);
@@ -414,6 +448,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     move(this.peerStatsHistory);
     move(this.lastStatsTimestamp);
     move(this.peerAudioPreferences);
+    move(this.peerLinkConstrained);
     this.peerManagers.get(to)?.rename(to);
     this.aliases.delete(to);
     this.aliases.set(from, to);
@@ -439,6 +474,40 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
     this.iceRestartAttempts.delete(peerId);
     await this.performIceRestart(peerId, 'rejoin');
+  }
+
+  /** Who yields when both sides offer at once (negotiation.ts); the voice manager decides from the account ids. */
+  setPolitePeer(polite: (peerId: string) => boolean): void {
+    this.politeFor = polite;
+  }
+
+  /**
+   * Whether offers reach the room right now. While the socket is down (or the room is not
+   * rejoined yet) whatever we offer is lost; once signalling is back those offers go out again.
+   */
+  setSignallingUp(up: boolean): void {
+    this.signallingUp = up;
+    if (!up) {
+      for (const pending of this.pendingOffers.values()) pending.lost = true;
+      return;
+    }
+    for (const peerId of Array.from(this.peers.keys())) void this.resendLostOffer(peerId);
+  }
+
+  /**
+   * Our unanswered offer to this peer was probably lost (made while the socket was down, or
+   * sent to a socket id that is gone): make a fresh one, with an ICE restart when the
+   * transport is broken. Without it a camera added in that offer would never be negotiated.
+   */
+  async resendLostOffer(peerId: string): Promise<void> {
+    const pc = this.peers.get(peerId);
+    const pending = this.pendingOffers.get(peerId);
+    if (!pc || !pending?.lost || !this.signallingUp || pc.signalingState !== 'have-local-offer') return;
+    try {
+      await this.createAndSendOffer(peerId, pc, this.peerHealth(peerId) === 'broken' ? { iceRestart: true } : {});
+    } catch (error) {
+      console.error(`[VoiceService] Could not offer again to ${peerId}:`, error);
+    }
   }
 
   /**
@@ -625,19 +694,14 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.emit('voice:remote-audio', { peerId, stream } as never);
   }
 
+  /**
+   * Restart ICE on a broken transport, and keep at it while it stays broken: after 2 s, 4 s,
+   * 8 s, then every 10 s (negotiation.ts), until the connection is back or the peer is gone.
+   * A phone in a tunnel or between two networks has nothing to connect over for a while.
+   */
   private scheduleIceRestart(peerId: string, reason: string): void {
     const pc = this.peers.get(peerId);
     if (!pc || pc.connectionState === 'closed') {
-      return;
-    }
-
-    if (this.iceRestartAttempts.get(peerId) ?? 0 >= ICE_RESTART_MAX_ATTEMPTS) {
-      if (import.meta.env.DEV) {
-        console.warn(`[VoiceService] ICE restart limit reached for ${peerId}`);
-      }
-      if (!isTurnConfigured()) {
-        this.warnMissingTurn(peerId, new Error('restart attempts exhausted'));
-      }
       return;
     }
 
@@ -646,11 +710,26 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     const timer = window.setTimeout(() => {
-      this.iceRestartTimers.delete(peerId);
-      void this.performIceRestart(peerId, reason);
-    }, ICE_RESTART_DELAY_MS);
+      // The peer may have moved to a new socket id meanwhile (rekeyPeer moved this timer).
+      const id = this.resolve(peerId);
+      this.iceRestartTimers.delete(id);
+      void this.performIceRestart(id, reason);
+    }, iceRestartDelay(this.iceRestartAttempts.get(peerId) ?? 0));
 
     this.iceRestartTimers.set(peerId, timer);
+  }
+
+  /** Their offer arrived (maybe their own ICE restart): give it time before ours, if one is due, goes out. */
+  private postponeIceRestart(peerId: string): void {
+    const timer = this.iceRestartTimers.get(peerId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.iceRestartTimers.delete(peerId);
+    this.scheduleIceRestart(peerId, 'retry');
+  }
+
+  private transportUp(pc: RTCPeerConnection): boolean {
+    return pc.connectionState === 'connected' && (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed');
   }
 
   private resetIceRecovery(peerId: string): void {
@@ -666,22 +745,30 @@ export class VoiceService extends EventEmitter<EventMap> {
 
   private async performIceRestart(peerId: string, reason: string): Promise<void> {
     const pc = this.peers.get(peerId);
-    if (!pc) {
+    if (!pc || pc.connectionState === 'closed') {
+      return;
+    }
+
+    if (this.transportUp(pc)) {
+      // Back by itself while we waited.
+      this.resetIceRecovery(peerId);
+      return;
+    }
+
+    if (pc.signalingState === 'have-local-offer' && !isOfferStale(this.pendingOffers.get(peerId), Date.now())) {
+      // An offer of ours is still on its way; replacing it now would only make its answer useless.
+      this.scheduleIceRestart(peerId, reason);
       return;
     }
 
     const attempts = (this.iceRestartAttempts.get(peerId) ?? 0) + 1;
-    if (attempts > ICE_RESTART_MAX_ATTEMPTS) {
-      if (import.meta.env.DEV) {
-        console.warn(`[VoiceService] Aborting ICE restart for ${peerId}; attempts exhausted.`);
-      }
-      return;
-    }
-
     this.iceRestartAttempts.set(peerId, attempts);
 
     if (import.meta.env.DEV) {
       console.info(`[VoiceService] Performing ICE restart for ${peerId} (attempt ${attempts}) due to ${reason}`);
+    }
+    if (attempts === ICE_RESTART_MAX_ATTEMPTS && !isTurnConfigured()) {
+      this.warnMissingTurn(peerId, new Error('ICE restarts are not getting through'));
     }
 
     try {
@@ -702,6 +789,9 @@ export class VoiceService extends EventEmitter<EventMap> {
         this.warnMissingTurn(peerId, error);
       }
     }
+
+    // The next try is set up now and dropped as soon as the connection is back.
+    this.scheduleIceRestart(this.resolve(peerId), 'retry');
   }
 
   private async createAndSendOffer(peerId: string, pc: RTCPeerConnection, options: RTCOfferOptions = {}): Promise<void> {
@@ -715,9 +805,15 @@ export class VoiceService extends EventEmitter<EventMap> {
       sdp: local.sdp,
     };
 
+    // The answer echoes the id, so an answer to an older offer of ours can be told apart.
+    const target = this.resolve(peerId);
+    const offerId = ++this.offerSeq;
+    this.pendingOffers.set(target, { id: offerId, at: Date.now(), lost: !this.signallingUp });
+
     this.emit('voice:offer', {
-      peerId,
+      peerId: target,
       offer: normalized,
+      offerId,
     } as never);
   }
 
@@ -847,7 +943,8 @@ export class VoiceService extends EventEmitter<EventMap> {
    */
   async handleOffer(
     peerId: string,
-    offer: RTCSessionDescriptionInit
+    offer: RTCSessionDescriptionInit,
+    offerId?: number
   ): Promise<void> {
     let pc = this.peers.get(peerId);
 
@@ -869,10 +966,16 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     try {
-      // Our own offer may be sitting unanswered (sent while the socket was down and lost):
-      // take it back, the incoming one wins. Without this, setRemoteDescription throws.
+      // Our own offer is unanswered: both sides offered at once (both restarted ICE after a
+      // drop), or ours was lost while the socket was down. One side yields (negotiation.ts);
+      // when it is us, ours is taken back, without which setRemoteDescription throws.
       if (pc.signalingState === 'have-local-offer') {
+        if (resolveOfferCollision(this.politeFor(peerId), this.pendingOffers.get(peerId), Date.now()) === 'ignore') {
+          if (import.meta.env.DEV) console.info(`[VoiceService] ${peerId} offered while ours is out; ours stands`);
+          return;
+        }
         await pc.setLocalDescription({ type: 'rollback' });
+        this.pendingOffers.delete(peerId);
       }
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
@@ -891,6 +994,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       const enhancedAnswer = this.enhanceOpusSdp(answer);
       await pc.setLocalDescription(enhancedAnswer);
       this.applyScreenSenderEncoding(peerId);
+      this.reapplyVoiceSender(peerId, pc);
 
       const local = pc.localDescription ?? enhancedAnswer;
       this.emit('voice:answer', {
@@ -899,7 +1003,16 @@ export class VoiceService extends EventEmitter<EventMap> {
           type: local.type,
           sdp: local.sdp,
         },
+        ...(offerId !== undefined ? { offerId } : {}),
       } as never);
+
+      // Their offer may be their own ICE restart: let it finish before ours, if one is due.
+      this.postponeIceRestart(peerId);
+      // An answer only covers what the offer listed. When we send something it did not (our
+      // camera, on a connection they rebuilt after we reconnected), we offer it ourselves now.
+      if (typeof pc.getTransceivers === 'function' && needsOwnOffer(pc.getTransceivers())) {
+        await this.createAndSendOffer(peerId, pc);
+      }
     } catch (error) {
       console.error(`Error handling offer from ${peerId}:`, error);
       throw error;
@@ -911,19 +1024,33 @@ export class VoiceService extends EventEmitter<EventMap> {
    */
   async handleAnswer(
     peerId: string,
-    answer: RTCSessionDescriptionInit
+    answer: RTCSessionDescriptionInit,
+    offerId?: number
   ): Promise<void> {
     const pc = this.peers.get(peerId);
-    
+
     if (!pc) {
       console.error(`No peer connection found for ${peerId}`);
       return;
     }
 
+    if (pc.signalingState !== 'have-local-offer') {
+      // The answer to an offer we took back when theirs crossed it.
+      if (import.meta.env.DEV) console.info(`[VoiceService] Answer from ${peerId} to an offer we took back; ignored`);
+      return;
+    }
+    const pending = this.pendingOffers.get(peerId);
+    if (typeof offerId === 'number' && pending && pending.id !== offerId) {
+      // The answer to an older offer of ours (a stalled socket delivering late); the newer one is still out.
+      if (import.meta.env.DEV) console.info(`[VoiceService] Answer from ${peerId} to an older offer; ignored`);
+      return;
+    }
+
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      this.resetIceRecovery(peerId);
+      this.pendingOffers.delete(peerId);
       this.applyScreenSenderEncoding(peerId);
+      this.reapplyVoiceSender(peerId, pc);
     } catch (error) {
       console.error(`Error handling answer from ${peerId}:`, error);
       throw error;
@@ -963,8 +1090,9 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
 
     this.resetIceRecovery(peerId);
+    this.pendingOffers.delete(peerId);
     this.clearRemoteVideoTracks(peerId);
-    
+
     // Clean up video senders
     this.videoSenders.delete(peerId);
 
@@ -1101,13 +1229,59 @@ export class VoiceService extends EventEmitter<EventMap> {
       }
     }
 
-    // Update all existing peer connections
-    for (const pc of this.peers.values()) {
-      const sender = pc.getSenders().find((s) => s.track?.kind === 'audio');
-      if (sender) {
-        this.applySenderQualityHints(sender);
-      }
-    }
+    this.applyVoiceSenderHints();
+  }
+
+  /**
+   * Data-saver voice for our own link: cap every voice sender at 24 kbps, or lift the cap.
+   * Applied with setParameters, so nothing is renegotiated; the next offer or answer also
+   * asks the peers for the same (`maxaveragebitrate`).
+   */
+  setLinkConstrained(constrained: boolean): void {
+    if (this.linkConstrained === constrained) return;
+    this.linkConstrained = constrained;
+    this.applyVoiceSenderHints();
+  }
+
+  /** A peer said its link is constrained (`voice:link`): cap only our sender to that peer. */
+  setPeerLinkConstrained(peerId: string, constrained: boolean): void {
+    const id = this.resolve(peerId);
+    if ((this.peerLinkConstrained.get(id) ?? false) === constrained) return;
+    if (constrained) this.peerLinkConstrained.set(id, true);
+    else this.peerLinkConstrained.delete(id);
+    const pc = this.peers.get(id);
+    if (pc) this.reapplyVoiceSender(id, pc);
+  }
+
+  /** The peer left the room: drop what it said about its link. */
+  forgetPeerLink(peerId: string): void {
+    this.peerLinkConstrained.delete(this.resolve(peerId));
+  }
+
+  /** The bitrate cap of our voice sender to `peerId`. */
+  voiceSenderBitrate(peerId: string): number {
+    const capped = this.linkConstrained || this.peerLinkConstrained.get(this.resolve(peerId)) === true;
+    return capped ? Math.min(this.voiceBitrate, CONSTRAINED_VOICE_BITRATE) : this.voiceBitrate;
+  }
+
+  /** The microphone's sender on a connection (the screen share's audio is a second audio sender; never treat it as the voice). */
+  private voiceSender(peerId: string, pc: RTCPeerConnection): RTCRtpSender | undefined {
+    const screenAudio = this.videoSenders.get(peerId)?.screenAudio;
+    return pc.getSenders().find((s) => s !== screenAudio && s.track?.kind === 'audio');
+  }
+
+  private applyVoiceSenderHints(): void {
+    for (const [peerId, pc] of this.peers.entries()) this.reapplyVoiceSender(peerId, pc);
+  }
+
+  /**
+   * The voice sender's limits again, once a negotiation completed: on the answering side the
+   * sender only gets its encoding during the answer, and setParameters before that does not
+   * stick, so a cap set then would be lost.
+   */
+  private reapplyVoiceSender(peerId: string, pc: RTCPeerConnection): void {
+    const sender = this.voiceSender(peerId, pc);
+    if (sender) this.applySenderQualityHints(sender, peerId);
   }
 
   /**
@@ -1208,12 +1382,20 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   private async pollConnectionStats(): Promise<void> {
+    let estimate = 0;
+    let need = 0;
+    let measured = 0;
     const statsPromises = Array.from(this.peers.entries()).map(async ([peerId, pc]) => {
       try {
         const stats = await this.gatherPeerStats(peerId, pc);
         if (stats) {
           this.recordPeerStats(peerId, stats);
           this.emit('voice:stats', stats as never);
+          if (stats.availableOutgoingBitrate !== null && this.voiceSender(peerId, pc)) {
+            measured += 1;
+            estimate += stats.availableOutgoingBitrate;
+            need += this.voiceSenderBitrate(peerId) + VOICE_PACKET_OVERHEAD_BPS;
+          }
         }
       } catch (error) {
         if (import.meta.env.DEV) {
@@ -1223,6 +1405,8 @@ export class VoiceService extends EventEmitter<EventMap> {
     });
 
     await Promise.allSettled(statsPromises);
+    // Does the call's voice fit what the browser thinks it may send? (data-saver voice)
+    this.emit('voice:bandwidth', (measured > 0 ? { estimate, need } : null) as never);
   }
 
   private async gatherPeerStats(
@@ -1234,6 +1418,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     let packetLoss: number | null = null;
     let jitter: number | null = null;
     let bitrate: number | null = null;
+    let availableOutgoingBitrate: number | null = null;
 
     const lastTs = this.lastStatsTimestamp.get(peerId) ?? 0;
     let currentBytesReceived = 0;
@@ -1243,6 +1428,9 @@ export class VoiceService extends EventEmitter<EventMap> {
       if (stat.type === 'candidate-pair' && stat.state === 'succeeded') {
         if (typeof stat.currentRoundTripTime === 'number') {
           rtt = stat.currentRoundTripTime * 1000; // Convert to ms
+        }
+        if (stat.nominated !== false && typeof stat.availableOutgoingBitrate === 'number') {
+          availableOutgoingBitrate = stat.availableOutgoingBitrate;
         }
       }
 
@@ -1287,6 +1475,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       packetLoss,
       jitter,
       bitrate,
+      availableOutgoingBitrate,
       timestamp: Date.now(),
       _bytesReceived: currentBytesReceived,
     };
@@ -1351,6 +1540,8 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.stopStatsMonitoring();
     this.peerStatsHistory.clear();
     this.lastStatsTimestamp.clear();
+    this.pendingOffers.clear();
+    this.signallingUp = true;
 
     // Stop video streams
     this.stopCamera();
@@ -1376,6 +1567,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.videoSenders.clear();
     this.remoteVideoTracks.clear();
     this.aliases.clear();
+    this.peerLinkConstrained.clear();
   }
 
   // ==================== VIDEO METHODS ====================
@@ -1393,47 +1585,101 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
   }
 
+  /** Background blur of the camera (services/voice/cameraEffects.ts), created on first use. */
+  private effects(): CameraEffects {
+    if (!this.cameraEffects) {
+      const effects = new CameraEffects();
+      effects.on('status', (status) => this.emit('video:camera:blur', status as never));
+      // Blur gave up (the device could not keep up, or it failed): send the camera as it is.
+      effects.on('fallback', () => void this.refreshCameraTrack());
+      this.cameraEffects = effects;
+    }
+    return this.cameraEffects;
+  }
+
+  /** What the call sends for this camera at the current blur level: the camera, or its blurred copy. */
+  private cameraOutput(source: MediaStreamTrack): Promise<MediaStreamTrack> {
+    if (this.cameraBlur === 'off' && !this.cameraEffects) return Promise.resolve(source);
+    return this.effects().apply(source, this.cameraBlur);
+  }
+
+  /**
+   * Background blur level. A running camera switches at once: the sent track is replaced
+   * in every connection (replaceTrack), so nothing is renegotiated and the camera keeps running.
+   */
+  async setCameraBlur(level: CameraBlurLevel): Promise<void> {
+    if (this.cameraBlur === level) return;
+    this.cameraBlur = level;
+    await this.refreshCameraTrack();
+  }
+
+  getCameraBlurStatus(): CameraBlurStatus {
+    return this.cameraEffects?.status ?? OFF_STATUS;
+  }
+
+  /** The device id of the camera as captured (the blurred copy has none). */
+  getCameraDeviceId(): string | undefined {
+    return this.cameraSource?.getVideoTracks()[0]?.getSettings().deviceId;
+  }
+
+  private async refreshCameraTrack(): Promise<void> {
+    const source = this.cameraSource?.getVideoTracks()[0];
+    if (!source || source.readyState === 'ended') return;
+    const track = await this.cameraOutput(source);
+    // The camera changed or went off while the blur was starting.
+    if (this.cameraSource?.getVideoTracks()[0] !== source) return;
+    await this.sendCameraTrack(track);
+  }
+
+  /** Puts `track` into the sent camera stream and every peer's camera sender. */
+  private async sendCameraTrack(track: MediaStreamTrack): Promise<void> {
+    const stream = this.localVideoStream;
+    if (!stream) return;
+    const current = stream.getVideoTracks()[0];
+    if (current === track) return;
+    if (current) stream.removeTrack(current);
+    stream.addTrack(track);
+    const pending: Promise<void>[] = [];
+    for (const [peerId, senders] of this.videoSenders) {
+      if (!senders.camera) continue;
+      pending.push(senders.camera.replaceTrack(track).catch((error) => console.error(`[VoiceService] Failed to replace the camera track for ${peerId}:`, error)));
+    }
+    await Promise.all(pending);
+    // A new stream object, so the local preview attaches the new track.
+    this.emit('video:camera:track', { stream: new MediaStream([track]) } as never);
+  }
+
+  private watchCameraSource(source: MediaStream): MediaStreamTrack | undefined {
+    const track = source.getVideoTracks()[0];
+    if (track) {
+      track.contentHint = 'motion';
+      track.addEventListener('ended', () => this.handleCameraTrackEnded(source));
+    }
+    return track;
+  }
+
   /**
    * Switch camera to a specific device
    */
   async switchCamera(deviceId: string): Promise<MediaStream> {
-    if (!this.localVideoStream) {
+    if (!this.localVideoStream || !this.cameraSource) {
       return this.startCamera(deviceId);
     }
 
     try {
       // The new camera is opened before the old one is stopped so a failed flip keeps the picture.
-      const newStream = await captureCamera({ deviceId });
-      const newTrack = newStream.getVideoTracks()[0];
-
+      const newSource = await captureCamera({ deviceId });
+      const newTrack = this.watchCameraSource(newSource);
       if (!newTrack) {
         throw new Error('No video track found in new stream');
       }
-
-      // Stop old tracks
-      this.localVideoStream.getTracks().forEach((track) => track.stop());
-
-      // Update local stream reference
-      this.localVideoStream = newStream;
-
-      newTrack.contentHint = 'motion';
-      newTrack.addEventListener('ended', () => {
-        this.handleCameraTrackEnded();
-      });
-
-      // Replace track in all peer connections
-      const promises: Promise<void>[] = [];
-      for (const senders of this.videoSenders.values()) {
-        const sender = senders.camera;
-        if (sender) {
-          promises.push(sender.replaceTrack(newTrack));
-        }
-      }
-
-      await Promise.all(promises);
-
-      this.emit('video:camera:started', { stream: newStream } as never);
-      return newStream;
+      const previous = this.cameraSource;
+      this.cameraSource = newSource;
+      // With blur on, the blurred track stays the same and only its input changes.
+      const sent = await this.cameraOutput(newTrack);
+      previous.getTracks().forEach((track) => track.stop());
+      await this.sendCameraTrack(sent);
+      return this.localVideoStream ?? newSource;
     } catch (error) {
       console.error('[VoiceService] Failed to switch camera:', error);
       throw error;
@@ -1442,24 +1688,33 @@ export class VoiceService extends EventEmitter<EventMap> {
 
   /**
    * Start camera and add video track to all peers. Constraints, retries and the
-   * user-facing error text live in cameraCapture.ts (throws a CameraError).
+   * user-facing error text live in cameraCapture.ts (throws a CameraError). With
+   * background blur on, the blurred copy is what is sent from the first frame on.
    */
-  async startCamera(deviceId?: string): Promise<MediaStream> {
+  startCamera(deviceId?: string): Promise<MediaStream> {
     if (this.localVideoStream) {
-      return this.localVideoStream;
+      return Promise.resolve(this.localVideoStream);
     }
+    if (!this.cameraStarting) {
+      this.cameraStarting = this.openCamera(deviceId).finally(() => {
+        this.cameraStarting = null;
+      });
+    }
+    return this.cameraStarting;
+  }
 
+  private async openCamera(deviceId?: string): Promise<MediaStream> {
     try {
-      const stream = await captureCamera({ deviceId });
-      this.localVideoStream = stream;
-
-      const track = stream.getVideoTracks()[0];
-      if (track) {
-        track.contentHint = 'motion';
-        track.addEventListener('ended', () => {
-          this.handleCameraTrackEnded();
-        });
+      const source = await captureCamera({ deviceId });
+      this.cameraSource = source;
+      const track = this.watchCameraSource(source);
+      const sent = track ? await this.cameraOutput(track) : null;
+      if (this.cameraSource !== source) {
+        // Turned off while the blur was starting.
+        return source;
       }
+      const stream = new MediaStream(sent ? [sent] : []);
+      this.localVideoStream = stream;
 
       // Add video track to all existing peers
       await this.addVideoTrackToAllPeers('camera', stream);
@@ -1476,9 +1731,13 @@ export class VoiceService extends EventEmitter<EventMap> {
    * Stop camera and remove video track from all peers
    */
   stopCamera(): void {
-    if (this.localVideoStream) {
-      this.localVideoStream.getTracks().forEach((track) => track.stop());
-      this.removeVideoTrackFromAllPeers('camera');
+    const sent = this.localVideoStream;
+    if (sent || this.cameraSource) {
+      this.cameraEffects?.stop();
+      this.cameraSource?.getTracks().forEach((track) => track.stop());
+      sent?.getTracks().forEach((track) => track.stop());
+      if (sent) this.removeVideoTrackFromAllPeers('camera');
+      this.cameraSource = null;
       this.localVideoStream = null;
     }
     this.emit('video:camera:stopped', undefined as never);
@@ -1504,7 +1763,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       // Add the screen's tracks to all existing peers
       await this.addVideoTrackToAllPeers('screen', stream);
 
-      this.emit('video:screen:started', { stream, hasAudio: capture.hasAudio } as never);
+      this.emit('video:screen:started', { stream, hasAudio: capture.hasAudio, audioNotice: screenAudioNotice(capture) } as never);
       return stream;
     } catch (error) {
       if (!isCancelError(error)) {
@@ -1636,8 +1895,10 @@ export class VoiceService extends EventEmitter<EventMap> {
         delete senders[type];
         if (type === 'screen') delete senders.screenAudio;
 
-        // Renegotiate connection
-        void this.createAndSendOffer(peerId, pc);
+        // Renegotiate connection (it may be closing: the call is being left)
+        this.createAndSendOffer(peerId, pc).catch((error) => {
+          if (pc.signalingState !== 'closed') console.error(`[VoiceService] Could not renegotiate the ${type} removal with ${peerId}:`, error);
+        });
       } catch (error) {
         console.error(`[VoiceService] Failed to remove ${type} track from peer ${peerId}:`, error);
       }
@@ -1657,12 +1918,11 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   /**
-   * Handle camera track ended (user stopped via browser UI)
+   * Handle camera track ended (user stopped via browser UI, or the camera was unplugged)
    */
-  private handleCameraTrackEnded(): void {
-    this.localVideoStream = null;
-    this.removeVideoTrackFromAllPeers('camera');
-    this.emit('video:camera:stopped', undefined as never);
+  private handleCameraTrackEnded(source: MediaStream): void {
+    if (source !== this.cameraSource) return;
+    this.stopCamera();
   }
 
   /**
@@ -1731,7 +1991,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     return clamp(numeric, 0, MAX_PEER_VOLUME);
   }
 
-  private applySenderQualityHints(sender: RTCRtpSender): void {
+  private applySenderQualityHints(sender: RTCRtpSender, peerId: string): void {
     const track = sender.track;
     if (track) {
       track.contentHint = 'speech';
@@ -1744,8 +2004,9 @@ export class VoiceService extends EventEmitter<EventMap> {
         parameters.encodings = [{}];
       }
 
+      const maxBitrate = this.voiceSenderBitrate(peerId);
       for (const encoding of parameters.encodings) {
-        encoding.maxBitrate = this.voiceBitrate;
+        encoding.maxBitrate = maxBitrate;
         encoding.priority = 'high';
         (encoding as RTCRtpEncodingParameters & { dtx?: boolean }).dtx = this.dtxEnabled;
       }
@@ -1808,8 +2069,10 @@ export class VoiceService extends EventEmitter<EventMap> {
         params.set('maxptime', this.opusMaxPtime.toString());
         params.set('maxplaybackrate', this.opusMaxPlaybackRate.toString());
         params.set('usedtx', this.dtxEnabled ? '1' : '0');
-        // Ask the remote encoder for the same bitrate we cap our own sender at (RFC 7587).
-        params.set('maxaveragebitrate', this.voiceBitrate.toString());
+        // Ask the remote encoder for the same bitrate we cap our own sender at (RFC 7587);
+        // with data-saver voice on our side, that is the 24 kbps cap.
+        const receiveBitrate = this.linkConstrained ? Math.min(this.voiceBitrate, CONSTRAINED_VOICE_BITRATE) : this.voiceBitrate;
+        params.set('maxaveragebitrate', receiveBitrate.toString());
 
         const newParams = Array.from(params.entries())
           .map(([k, v]) => (v ? `${k}=${v}` : k))

@@ -1,24 +1,30 @@
 import { batch, effect } from '@preact/signals';
 import { AudioService, type MicSample } from '@/services/voice/AudioService';
 import type { NeuralStatus } from '@/services/voice/neuralSuppression';
+import { captureCamera } from '@/services/voice/cameraCapture';
+import { CameraEffects } from '@/services/voice/cameraEffects';
+import type { CameraBlurLevel, CameraBlurStatus } from '@/services/voice/backgroundBlur';
 import { VoiceService, type PeerConnectionStats } from '@/services/voice/VoiceService';
 import { api } from '@/services/socket/api';
 import { socketClient } from '@/services/socket/client';
 import { sounds } from '@/services/sounds';
 import { updateDesktopVoiceActivity } from '@/services/native/desktop';
 import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '@/services/native/ForegroundServiceManager';
-import { isCancelError, missingAudioHint } from '@/services/screenCapture';
+import { isCancelError } from '@/services/screenCapture';
 import { clipManager } from '@/services/clips/clipManager';
 import { CameraError } from '@/services/voice/cameraCapture';
-import { isDesktopApp } from '@/services/native/desktop';
 import { parseShortcut, shortcutMatchesEvent } from '@/lib/shortcut';
 import { channelsById } from '@/state/channels';
 import { DEFAULT_PEER_AUDIO, peerAudioPrefs } from '@/state/peerAudio';
 import { displayNameFor, usersById } from '@/state/presence';
 import { account, isAuthenticated } from '@/state/session';
 import { audioSettings } from '@/state/settings';
+import { onAppStateChange } from '@/services/native/appState';
+import { linkConstrained, reportCallBandwidth, type CallBandwidthSample } from '@/services/voice/linkConstraint';
 import { toast } from '@/state/ui';
 import {
+  cameraBlurStatus,
+  cameraPreviewStream,
   localCameraStream,
   localDeafened,
   localMuted,
@@ -43,6 +49,7 @@ import {
 import type { AudioSettings, DeviceInfo, HeldPeerConnection, ServerError, StreamMetadata, VoiceJoinedEvent, VoicePeerEvent, VoicePeerLeaveEvent, VoiceSignalEvent } from '@/types/protocol';
 import { reconcilePeers, type KnownPeer, type RoomPeer, type SelfIdentity } from './peerReconcile';
 import { initialRejoinState, isRejoinPending, PERMANENT_JOIN_ERRORS, reduceRejoin, type RejoinEffect, type RejoinEvent, type RejoinState } from './voiceRejoin';
+import { isPolitePeer } from '@/services/voice/negotiation';
 
 const JOIN_TIMEOUT_MS = 15_000;
 const SPEAKING_HOLD_MS = 350;
@@ -78,6 +85,9 @@ class VoiceManager {
   private appActive = true;
   private micRecoveryTimer: number | null = null;
   private facingMode: 'user' | 'environment' = 'user';
+  /** The settings dialog's camera preview: its own camera and blur, or the call's camera. */
+  private cameraPreview: { inCall: boolean; source: MediaStream | null; effects: CameraEffects | null; off: (() => void) | null } | null = null;
+  private callBlurStatus: CameraBlurStatus = cameraBlurStatus.value;
   private initialized = false;
   private readonly pttSources = { window: false, global: false };
   /** Our media session id: peers keep their connection to us as long as it does not change. */
@@ -85,6 +95,11 @@ class VoiceManager {
   private rejoin: RejoinState = initialRejoinState;
   private tickTimer: number | null = null;
   private readonly iceGraceTimers = new Map<string, number>();
+  /**
+   * What each peer was last told about our link (`voice:link`). Absent: nothing, which a
+   * peer reads as "not constrained"; null: told before a rejoin, so it hears it again.
+   */
+  private readonly linkSent = new Map<string, boolean | null>();
 
   constructor() {
     const settings = audioSettings.value;
@@ -92,6 +107,7 @@ class VoiceManager {
     this.voice = new VoiceService(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
     this.voice.setScreenQuality(settings.screenQuality);
     this.voice.setShareClipsAllowed(settings.shareClipsAllowed);
+    void this.voice.setCameraBlur(settings.cameraBlur);
     noiseSuppressionStatus.value = this.audio.getNeuralStatus();
   }
 
@@ -109,6 +125,35 @@ class VoiceManager {
         speaking: localSpeaking.value,
         muted: localMuted.value || localDeafened.value,
       });
+    });
+
+    // Data-saver voice: cap our own senders while the link is constrained, and tell every
+    // peer in the call (once per change, and again after we rejoin on a new socket) so
+    // they cap what they send to us. Peers that never heard from us send at full rate.
+    effect(() => this.voice.setLinkConstrained(linkConstrained.value));
+    effect(() => {
+      const constrained = linkConstrained.value;
+      const peers = voicePeers.value;
+      const status = voiceStatus.value;
+      if (status === 'idle') {
+        this.linkSent.clear();
+        reportCallBandwidth(null);
+        return;
+      }
+      if (status !== 'connected') {
+        // Rejoining on a new socket: whoever heard from us gets the current state again.
+        for (const id of this.linkSent.keys()) this.linkSent.set(id, null);
+        return;
+      }
+      for (const id of Object.keys(peers)) {
+        const sent = this.linkSent.get(id);
+        if (sent === undefined ? !constrained : sent === constrained) continue;
+        this.linkSent.set(id, constrained);
+        api.sendVoiceSignal(id, { link: { constrained } });
+      }
+      for (const id of Array.from(this.linkSent.keys())) {
+        if (!peers[id]) this.linkSent.delete(id);
+      }
     });
 
     // What I hear of each person: the account's remembered volume and "mute for me"
@@ -254,6 +299,8 @@ class VoiceManager {
       return;
     }
     voiceStatus.value = 'reconnecting';
+    // Offers made from now on go nowhere; they are sent again once the room is rejoined.
+    this.voice.setSignallingUp(false);
     this.clearJoinTimeout();
     this.dispatch({ type: 'socketLost', at: Date.now() });
     this.startTick();
@@ -289,6 +336,7 @@ class VoiceManager {
       const health = this.voice.peerHealth(peer.id);
       if (health === 'missing' || health === 'broken' || now - peer.staleSince > STALE_PEER_MAX_MS) {
         this.voice.removePeer(peer.id);
+        this.voice.forgetPeerLink(peer.id);
         removePeer(peer.id);
       }
     }
@@ -425,7 +473,7 @@ class VoiceManager {
       if (devices.length < 2) return;
       this.facingMode = this.facingMode === 'user' ? 'environment' : 'user';
       const wanted = devices.find((device) => new RegExp(this.facingMode === 'user' ? 'front|user' : 'back|rear|environment', 'i').test(device.label));
-      const current = this.voice.getCameraStream()?.getVideoTracks()[0]?.getSettings().deviceId;
+      const current = this.voice.getCameraDeviceId();
       const target = wanted ?? devices.find((device) => device.deviceId !== current) ?? devices[0];
       await this.voice.switchCamera(target.deviceId);
     } catch (error) {
@@ -470,6 +518,7 @@ class VoiceManager {
     this.voice.updateVoiceSettings(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
     this.voice.setScreenQuality(settings.screenQuality);
     this.voice.setShareClipsAllowed(settings.shareClipsAllowed);
+    if (!this.cameraPreview) void this.voice.setCameraBlur(settings.cameraBlur);
     this.voice.setOutputVolume(settings.outputVol);
     try {
       await this.audio.updateSettings(settings);
@@ -507,6 +556,66 @@ class VoiceManager {
       this.audio.stopLocalStream();
       micLevel.value = 0;
     }
+  }
+
+  // ------------------------------------------------------- camera preview
+
+  /**
+   * The settings dialog's camera preview with the drafted blur level. In a call with the
+   * camera on, it is the live camera and the level applies to the call at once (Cancel puts
+   * the saved level back); otherwise the dialog opens the camera on its own.
+   */
+  async startCameraPreview(level: CameraBlurLevel): Promise<void> {
+    if (this.voice.isCameraActive()) {
+      this.cameraPreview = { inCall: true, source: null, effects: null, off: null };
+      cameraPreviewStream.value = null;
+      cameraBlurStatus.value = this.callBlurStatus;
+      await this.voice.setCameraBlur(level);
+      return;
+    }
+    if (!this.cameraPreview) {
+      const source = await captureCamera({});
+      const effects = new CameraEffects();
+      const off = [
+        effects.on('status', (status) => {
+          cameraBlurStatus.value = status;
+        }),
+        // Blur gave up in the preview: show the camera as it is, with the notice.
+        effects.on('fallback', () => void this.setCameraPreviewBlur(this.cameraPreviewLevel)),
+      ];
+      this.cameraPreview = { inCall: false, source, effects, off: () => off.forEach((fn) => fn()) };
+    }
+    await this.setCameraPreviewBlur(level);
+  }
+
+  private cameraPreviewLevel: CameraBlurLevel = 'off';
+
+  async setCameraPreviewBlur(level: CameraBlurLevel): Promise<void> {
+    this.cameraPreviewLevel = level;
+    const preview = this.cameraPreview;
+    if (!preview) return;
+    if (preview.inCall) {
+      await this.voice.setCameraBlur(level);
+      return;
+    }
+    const track = preview.source?.getVideoTracks()[0];
+    if (!track || !preview.effects) return;
+    const shown = await preview.effects.apply(track, level);
+    if (this.cameraPreview === preview) cameraPreviewStream.value = new MediaStream([shown]);
+  }
+
+  stopCameraPreview(): void {
+    const preview = this.cameraPreview;
+    this.cameraPreview = null;
+    cameraPreviewStream.value = null;
+    if (preview && !preview.inCall) {
+      preview.effects?.stop();
+      preview.off?.();
+      preview.source?.getTracks().forEach((track) => track.stop());
+    }
+    cameraBlurStatus.value = this.callBlurStatus;
+    // The saved level applies to the call again (Save already stored the new one; Cancel goes back).
+    void this.voice.setCameraBlur(audioSettings.value.cameraBlur);
   }
 
   /** Records the open microphone, raw and processed, for the settings dialog's playback. */
@@ -627,8 +736,10 @@ class VoiceManager {
   }
 
   private bindServices(): void {
-    this.voice.on('voice:offer', ({ peerId, offer }) => api.sendVoiceSignal(peerId, { sdp: offer }));
-    this.voice.on('voice:answer', ({ peerId, answer }) => api.sendVoiceSignal(peerId, { sdp: answer }));
+    // When both sides offer at once (both restart ICE after a drop), the larger account id yields.
+    this.voice.setPolitePeer((peerId) => isPolitePeer(account.value?.id, voicePeers.value[peerId]?.accountId ?? usersById.value.get(peerId)?.accountId));
+    this.voice.on('voice:offer', ({ peerId, offer, offerId }) => api.sendVoiceSignal(peerId, { sdp: offer, offerId }));
+    this.voice.on('voice:answer', ({ peerId, answer, offerId }) => api.sendVoiceSignal(peerId, offerId === undefined ? { sdp: answer } : { sdp: answer, offerId }));
     this.voice.on('voice:ice-candidate', ({ peerId, candidate }) => api.sendVoiceSignal(peerId, { candidate }));
     this.voice.on('voice:send-stream-metadata', ({ to, metadata }) => api.sendStreamMetadata(to, metadata));
     this.voice.on('voice:speaking', ({ id, speaking }) => {
@@ -639,6 +750,7 @@ class VoiceManager {
       if (voicePeers.value[data.peerId]) upsertPeer({ id: data.peerId, quality: data.quality as ConnectionQuality });
       overallQuality.value = this.voice.getOverallConnectionQuality();
     });
+    this.voice.on('voice:bandwidth', (sample) => reportCallBandwidth(sample as CallBandwidthSample | null));
     this.voice.on('notification', (notification) => {
       toast[notification.type](notification.message);
     });
@@ -657,14 +769,25 @@ class VoiceManager {
       localCameraStream.value = stream;
       api.setVideoState('camera', true);
     });
+    this.voice.on('video:camera:track', ({ stream }) => {
+      if (localCameraStream.value) localCameraStream.value = stream;
+    });
+    this.voice.on('video:camera:blur', (status) => {
+      const next = status as CameraBlurStatus;
+      const previous = this.callBlurStatus;
+      this.callBlurStatus = next;
+      if (!this.cameraPreview || this.cameraPreview.inCall) cameraBlurStatus.value = next;
+      // Blur gave up during the call: say so once, the camera keeps going unblurred.
+      if (next.state === 'failed' && next.notice && previous.state === 'running' && this.voice.isCameraActive()) toast.warning(next.notice, 8000);
+    });
     this.voice.on('video:camera:stopped', () => {
       localCameraStream.value = null;
       if (voiceStatus.value === 'connected') api.setVideoState('camera', false);
     });
-    this.voice.on('video:screen:started', ({ stream, hasAudio }) => {
+    this.voice.on('video:screen:started', ({ stream, audioNotice }) => {
       localScreenStream.value = stream;
       api.setVideoState('screen', true);
-      if (!hasAudio) toast.warning(missingAudioHint(isDesktopApp() ? 'desktop' : 'browser'), 9000);
+      if (audioNotice) toast.warning(audioNotice, 9000);
     });
     this.voice.on('video:screen:stopped', () => {
       localScreenStream.value = null;
@@ -701,17 +824,8 @@ class VoiceManager {
       if (voiceStatus.value !== 'idle') this.syncForegroundService();
     };
     document.addEventListener('visibilitychange', () => (document.visibilityState === 'visible' ? resumed() : paused()));
-
-    void (async () => {
-      try {
-        const { Capacitor } = await import('@capacitor/core');
-        if (!Capacitor.isNativePlatform()) return;
-        const { App: CapApp } = await import('@capacitor/app');
-        await CapApp.addListener('appStateChange', ({ isActive }) => (isActive ? resumed() : paused()));
-      } catch {
-        /* not running inside Capacitor */
-      }
-    })();
+    // The Android app moving to the foreground or the background (a no-op elsewhere).
+    onAppStateChange((active) => (active ? resumed() : paused()));
   }
 
   private scheduleMicRecovery(): void {
@@ -749,6 +863,8 @@ class VoiceManager {
         switch (action.action) {
           case 'keep':
             upsertPeer({ id: action.id, ...this.peerFields(byId.get(action.id)!) });
+            // Same socket on their side, but our network may have changed while we were away.
+            if (rejoining && this.voice.peerHealth(action.id) === 'broken') this.restartIceSoon(action.id);
             break;
           case 'rekey':
             this.voice.rekeyPeer(action.from, action.to);
@@ -758,6 +874,7 @@ class VoiceManager {
           case 'rebuild':
             if (action.from) {
               this.voice.removePeer(action.from);
+              this.voice.forgetPeerLink(action.from);
               removePeer(action.from);
             }
             upsertPeer({ id: action.to, ...this.peerFields(byId.get(action.to)!), speaking: false, camera: false, screen: false, quality: 'unknown' });
@@ -769,6 +886,8 @@ class VoiceManager {
       }
     });
     this.dispatch({ type: 'joined', channelId: data.channelId });
+    // Back in the room: offers lost while away (an ICE restart, our camera) go out again.
+    this.voice.setSignallingUp(true);
 
     this.voice.startStatsMonitoring();
     await this.syncMicrophone();
@@ -804,11 +923,14 @@ class VoiceManager {
       this.voice.rekeyPeer(action.from, action.to);
       rekeyPeer(action.from, action.to, this.peerFields(peer));
       if (action.restartIce) this.restartIceSoon(action.to);
+      // An offer we sent to their old socket never arrived: send it to the new one.
+      else void this.voice.resendLostOffer(action.to);
       return;
     }
     if (action.action !== 'rebuild') return;
     if (action.from) {
       this.voice.removePeer(action.from);
+      this.voice.forgetPeerLink(action.from);
       removePeer(action.from);
     } else {
       sounds.play('userJoin', 0.3);
@@ -831,15 +953,22 @@ class VoiceManager {
       return;
     }
     this.voice.removePeer(id);
+    this.voice.forgetPeerLink(id);
     removePeer(id);
     if (voiceStatus.value === 'connected') sounds.play('userLeave', 0.3);
   }
 
   private async onSignal(data: VoiceSignalEvent): Promise<void> {
     if (!this.inCall() || !voicePeers.value[data.from]) return;
+    const link = (data.data as { link?: { constrained?: unknown } }).link;
+    if (link && typeof link === 'object') {
+      this.voice.setPeerLinkConstrained(data.from, link.constrained === true);
+      return;
+    }
     try {
-      if (data.data.sdp?.type === 'offer') await this.voice.handleOffer(data.from, data.data.sdp);
-      else if (data.data.sdp?.type === 'answer') await this.voice.handleAnswer(data.from, data.data.sdp);
+      const offerId = typeof data.data.offerId === 'number' ? data.data.offerId : undefined;
+      if (data.data.sdp?.type === 'offer') await this.voice.handleOffer(data.from, data.data.sdp, offerId);
+      else if (data.data.sdp?.type === 'answer') await this.voice.handleAnswer(data.from, data.data.sdp, offerId);
       else if (data.data.candidate) await this.voice.handleIceCandidate(data.from, data.data.candidate);
     } catch (error) {
       console.error('[voice] signal failed', error);

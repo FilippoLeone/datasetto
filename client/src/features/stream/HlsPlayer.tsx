@@ -354,7 +354,7 @@ export const HlsPlayer = ({ channelId, channelName, live, className }: HlsPlayer
           title={clip.recording ? 'The last ' + clip.seconds + ' s are kept on this device for the Clip button' : (clip.error ?? 'Clips will record once the stream plays')}
           data-player-clips-indicator
         >
-          <CircleDot size={12} className={clip.recording ? 'animate-pulse' : undefined} /> {clip.recording ? 'Clips on' : 'Clips…'}
+          <CircleDot size={12} className={clip.recording ? 'clip-pulse' : undefined} /> {clip.recording ? 'Clips on' : 'Clips…'}
         </span>
       )}
       {live && (
@@ -400,7 +400,7 @@ export const HlsPlayer = ({ channelId, channelName, live, className }: HlsPlayer
                 data-clips-on={clip.on ? 'true' : undefined}
                 data-clips-recording={clip.recording ? 'true' : undefined}
               >
-                <CircleDot size={18} className={clip.recording ? 'animate-pulse' : undefined} />
+                <CircleDot size={18} className={clip.recording ? 'clip-pulse' : undefined} />
               </IconButton>
               <IconButton label={clipButtonLabel(clip)} size="sm" className="text-white hover:bg-white/15" disabled={!clip.recording || clip.saving} onClick={clip.onClip} data-player-clip>
                 <Scissors size={18} />
