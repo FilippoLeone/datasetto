@@ -82,11 +82,13 @@ export const createScene = (o: { canvas: HTMLCanvasElement; art: Art; model: Tab
     fctx.imageSmoothingEnabled = false;
     fctx.fillStyle = '#0d1716';
     fctx.fillRect(0, 0, l.w, l.h);
-    const glow = fctx.createRadialGradient(l.cx, l.cy, 10, l.cx, l.cy, Math.max(l.rx, l.ry) * 1.4);
-    glow.addColorStop(0, 'rgba(242,184,75,0.10)');
-    glow.addColorStop(1, 'rgba(0,0,0,0)');
-    fctx.fillStyle = glow;
-    fctx.fillRect(0, 0, l.w, l.h);
+    const glow = fctx.createRadialGradient(l.cx, l.cy, 10, l.cx, l.cy, Math.max(l.rx, l.ry) * 1.4) as CanvasGradient | undefined;
+    if (glow) {
+      glow.addColorStop(0, 'rgba(242,184,75,0.10)');
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      fctx.fillStyle = glow;
+      fctx.fillRect(0, 0, l.w, l.h);
+    }
     // Rail.
     fctx.beginPath();
     fctx.ellipse(l.cx, l.cy, l.rx + 14, l.ry + 14, 0, 0, Math.PI * 2);

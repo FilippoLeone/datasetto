@@ -237,8 +237,13 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
   for (const name of EVENT_NAMES) offs.push(host.on(name, (d) => model.handle(name, d)));
   // Dev builds: the model for browser checks.
   if (import.meta.env.DEV) {
-    (window as unknown as { __lamplight?: unknown }).__lamplight = model;
-    offs.push(() => delete (window as unknown as { __lamplight?: unknown }).__lamplight);
+    const w = window as unknown as { __lamplight?: unknown; __lamplightBar?: unknown };
+    w.__lamplight = model;
+    w.__lamplightBar = bar;
+    offs.push(() => {
+      delete w.__lamplight;
+      delete w.__lamplightBar;
+    });
   }
   offs.push(opts.shell.practice.onChange(() => writeSeat()));
 

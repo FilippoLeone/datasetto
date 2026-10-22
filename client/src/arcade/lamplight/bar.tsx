@@ -136,7 +136,7 @@ const RaiseSheet = ({ s, api, t }: { s: BarState; api: BarApi; t: Turn }) => {
         </button>
       </div>
       <div class="flex items-center gap-2">
-        <button type="button" class={quiet} aria-label="One big blind less" onClick={() => set(amount - t.bb)}>
+        <button type="button" class={quiet} aria-label="One big blind less" onClick={() => set((s.amount.peek() || t.minTo) - t.bb)}>
           −
         </button>
         <input
@@ -149,7 +149,7 @@ const RaiseSheet = ({ s, api, t }: { s: BarState; api: BarApi; t: Turn }) => {
           aria-label="Raise to"
           onInput={(e) => set(Number((e.target as HTMLInputElement).value))}
         />
-        <button type="button" class={quiet} aria-label="One big blind more" onClick={() => set(amount + t.bb)}>
+        <button type="button" class={quiet} aria-label="One big blind more" onClick={() => set((s.amount.peek() || t.minTo) + t.bb)}>
           +
         </button>
         <input
@@ -255,14 +255,15 @@ const Bar = ({ s, api }: { s: BarState; api: BarApi }) => {
   const hints = api.hints();
   const [buy, setBuy] = useState(0);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hint = s.hint.value;
   useEffect(() => {
-    if (!s.hint.value) return;
+    if (!hint) return;
     if (hintTimer.current) clearTimeout(hintTimer.current);
     hintTimer.current = setTimeout(() => (s.hint.value = null), 2500);
     return () => {
       if (hintTimer.current) clearTimeout(hintTimer.current);
     };
-  }, [s.hint.value]);
+  }, [hint, s]);
   const column = mode === 'landscape';
   const wrap = column
     ? 'pointer-events-auto absolute inset-y-0 right-0 flex w-24 flex-col justify-end gap-2 p-2'
