@@ -202,7 +202,8 @@ export const SetupForm = ({ meta, where, mode, values, onMode, onChange, slots, 
   const modeTab = tabStop(modes, (m) => m.id === mode);
 
   const render = (field: OptionField) => {
-    const value = valueOf(field, values);
+    // "Replaces" shows its raw value: nothing is picked until the host picks (never its default).
+    const value = companion(field) ? values[field.key] : valueOf(field, values);
     if (field.kind === 'toggle') {
       return (
         <div key={field.key + field.kind} data-arcade-field={field.key}>

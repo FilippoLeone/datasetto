@@ -556,7 +556,7 @@ export const ArcadeSheet = ({ channelId, anchor, onClose }: { channelId: string 
     );
     if (view.kind === 'setup') {
       // A save-slot game starts once its saves are listed and a tale is picked, so a new tale never lands on an old one by accident.
-      const waiting = Boolean(saveSlotField(view.meta, 'online', view.mode)) && (!view.slots || !taleChosen(view.meta, 'online', view.mode, view.values));
+      const waiting = Boolean(saveSlotField(view.meta, 'online', view.mode)) && (!view.slots || !taleChosen(view.meta, 'online', view.mode, view.values, view.slots));
       footer = (
         <div className="px-3 py-2">
           <Button size="lg" block className="min-h-11" loading={creating} disabled={!channelId || waiting} onClick={() => void create(view)} data-arcade-create>

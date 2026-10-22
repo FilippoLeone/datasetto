@@ -205,6 +205,8 @@ export const saveSetup = (meta: GameMeta, where: Where, setup: Setup): void => {
     if (typeof into === 'number' && isSlot(into)) values[slotField.key] = into;
     else delete values[slotField.key];
   }
+  // Which tale a new one replaces is never remembered: it would come back preselected and erase a tale.
+  if (slotField?.into) delete values[slotField.into];
   const next = readStored();
   next[where] = { ...next[where], [meta.id]: { mode: setup.mode, values } };
   try {
@@ -235,7 +237,9 @@ export const firstEmptySlot = (slots: readonly SlotInfo[]): number | null => {
 export const pickSaveSlot = (slots: readonly SlotInfo[], remembered: unknown): { slot: number | 'new'; into: number | null } | null => {
   if (typeof remembered === 'number') {
     const listed = slots.find((s) => s.slot === remembered);
-    return listed && !listed.inUse ? { slot: remembered, into: null } : null;
+    // A tale started in that slot but never saved (the lobby never started): start it there again.
+    if (!listed) return isSlot(remembered) ? { slot: 'new', into: remembered } : null;
+    return listed.inUse ? null : { slot: remembered, into: null };
   }
   if (remembered !== 'new') {
     const free = slots.filter((s) => !s.inUse).sort((a, b) => b.updatedAt - a.updatedAt)[0];
@@ -264,15 +268,27 @@ export const withSaveSlot = (meta: GameMeta, where: Where, setup: Setup, slots: 
 export const presetSaveSlot = (meta: GameMeta, where: Where, setup: Setup, slots: readonly SlotInfo[]): Record<string, unknown> => {
   const field = saveSlotField(meta, where, setup.mode);
   if (!field) return setup.values;
-  const rest = { ...setup.values };
+  // The tale a new one replaces is never preset: with every slot used the host picks it.
+  const base = { ...setup.values };
+  if (field.into) delete base[field.into];
+  const rest = { ...base };
   delete rest[field.key];
-  return withSaveSlot(meta, where, setup, slots) ?? withSaveSlot(meta, where, { mode: setup.mode, values: rest }, slots) ?? rest;
+  return withSaveSlot(meta, where, { mode: setup.mode, values: base }, slots) ?? withSaveSlot(meta, where, { mode: setup.mode, values: rest }, slots) ?? rest;
 };
 
-/** Is there a tale to start (no save slot here, or one is picked)? Start waits for it. */
-export const taleChosen = (meta: GameMeta, where: Where, mode: string, values: Record<string, unknown>): boolean => {
+/**
+ * Is there a tale to start? Start waits for one: a slot to continue, or a new tale with somewhere to
+ * go (an empty slot, or, with every slot used, the tale it replaces picked by the host).
+ */
+export const taleChosen = (meta: GameMeta, where: Where, mode: string, values: Record<string, unknown>, slots?: readonly SlotInfo[]): boolean => {
   const field = saveSlotField(meta, where, mode);
-  return !field || isSlot(values[field.key]);
+  if (!field) return true;
+  const v = values[field.key];
+  if (v !== 'new') return isSlot(v);
+  if (!field.into) return true;
+  if (slots && firstEmptySlot(slots) !== null) return true;
+  const into = values[field.into];
+  return typeof into === 'number' && isSlot(into);
 };
 
 /** A new tale chosen on the setup screen goes to the first empty slot (the "Replaces" field shows only when none is). */

@@ -186,7 +186,7 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   const setMode = (m: Mode): void => {
     if (m === 'play' && mode !== 'play') {
       // Online every edge button still down. Offline only those pressed in the UI: a Rootsword charged
-      // before the pause or the map keeps charging while J stays down, and lets the Spin go on release.
+      // before the pause or the map keeps charging while J stays down, and releases the Spin when J is let up.
       swallow = held & edgeButtons() & (local ? uiDown : ~0);
       uiDown = 0;
       if (mode === 'dialogue' || mode === 'choice') talkUntil = cw.me.heroTick + RETALK_TICKS;

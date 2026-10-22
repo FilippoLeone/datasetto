@@ -221,8 +221,9 @@ describe('the Bellwick save slot', () => {
     expect(pickSaveSlot([slot(0, 10), slot(2, 30)], 0)).toEqual({ slot: 0, into: null });
     // ...and when it is in use or gone, one tap plays no other tale: the setup screen asks.
     expect(pickSaveSlot([slot(0, 10, true), slot(2, 30)], 0)).toBeNull();
-    expect(pickSaveSlot([slot(0, 10, true)], 1)).toBeNull();
     expect(pickSaveSlot([slot(0, 10), slot(1, 20)], 'new')).toEqual({ slot: 'new', into: 2 });
+    // A tale started in a slot but never saved (its lobby never started) starts again in that slot.
+    expect(pickSaveSlot([slot(0, 10, true)], 1)).toEqual({ slot: 'new', into: 1 });
   });
 
   it('says on the card what one tap plays', () => {
@@ -233,7 +234,8 @@ describe('the Bellwick save slot', () => {
     expect(summaryOf(bellwick, 'online', setup.mode, setup.values)).toBe('Party Tale · Continue Slot 2');
     expect(withSaveSlot(bellwick, 'online', setup, [slot(1, 10), slot(2, 99)])).toMatchObject({ slot: 1 });
     expect(withSaveSlot(bellwick, 'online', setup, [slot(1, 10, true), slot(2, 99)])).toBeNull();
-    expect(withSaveSlot(bellwick, 'online', setup, [slot(0, 10), slot(2, 99)])).toBeNull();
+    // Slot 2 holds no save (that tale was never started): one tap starts it there, overwriting nothing.
+    expect(withSaveSlot(bellwick, 'online', setup, [slot(0, 10), slot(2, 99)])).toMatchObject({ slot: 'new', into: 1 });
   });
 
   it('remembers a new tale as the slot it went into, so the next tap continues it', () => {
@@ -253,9 +255,25 @@ describe('the Bellwick save slot', () => {
     expect(tapped).toMatchObject({ slot: 'new', into: 0 });
     saveSetup(bellwick, 'online', { mode: 'party', values: tapped });
     expect(resolveSetup(bellwick, 'online').values).toMatchObject({ slot: 0 });
-    // Every slot full and Replaces chosen: the slot it replaced.
+    // Every slot full and Replaces chosen: the slot it replaced, and never the Replaces choice itself.
     saveSetup(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 1 } });
     expect(resolveSetup(bellwick, 'online').values).toMatchObject({ slot: 1 });
+    expect(JSON.parse(localStorage.getItem(SETUP_KEY) ?? '{}').online.bellwick.values).toEqual({ slot: 1 });
+  });
+
+  it('never brings back which tale a new one replaced: Replaces starts unpicked and Start waits', () => {
+    const full = [slot(0, 10), slot(1, 20), slot(2, 30)];
+    // A new tale went into Slot 3 after replacing it; later every slot is used again.
+    saveSetup(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 2 } });
+    const preset = presetSaveSlot(bellwick, 'online', resolveSetup(bellwick, 'online'), full);
+    expect(preset).toEqual({ slot: 2 });
+    // The host picks "Start a new tale": nothing is replaced until they say which.
+    const picked = fillNewTale(bellwick, 'online', { mode: 'party', values: { ...preset, slot: 'new' } }, full);
+    expect(picked).not.toHaveProperty('into');
+    expect(taleChosen(bellwick, 'online', 'party', picked, full)).toBe(false);
+    expect(taleChosen(bellwick, 'online', 'party', { ...picked, into: 0 }, full)).toBe(true);
+    // With an empty slot a new tale needs no choice: it goes there.
+    expect(taleChosen(bellwick, 'online', 'party', { slot: 'new' }, [slot(0, 10)])).toBe(true);
   });
 
   it('never picks an overwrite: with every slot used, New is never preselected and Start waits for a tale', () => {
@@ -264,14 +282,16 @@ describe('the Bellwick save slot', () => {
     expect(pickSaveSlot(full, 'new')).toBeNull();
     expect(pickSaveSlot(busy, undefined)).toBeNull();
     expect(withSaveSlot(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 0 } }, full)).toBeNull();
-    // The setup screen offers a free tale to continue instead...
-    expect(presetSaveSlot(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 0 } }, full)).toEqual({ slot: 2, into: 0 });
+    // The setup screen offers a free tale to continue instead (and never a preset Replaces)...
+    expect(presetSaveSlot(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 0 } }, full)).toEqual({ slot: 2 });
     expect(presetSaveSlot(bellwick, 'online', { mode: 'party', values: { slot: 0 } }, [slot(0, 10, true), slot(1, 20)])).toEqual({ slot: 1 });
     // ...or, with every tale in use, no tale at all until the host picks one.
     const none = presetSaveSlot(bellwick, 'online', { mode: 'party', values: { slot: 2, into: 0 } }, busy);
-    expect(none).toEqual({ into: 0 });
-    expect(taleChosen(bellwick, 'online', 'party', none)).toBe(false);
-    expect(taleChosen(bellwick, 'online', 'party', { ...none, slot: 'new' })).toBe(true);
+    expect(none).toEqual({});
+    expect(taleChosen(bellwick, 'online', 'party', none, busy)).toBe(false);
+    // New with every slot used still waits for the tale it replaces.
+    expect(taleChosen(bellwick, 'online', 'party', { ...none, slot: 'new' }, busy)).toBe(false);
+    expect(taleChosen(bellwick, 'online', 'party', { ...none, slot: 'new', into: 1 }, busy)).toBe(true);
     expect(taleChosen(bellwick, 'offline', 'solo', {})).toBe(true);
     expect(taleChosen(lamplight, 'online', 'open', {})).toBe(true);
   });

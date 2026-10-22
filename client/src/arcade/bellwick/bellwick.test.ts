@@ -669,7 +669,7 @@ describe('Bellwick dialogues and the A button', () => {
       expect(seen, 'paused and back, the map and back, J down all along: no Spin, still charging').toMatch(/^M+H+A+H+$/);
       expect(dev()!.cw.me.charged, 'still charged').toBe(true);
       j.up();
-      expect(await rig.frames(10), 'letting go of J lets the Spin go').toContain('X');
+      expect(await rig.frames(10), 'letting go of J releases the Spin').toContain('X');
     } finally {
       rig.end();
     }
