@@ -19,7 +19,7 @@ import { GameCard, GameIcon } from './GameCard';
 import { activitySummary } from './LobbyChip';
 import { SetupForm } from './LobbyForm';
 import { createGame, joinGame, leaveCurrent, reopenStage } from './remote';
-import { cfgFor, fieldsFor, fieldSummary, fillNewTale, hasOptions, resolveSetup, saveSetup, saveSlotField, storedSetup, summaryOf, withSaveSlot, type SlotInfo } from './setup';
+import { cfgFor, fieldsFor, fieldSummary, fillNewTale, hasOptions, presetSaveSlot, resolveSetup, saveSetup, saveSlotField, summaryOf, taleChosen, withSaveSlot, type SlotInfo } from './setup';
 import { arcadeActivity, arcadeLobby, arcadeStage, arcadeWallet, gameEnabled, gameHidden, openArcade, type ActivityEntry } from './state';
 import { WalletPill } from './WalletPill';
 
@@ -365,7 +365,7 @@ export const ArcadeSheet = ({ channelId, anchor, onClose }: { channelId: string 
   useEffect(() => {
     if (!here && view.kind === 'invite') setView({ kind: 'main' });
   }, [here, view.kind]);
-  // A game with save slots: the setup screen opens on the tale one tap would play.
+  // A game with save slots: the setup screen opens on the tale one tap would play (none when every slot is used).
   const slotGame = view.kind === 'setup' && saveSlotField(view.meta, 'online', view.mode) ? view.meta.id : null;
   useEffect(() => {
     if (!slotGame) return;
@@ -375,9 +375,7 @@ export const ArcadeSheet = ({ channelId, anchor, onClose }: { channelId: string 
       if (!answer.ok) return setError(refusalText(answer.code));
       setView((v) => {
         if (v.kind !== 'setup' || v.meta.id !== slotGame) return v;
-        const field = saveSlotField(v.meta, 'online', v.mode);
-        const values = v.picked ? v.values : (withSaveSlot(v.meta, 'online', v, answer.slots) ?? (field ? { ...v.values, [field.key]: 'new' } : v.values));
-        return { ...v, slots: answer.slots, values };
+        return { ...v, slots: answer.slots, values: v.picked ? v.values : presetSaveSlot(v.meta, 'online', v, answer.slots) };
       });
     });
     return () => {
@@ -408,7 +406,7 @@ export const ArcadeSheet = ({ channelId, anchor, onClose }: { channelId: string 
         // Nothing safe to continue or start: the setup screen asks.
         setStarting(null);
         if (!answer.ok) setError(refusalText(answer.code));
-        else setView({ ...setupView(meta), slots: answer.slots, values: { ...setup.values } });
+        else setView({ ...setupView(meta), slots: answer.slots, values: presetSaveSlot(meta, 'online', setup, answer.slots) });
         return;
       }
       values = picked;
@@ -416,7 +414,7 @@ export const ArcadeSheet = ({ channelId, anchor, onClose }: { channelId: string 
     const failed = await createGame({ ch: channelId, game: meta.id, mode: setup.mode, cfg: cfgFor(meta, 'online', setup.mode, values) });
     setStarting(null);
     setError(failed);
-    if (!failed) saveSetup(meta, 'online', setup);
+    if (!failed) saveSetup(meta, 'online', { mode: setup.mode, values });
   };
 
   /** Start on the setup screen. */
@@ -428,10 +426,8 @@ export const ArcadeSheet = ({ channelId, anchor, onClose }: { channelId: string 
     setCreating(false);
     setError(failed);
     if (failed) return;
-    // A tale the host did not pick stays "whatever one tap picks" (the remembered choice is kept).
-    const field = saveSlotField(v.meta, 'online', v.mode);
-    const remembered = field && !v.picked ? { ...v.values, [field.key]: storedSetup(v.meta, 'online')?.values[field.key] } : v.values;
-    saveSetup(v.meta, 'online', { mode: v.mode, values: remembered });
+    // The tale played is remembered (a new one as the slot it went into), so the next tap continues it.
+    saveSetup(v.meta, 'online', { mode: v.mode, values });
     setView({ kind: 'main' });
   };
 
@@ -559,8 +555,8 @@ export const ArcadeSheet = ({ channelId, anchor, onClose }: { channelId: string 
       </>
     );
     if (view.kind === 'setup') {
-      // A save-slot game starts once its saves are listed, so a new tale never lands on an old one by accident.
-      const waiting = Boolean(saveSlotField(view.meta, 'online', view.mode)) && !view.slots;
+      // A save-slot game starts once its saves are listed and a tale is picked, so a new tale never lands on an old one by accident.
+      const waiting = Boolean(saveSlotField(view.meta, 'online', view.mode)) && (!view.slots || !taleChosen(view.meta, 'online', view.mode, view.values));
       footer = (
         <div className="px-3 py-2">
           <Button size="lg" block className="min-h-11" loading={creating} disabled={!channelId || waiting} onClick={() => void create(view)} data-arcade-create>
@@ -571,34 +567,36 @@ export const ArcadeSheet = ({ channelId, anchor, onClose }: { channelId: string 
     }
   }
 
-  const content = (
-    <div className={cn('flex flex-col', !touch && 'min-h-0 flex-1')} data-arcade-sheet>
-      <div className={cn('flex flex-col py-1', !touch && 'scrollbar-thin min-h-0 flex-1 overflow-y-auto')}>
-        {error && (
-          <p className="mx-3 my-1 text-sm text-[#fa777c]" role="alert" data-arcade-error>
-            {error}
-          </p>
-        )}
-        {body}
-      </div>
-      {footer && (
-        <div className={cn('shrink-0 border-t border-border bg-sidebar', touch && 'sticky bottom-0 z-10')} data-arcade-footer>
-          {footer}
-        </div>
+  const scroller = (
+    <div className={cn('flex flex-col py-1', !touch && 'scrollbar-thin min-h-0 flex-1 overflow-y-auto')}>
+      {error && (
+        <p className="mx-3 my-1 text-sm text-[#fa777c]" role="alert" data-arcade-error>
+          {error}
+        </p>
       )}
+      {body}
     </div>
   );
+  const footerBar = footer ? (
+    <div className="shrink-0 border-t border-border bg-sidebar" data-arcade-footer>
+      {footer}
+    </div>
+  ) : null;
   if (touch) {
     const sheetTitle = view.kind === 'main' ? 'Arcade' : view.kind === 'setup' ? view.meta.name : view.kind === 'invite' ? 'Invite to your game' : view.kind === 'boards' ? 'Boards' : 'Game settings';
+    // The footer (Start, the chips) sits under the sheet's scroller, padded clear of the home indicator.
     return (
-      <Sheet title={sheetTitle} showTitle={view.kind === 'main'} onClose={onClose}>
-        {content}
+      <Sheet title={sheetTitle} showTitle={view.kind === 'main'} onClose={onClose} footer={footerBar}>
+        <div data-arcade-sheet>{scroller}</div>
       </Sheet>
     );
   }
   return (
     <Popover anchor={anchor} onClose={onClose}>
-      {content}
+      <div className="flex min-h-0 flex-1 flex-col" data-arcade-sheet>
+        {scroller}
+        {footerBar}
+      </div>
     </Popover>
   );
 };

@@ -7,8 +7,9 @@ import { loadShell } from './ArcadeHost';
 type Shell = Awaited<ReturnType<typeof loadShell>>;
 
 /**
- * The Arcade entry in the voice header (and the voice dock on phones): opens the Arcade sheet with
- * this channel's games, "Start a game" and "Solo vs bots". Hidden entirely with "Hide Arcade".
+ * The Arcade entry in the voice header (and the voice dock on phones): opens the Arcade sheet (Your
+ * game, "Play with your call" with this channel's games to Join or Watch and a one-tap start card
+ * per game, "Play solo"). Hidden entirely with "Hide Arcade".
  */
 export const ArcadeButton = ({ channelId, className, compact = false }: { channelId: string | null; className?: string; compact?: boolean }) => {
   const [shell, setShell] = useState<Shell | null>(null);

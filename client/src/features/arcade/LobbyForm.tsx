@@ -26,30 +26,76 @@ export interface SetupFormProps {
   editable?: 'all' | 'lobby';
 }
 
-export const Pills = ({ label, choices, value, onPick }: { label: string; choices: readonly { value: string | number; label: string }[]; value: unknown; onPick(v: string | number): void }) => (
-  <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2">
-    {choices.map((choice) => (
-      <button
-        key={String(choice.value)}
-        type="button"
-        role="radio"
-        aria-checked={value === choice.value}
-        onClick={() => onPick(choice.value)}
-        className={cn('min-h-11 rounded-md px-3 text-sm font-medium transition-colors', value === choice.value ? 'bg-brand text-white' : 'bg-input text-text hover:bg-hover')}
-      >
-        {choice.label}
-      </button>
-    ))}
-  </div>
-);
+const ARROWS: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+
+/**
+ * A radio group's keys, as native radios have them: Tab reaches the group once (the checked choice,
+ * else the first that can be picked: `tabStop` below) and the arrow keys, Home and End move to a
+ * choice and pick it.
+ */
+const radioKeys = (event: KeyboardEvent): void => {
+  const step = ARROWS[event.key];
+  if (step === undefined && event.key !== 'Home' && event.key !== 'End') return;
+  const radios = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('[role="radio"]:not(:disabled)'));
+  if (radios.length === 0) return;
+  event.preventDefault();
+  const at = radios.indexOf(document.activeElement as HTMLButtonElement);
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? radios.length - 1 : at < 0 ? 0 : (at + (step ?? 0) + radios.length) % radios.length;
+  radios[next]!.focus();
+  radios[next]!.click();
+};
+
+/** The Tab stop of a radio group: the checked choice, or the first one when none is checked. */
+const tabStop = <T,>(items: readonly T[], checked: (item: T) => boolean): ((item: T) => 0 | -1) => {
+  const stop = items.find(checked) ?? items[0];
+  return (item) => (item === stop ? 0 : -1);
+};
+
+export const Pills = ({ label, choices, value, onPick }: { label: string; choices: readonly { value: string | number; label: string }[]; value: unknown; onPick(v: string | number): void }) => {
+  const tab = tabStop(choices, (c) => c.value === value);
+  return (
+    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2" onKeyDown={radioKeys}>
+      {choices.map((choice) => (
+        <button
+          key={String(choice.value)}
+          type="button"
+          role="radio"
+          aria-checked={value === choice.value}
+          tabIndex={tab(choice)}
+          onClick={() => onPick(choice.value)}
+          className={cn('min-h-11 rounded-md px-3 text-sm font-medium transition-colors', value === choice.value ? 'bg-brand text-white' : 'bg-input text-text hover:bg-hover')}
+        >
+          {choice.label}
+        </button>
+      ))}
+    </div>
+  );
+};
 
 /** A full-width radio card: the mode cards and the save slots. */
-const RadioCard = ({ checked, disabled, label, detail, onPick, data }: { checked: boolean; disabled?: boolean; label: string; detail?: string | null; onPick(): void; data?: Record<string, string> }) => (
+const RadioCard = ({
+  checked,
+  disabled,
+  label,
+  detail,
+  tabIndex,
+  onPick,
+  data,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  detail?: string | null;
+  tabIndex: 0 | -1;
+  onPick(): void;
+  data?: Record<string, string>;
+}) => (
   <button
     type="button"
     role="radio"
     aria-checked={checked}
     disabled={disabled}
+    tabIndex={tabIndex}
     onClick={onPick}
     className={cn(
       'flex min-h-16 w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50',
@@ -66,26 +112,30 @@ const RadioCard = ({ checked, disabled, label, detail, onPick, data }: { checked
 );
 
 /** Choices with a hint: a grid of small cards, 2 columns (Stakes) or 3 for three choices (Bot level). */
-const HintCards = ({ label, choices, value, onPick }: { label: string; choices: readonly Choice[]; value: unknown; onPick(v: string | number): void }) => (
-  <div role="radiogroup" aria-label={label} className={cn('grid gap-2', choices.length === 3 ? 'grid-cols-3' : 'grid-cols-2')}>
-    {choices.map((choice) => (
-      <button
-        key={String(choice.value)}
-        type="button"
-        role="radio"
-        aria-checked={value === choice.value}
-        onClick={() => onPick(choice.value)}
-        className={cn(
-          'flex min-h-14 flex-col justify-center rounded-lg px-3 py-1.5 text-left transition-colors',
-          value === choice.value ? 'bg-brand-soft ring-2 ring-brand' : 'bg-sidebar ring-1 ring-border-strong hover:bg-hover',
-        )}
-      >
-        <span className="text-sm font-semibold text-text-bright">{choice.label}</span>
-        {choice.hint && <span className="text-xs text-text-muted">{choice.hint}</span>}
-      </button>
-    ))}
-  </div>
-);
+const HintCards = ({ label, choices, value, onPick }: { label: string; choices: readonly Choice[]; value: unknown; onPick(v: string | number): void }) => {
+  const tab = tabStop(choices, (c) => c.value === value);
+  return (
+    <div role="radiogroup" aria-label={label} className={cn('grid gap-2', choices.length === 3 ? 'grid-cols-3' : 'grid-cols-2')} onKeyDown={radioKeys}>
+      {choices.map((choice) => (
+        <button
+          key={String(choice.value)}
+          type="button"
+          role="radio"
+          aria-checked={value === choice.value}
+          tabIndex={tab(choice)}
+          onClick={() => onPick(choice.value)}
+          className={cn(
+            'flex min-h-14 flex-col justify-center rounded-lg px-3 py-1.5 text-left transition-colors',
+            value === choice.value ? 'bg-brand-soft ring-2 ring-brand' : 'bg-sidebar ring-1 ring-border-strong hover:bg-hover',
+          )}
+        >
+          <span className="text-sm font-semibold text-text-bright">{choice.label}</span>
+          {choice.hint && <span className="text-xs text-text-muted">{choice.hint}</span>}
+        </button>
+      ))}
+    </div>
+  );
+};
 
 const STEP = 'flex h-11 w-11 items-center justify-center rounded-md bg-input text-text-bright transition-colors hover:bg-hover disabled:opacity-40';
 
@@ -143,10 +193,13 @@ export const SetupForm = ({ meta, where, mode, values, onMode, onChange, slots, 
   const fields = fieldsFor(meta, where, mode, values, editable);
   const slotField = saveSlotField(meta, where, mode);
   const empty = slots ? firstEmptySlot(slots) : null;
-  // A new tale goes to the first empty slot by itself: "Replaces" only shows when every slot is used.
-  const auto = (field: OptionField) => slotField?.into === field.key && empty !== null;
-  const main = fields.main.filter((f) => !auto(f));
-  const more = fields.more.filter((f) => !auto(f));
+  // A new tale goes to the first empty slot by itself. "Replaces" shows only once New is picked with
+  // every slot used, and then right under the tales (never folded under More options).
+  const companion = (field: OptionField) => slotField?.into === field.key;
+  const replaces = slotField && slots !== undefined && empty === null && values[slotField.key] === 'new' ? fields.all.find(companion) : undefined;
+  const main = fields.main.filter((f) => !companion(f));
+  const more = fields.more.filter((f) => !companion(f));
+  const modeTab = tabStop(modes, (m) => m.id === mode);
 
   const render = (field: OptionField) => {
     const value = valueOf(field, values);
@@ -159,26 +212,29 @@ export const SetupForm = ({ meta, where, mode, values, onMode, onChange, slots, 
     }
     if (field.kind === 'saveSlot') {
       const picked = values[field.key];
+      const listed = [...(slots ?? [])].sort((a, b) => a.slot - b.slot);
+      const tab = tabStop<number | 'new'>([...listed.filter((s) => !s.inUse).map((s) => s.slot), 'new'], (k) => k === picked);
+      const newDetail = picked !== 'new' || slots === undefined ? null : empty !== null ? 'It will be saved in Slot ' + (empty + 1) : 'All slots are full: choose the tale it replaces';
       return (
         <Labelled key={field.key} field={field}>
-          <div role="radiogroup" aria-label={field.label} className="flex flex-col gap-2">
+          <div role="radiogroup" aria-label={field.label} className="flex flex-col gap-2" onKeyDown={radioKeys}>
             {slots === undefined && <p className="text-sm text-text-muted">Looking up your tales…</p>}
-            {[...(slots ?? [])]
-              .sort((a, b) => a.slot - b.slot)
-              .map((s) => (
-                <RadioCard
-                  key={s.slot}
-                  checked={picked === s.slot}
-                  disabled={s.inUse}
-                  label={'Continue Slot ' + (s.slot + 1) + ' · ' + slotDate(s.updatedAt) + (s.inUse ? ' (in use)' : '')}
-                  onPick={() => onChange(field.key, s.slot)}
-                  data={{ 'data-arcade-slot': String(s.slot) }}
-                />
-              ))}
+            {listed.map((s) => (
+              <RadioCard
+                key={s.slot}
+                checked={picked === s.slot}
+                disabled={s.inUse}
+                label={'Continue Slot ' + (s.slot + 1) + ' · ' + slotDate(s.updatedAt) + (s.inUse ? ' (in use)' : '')}
+                tabIndex={s.inUse ? -1 : tab(s.slot)}
+                onPick={() => onChange(field.key, s.slot)}
+                data={{ 'data-arcade-slot': String(s.slot) }}
+              />
+            ))}
             <RadioCard
               checked={picked === 'new'}
               label={'Start a new ' + field.label.toLowerCase()}
-              detail={picked === 'new' && empty !== null ? 'It will be saved in Slot ' + (empty + 1) : null}
+              detail={newDetail}
+              tabIndex={tab('new')}
               onPick={() => onChange(field.key, 'new')}
               data={{ 'data-arcade-slot': 'new' }}
             />
@@ -207,17 +263,17 @@ export const SetupForm = ({ meta, where, mode, values, onMode, onChange, slots, 
   return (
     <div className="flex flex-col gap-5" data-arcade-form={meta.id}>
       {!lockMode && modes.length > 1 && (
-        <div role="radiogroup" aria-label="Mode" className="flex flex-col gap-2">
+        <div role="radiogroup" aria-label="Mode" className="flex flex-col gap-2" onKeyDown={radioKeys}>
           {modes.map((m) => (
-            <RadioCard key={m.id} checked={m.id === mode} label={m.label} detail={m.blurb} onPick={() => onMode(m.id)} data={{ 'data-arcade-mode': m.id }} />
+            <RadioCard key={m.id} checked={m.id === mode} label={m.label} detail={m.blurb} tabIndex={modeTab(m)} onPick={() => onMode(m.id)} data={{ 'data-arcade-mode': m.id }} />
           ))}
         </div>
       )}
       {editable === 'lobby' ? (
-        fields.all.filter((f) => !auto(f)).map(render)
+        fields.all.filter((f) => !companion(f)).map(render)
       ) : (
         <>
-          {main.map(render)}
+          {main.flatMap((f) => (f.kind === 'saveSlot' && replaces ? [render(f), render(replaces)] : [render(f)]))}
           {more.length > 0 && (
             <div className="flex flex-col gap-4">
               <button

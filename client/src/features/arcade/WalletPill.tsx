@@ -1,19 +1,22 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useId, useState } from 'preact/hooks';
 import { Coins, Gift } from 'lucide-preact';
 import { claimDaily, fetchWallet, refusalText } from './api';
 import { arcadeWallet } from './state';
 
 const chips = (n: number): string => n.toLocaleString() + ' chips';
+const NO_VALUE = 'Play chips have no value outside the Arcade.';
 
 /**
  * Play chips (platform.md §11.2): the balance, what sits at tables, and the daily claim. Play chips
  * have no value outside the Arcade. The first read creates the wallet with the starting chips.
- * `compact` is the sheet footer's form: "20,000 · Daily chips", the rest in the tooltip.
+ * `compact` is the sheet footer's form: "20,000 · +500 at tables · Daily chips". Screen readers hear
+ * "20,000 chips" and the no-value note as the group's description.
  */
 export const WalletPill = ({ compact = false }: { compact?: boolean }) => {
   const wallet = arcadeWallet.value;
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const noteId = 'arcade-chips-' + useId().replace(/[^\w-]/g, '');
 
   useEffect(() => {
     if (arcadeWallet.peek()) return;
@@ -40,12 +43,18 @@ export const WalletPill = ({ compact = false }: { compact?: boolean }) => {
   };
 
   if (compact) {
-    const detail = wallet ? chips(wallet.bal) + (wallet.esc > 0 ? ', +' + wallet.esc.toLocaleString() + ' at tables' : '') : 'Play chips';
     return (
-      <div className="flex min-h-11 min-w-0 items-center gap-1.5" data-arcade-wallet>
-        <span className="flex min-w-0 items-center gap-1.5 text-xs text-text-bright" title={detail + '. Play chips have no value outside the Arcade.'}>
-          <Coins size={14} className="shrink-0 text-warning" />
-          <span className="truncate tabular-nums">{wallet ? wallet.bal.toLocaleString() : '…'}</span>
+      <div role="group" aria-label="Play chips" aria-describedby={noteId} className="flex min-h-11 min-w-0 flex-wrap items-center gap-x-1.5" data-arcade-wallet>
+        <span className="flex min-w-0 items-center gap-1.5 text-xs text-text-bright" title={NO_VALUE}>
+          <Coins size={14} className="shrink-0 text-warning" aria-hidden="true" />
+          <span className="truncate tabular-nums">
+            {wallet ? wallet.bal.toLocaleString() : '…'}
+            <span className="sr-only"> chips</span>
+          </span>
+          {wallet && wallet.esc > 0 && <span className="shrink-0 text-text-muted tabular-nums">+{wallet.esc.toLocaleString()} at tables</span>}
+        </span>
+        <span id={noteId} className="sr-only">
+          {NO_VALUE}
         </span>
         {note && <span className="min-w-0 truncate text-xs text-text-muted">{note}</span>}
         {!note && wallet?.claim && (
@@ -65,8 +74,8 @@ export const WalletPill = ({ compact = false }: { compact?: boolean }) => {
 
   return (
     <div className="flex min-h-12 flex-wrap items-center gap-2 px-3" data-arcade-wallet>
-      <span className="flex min-w-0 flex-1 items-center gap-2 text-sm text-text-bright" title="Play chips: they have no value outside the Arcade">
-        <Coins size={16} className="shrink-0 text-warning" />
+      <span className="flex min-w-0 flex-1 items-center gap-2 text-sm text-text-bright" title={NO_VALUE}>
+        <Coins size={16} className="shrink-0 text-warning" aria-hidden="true" />
         <span className="truncate tabular-nums">{wallet ? chips(wallet.bal) : '…'}</span>
         {wallet && wallet.esc > 0 && <span className="shrink-0 text-xs text-text-muted tabular-nums">+{wallet.esc.toLocaleString()} at tables</span>}
       </span>

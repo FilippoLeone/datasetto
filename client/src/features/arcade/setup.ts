@@ -191,11 +191,20 @@ export const resolveSetup = (meta: GameMeta, where: Where): Setup => {
   return { mode, values };
 };
 
-/** Remember a setup that just started (Play or Start succeeded). */
+/**
+ * Remember a setup that just started (Play or Start succeeded). A new tale is remembered as the slot
+ * it went into, never as "new": the next tap continues that tale instead of starting another.
+ */
 export const saveSetup = (meta: GameMeta, where: Where, setup: Setup): void => {
   const known = new Set(meta.options.map((f) => f.key));
   const values: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(setup.values)) if (known.has(key) && v !== undefined) values[key] = v;
+  const slotField = saveSlotField(meta, where, setup.mode);
+  if (slotField && values[slotField.key] === 'new') {
+    const into = slotField.into ? cfgFor(meta, where, setup.mode, setup.values)[slotField.into] : undefined;
+    if (typeof into === 'number' && isSlot(into)) values[slotField.key] = into;
+    else delete values[slotField.key];
+  }
   const next = readStored();
   next[where] = { ...next[where], [meta.id]: { mode: setup.mode, values } };
   try {
@@ -218,11 +227,16 @@ export const firstEmptySlot = (slots: readonly SlotInfo[]): number | null => {
 };
 
 /**
- * The tale one tap plays: continue the most recently played slot that is not in use, or start a new
- * tale in the first empty slot (always when the remembered choice is New). Nothing is overwritten:
- * null when no slot is free, and the shell opens the setup screen instead.
+ * The tale one tap plays, as the card's summary says. A remembered slot ("Continue Slot 2") is
+ * continued when it is listed and not in use. With nothing remembered: the most recently played
+ * slot that is not in use, else a new tale in the first empty slot. Nothing is overwritten and no
+ * other tale is played instead: null then, and the shell opens the setup screen.
  */
 export const pickSaveSlot = (slots: readonly SlotInfo[], remembered: unknown): { slot: number | 'new'; into: number | null } | null => {
+  if (typeof remembered === 'number') {
+    const listed = slots.find((s) => s.slot === remembered);
+    return listed && !listed.inUse ? { slot: remembered, into: null } : null;
+  }
   if (remembered !== 'new') {
     const free = slots.filter((s) => !s.inUse).sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if (free) return { slot: free.slot, into: null };
@@ -240,6 +254,25 @@ export const withSaveSlot = (meta: GameMeta, where: Where, setup: Setup, slots: 
   const out = { ...setup.values, [field.key]: pick.slot };
   if (field.into && pick.into !== null) out[field.into] = pick.into;
   return out;
+};
+
+/**
+ * The setup screen's tale once the saves are listed: what one tap plays, else what it would play
+ * with nothing remembered, else no tale at all. New is never picked for the host when every slot is
+ * used: Start waits until they choose a tale (and, for a new one, the tale it replaces).
+ */
+export const presetSaveSlot = (meta: GameMeta, where: Where, setup: Setup, slots: readonly SlotInfo[]): Record<string, unknown> => {
+  const field = saveSlotField(meta, where, setup.mode);
+  if (!field) return setup.values;
+  const rest = { ...setup.values };
+  delete rest[field.key];
+  return withSaveSlot(meta, where, setup, slots) ?? withSaveSlot(meta, where, { mode: setup.mode, values: rest }, slots) ?? rest;
+};
+
+/** Is there a tale to start (no save slot here, or one is picked)? Start waits for it. */
+export const taleChosen = (meta: GameMeta, where: Where, mode: string, values: Record<string, unknown>): boolean => {
+  const field = saveSlotField(meta, where, mode);
+  return !field || isSlot(values[field.key]);
 };
 
 /** A new tale chosen on the setup screen goes to the first empty slot (the "Replaces" field shows only when none is). */

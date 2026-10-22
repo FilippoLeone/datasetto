@@ -3,7 +3,8 @@
  * sends the create request and the host's Start opens the stage; Join and Watch send the join
  * request; the voice header's chips come from `arcadeActivity` and vanish with Hide Arcade; an
  * invite chip expires after 60 s; a remote session with a fake host mounts in GameStage and leaves
- * no timer or listener behind; touch targets are ≥ 44 px and nothing is wider than 360 px.
+ * no timer or listener behind; touch targets are ≥ 44 px and nothing is wider than 360 px; the
+ * footer's compact wallet reads as chips and says what sits at tables without a hover.
  */
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
@@ -30,7 +31,8 @@ import { GameStage } from './GameStage';
 import { ArcadeChips } from './LobbyChip';
 import { entry, fakeRemote, fakeSocket, lobbyView, TALL, until, wideClasses } from './online.test-util';
 import { leaveCurrent, startStage, stopStage } from './remote';
-import { arcadeActivity, arcadeHidden, arcadeInvites, arcadeLobby, arcadeSession, arcadeStage } from './state';
+import { arcadeActivity, arcadeHidden, arcadeInvites, arcadeLobby, arcadeSession, arcadeStage, arcadeWallet } from './state';
+import { WalletPill } from './WalletPill';
 
 const host = document.createElement('div');
 document.body.appendChild(host);
@@ -69,6 +71,7 @@ afterEach(() => {
   arcadeHidden.value = null;
   arcadeInvites.value = [];
   arcadeSession.value = null;
+  arcadeWallet.value = null;
   vi.useRealTimers();
   fake.restore();
   canvas.restore();
@@ -104,7 +107,7 @@ describe('the Arcade sheet online', () => {
     await click('[data-arcade-row="start-fuseyard"]');
     expect(document.querySelector('[data-arcade-setup]')).toBeNull();
     await until(act, () => document.querySelector('[data-arcade-lobby="' + id + '"]') !== null, 'the lobby panel');
-    expect(fakeSocket.sent('arcade:lobby:create')).toEqual([{ ch: 'c1', game: 'fuseyard', mode: 'brawl', cfg: { fighters: 4 } }]);
+    expect(fakeSocket.sent('arcade:lobby:create')).toEqual([{ ch: 'c1', game: 'fuseyard', mode: 'brawl', cfg: { fighters: 4, wins: 3 } }]);
     expect(arcadeLobby.value?.id).toBe(id);
     expect(document.querySelector('[data-arcade-lobby]')?.textContent).toContain("You're the host · waiting for players");
     expect(document.querySelector('[data-arcade-people]')?.textContent).toBe('Me (host) · 3 open seats');
@@ -145,16 +148,21 @@ describe('the Arcade sheet online', () => {
     await click('[data-arcade-field="fighters"] [role="radio"]:first-child');
     await click('[data-arcade-create]');
     await until(act, () => document.querySelector('[data-arcade-lobby="' + id + '"]') !== null, 'the lobby panel');
-    expect(fakeSocket.sent('arcade:lobby:create')).toEqual([{ ch: 'c1', game: 'fuseyard', mode: 'brawl', cfg: { fighters: 2 } }]);
+    expect(fakeSocket.sent('arcade:lobby:create')).toEqual([{ ch: 'c1', game: 'fuseyard', mode: 'brawl', cfg: { fighters: 2, wins: 3 } }]);
     // The card now plays the remembered setup.
     await click('[data-arcade-disclosure="start"]');
-    expect(document.querySelector('[data-arcade-row="start-fuseyard"]')?.getAttribute('aria-label')).toBe('Play Fuseyard: Brawl, 2');
+    expect(document.querySelector('[data-arcade-row="start-fuseyard"]')?.getAttribute('aria-label')).toBe('Play Fuseyard: Brawl, 2 fighters, first to 3');
 
-    // The lobby shows a summary line; Change opens the fields the lobby may change, in place.
-    expect(document.querySelector('[data-arcade-lobby-options]')?.textContent).toContain('Brawl · 2');
+    // The lobby shows a summary line without the seat count; Change opens the fields the lobby may
+    // change, in place, and never Fighters (setConfig does not resize the seats).
+    const options = document.querySelector('[data-arcade-lobby-options]')?.textContent ?? '';
+    expect(options).toContain('Brawl · first to 3');
+    expect(options).not.toContain('fighters');
     await click('[data-arcade-change]');
-    await click('[data-arcade-lobby] [data-arcade-field="fighters"] [role="radio"]:last-child');
-    expect(fakeSocket.sent('arcade:lobby:config')).toEqual([{ id, cfg: { fighters: 4 } }]);
+    expect(document.querySelector('[data-arcade-lobby] [data-arcade-form]')).not.toBeNull();
+    expect(document.querySelector('[data-arcade-lobby] [data-arcade-field="fighters"]')).toBeNull();
+    await click('[data-arcade-lobby] [data-arcade-field="wins"] [role="radio"]:last-child');
+    expect(fakeSocket.sent('arcade:lobby:config')).toEqual([{ id, cfg: { fighters: 2, wins: 5 } }]);
   });
 
   it('shows no bot stepper and no Bot seats for a game whose options choose its bots', async () => {
@@ -412,5 +420,23 @@ describe('layout', () => {
     expect(headerButtons.map((b) => b.textContent?.trim())).toEqual(['Back to call', 'Leave']);
     for (const button of headerButtons) expect(button.className).toMatch(TALL);
     expect(wideClasses(host)).toEqual([]);
+  });
+
+  it('reads the compact wallet as chips, with what sits at tables and the no-value note in reach without a hover', () => {
+    arcadeWallet.value = { bal: 20000, esc: 500, claim: false };
+    act(() => render(<WalletPill compact />, host));
+    const group = host.querySelector('[data-arcade-wallet]') as HTMLElement;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.textContent).toContain((20000).toLocaleString() + ' chips');
+    expect(group.querySelector('.sr-only')?.textContent).toBe(' chips');
+    expect(group.textContent).toContain('+500 at tables');
+    const note = document.getElementById(group.getAttribute('aria-describedby') ?? '');
+    expect(note?.textContent).toBe('Play chips have no value outside the Arcade.');
+    expect(group.contains(note)).toBe(true);
+
+    arcadeWallet.value = { bal: 20000, esc: 0, claim: true };
+    act(() => render(<WalletPill compact />, host));
+    expect(host.textContent).not.toContain('at tables');
+    expect(buttonByText(host, 'Daily chips').className).toMatch(TALL);
   });
 });

@@ -1,8 +1,12 @@
 /**
  * Game setups from the catalogue (setup.ts): which fields show where, the cfg each setup sends (in
  * the shape the servers parse, so no server change is needed), the summary lines, the remembered
- * setup, and the Bellwick save-slot default. The server parsers are mirrored below by hand:
- * lamplight `parseCfg` (bots), fuseyard's strict `cfgSchema` keys, bellwick's `bellwickCfgSchema`.
+ * setup, and the Bellwick save-slot default.
+ *
+ * The online cfg literals in "the cfg sent" are copied into server/test/arcade/lobbyCfg.test.ts,
+ * which parses them with the real server schemas (server/src/arcade/tables/lamplight.ts `parseCfg`,
+ * server/src/arcade/rooms/fuseyard.ts `cfgSchema`, server/src/arcade/rooms/bellwick.ts
+ * `bellwickCfgSchema`). Change a literal here and change it there too.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CATALOG, defaultOptions, type GameMeta, type Where } from '@/arcade/catalog';
@@ -18,36 +22,18 @@ import {
   hasOptions,
   modesFor,
   pickSaveSlot,
+  presetSaveSlot,
   resolveSetup,
   saveSetup,
   SETUP_KEY,
   summaryOf,
   summaryOfFields,
+  taleChosen,
   withSaveSlot,
   type SlotInfo,
 } from './setup';
 
 const PLACES: readonly Where[] = ['offline', 'online'];
-
-/** server/src/arcade/tables/lamplight.ts parseCfg: who sits as bots at an online table. */
-const lamplightBots = (cfg: Record<string, unknown>): string | null => {
-  const level = typeof cfg.bots === 'string' && cfg.bots !== 'off' ? cfg.bots : null;
-  return cfg.onlineBots === undefined ? level : cfg.onlineBots ? (level ?? 'regular') : null;
-};
-/** server/src/arcade/rooms/fuseyard.ts cfgSchema (`.strict()`). */
-const FUSEYARD_KEYS = ['mode', 'arena', 'fighters', 'wins', 'bots'];
-const FUSEYARD_VALUES: Record<string, readonly unknown[]> = {
-  arena: ['rotation', 'yard', 'mill', 'pond', 'garden', 'depot'],
-  fighters: [2, 3, 4],
-  wins: [2, 3, 5],
-  bots: ['sprout', 'scrapper', 'menace'],
-};
-/** server/src/arcade/rooms/bellwick.ts bellwickCfgSchema's preprocess. */
-const bellwickTale = (o: Record<string, unknown>): { tale: 'new' | 'slot'; slot: number } => {
-  const slotOf = (v: unknown) => (v === 0 || v === 1 || v === 2 ? v : null);
-  const existing = slotOf(o.slot);
-  return existing !== null ? { tale: 'slot', slot: existing } : { tale: 'new', slot: slotOf(o.into) ?? 0 };
-};
 
 beforeEach(() => localStorage.clear());
 afterEach(() => localStorage.clear());
@@ -120,22 +106,16 @@ describe('the catalogue', () => {
 
 describe('the cfg sent', () => {
   it('Lamplight: always sends the bots switch online, off by default, so no bots sit down unasked', () => {
-    const open = cfgFor(lamplight, 'online', 'open', resolveSetup(lamplight, 'online').values);
-    expect(open).toEqual({ tier: 'pebble', players: 6, onlineBots: false, bots: 'regular' });
-    expect(lamplightBots(open)).toBeNull();
+    expect(cfgFor(lamplight, 'online', 'open', resolveSetup(lamplight, 'online').values)).toEqual({ tier: 'pebble', players: 6, onlineBots: false, bots: 'regular' });
     expect(cfgFor(lamplight, 'online', 'cup', {})).toEqual({ buyIn: 2000, players: 6, onlineBots: false, bots: 'regular' });
+    // The Trio is people only: no bot key at all.
     expect(cfgFor(lamplight, 'online', 'trio', { bots: 'sharp', onlineBots: true, players: 9 })).toEqual({ buyIn: 1000 });
-    expect(lamplightBots(cfgFor(lamplight, 'online', 'trio', {}))).toBeNull();
   });
 
   it('Lamplight: a hidden switch sends its default (off at Boulder and Summit, whatever was remembered)', () => {
-    const boulder = cfgFor(lamplight, 'online', 'open', { tier: 'boulder', onlineBots: true, bots: 'sharp' });
-    expect(boulder).toEqual({ tier: 'boulder', players: 6, onlineBots: false, bots: 'regular' });
-    expect(lamplightBots(boulder)).toBeNull();
-    const pebble = cfgFor(lamplight, 'online', 'open', { tier: 'pebble', onlineBots: true, bots: 'sharp' });
-    expect(pebble).toEqual({ tier: 'pebble', players: 6, onlineBots: true, bots: 'sharp' });
-    expect(lamplightBots(pebble)).toBe('sharp');
-    expect(lamplightBots(cfgFor(lamplight, 'online', 'cup', { onlineBots: true }))).toBe('regular');
+    expect(cfgFor(lamplight, 'online', 'open', { tier: 'boulder', onlineBots: true, bots: 'sharp' })).toEqual({ tier: 'boulder', players: 6, onlineBots: false, bots: 'regular' });
+    expect(cfgFor(lamplight, 'online', 'open', { tier: 'pebble', onlineBots: true, bots: 'sharp' })).toEqual({ tier: 'pebble', players: 6, onlineBots: true, bots: 'sharp' });
+    expect(cfgFor(lamplight, 'online', 'cup', { onlineBots: true })).toEqual({ buyIn: 2000, players: 6, onlineBots: true, bots: 'regular' });
   });
 
   it('Lamplight solo: bot level, stakes and seats; no online switch', () => {
@@ -144,27 +124,19 @@ describe('the cfg sent', () => {
     expect(cfgFor(lamplight, 'offline', 'trio', { buyIn: 2000 })).toEqual({ bots: 'regular', buyIn: 1000 });
   });
 
-  it('Fuseyard: only the strict schema keys, with values it accepts', () => {
+  it('Fuseyard: only the strict schema keys, unknown values sent as their defaults', () => {
+    const junk = { arena: 'nowhere', fighters: 7, wins: 4, bots: 'boss', extra: 1 };
     for (const where of PLACES) {
-      for (const mode of ['brawl', 'quickfire']) {
-        const cfg = cfgFor(fuseyard, where, mode, { arena: 'nowhere', fighters: 7, wins: 4, bots: 'boss', extra: 1 });
-        for (const [key, value] of Object.entries(cfg)) {
-          expect(FUSEYARD_KEYS, key).toContain(key);
-          expect(FUSEYARD_VALUES[key], key).toContain(value);
-        }
-      }
+      expect(cfgFor(fuseyard, where, 'brawl', junk), where).toEqual({ bots: 'scrapper', wins: 3, arena: 'rotation', fighters: 4 });
+      expect(cfgFor(fuseyard, where, 'quickfire', junk), where).toEqual({ bots: 'scrapper', arena: 'rotation', fighters: 4 });
     }
     expect(cfgFor(fuseyard, 'online', 'brawl', {})).toEqual({ bots: 'scrapper', wins: 3, arena: 'rotation', fighters: 4 });
     expect(cfgFor(fuseyard, 'online', 'quickfire', { wins: 5, arena: 'pond', fighters: 3, bots: 'menace' })).toEqual({ bots: 'menace', arena: 'pond', fighters: 3 });
   });
 
   it('Bellwick: {slot: n} continues, {slot: "new", into: k} starts a new tale in slot k', () => {
-    const cont = cfgFor(bellwick, 'online', 'party', { slot: 1, into: 2 });
-    expect(cont).toEqual({ slot: 1, into: 0 });
-    expect(bellwickTale(cont)).toEqual({ tale: 'slot', slot: 1 });
-    const fresh = cfgFor(bellwick, 'online', 'party', { slot: 'new', into: 2 });
-    expect(fresh).toEqual({ slot: 'new', into: 2 });
-    expect(bellwickTale(fresh)).toEqual({ tale: 'new', slot: 2 });
+    expect(cfgFor(bellwick, 'online', 'party', { slot: 1, into: 2 })).toEqual({ slot: 1, into: 0 });
+    expect(cfgFor(bellwick, 'online', 'party', { slot: 'new', into: 2 })).toEqual({ slot: 'new', into: 2 });
     expect(cfgFor(bellwick, 'offline', 'solo', { slot: 1 })).toEqual({});
     expect(cfgFor(glimmer, 'online', 'hall', {})).toEqual({});
   });
@@ -241,19 +213,67 @@ describe('the remembered setup', () => {
 describe('the Bellwick save slot', () => {
   const slot = (n: number, updatedAt: number, inUse = false): SlotInfo => ({ slot: n, updatedAt, inUse });
 
-  it('continues the latest tale that is free, else starts a new one in the first empty slot', () => {
+  it('continues the remembered tale, the first time the latest free one, else starts a new one in the first empty slot', () => {
     expect(pickSaveSlot([], undefined)).toEqual({ slot: 'new', into: 0 });
     expect(pickSaveSlot([slot(0, 10), slot(2, 30)], undefined)).toEqual({ slot: 2, into: null });
     expect(pickSaveSlot([slot(0, 10), slot(2, 30, true)], undefined)).toEqual({ slot: 0, into: null });
-    expect(pickSaveSlot([slot(0, 10, true)], 1)).toEqual({ slot: 'new', into: 1 });
+    // The remembered slot wins over a more recent one (the card said "Continue Slot 1")...
+    expect(pickSaveSlot([slot(0, 10), slot(2, 30)], 0)).toEqual({ slot: 0, into: null });
+    // ...and when it is in use or gone, one tap plays no other tale: the setup screen asks.
+    expect(pickSaveSlot([slot(0, 10, true), slot(2, 30)], 0)).toBeNull();
+    expect(pickSaveSlot([slot(0, 10, true)], 1)).toBeNull();
     expect(pickSaveSlot([slot(0, 10), slot(1, 20)], 'new')).toEqual({ slot: 'new', into: 2 });
   });
 
-  it('never overwrites by default: all slots used and New remembered asks first', () => {
+  it('says on the card what one tap plays', () => {
+    // Nothing remembered yet: the card names no tale (the save list decides).
+    expect(summaryOf(bellwick, 'online', 'party', resolveSetup(bellwick, 'online').values)).toBe('Party Tale');
+    saveSetup(bellwick, 'online', { mode: 'party', values: { slot: 1, into: 0 } });
+    const setup = resolveSetup(bellwick, 'online');
+    expect(summaryOf(bellwick, 'online', setup.mode, setup.values)).toBe('Party Tale · Continue Slot 2');
+    expect(withSaveSlot(bellwick, 'online', setup, [slot(1, 10), slot(2, 99)])).toMatchObject({ slot: 1 });
+    expect(withSaveSlot(bellwick, 'online', setup, [slot(1, 10, true), slot(2, 99)])).toBeNull();
+    expect(withSaveSlot(bellwick, 'online', setup, [slot(0, 10), slot(2, 99)])).toBeNull();
+  });
+
+  it('remembers a new tale as the slot it went into, so the next tap continues it', () => {
+    // The host picks New on the setup screen: Start saves it in the first empty slot.
+    const picked = fillNewTale(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 0 } }, [slot(0, 10), slot(1, 20)]);
+    expect(cfgFor(bellwick, 'online', 'party', picked)).toEqual({ slot: 'new', into: 2 });
+    saveSetup(bellwick, 'online', { mode: 'party', values: picked });
+    expect(localStorage.getItem(SETUP_KEY)).not.toContain('"new"');
+    const next = resolveSetup(bellwick, 'online');
+    expect(summaryOf(bellwick, 'online', next.mode, next.values)).toBe('Party Tale · Continue Slot 3');
+    // Slot 2 was played later in another call: one tap still continues the new tale, never a third one.
+    const after = [slot(0, 10), slot(1, 50), slot(2, 40)];
+    expect(cfgFor(bellwick, 'online', 'party', withSaveSlot(bellwick, 'online', next, after)!)).toEqual({ slot: 2, into: 0 });
+    // A new tale started in one tap is remembered the same way.
+    localStorage.clear();
+    const tapped = withSaveSlot(bellwick, 'online', resolveSetup(bellwick, 'online'), [])!;
+    expect(tapped).toMatchObject({ slot: 'new', into: 0 });
+    saveSetup(bellwick, 'online', { mode: 'party', values: tapped });
+    expect(resolveSetup(bellwick, 'online').values).toMatchObject({ slot: 0 });
+    // Every slot full and Replaces chosen: the slot it replaced.
+    saveSetup(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 1 } });
+    expect(resolveSetup(bellwick, 'online').values).toMatchObject({ slot: 1 });
+  });
+
+  it('never picks an overwrite: with every slot used, New is never preselected and Start waits for a tale', () => {
     const full = [slot(0, 10), slot(1, 20), slot(2, 30)];
+    const busy = [slot(0, 10, true), slot(1, 20, true), slot(2, 30, true)];
     expect(pickSaveSlot(full, 'new')).toBeNull();
-    expect(pickSaveSlot([slot(0, 10, true), slot(1, 20, true), slot(2, 30, true)], undefined)).toBeNull();
+    expect(pickSaveSlot(busy, undefined)).toBeNull();
     expect(withSaveSlot(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 0 } }, full)).toBeNull();
+    // The setup screen offers a free tale to continue instead...
+    expect(presetSaveSlot(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 0 } }, full)).toEqual({ slot: 2, into: 0 });
+    expect(presetSaveSlot(bellwick, 'online', { mode: 'party', values: { slot: 0 } }, [slot(0, 10, true), slot(1, 20)])).toEqual({ slot: 1 });
+    // ...or, with every tale in use, no tale at all until the host picks one.
+    const none = presetSaveSlot(bellwick, 'online', { mode: 'party', values: { slot: 2, into: 0 } }, busy);
+    expect(none).toEqual({ into: 0 });
+    expect(taleChosen(bellwick, 'online', 'party', none)).toBe(false);
+    expect(taleChosen(bellwick, 'online', 'party', { ...none, slot: 'new' })).toBe(true);
+    expect(taleChosen(bellwick, 'offline', 'solo', {})).toBe(true);
+    expect(taleChosen(lamplight, 'online', 'open', {})).toBe(true);
   });
 
   it('fills the cfg from the save list', () => {
@@ -266,7 +286,7 @@ describe('the Bellwick save slot', () => {
     expect(fillNewTale(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 0 } }, [slot(0, 1), slot(1, 2)])).toEqual({ slot: 'new', into: 2 });
     expect(fillNewTale(bellwick, 'online', { mode: 'party', values: { slot: 'new', into: 1 } }, [slot(0, 1), slot(1, 2), slot(2, 3)])).toEqual({ slot: 'new', into: 1 });
     expect(fillNewTale(bellwick, 'online', { mode: 'party', values: { slot: 0 } }, [])).toEqual({ slot: 0 });
-    // "Replaces" shows only when no slot is empty (the form hides it otherwise).
+    // "Replaces" belongs to a new tale; the form shows it (under the tales) only when no slot is empty.
     expect(fieldsFor(bellwick, 'online', 'party', { slot: 'new' }).more.map((f) => f.key)).toEqual(['into']);
     expect(fieldsFor(bellwick, 'online', 'party', { slot: 2 }).more).toEqual([]);
   });

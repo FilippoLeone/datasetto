@@ -795,7 +795,8 @@ sheet creates the lobby), and its Options button opens the short setup screen (`
 two main fields, "More options", one sticky Play or Start). The in-call sheet's order is fixed: Your game → Play
 with your call (Join rows, then start cards) → Play solo → footer (chips, Boards, Settings); platform.md §10.6.
 The cfg each setup sends keeps the shape the servers parse (lamplight `parseCfg` always gets `onlineBots`,
-Fuseyard's strict schema only its keys, Bellwick `{slot}` or `{slot: 'new', into}`); `setup.test.ts` holds it.
+Fuseyard's strict schema only its keys, Bellwick `{slot}` or `{slot: 'new', into}`); `setup.test.ts` pins it, and
+`server/test/arcade/lobbyCfg.test.ts` parses the same literals with the real schemas.
 
 **Meta budget.** Measured as each `meta.ts` minified on its own, gzip -9, after the menu copy (blurbs, hints)
 landed: Lamplight 924 B, Fuseyard 729 B, Bellwick 479 B, Glimmerhall 279 B (before it: 603, 494, 358, 241, so the

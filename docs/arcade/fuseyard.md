@@ -296,10 +296,10 @@ Slots ascending, bombs by id:
 
 ### 3.2 From lobby to match
 
-1. **Create.** A voice member opens the Arcade sheet and picks Fuseyard. The shell draws a generic options form from Fuseyard's catalogue entry (about 200 B in the main bundle):
+1. **Create.** A voice member opens the Arcade sheet and taps Fuseyard's start card under "Play with your call", which creates the lobby with the setup they last played in a call (or the default); its Options button opens the generic setup screen, drawn from Fuseyard's catalogue entry (`meta.ts`, ≤ 1 KB in the main bundle):
    `{id: 'fuseyard', seats: [2, 4], options: [mode, arena, fighters, wins, bots]}`.
    It sends `arcade:lobby:create {ch, game: 'fuseyard', mode: 'brawl' | 'quickfire', cfg: {arena, fighters, wins, bots}}` (zod-validated, about 80 B).
-2. **Discover.** Others see a passive LobbyChip, "‹name› is setting up Fuseyard · 1/4 · Join seat · Watch", from `arcade:lobby` and `arcade:activity`. No toast, sound or change of view.
+2. **Discover.** Others see a passive LobbyChip, "Fuseyard · 1/4 · Join · Watch", from `arcade:lobby` and `arcade:activity`, and a Join row in their Arcade sheet. No toast, sound or change of view.
 3. **Start.** The host presses Start (`arcade:lobby:start`) once at least one human is seated. Bots at the chosen level fill the rest. The server draws the seed. If the host leaves the lobby, the lowest-seated human becomes host.
 4. **Connect.** When `arcade:lobby` turns live, each seated client asks `arcade:ticket {id}` and opens `/arcade/ws` with `HELLO {proto: 1, codec: {fuseyard: 1}, ticket}`. It gets WELCOME and KEYFRAME (reason 0). Watchers do the same with a spectator ticket (at most 4, d = 3).
 5. **End.** After PHASE 5 the server closes the lane. Rematch goes back through the lobby: the host presses Start again, and everyone gets a fresh ticket. The lane exists only while a match does.
@@ -546,7 +546,7 @@ All of these sit inside the platform's action-lane ceilings: 32 kbit/s average d
 - **Rules.** No ghosts, no grace, dodge grace 0. The client has authority, with no prediction and no reconciliation, and that path has its own tests.
 - **Seed** from `crypto.getRandomValues`.
 - **Lobby.** The same options form, with bots only.
-- **Entry points** (platform §10.6, §12): "Solo vs bots" in the Arcade sheet, "Arcade" in the user menu (LocalHost even while online, at no server cost), and "Play offline" on the login screen, the offline ConnectionBanner and the shells' server-unreachable screens.
+- **Entry points** (platform §10.6, §12): "Play solo" in the Arcade sheet, "Arcade" in the user menu (LocalHost even while online, at no server cost), and "Play offline" on the login screen, the offline ConnectionBanner and the shells' server-unreachable screens.
   - Fuseyard needs no socket, no `/api/config` and no account to start; it mounts with defaults.
   - It works with no network in the desktop and Android shells, and on the web when the chunk is already loaded.
 - **Offline stats** (matches, wins, round wins, best streak) live in `localStorage` under `datasetto.arcade.fuseyard.stats.v1`. Every access is wrapped in try/catch with an in-memory fallback, and nothing is ever uploaded.

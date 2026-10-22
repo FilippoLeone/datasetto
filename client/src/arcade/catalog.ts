@@ -1,8 +1,9 @@
 /**
- * The Arcade catalogue (plan.md §2.6.7): one small `meta.ts` per game, in the main bundle (≤ 500 B
- * gzip each), and nothing else of the game until it is opened. The shell draws its game cards, the
- * generic setup form and the lobby chips from these entries (features/arcade/setup.ts reads the
- * fields). Each `meta.ts` is owned by its game; this file only lists them, in sheet order.
+ * The Arcade catalogue (plan.md §2.6.7): one small `meta.ts` per game, in the main bundle (≤ 1 KB
+ * gzip each, the Arcade's main-bundle share ≤ 4 KB in all), and nothing else of the game until it
+ * is opened. The shell draws its game cards, the generic setup form and the lobby chips from these
+ * entries (features/arcade/setup.ts reads the fields). Each `meta.ts` is owned by its game; this
+ * file only lists them, in sheet order.
  */
 import type { GameChunk, GameId } from './runtime/types';
 import { meta as bellwick } from './bellwick/meta';
