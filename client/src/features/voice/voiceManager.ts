@@ -1,6 +1,9 @@
 import { batch, effect } from '@preact/signals';
 import { AudioService, type MicSample } from '@/services/voice/AudioService';
 import type { NeuralStatus } from '@/services/voice/neuralSuppression';
+import { captureCamera } from '@/services/voice/cameraCapture';
+import { CameraEffects } from '@/services/voice/cameraEffects';
+import type { CameraBlurLevel, CameraBlurStatus } from '@/services/voice/backgroundBlur';
 import { VoiceService, type PeerConnectionStats } from '@/services/voice/VoiceService';
 import { api } from '@/services/socket/api';
 import { socketClient } from '@/services/socket/client';
@@ -20,6 +23,8 @@ import { onAppStateChange } from '@/services/native/appState';
 import { linkConstrained, reportCallBandwidth, type CallBandwidthSample } from '@/services/voice/linkConstraint';
 import { toast } from '@/state/ui';
 import {
+  cameraBlurStatus,
+  cameraPreviewStream,
   localCameraStream,
   localDeafened,
   localMuted,
@@ -80,6 +85,9 @@ class VoiceManager {
   private appActive = true;
   private micRecoveryTimer: number | null = null;
   private facingMode: 'user' | 'environment' = 'user';
+  /** The settings dialog's camera preview: its own camera and blur, or the call's camera. */
+  private cameraPreview: { inCall: boolean; source: MediaStream | null; effects: CameraEffects | null; off: (() => void) | null } | null = null;
+  private callBlurStatus: CameraBlurStatus = cameraBlurStatus.value;
   private initialized = false;
   private readonly pttSources = { window: false, global: false };
   /** Our media session id: peers keep their connection to us as long as it does not change. */
@@ -99,6 +107,7 @@ class VoiceManager {
     this.voice = new VoiceService(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
     this.voice.setScreenQuality(settings.screenQuality);
     this.voice.setShareClipsAllowed(settings.shareClipsAllowed);
+    void this.voice.setCameraBlur(settings.cameraBlur);
     noiseSuppressionStatus.value = this.audio.getNeuralStatus();
   }
 
@@ -464,7 +473,7 @@ class VoiceManager {
       if (devices.length < 2) return;
       this.facingMode = this.facingMode === 'user' ? 'environment' : 'user';
       const wanted = devices.find((device) => new RegExp(this.facingMode === 'user' ? 'front|user' : 'back|rear|environment', 'i').test(device.label));
-      const current = this.voice.getCameraStream()?.getVideoTracks()[0]?.getSettings().deviceId;
+      const current = this.voice.getCameraDeviceId();
       const target = wanted ?? devices.find((device) => device.deviceId !== current) ?? devices[0];
       await this.voice.switchCamera(target.deviceId);
     } catch (error) {
@@ -509,6 +518,7 @@ class VoiceManager {
     this.voice.updateVoiceSettings(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
     this.voice.setScreenQuality(settings.screenQuality);
     this.voice.setShareClipsAllowed(settings.shareClipsAllowed);
+    if (!this.cameraPreview) void this.voice.setCameraBlur(settings.cameraBlur);
     this.voice.setOutputVolume(settings.outputVol);
     try {
       await this.audio.updateSettings(settings);
@@ -546,6 +556,66 @@ class VoiceManager {
       this.audio.stopLocalStream();
       micLevel.value = 0;
     }
+  }
+
+  // ------------------------------------------------------- camera preview
+
+  /**
+   * The settings dialog's camera preview with the drafted blur level. In a call with the
+   * camera on, it is the live camera and the level applies to the call at once (Cancel puts
+   * the saved level back); otherwise the dialog opens the camera on its own.
+   */
+  async startCameraPreview(level: CameraBlurLevel): Promise<void> {
+    if (this.voice.isCameraActive()) {
+      this.cameraPreview = { inCall: true, source: null, effects: null, off: null };
+      cameraPreviewStream.value = null;
+      cameraBlurStatus.value = this.callBlurStatus;
+      await this.voice.setCameraBlur(level);
+      return;
+    }
+    if (!this.cameraPreview) {
+      const source = await captureCamera({});
+      const effects = new CameraEffects();
+      const off = [
+        effects.on('status', (status) => {
+          cameraBlurStatus.value = status;
+        }),
+        // Blur gave up in the preview: show the camera as it is, with the notice.
+        effects.on('fallback', () => void this.setCameraPreviewBlur(this.cameraPreviewLevel)),
+      ];
+      this.cameraPreview = { inCall: false, source, effects, off: () => off.forEach((fn) => fn()) };
+    }
+    await this.setCameraPreviewBlur(level);
+  }
+
+  private cameraPreviewLevel: CameraBlurLevel = 'off';
+
+  async setCameraPreviewBlur(level: CameraBlurLevel): Promise<void> {
+    this.cameraPreviewLevel = level;
+    const preview = this.cameraPreview;
+    if (!preview) return;
+    if (preview.inCall) {
+      await this.voice.setCameraBlur(level);
+      return;
+    }
+    const track = preview.source?.getVideoTracks()[0];
+    if (!track || !preview.effects) return;
+    const shown = await preview.effects.apply(track, level);
+    if (this.cameraPreview === preview) cameraPreviewStream.value = new MediaStream([shown]);
+  }
+
+  stopCameraPreview(): void {
+    const preview = this.cameraPreview;
+    this.cameraPreview = null;
+    cameraPreviewStream.value = null;
+    if (preview && !preview.inCall) {
+      preview.effects?.stop();
+      preview.off?.();
+      preview.source?.getTracks().forEach((track) => track.stop());
+    }
+    cameraBlurStatus.value = this.callBlurStatus;
+    // The saved level applies to the call again (Save already stored the new one; Cancel goes back).
+    void this.voice.setCameraBlur(audioSettings.value.cameraBlur);
   }
 
   /** Records the open microphone, raw and processed, for the settings dialog's playback. */
@@ -698,6 +768,17 @@ class VoiceManager {
     this.voice.on('video:camera:started', ({ stream }) => {
       localCameraStream.value = stream;
       api.setVideoState('camera', true);
+    });
+    this.voice.on('video:camera:track', ({ stream }) => {
+      if (localCameraStream.value) localCameraStream.value = stream;
+    });
+    this.voice.on('video:camera:blur', (status) => {
+      const next = status as CameraBlurStatus;
+      const previous = this.callBlurStatus;
+      this.callBlurStatus = next;
+      if (!this.cameraPreview || this.cameraPreview.inCall) cameraBlurStatus.value = next;
+      // Blur gave up during the call: say so once, the camera keeps going unblurred.
+      if (next.state === 'failed' && next.notice && previous.state === 'running' && this.voice.isCameraActive()) toast.warning(next.notice, 8000);
     });
     this.voice.on('video:camera:stopped', () => {
       localCameraStream.value = null;

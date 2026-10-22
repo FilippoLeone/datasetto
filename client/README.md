@@ -27,7 +27,8 @@ src/
   services/
     socket/                SocketClient (socket.io with our own reconnect pacing), backoff (exponential backoff + jitter scheduler),
                            api (typed emits), bindings (server events -> state)
-    voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate, neural suppressor)
+    voice/                 VoiceService (WebRTC mesh, Opus tuning, stats, camera/screen tracks), AudioService (mic pipeline, noise gate, neural suppressor),
+                           cameraEffects + blur worker (background blur of the camera)
     native/                Electron bridge, Capacitor foreground service and audio routes
     screenCapture          getDisplayMedia / desktop picker capture with system audio, shared by rooms and voice channels
     clips/                 clipManager (the rolling buffers behind the Clip buttons), rollingBuffer (two alternating MediaRecorders),
@@ -41,6 +42,7 @@ src/
     sounds, AudioNotificationService   synthesised UI sounds
   audio/worklets/          AudioWorklet processors (noise gate, DeepFilterNet3 and RNNoise suppressors, mic capture; parts/ are the sources the generated ones are built from)
   audio/neural/            WebAssembly builds of DeepFilterNet3 and RNNoise, the model, licences
+  video/segmentation/      MediaPipe selfie segmentation models for the camera's background blur, licences
   features/
     auth/                  sign-in / register gate, profile dialog
     channels/              channel list, create/delete, stream key dialog, confirm dialog
@@ -220,6 +222,48 @@ How Strong works (`services/voice/neuralSuppression.ts`,
   `npm run build:worklets`. Rebuilding the WebAssembly itself:
   `audio/neural/libdf/README.md`. Licences and the model's status:
   `audio/neural/NOTICE.md`.
+
+## Background blur
+
+Settings > Camera > Background blur: **Off** (default), **Light** or **Strong**.
+Friends see the person sharp and the room blurred; the blur happens on the
+device before the camera track reaches WebRTC. A live preview in the same
+section shows the drafted level (outside a call it opens the camera on its own;
+in a call it is the call's camera and the level applies at once, Cancel puts
+the saved one back).
+
+- Where it runs, in order: the system's own camera effects when Chrome exposes
+  them as a switchable `backgroundBlur` capability (Windows camera effects;
+  macOS and ChromeOS only report it), otherwise on the device:
+  MediaPipe's selfie segmenter (`@mediapipe/tasks-vision`, CPU/XNNPACK in
+  WebAssembly, 256x144 input for 16:9 cameras, 256x256 otherwise) in a worker
+  (`services/voice/blur.worker.ts`), and a WebGL 2 compositor on an
+  OffscreenCanvas (`blurCompositor.ts`): the new mask is blended with the
+  previous one against flicker, upsampled edge-aware (a joint bilateral filter
+  on the frame's colours) and feathered; the background is blurred at quarter
+  size, weighted by how much each pixel is background, so the person never
+  bleeds into it.
+- Frames reach the worker through `MediaStreamTrackProcessor` and leave
+  through a `MediaStreamTrackGenerator` (Chromium, Electron, Android WebView).
+  Firefox has neither: there the page draws camera frames into ImageBitmaps
+  (two on their way at a time) and a canvas capture stream sends the result.
+- `cameraEffects.ts` turns the level into the track to send; `VoiceService`
+  swaps it into every peer connection with `replaceTrack`, so switching never
+  renegotiates or restarts the camera. While the model loads, the whole picture
+  is blurred, never the sharp room.
+- Step-down (`backgroundBlur.ts`): after two warm-up seconds, three seconds in a
+  row below 24 fps (or the camera's own rate) or above 40 ms of added delay
+  make the blur segment every 2nd frame, then use Light, then every 3rd frame,
+  then turn off with a notice (a toast in a call, a line in the settings). Phones
+  start at every 2nd frame and the settings mention the battery.
+- Measured on the owner's Windows desktop (Chrome 155, RTX 3080) with a person
+  clip as the fake camera: 1280x720 at 30 fps with 15-17 ms median added delay
+  (p95 21-23 ms), segmentation 11-14 ms per frame; 640x360 at 30 fps with
+  10-12 ms median (p95 13-15 ms), segmentation 8 ms. Firefox 158 (canvas path)
+  settles at 30 fps with about 37 ms at every 2nd frame.
+- The runtime (13.5 MB, 4 MB over the wire) and the two models (250 KB each)
+  are Vite assets, fetched only when blur is turned on; nothing comes from a
+  CDN. Licences: `video/segmentation/NOTICE.md`.
 
 ## Direct messages
 

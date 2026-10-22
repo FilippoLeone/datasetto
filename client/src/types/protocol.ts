@@ -408,6 +408,8 @@ export interface AudioSettings {
   clipShortcut: string;
   /** Whether friends may save clips of the screens you share (sent with the share's metadata; nothing is recorded). */
   shareClipsAllowed: boolean;
+  /** Camera: blur the background before the video is sent (services/voice/backgroundBlur.ts). */
+  cameraBlur: 'off' | 'light' | 'strong';
 }
 
 /** Length of the rolling clip buffer, in seconds. */
@@ -796,6 +798,10 @@ export type EventMap = {
     timestamp: number;
   };
   'video:camera:started': { stream: MediaStream };
+  /** The sent camera track changed (blur on or off, a flip): a new stream for the local preview. */
+  'video:camera:track': { stream: MediaStream };
+  /** Where the camera's background blur runs, what it costs, any notice (services/voice/cameraEffects.ts). */
+  'video:camera:blur': unknown;
   'video:camera:stopped': void;
   /** `audioNotice`: the host's toast about the share's sound (none, or Datasetto's own sound in it), null when all is well. */
   'video:screen:started': { stream: MediaStream; hasAudio: boolean; audioNotice: string | null };

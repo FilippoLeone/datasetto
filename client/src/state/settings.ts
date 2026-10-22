@@ -4,6 +4,7 @@ import { parseShortcut, serializeShortcut } from '@/lib/shortcut';
 import { Storage } from '@/lib/storage';
 import { DEFAULT_OVERLAY_CORNER, isOverlayCorner } from '@/features/voice/voiceOverlayState';
 import { clampStrength, DEFAULT_STRENGTH_DB } from '@/services/voice/neuralEngine';
+import { normalizeBlurLevel } from '@/services/voice/backgroundBlur';
 import type { AudioSettings, ClipSeconds, NoiseSuppressionLevel, ScreenQuality } from '@/types/protocol';
 
 /**
@@ -57,6 +58,7 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   latencyHint: 'interactive',
   vadThreshold: num(config.VOICE_VAD_THRESHOLD, 0.07, 0.01, 0.5),
   screenQuality: '1080p60',
+  cameraBlur: 'off',
   clipSeconds: 30,
   clipIncludeVoice: false,
   clipShortcut: DEFAULT_CLIP_SHORTCUT,
@@ -73,6 +75,8 @@ export const normalizeAudioSettings = (stored: Partial<AudioSettings> | null | u
   delete (next as { noiseSuppression?: unknown }).noiseSuppression;
   next.strongSuppressionDb = clampStrength(next.strongSuppressionDb);
   if (!SCREEN_QUALITIES.includes(next.screenQuality)) next.screenQuality = DEFAULT_AUDIO_SETTINGS.screenQuality;
+  // Settings saved before background blur existed (or a value this build does not know) mean Off.
+  next.cameraBlur = normalizeBlurLevel(next.cameraBlur);
   if (!isOverlayCorner(next.overlayCorner)) next.overlayCorner = DEFAULT_OVERLAY_CORNER;
   next.overlayEnabled = Boolean(next.overlayEnabled);
   // The old client stored the bare KeyboardEvent.code; normalise to the shortcut form.

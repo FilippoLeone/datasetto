@@ -9,6 +9,8 @@ import { config } from '@/config';
 import { serverConfig } from '@/services/ServerConfigService';
 import { DEFAULT_SCREEN_QUALITY, applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError, screenAudioNotice } from '@/services/screenCapture';
 import { captureCamera } from './cameraCapture';
+import { OFF_STATUS, type CameraBlurLevel, type CameraBlurStatus } from './backgroundBlur';
+import { CameraEffects } from './cameraEffects';
 import { PeerAudioManager, type PeerAudioPreference } from './PeerAudioManager';
 import { iceRestartDelay, isOfferStale, needsOwnOffer, resolveOfferCollision, type PendingOffer } from './negotiation';
 
@@ -182,7 +184,13 @@ export class VoiceService extends EventEmitter<EventMap> {
   private iceRestartTimers: Map<string, number> = new Map();
   private iceRestartAttempts: Map<string, number> = new Map();
   private localStream: MediaStream | null = null;
+  /** What the call sends as the camera: the camera's own track, or its blurred copy. */
   private localVideoStream: MediaStream | null = null;
+  /** The camera as captured. */
+  private cameraSource: MediaStream | null = null;
+  private cameraStarting: Promise<MediaStream> | null = null;
+  private cameraEffects: CameraEffects | null = null;
+  private cameraBlur: CameraBlurLevel = 'off';
   private localScreenStream: MediaStream | null = null;
   private remoteVideoElements: Map<string, HTMLVideoElement> = new Map();
   private videoSenders: Map<string, PeerVideoSenders> = new Map();
@@ -1577,47 +1585,101 @@ export class VoiceService extends EventEmitter<EventMap> {
     }
   }
 
+  /** Background blur of the camera (services/voice/cameraEffects.ts), created on first use. */
+  private effects(): CameraEffects {
+    if (!this.cameraEffects) {
+      const effects = new CameraEffects();
+      effects.on('status', (status) => this.emit('video:camera:blur', status as never));
+      // Blur gave up (the device could not keep up, or it failed): send the camera as it is.
+      effects.on('fallback', () => void this.refreshCameraTrack());
+      this.cameraEffects = effects;
+    }
+    return this.cameraEffects;
+  }
+
+  /** What the call sends for this camera at the current blur level: the camera, or its blurred copy. */
+  private cameraOutput(source: MediaStreamTrack): Promise<MediaStreamTrack> {
+    if (this.cameraBlur === 'off' && !this.cameraEffects) return Promise.resolve(source);
+    return this.effects().apply(source, this.cameraBlur);
+  }
+
+  /**
+   * Background blur level. A running camera switches at once: the sent track is replaced
+   * in every connection (replaceTrack), so nothing is renegotiated and the camera keeps running.
+   */
+  async setCameraBlur(level: CameraBlurLevel): Promise<void> {
+    if (this.cameraBlur === level) return;
+    this.cameraBlur = level;
+    await this.refreshCameraTrack();
+  }
+
+  getCameraBlurStatus(): CameraBlurStatus {
+    return this.cameraEffects?.status ?? OFF_STATUS;
+  }
+
+  /** The device id of the camera as captured (the blurred copy has none). */
+  getCameraDeviceId(): string | undefined {
+    return this.cameraSource?.getVideoTracks()[0]?.getSettings().deviceId;
+  }
+
+  private async refreshCameraTrack(): Promise<void> {
+    const source = this.cameraSource?.getVideoTracks()[0];
+    if (!source || source.readyState === 'ended') return;
+    const track = await this.cameraOutput(source);
+    // The camera changed or went off while the blur was starting.
+    if (this.cameraSource?.getVideoTracks()[0] !== source) return;
+    await this.sendCameraTrack(track);
+  }
+
+  /** Puts `track` into the sent camera stream and every peer's camera sender. */
+  private async sendCameraTrack(track: MediaStreamTrack): Promise<void> {
+    const stream = this.localVideoStream;
+    if (!stream) return;
+    const current = stream.getVideoTracks()[0];
+    if (current === track) return;
+    if (current) stream.removeTrack(current);
+    stream.addTrack(track);
+    const pending: Promise<void>[] = [];
+    for (const [peerId, senders] of this.videoSenders) {
+      if (!senders.camera) continue;
+      pending.push(senders.camera.replaceTrack(track).catch((error) => console.error(`[VoiceService] Failed to replace the camera track for ${peerId}:`, error)));
+    }
+    await Promise.all(pending);
+    // A new stream object, so the local preview attaches the new track.
+    this.emit('video:camera:track', { stream: new MediaStream([track]) } as never);
+  }
+
+  private watchCameraSource(source: MediaStream): MediaStreamTrack | undefined {
+    const track = source.getVideoTracks()[0];
+    if (track) {
+      track.contentHint = 'motion';
+      track.addEventListener('ended', () => this.handleCameraTrackEnded(source));
+    }
+    return track;
+  }
+
   /**
    * Switch camera to a specific device
    */
   async switchCamera(deviceId: string): Promise<MediaStream> {
-    if (!this.localVideoStream) {
+    if (!this.localVideoStream || !this.cameraSource) {
       return this.startCamera(deviceId);
     }
 
     try {
       // The new camera is opened before the old one is stopped so a failed flip keeps the picture.
-      const newStream = await captureCamera({ deviceId });
-      const newTrack = newStream.getVideoTracks()[0];
-
+      const newSource = await captureCamera({ deviceId });
+      const newTrack = this.watchCameraSource(newSource);
       if (!newTrack) {
         throw new Error('No video track found in new stream');
       }
-
-      // Stop old tracks
-      this.localVideoStream.getTracks().forEach((track) => track.stop());
-
-      // Update local stream reference
-      this.localVideoStream = newStream;
-
-      newTrack.contentHint = 'motion';
-      newTrack.addEventListener('ended', () => {
-        this.handleCameraTrackEnded();
-      });
-
-      // Replace track in all peer connections
-      const promises: Promise<void>[] = [];
-      for (const senders of this.videoSenders.values()) {
-        const sender = senders.camera;
-        if (sender) {
-          promises.push(sender.replaceTrack(newTrack));
-        }
-      }
-
-      await Promise.all(promises);
-
-      this.emit('video:camera:started', { stream: newStream } as never);
-      return newStream;
+      const previous = this.cameraSource;
+      this.cameraSource = newSource;
+      // With blur on, the blurred track stays the same and only its input changes.
+      const sent = await this.cameraOutput(newTrack);
+      previous.getTracks().forEach((track) => track.stop());
+      await this.sendCameraTrack(sent);
+      return this.localVideoStream ?? newSource;
     } catch (error) {
       console.error('[VoiceService] Failed to switch camera:', error);
       throw error;
@@ -1626,24 +1688,33 @@ export class VoiceService extends EventEmitter<EventMap> {
 
   /**
    * Start camera and add video track to all peers. Constraints, retries and the
-   * user-facing error text live in cameraCapture.ts (throws a CameraError).
+   * user-facing error text live in cameraCapture.ts (throws a CameraError). With
+   * background blur on, the blurred copy is what is sent from the first frame on.
    */
-  async startCamera(deviceId?: string): Promise<MediaStream> {
+  startCamera(deviceId?: string): Promise<MediaStream> {
     if (this.localVideoStream) {
-      return this.localVideoStream;
+      return Promise.resolve(this.localVideoStream);
     }
+    if (!this.cameraStarting) {
+      this.cameraStarting = this.openCamera(deviceId).finally(() => {
+        this.cameraStarting = null;
+      });
+    }
+    return this.cameraStarting;
+  }
 
+  private async openCamera(deviceId?: string): Promise<MediaStream> {
     try {
-      const stream = await captureCamera({ deviceId });
-      this.localVideoStream = stream;
-
-      const track = stream.getVideoTracks()[0];
-      if (track) {
-        track.contentHint = 'motion';
-        track.addEventListener('ended', () => {
-          this.handleCameraTrackEnded();
-        });
+      const source = await captureCamera({ deviceId });
+      this.cameraSource = source;
+      const track = this.watchCameraSource(source);
+      const sent = track ? await this.cameraOutput(track) : null;
+      if (this.cameraSource !== source) {
+        // Turned off while the blur was starting.
+        return source;
       }
+      const stream = new MediaStream(sent ? [sent] : []);
+      this.localVideoStream = stream;
 
       // Add video track to all existing peers
       await this.addVideoTrackToAllPeers('camera', stream);
@@ -1660,9 +1731,13 @@ export class VoiceService extends EventEmitter<EventMap> {
    * Stop camera and remove video track from all peers
    */
   stopCamera(): void {
-    if (this.localVideoStream) {
-      this.localVideoStream.getTracks().forEach((track) => track.stop());
-      this.removeVideoTrackFromAllPeers('camera');
+    const sent = this.localVideoStream;
+    if (sent || this.cameraSource) {
+      this.cameraEffects?.stop();
+      this.cameraSource?.getTracks().forEach((track) => track.stop());
+      sent?.getTracks().forEach((track) => track.stop());
+      if (sent) this.removeVideoTrackFromAllPeers('camera');
+      this.cameraSource = null;
       this.localVideoStream = null;
     }
     this.emit('video:camera:stopped', undefined as never);
@@ -1843,12 +1918,11 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   /**
-   * Handle camera track ended (user stopped via browser UI)
+   * Handle camera track ended (user stopped via browser UI, or the camera was unplugged)
    */
-  private handleCameraTrackEnded(): void {
-    this.localVideoStream = null;
-    this.removeVideoTrackFromAllPeers('camera');
-    this.emit('video:camera:stopped', undefined as never);
+  private handleCameraTrackEnded(source: MediaStream): void {
+    if (source !== this.cameraSource) return;
+    this.stopCamera();
   }
 
   /**
