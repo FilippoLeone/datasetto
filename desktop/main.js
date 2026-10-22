@@ -178,6 +178,41 @@ function closeLogging() {
 // Allow screen capture APIs (getDisplayMedia) inside our file:// based renderer
 app.commandLine.appendSwitch('allow-http-screen-capture');
 
+// Which copy of the app this is (desktop/app-identity.js). Only the installed one uses the app's
+// taskbar ID and native notifications: on Windows both are tied to its Start Menu shortcut, and
+// Electron's notification code points that shortcut at whichever exe uses notifications.
+const { resolveAppIdentity } = require('./app-identity');
+const appIdentity = resolveAppIdentity({
+  platform: process.platform,
+  isPackaged: app.isPackaged,
+  execPath: process.execPath,
+  env: process.env,
+  fileExists: (file) => fs.existsSync(file),
+  startMenuTarget: () => {
+    // The shortcut Electron would write: Start Menu\Programs\<product name>.lnk.
+    const lnk = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', `${path.basename(process.execPath, '.exe')}.lnk`);
+    return fs.existsSync(lnk) ? shell.readShortcutLink(lnk).target : null;
+  },
+});
+
+/** Native notifications, in a copy that may use them; Notification.isSupported() alone already rewrites the shortcut. */
+function nativeNotificationsAvailable() {
+  return appIdentity.nativeNotifications && Notification.isSupported();
+}
+
+// Test builds and dev runs say so in the title bar and on the taskbar. Only the main window:
+// the picker and the overlay keep the exact titles another running copy recognises them by.
+if (appIdentity.titleSuffix) {
+  app.on('browser-window-created', (_event, window) => {
+    window.on('page-title-updated', (event, title) => {
+      if (window === mainWindow) {
+        event.preventDefault();
+        window.setTitle(`${title}${appIdentity.titleSuffix}`);
+      }
+    });
+  });
+}
+
 const isDev = Boolean(process.env.ELECTRON_START_URL);
 let mainWindow;
 let tray;
@@ -1044,7 +1079,7 @@ function createWindow() {
 
       if (!trayHintShown) {
         trayHintShown = true;
-        if (Notification.isSupported()) {
+        if (nativeNotificationsAvailable()) {
           const hint = new Notification({
             title: 'Datasetto is still running',
             body: 'Find the Datasetto icon in the system tray to reopen the app.',
@@ -1133,7 +1168,7 @@ function showAlreadyRunningWarning() {
   }
   lastSingleInstanceWarningAt = now;
 
-  if (Notification.isSupported()) {
+  if (nativeNotificationsAvailable()) {
     const warning = new Notification({
       title: 'Datasetto is already running',
       body: 'Use the existing window or the tray icon instead of opening another copy.',
@@ -1156,18 +1191,19 @@ app.whenReady().then(() => {
   // Initialize logging first (needs app to be ready for getPath)
   initLogging();
   
-  // Set app user model ID for Windows notifications
+  // Windows groups windows under taskbar pins and routes notifications by this ID.
+  console.log(`[Desktop] Build: ${appIdentity.kind}, native notifications ${appIdentity.nativeNotifications ? 'on' : 'off'}`);
   if (process.platform === 'win32') {
-    app.setAppUserModelId('com.datasetto.desktop');
-    console.log('[Desktop] App User Model ID set for Windows notifications');
+    app.setAppUserModelId(appIdentity.appUserModelId);
+    console.log('[Desktop] App User Model ID:', appIdentity.appUserModelId);
   }
 
   createWindow();
   loadTrayImages();
   createTray();
 
-  // Test notification support on startup
-  console.log('[Desktop] Notification supported:', Notification.isSupported());
+  // Test notification support on startup (in the installed app this also repairs its Start Menu shortcut)
+  console.log('[Desktop] Notification supported:', nativeNotificationsAvailable());
 
   // Keep the overlay in its corner when displays change (resolution, taskbar, monitors).
   screen.on('display-metrics-changed', () => positionOverlay());
@@ -1250,6 +1286,10 @@ ipcMain.handle('shell:open-external', async (_event, url) => {
 ipcMain.handle('notification:show', async (event, { title, body, type, silent }) => {
   console.log('[Desktop] Notification request received:', { title, body, type, silent });
   
+  if (!appIdentity.nativeNotifications) {
+    console.log(`[Desktop] Notification not shown: native notifications are off in this ${appIdentity.kind} build`);
+    return { success: false, error: 'Notifications are off in this build' };
+  }
   if (!Notification.isSupported()) {
     console.error('[Desktop] Notifications not supported on this platform');
     return { success: false, error: 'Notifications not supported' };
@@ -1320,7 +1360,7 @@ async function processNotificationQueue() {
 
 // Check notification permission on startup
 ipcMain.handle('notification:check-permission', async () => {
-  return Notification.isSupported();
+  return nativeNotificationsAvailable();
 });
 
 // Log file handlers
