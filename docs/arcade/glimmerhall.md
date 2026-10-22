@@ -461,6 +461,7 @@ Dash   { id, ch, machine, buyIn, len, state: 'lobby' | 'running' | 'done', hostS
 | Hall flush | One timer per hall, only while it has pending content. It fires at `max(lastFlushAt + 1000, now)`. |
 | Pot change | Marks every hall with a non-away member as dirty. Pot is included only if 2 s have passed since that hall's last pot value. |
 | Seat drop | One 120 s timer per disconnected seat |
+| Away shown | One timer per member, only when an away or back change falls inside the 5 s gap; it fires when the gap ends |
 | Dash | One timer per Dash (lobby deadline, then end) |
 
 ### 8.4 Limiters (platform §13.3)
@@ -1016,9 +1017,15 @@ Where the implementation fills in or differs from the sections above. The machin
 | Hand-built windows (CI) | 41 Orchard, 41 Tidepool, 42 Ember Vault, each checked against the engine and an independent naive reading of the rules |
 | Golden replay | FNV-1a `0x6562190a` over 10k seeded spins per machine, the same in the Node and jsdom suites |
 | Wire | base ack ≤ 80 B with a 7-digit balance; Tide Turn ack ≤ 160 B at 10 spins, ≤ 1.2 KB at the 200-spin cap; enter ack ≤ 1 KB with 16 members and a running Dash; a hall push ≤ 400 B |
-| Bundle | `glimmer` chunk 33.7 KB gzip (budget 40), of which the shared engine and maths 6.6 KB (budget 8); the main bundle unchanged |
+| Bundle | `glimmer` chunk 33.9 KB gzip (budget 40), of which the shared engine and maths 6.6 KB (budget 8); the main bundle unchanged |
 | Audio | the shared set plus every machine's own two win sounds render to under 1 MB |
 | Server spin | one transaction, about 0.3–0.4 ms in the test harness (10k spins in 2.9 s) |
+| CPU at 4× slowdown (headless Chrome, offline hall) | spinning: p95 frame cost 0.9 ms, no long task; still reels: 0 game frames |
+| Simulated 3G (CI, `link.sim.test.ts`, virtual time) | chat one-way p95 170 ms, spin ack p95 341 ms, Glimmerhall down 432 B/s with framing (worst second 709 B), up 293 B/s; with 1 % loss chat p95 209 ms |
+| Shaped bench (`node ops/bench/games/glimmer.mjs`: real Chrome on 600/100 kbit/s, 300 ms RTT; 3 bots at about 1.9 spins/s each, reacting every 3 s; 25 s) | chat p50 157 ms, p95 171 ms; Glimmerhall down 1.61 kbit/s of Socket.IO payload, about 2.55 kbit/s with framing, worst second 324 B; 17 pushes in 25 s; the phone's spin acks p50 326 ms, p95 340 ms; no disconnect or ping timeout; 38.7 s wall |
+| Web, two players (Chrome and Firefox, private stack) | hall from the Arcade sheet, play-money notice, friends strips, machine change and reactions seen by the other player, away and back, one Glimmer Pot for both, auto-spin at 1.6 s, a Dash for both with matching scoreboards; balances on screen equal the ledger, which sums to zero |
+| Desktop (packaged, scratch profile) | joins from the sheet and spins; still and minimized, 0 frames. Minimized, the hall pauses and the others see the player away about 50 ms later only with the window-visibility bridge of phase 0 (P0b); without it the window still reports itself visible |
+| Android (emulator, debug APK) | fits 411 × 866 dp with no sideways scroll; HOME pauses the hall and the others see the player away within 0.6 s, back 5 s later (the away gap) |
 
 ### 21.2 Differences
 
@@ -1032,13 +1039,19 @@ Where the implementation fills in or differs from the sections above. The machin
 | 6 | Hall pushes | Each member has their own pending push. A push the platform has not sent yet (no `onSent`) is merged into the next one, which replaces it (`coalesce`), so newest-wins loses nothing. | §19 item 3's merge, done per recipient. |
 | 7 | Sounds (§16) | The spin, stop, wheel, door, reveal, scatter, big and huge wins and the pot are one shared set; each machine colours its small and medium wins (marimba, bubble chirps, metallic FM). | All three machines' full sets would render to 2.6 MB, over the 1 MB budget. |
 | 8 | Art | Tidepool's palette has 13 colours (a dark purple at `c`). | The platform's sprites take indices `0`–`z`. |
-| 9 | `arcade_pending` | `TableApi` has no access to it, so the platform was asked for a `pending` store (get, put, remove, olderThan, usable inside `wallet.tx`). Until it lands, the hall keeps pending vaults in memory and logs that once. | The frozen interface left it out. |
+| 9 | `arcade_pending` | Pending vaults live in `TableApi.pending` (get, put, remove, olderThan, usable inside `wallet.tx`), which the platform added at M2 on request. | The frozen interface left it out. |
 | 10 | Resume lookup | A zero-leg `wallet.transfer(…, idem, [])` tells "settled, receipt cleared" from "never arrived": a duplicate answers `dup`, anything else is refused before anything is written. | `wallet.receipt()` returns null for both. |
 | 11 | Catalogue modes | The client meta lists one mode, the hall; a Dash is opened inside it. | Nothing to choose before entering. |
 | 12 | Admin setting | `slotsMaxBet` (5–500) in Glimmerhall's `TableGameDef.settings`. | §19 item 14. |
 | 13 | Dev rig | Dev builds expose the offline hall's debug hooks as `window.__glimmerLocal` (`rig` queues the next draws, for the browser checks). Production builds never set it, and it only reaches the offline Practice hall. | Features can be forced in a real browser. |
 | 14 | Offline Dash | Every bot neighbour joins at once; the host leaving the lobby calls it off. A Dash still open when the hall closes is void and the buy-in goes back. | No humans to wait for offline. |
 | 15 | `glimmer:away`, `glimmer:react` | Acknowledged with a bare `{ok: true}` (a reaction refused by the 3 s rule is still `{ok: true}`, and dropped). | The `TableHost` only has `request()`; an unanswered request would time out and count in the app's ack round-trip ring, which the chat-first guard reads. |
+| 16 | Away gap (§8.2) | A change inside the 5 s gap is held and shown when the gap ends, with the state as it is then; away and back inside one gap shows nothing. | Dropping it left a player who came back within 5 s shown as away until something else changed. |
+| 17 | First pot | The first `glimmer:enter` (and boot) seeds 7,500 into a pot that was never won, as a `pot_seed` txn with the fixed key `ps:first`. | The 1.5 % pot return (§4.1) assumes the seed; a fresh pot started at 0. |
+| 18 | Activity during a Dash | `st` stays `'open'` while a Dash runs (`DASH_ACTIVITY = false` in halls/glimmer.ts). | The platform's Arcade sheet and chip show no Open button for `'dash'`, which kept newcomers out of the hall for up to 10 minutes. The platform was asked to treat `'dash'` like `'open'`; then the flag flips back. |
+| 19 | Dash sheet clock | While the Dash sheet is open on a lobby or running Dash and the hall is visible, it ticks once a second from the last view's `t`. | A waiting lobby gets no pushes, so its clock stood still. No timer runs otherwise. |
+| 20 | Bench | `ops/bench/games/glimmer.mjs` exports the plugin contract plus `ready`, `criteria` and `stage`, and runs the 3G scenario on its own with the bench libraries. | The netbench waits for lane frames and checks frame rates, which a hall never sends; the platform was asked for table-game support. |
+| 21 | Reactions for screen readers | The live region says who reacted to whom ("Bo reacted to you: clap"). | It said "You: clap". |
 
 <!--
 Notes for the orchestrator (not part of the spec):
