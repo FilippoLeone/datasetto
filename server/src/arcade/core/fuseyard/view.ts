@@ -471,17 +471,23 @@ const applyPlatform = (w: World, e: PlatformEvent, t: number): void => {
 /** The world the event walkers below apply to (module scratch: no closures per frame). */
 let target: World | null = null;
 
+/** A bad event: leave the reader past its end, so the host's decode check asks for a resync. */
+const bad = (r: ByteReader): boolean => {
+  r.skip(r.remaining + 1);
+  return false;
+};
+
 const onGame = (kind: number, r: ByteReader, t: number): boolean => {
   const w = target as World;
   if (t <= w.keyTick) {
     // Already in the keyframe: skip its bytes.
     const size = (EV_SIZE[kind] as number | undefined) ?? 0;
-    if (size === 0) return false;
+    if (size === 0) return bad(r);
     r.skip(size - 1);
     return r.ok;
   }
   advanceTo(w, t);
-  return applyGame(w, kind, r, t);
+  return applyGame(w, kind, r, t) || bad(r);
 };
 
 const onPlatform = (e: PlatformEvent, t: number): void => {

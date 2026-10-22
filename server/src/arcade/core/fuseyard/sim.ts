@@ -591,7 +591,8 @@ const applySeats = (m: Match, input: StepIn): void => {
     if (cmd === SeatCmd.Return) {
       if (f.control === Control.Ghost) {
         f.control = Control.Human;
-        f.shield = f.alive ? SHIELD : 0;
+        // A shield only matters once the round runs (a seat connecting during the countdown gets none).
+        f.shield = f.alive && r.phase !== Phase.Countdown && r.phase !== Phase.RoundEnd && r.phase !== Phase.MatchEnd ? SHIELD : 0;
         f.lastInput = 0;
         if (f.alive) passersFor(r, f);
         seatOut(m, s, Seat.Live);
@@ -625,7 +626,19 @@ const applySeats = (m: Match, input: StepIn): void => {
         seatOut(m, s, Seat.Left);
       }
     } else if (cmd === SeatCmd.Reclaim) {
-      if (f.control === Control.Bot && !f.left) f.reclaim = true;
+      // A human takes a bot's seat back (or a queued joiner takes a free one): at once during a
+      // countdown (the platform reclaims right at a round start), else at the next round setup.
+      if (f.control === Control.Bot) {
+        if (r.phase === Phase.Countdown) {
+          f.control = Control.Human;
+          f.left = false;
+          f.reclaim = false;
+          f.shield = 0;
+          f.lastInput = 0;
+          resetBrain(m.brains[s] as BotBrain);
+          seatOut(m, s, Seat.Live);
+        } else f.reclaim = true;
+      }
     }
   }
   // Pending ghost requests: the danger lock (§1.7).

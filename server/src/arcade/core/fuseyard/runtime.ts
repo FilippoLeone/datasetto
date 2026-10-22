@@ -187,10 +187,10 @@ export const createFuseyardCore = (o: FuseyardCoreOpts): FuseyardCore => {
     }
     if (m.roundStarted) {
       for (let s = 0; s < 4; s += 1) liveAtFinalStart[s] = (r.fighters[s] as Fighter).control === Control.Human ? 1 : 0;
+      // The new board needs a keyframe for everyone (blocks are random, events cannot describe it):
+      // the server sends one to every recipient on `roundStart`; the local host needs a rekey.
       emit({ t: 'roundStart' });
-      // The new board is a keyframe for everyone: blocks are random, so events cannot describe it.
-      for (let s = 0; s < m.config.fighters; s += 1) emit({ t: 'rekey', slot: s, reason: 5, view: 0 });
-      emit({ t: 'rekey', slot: 0xff, reason: 5, view: 0 });
+      if (o.offline) for (let s = 0; s < m.config.fighters; s += 1) emit({ t: 'rekey', slot: s, reason: 5, view: 0 });
     }
     // Round bookkeeping for results: a round counts for a seat that was live when it ended.
     if (m.roundEnded) {

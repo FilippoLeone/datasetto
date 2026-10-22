@@ -61,14 +61,16 @@ const fuseyard: MatchGameDef = {
   host: 'lowestSeat',
   // A ghost seat: 60 s per episode, 90 s per match, then a Scrapper bot until its owner reclaims it.
   grace: { episodeMs: 60_000, matchMs: 90_000, awayLimitMs: 60_000, after: 'bot' },
-  idle: { noHumanMs: 30_000, noInputMs: 120_000 },
+  // The 120 s no-input rule needs round state (it runs only while a live human plays an unfrozen
+  // round), so the core ends the match itself; the platform's clock is a 10-minute safety net.
+  idle: { noHumanMs: 30_000, noInputMs: 600_000 },
   sender: { skipUnchanged: true, budget: BUDGET },
   serverLimit: null,
   botFill: true,
   cfgSchema,
   create(ctx) {
-    const cfg = ctx.cfg as (FuseyardCfg & { mode?: string }) | null;
-    const config = configOf(cfg, ctx.seed, cfg?.mode);
+    const cfg = ctx.cfg as FuseyardCfg | null;
+    const config = configOf(cfg, ctx.seed, ctx.mode);
     const seats = ctx.seats.map((s) => ({ slot: s.slot, human: !s.bot, botLevel: s.bot ? s.botLevel : config.botLevel }));
     const core = createFuseyardCore({ config, seats, offline: false, replay: true });
     return wrapCore('fuseyard', ctx.id, core, {

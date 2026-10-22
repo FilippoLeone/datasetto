@@ -52,7 +52,8 @@ export const createTestSender = (core: FuseyardCore, slot: number): TestSender =
       const count = (chunk?.count ?? 0) + seats.length;
       if (count > 0) pending.push({ tick: t, bytes: w.copy(), count });
       for (const e of host) {
-        if (e.t === 'rekey' && (e.slot === slot || e.slot === 0xff)) rekey = true;
+        // As the platform's match does: a round start sends every recipient a keyframe.
+        if ((e.t === 'rekey' && (e.slot === slot || e.slot === 0xff)) || e.t === 'roundStart') rekey = true;
         if (e.t === 'phase') phases.push({ phase: e.phase, body: e.body.slice() });
       }
     },
