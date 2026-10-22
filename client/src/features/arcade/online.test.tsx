@@ -129,6 +129,18 @@ describe('the Arcade sheet online', () => {
     expect(arcadeLobby.value).toBeNull();
   });
 
+  it('shows no bot stepper and no Bot seats for a game whose options choose its bots', async () => {
+    enterLobby(lobbyView({ id: nextId(), game: 'lamplight', mode: 'cup' }), 'player');
+    act(() => render(<ArcadeSheet channelId="c1" anchor={null} onClose={() => undefined} />, host));
+    const panel = document.querySelector('[data-arcade-lobby]') as HTMLElement;
+    expect(panel).not.toBeNull();
+    expect(document.querySelector('[data-arcade-bots]')).toBeNull();
+    expect(document.querySelector('[aria-label="More bots"]')).toBeNull();
+    expect(panel.textContent).not.toContain('Bot');
+    // The game decides whether one human can start (its refusal shows in the sheet).
+    expect((document.querySelector('[data-arcade-start-lobby]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('joins a seat and watches from the channel list, and invites a voice member', async () => {
     const id = nextId();
     arcadeActivity.value = new Map([['c1', [entry({ id })]]]);

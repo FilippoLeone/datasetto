@@ -31,6 +31,12 @@ export interface GameMeta {
   seats: readonly [number, number];
   /** Offers Watch. */
   watch: boolean;
+  /**
+   * The lobby's host fills free seats with bots from the sheet (default true). False when the game's
+   * own lobby options choose its bots (Lamplight): the sheet then shows no bot stepper, labels no seat
+   * "Bot" before the start, and leaves the minimum-players check to the game.
+   */
+  hostBots?: boolean;
   options: readonly OptionField[];
   /** `() => import('./index').then((m) => m.default)`. */
   load(): Promise<GameChunk>;

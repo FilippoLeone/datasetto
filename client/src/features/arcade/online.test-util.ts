@@ -151,7 +151,23 @@ export const onlineGlimmer: GameMeta = {
   load: async () => tableChunk,
 };
 
-export const ONLINE_CATALOG: readonly GameMeta[] = [onlineGlimmer, onlineFuseyard];
+/** A table game whose own lobby options choose its bots (as Lamplight does). */
+export const onlineLamplight: GameMeta = {
+  id: 'lamplight',
+  name: 'Lamplight',
+  tagline: 'A fake table',
+  icon: 'cards',
+  lane: 'table',
+  ready: { offline: false, online: true },
+  modes: [{ id: 'cup', label: 'Cup', online: true, offline: false }],
+  seats: [2, 6],
+  watch: true,
+  hostBots: false,
+  options: [],
+  load: async () => tableChunk,
+};
+
+export const ONLINE_CATALOG: readonly GameMeta[] = [onlineGlimmer, onlineFuseyard, onlineLamplight];
 
 export const lobbyView = (patch: Partial<LobbyView> = {}): LobbyView => ({
   id: 'L1',

@@ -126,7 +126,8 @@ const LobbyPanel = ({ lobby, onInvite, onError }: { lobby: LobbyView; onInvite()
   const [bots, setBots] = useState(0);
   const [busy, setBusy] = useState(false);
   const humans = lobby.seats.filter((seat) => seat.a).length;
-  const botCount = Math.min(bots, lobby.seats.length - humans);
+  const hostBots = meta?.hostBots !== false;
+  const botCount = hostBots ? Math.min(bots, lobby.seats.length - humans) : 0;
   const forming = lobby.st === 'open';
   const cfg = (lobby.cfg && typeof lobby.cfg === 'object' ? lobby.cfg : {}) as Record<string, unknown>;
   const options = meta ? meta.options.filter((field) => field.kind !== 'saveSlot') : [];
@@ -165,7 +166,7 @@ const LobbyPanel = ({ lobby, onInvite, onError }: { lobby: LobbyView; onInvite()
           </li>
         ))}
       </ol>
-      {isHost && forming && (
+      {isHost && forming && hostBots && (
         <div className="flex items-center gap-1 px-1 text-sm">
           <span className="flex flex-1 items-center gap-2 text-text-bright">
             <Bot size={16} className="text-text-muted" /> Bots in free seats
@@ -203,7 +204,7 @@ const LobbyPanel = ({ lobby, onInvite, onError }: { lobby: LobbyView; onInvite()
           <button
             type="button"
             className={cn(SHEET_BUTTON, 'bg-success text-white hover:bg-[#1a8a49]')}
-            disabled={busy || humans + botCount < (meta?.seats[0] ?? 1)}
+            disabled={busy || humans + botCount < (hostBots ? (meta?.seats[0] ?? 1) : 1)}
             onClick={() => void run(() => startLobby(lobby.id))}
             data-arcade-start-lobby
           >
