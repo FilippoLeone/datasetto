@@ -29,6 +29,54 @@ describe('frames (phase 0 shim)', () => {
     expect(frames.active).toBe(0);
     expect(fake.pending).toBe(0);
   });
+
+  const countRequests = (): { readonly n: number } => {
+    const inner = window.requestAnimationFrame;
+    const counter = { n: 0 };
+    window.requestAnimationFrame = (cb) => {
+      counter.n += 1;
+      return inner(cb);
+    };
+    return counter;
+  };
+
+  it('paces a 60 fps cap on a 240 Hz display with a timer and one frame request per call', () => {
+    const requests = countRequests();
+    let calls = 0;
+    const off = frames.add(() => (calls += 1), { maxFps: 60 });
+    fake.advance(1000, 240);
+    expect(calls).toBeGreaterThanOrEqual(55);
+    expect(calls).toBeLessThanOrEqual(61);
+    // A request on every refresh would be about 240; pacing needs about one per call (plus a few
+    // back-to-back frames to measure the display, and an occasional early wake-up).
+    expect(requests.n).toBeLessThan(100);
+    off();
+    expect(fake.pending).toBe(0);
+  });
+
+  it('keeps one request per refresh when the cap is the display rate, or a subscriber is uncapped', () => {
+    const requests = countRequests();
+    let capped = 0;
+    const off = frames.add(() => (capped += 1), { maxFps: 60 });
+    fake.advance(1000, 60);
+    expect(capped).toBeGreaterThanOrEqual(58);
+    expect(requests.n).toBeGreaterThanOrEqual(58);
+    off();
+    // On a 240 Hz display a capped game is paced until an uncapped subscriber joins.
+    let paced = 0;
+    let full = 0;
+    const offPaced = frames.add(() => (paced += 1), { maxFps: 60 });
+    fake.advance(500, 240);
+    const offFull = frames.add(() => (full += 1));
+    fake.advance(500, 240);
+    expect(full).toBeGreaterThanOrEqual(115);
+    expect(paced).toBeGreaterThanOrEqual(55);
+    expect(paced).toBeLessThanOrEqual(61);
+    offPaced();
+    offFull();
+    expect(frames.active).toBe(0);
+    expect(fake.pending).toBe(0);
+  });
 });
 
 describe('createLoop', () => {

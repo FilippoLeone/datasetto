@@ -1193,7 +1193,7 @@ Work through every item below. The list consolidates the reader findings.
   - Bellwick: 200 bot runs through the dungeon script.
 - **Delta-base fuzz.** A random schedule of skipped slots, parks (all four reasons), unparks and reconnects, applied through the real sender to a decoding client. After every keyframe-plus-events sequence, the client's world must equal the server's public view for that recipient.
 - **Pacer** with synthetic ack traces:
-  - the ladder steps down within 1 s of +150 ms queueing and back to the default after 3 s calm;
+  - the ladder steps down once +150 ms queueing has held 1 s as the server measures it, and goes back to the default after 3 s calm;
   - an idle player sending only ACKs is never `stalled`;
   - after a 10 s silence, recovery costs one keyframe.
 - **Poker.**
@@ -1222,7 +1222,8 @@ It drives the real `core/net/pacer`, the real codecs, the real `sender` logic wi
 | Wi-Fi | 20 Mbit/s, 30 ms | 15 Hz; prediction error p95 < 0.1 tile |
 | 3G | 750 / 250, 300 ms, ±50 ms | chat one-way p95 < 300 ms; ≥ 13 frames/s; bytes/s within §7 ceilings; game queue ≤ 8 KB |
 | 3G + 1 % loss | as above | chat p95 < 450 ms (RTT + 150); ≥ 10 frames/s; prediction error p95 < 0.25 tile |
-| Collapse | 3G, then 120 kbit/s for 20 s, then back | ladder down within 1 s; ≥ 5 frames/s or a clean `overflow` park; recovery to 15 Hz within 5 s; no chat ack over 2 s |
+| Collapse | 3G, then 120 kbit/s for 20 s, then back | the ladder steps down once queueing (+150 ms) has held 1 s as the server sees it, and the first FRAME at the new rate leaves within 1.25 s of that onset (measured 1,191 ms in the squeeze); ≥ 5 frames/s or a clean `overflow` park; recovery to 15 Hz within 5 s; no chat ack over 2 s. The game's traffic is small enough that 120 kbit/s no longer squeezes the lane, which is the point of the design. |
+| Squeeze | 3G, then 12 kbit/s left after voice, then back | as Collapse; this is the scenario that actually squeezes the lane |
 | Tunnel | 10 s outage | `stalled` at 2.5 s → ghost; resume with one keyframe ≤ 512 B; client world equals the server's |
 | Main-socket backlog | inject a 3 s ack delay | `yield` within 2.5 s, game paused, resumes after 2 probes |
 
@@ -1259,7 +1260,8 @@ It drives the real `core/net/pacer`, the real codecs, the real `sender` logic wi
 - **Scenarios**, 45 s each, aborting early on failure:
   1. 3G;
   2. 3G with 1 % head-of-line loss;
-  3. 3G with a 20 s collapse to 120 kbit/s in the middle.
+  3. 3G with a 20 s collapse to 120 kbit/s in the middle (the lane fits; the check is that nothing degrades);
+  4. 3G with 12 kbit/s left for the game in the middle (the squeeze: the ladder steps down once queueing (+150 ms) has held 1 s as the server sees it, and the first FRAME at the new rate leaves within 1.25 s of that onset (measured 1,191 ms in the squeeze), and recovers).
 
   Pass criteria are as in §15.2, plus no ping timeout on either socket and lane `bufferedAmount` < 8 KB.
 - **Real packet loss.** One optional 45 s `tc netem` run on the Docker test box, only if the head-of-line model and the bench disagree.
@@ -1434,4 +1436,5 @@ Notes on where the implementation fills in or differs from plan.md §2.6. Each l
 | 44 | Round keyframes | On the host event `roundStart` every recipient (seats and watchers) gets a KEYFRAME with reason 3, before queued joiners and reclaims take their seats. A game whose rounds change the world (Fuseyard's new block layout) needs no `rekey` events of its own. |
 | 45 | `MatchCreateCtx.mode` | `create()` receives the lobby's mode next to `cfg` (which is the lobby options after the game's `cfgSchema`). |
 | 46 | Event bursts | A FRAME carries at most 255 events, and the sender splits only between ticks: one tick's chunk is opaque to it. A tick with 255 or more events for one recipient becomes a KEYFRAME with reason 5 instead, and those events are dropped; games should keep a tick well under that. A game that finds a bad event mid-block makes sure the decode check fires with one read past the end (`r.skip(r.remaining + 1)`), so the remote host sends RESYNC 1 even when the bad event was the last one. |
-| 47 | Shaped bench (probe game) | One shaped Chrome and 3 Node bots, 129.6 s with setup: 3G 15 frames/s and chat p95 169 ms; 3G + 1 % loss median 10 frames/s (on the limit: each 600 ms retransmission stall reads as queueing and costs 3 s at d = 3); the 120 kbit/s collapse never queues (n/a). At 12 kbit/s the first step down left the server 1,069 ms after the bottleneck started queueing: the 1 s in §6.1 counts from the server's view (RTT samples arrive one round trip after the queue builds). Up messages stay at 15/s whatever the divisor, so their TCP acks keep about 65 % of a 12 kbit/s down link busy. |
+| 47 | Shaped bench (probe game) | One shaped Chrome and 3 Node bots, 129.6 s with setup: 3G 15 frames/s and chat p95 169 ms; 3G + 1 % loss median 10 frames/s (on the limit: each 600 ms retransmission stall reads as queueing and costs 3 s at d = 3); the 120 kbit/s collapse never queues (n/a). In the 12 kbit/s squeeze the first FRAME at the new rate left the server 1,191 ms after the queueing onset as the server sees it (1,069 ms after the bottleneck queue built): the pacer steps once queueing has held 1 s, then waits for the next slot the in-flight cap admits. The bar is therefore 1.25 s from the server-view onset (§15.2); a shorter trigger would cost the lossy-link margin. Up messages stay at 15/s whatever the divisor, so their TCP acks keep about 65 % of a 12 kbit/s down link busy. |
+| 48 | Capped-rate frames | Decided with PR #28: when every `frames` subscriber has a `maxFps` whose period is at least 1.5 display frames, the scheduler sleeps on a timer until 1 ms before the soonest is due and requests a single rAF, instead of keeping a request pending every refresh (a 60 fps game on a 240 Hz screen). The display period is measured from back-to-back frames and re-measured whenever the scheduler goes idle. The `p0.ts` stand-in does the same; `installFakeFrames()` runs the scheduler's timers (`frameTimers`) in virtual time. |

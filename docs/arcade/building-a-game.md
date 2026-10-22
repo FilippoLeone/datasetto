@@ -57,4 +57,13 @@ Server side, `server/test/arcade/harness/index.ts` is one import for everything:
 
 `node ops/bench/arcade-netbench.mjs --game <id> [--max-wall 600] [--out <dir>]` runs one headless Chrome through a userland TCP shaper (the non-voice share of 3G: 600/100 kbit/s, 300 ms RTT, 64 KB buffers) next to unshaped Node bots, with a chat prober on the main socket. Each scenario is capped at 60 s and stops early once a check has failed. The report gives frames per second, chat one-way delay, probe RTT, lane bytes per second, what the server actually sent (FRAME divisors, keyframe reasons) and the watchdog level.
 
-A game takes part by adding `ops/bench/games/<id>.mjs`, found by file name. `ops/bench/games/probe.mjs` is the example: it exports `scenarios`, `game`, `humans`, `serverOptions({loadServer})` (the server's game registry), `startBots(server, n)` (returns `{lobby, start(), stats(), stop()}`) and `enter(page, lobby)` (the shaped page joins the lobby and plays through the app's own remote host).
+A game takes part by adding `ops/bench/games/<id>.mjs`, found by file name (or `--plugin <file>`). `ops/bench/games/probe.mjs` is the example. Scenarios: `3g`, `3g-loss`, `collapse` (120 kbit/s, the lane fits) and `squeeze` (12 kbit/s left after voice); a full run stays under 150 s.
+
+- **Required exports:** `scenarios` (a subset of the four), `game` (the server game id), `startBots(server, n)` returning `{ lobby: { id, ch, game, started }, start({ humans }), stats(), stop() }` (called with n = `humans` − 1), and `enter(page, lobby)`.
+- **Optional exports:**
+  - `humans` (default 4) and `serverOptions({ loadServer })` (the server's Arcade options, e.g. `{ matchGames }`).
+  - `ready(store)`: setup waits for it instead of the first lane frames (15 s), for table games; `store.game` holds the plugin's own samples.
+  - `criteria`: `{ [scenario]: {...} }` replaces that scenario's checks. Keys: `framesMedian` (frames/s ≥), `chatP95` and `chatP50` (chat one-way ms <), `sioDownKbps { kinds: [prefix…], max }` (mean socket.io down kbit/s for events whose name starts with a prefix; `'ack'` covers acks), `probeMaxMs`, and `collapse: true` with `recoverFrames` (the ladder, floor and recovery checks). No disconnects and lane `bufferedAmount` are always checked.
+  - `stage = true`: the app keeps its own `arcade:lobby` handling, so its stage opens.
+- **What `enter` gets:** in Chrome, `page.page.eval(js)` (`window.__bench.sc` is the app's socket client; push samples with `window.__bench.game.push(…)`), `page.startProbes(ms)` for the acked `arcade:probe`, and `page.join(ch, id)` / `page.play(id, opts)` for the action lane; with `--client node`, `page.main` (a socket.io client with `request` and `joinVoice`), `page.game` and `page.startProbes(ms)`.
+- **Ladder bar** (collapse and squeeze): the server steps down once queueing has held 1 s as it sees it, and the first FRAME at the new rate leaves within 1.25 s of that onset.

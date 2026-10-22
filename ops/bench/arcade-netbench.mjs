@@ -11,26 +11,31 @@
  * Chrome (muted, silent fake microphone) running the real client. A chat prober sends a ~200 B
  * server message to the browser every second, and the page does an acked `arcade:probe` every 2 s.
  *
- * Scenarios (5 s settle each, then measurement; a scenario stops as soon as a check has certainly
- * failed; 60 s cap per scenario; `--max-wall` for the whole run):
+ * Scenarios (a 5 s settle before the first, 3 s before the others, then measurement; a scenario stops
+ * as soon as a check has certainly failed; 60 s cap per scenario; `--max-wall` for the whole run; a
+ * full default run takes about 140 s including setup):
  *   3g        25 s
  *   3g-loss   25 s, 1 % head-of-line loss
- *   collapse  45 s, 3G with 120 kbit/s down for 20 s in the middle
+ *   collapse  35 s: 5 s 3G, 20 s at 120 kbit/s down, 10 s 3G
+ *   squeeze   25 s: 5 s 3G, 12 s at 12 kbit/s down, 8 s 3G
  *
  * Other options:
  *   --client chrome|node   node: a Node stand-in for the browser (dry runs without Chrome)
  *   --via shaper|vite      node client: straight into the shaper, or through Vite's proxy
  *   --scenarios a,b        a subset
  *   --collapse-kbps 120    the collapsed down rate
+ *   --squeeze-kbps 12      the squeezed down rate
+ *   --settle 5 / --settle-next 3   settle before the first / the later scenarios (s)
  *   --scale 1              multiply scenario durations (quick dry runs)
  *   --full                 run every scenario to its end even after a check failed (≤ 60 s each)
+ *   --plugin <file>        load the game plugin from this file instead of games/<game>.mjs
  *
  * Results: report.json and summary.txt in --out (default %TEMP%/arcade-netbench/<time>).
  * Everything it starts (Chrome, Vite) is killed by PID at the end.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { connectMain, createNodeShaped } from './lib/clients.mjs';
 import { launchChrome, sleep } from './lib/chrome.mjs';
@@ -51,13 +56,16 @@ const arg = (name, fallback) => {
 };
 const opts = {
   game: arg('game', 'probe'),
+  plugin: arg('plugin', null),
   maxWallS: Number(arg('max-wall', '600')),
   client: arg('client', 'chrome'),
   via: arg('via', 'shaper'),
   scenarios: arg('scenarios', null),
   collapseKbps: Number(arg('collapse-kbps', '120')),
+  squeezeKbps: Number(arg('squeeze-kbps', '12')),
   scale: Number(arg('scale', '1')),
   settleS: Number(arg('settle', '5')),
+  settleNextS: Number(arg('settle-next', arg('settle', '3'))),
   full: argv.includes('--full'),
   out: arg('out', join(tmpdir(), 'arcade-netbench', new Date().toISOString().replace(/[:.]/g, '-'))),
 };
@@ -71,19 +79,25 @@ const SCENARIO_CAP_MS = 60_000;
 const SCENARIOS = {
   '3g': (s) => ({ id: '3g', label: '3G', measureS: 25 * s, phases: [{ at: 0, link: link3g() }], criteria: { framesMedian: 13, chatP95: 300 } }),
   '3g-loss': (s) => ({ id: '3g-loss', label: '3G + 1 % HOL loss', measureS: 25 * s, phases: [{ at: 0, link: link3g({ lossEvery: 100 }) }], criteria: { framesMedian: 10, chatP95: 450 } }),
-  collapse: (s) => ({
-    id: 'collapse',
-    label: '3G, ' + opts.collapseKbps + ' kbit/s down for 20 s',
-    measureS: 45 * s,
-    collapse: { fromS: 12.5 * s, toS: 32.5 * s, kbps: opts.collapseKbps },
+  collapse: (s) => drop({ id: 'collapse', kbps: opts.collapseKbps, leadS: 5 * s, downS: 20 * s, backS: 10 * s }),
+  squeeze: (s) => drop({ id: 'squeeze', kbps: opts.squeezeKbps, leadS: 5 * s, downS: 12 * s, backS: 8 * s }),
+};
+
+/** 3G, then `kbps` down for `downS`, then 3G again (the collapse-style checks in report.mjs). */
+function drop({ id, kbps, leadS, downS, backS }) {
+  return {
+    id,
+    label: '3G, ' + kbps + ' kbit/s down for ' + downS + ' s',
+    measureS: leadS + downS + backS,
+    collapse: { fromS: leadS, toS: leadS + downS, kbps },
     phases: [
       { at: 0, link: link3g() },
-      { at: 12.5 * s, link: link3g({ downKbps: opts.collapseKbps }), tag: 'collapse' },
-      { at: 32.5 * s, link: link3g(), tag: 'return' },
+      { at: leadS, link: link3g({ downKbps: kbps }), tag: 'drop' },
+      { at: leadS + downS, link: link3g(), tag: 'return' },
     ],
-    criteria: { collapse: true, recoverFrames: 13 },
-  }),
-};
+    criteria: { collapse: true, recoverFrames: 13, probeMaxMs: 2000 },
+  };
+}
 
 // ---------------------------------------------------------------- run state
 
@@ -131,7 +145,8 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
 
 let run = null;
 const adminStats = [];
-const store = { frames: [], keyframes: [], chat: [], probes: [], lane: [], sock: [], yields: [], phases: [], errors: [] };
+// `game`: a plugin's own samples (window.__bench.game in the page), for its `ready(store)`.
+const store = { frames: [], keyframes: [], chat: [], probes: [], lane: [], sock: [], yields: [], phases: [], errors: [], game: [] };
 let client = null;
 let draining = null;
 const drainNow = async () => {
@@ -163,7 +178,7 @@ const waitUntil = async (fn, timeoutMs, label) => {
 
 const main = async () => {
   mkdirSync(opts.out, { recursive: true });
-  const plugin = await import(pathToFileURL(join(BENCH_DIR, 'games', opts.game + '.mjs')).href);
+  const plugin = await import(pathToFileURL(opts.plugin ? resolve(opts.plugin) : join(BENCH_DIR, 'games', opts.game + '.mjs')).href);
   const wanted = (opts.scenarios ? opts.scenarios.split(',') : plugin.scenarios).filter((id) => plugin.scenarios.includes(id) && SCENARIOS[id]);
   run = {
     game: opts.game,
@@ -183,13 +198,35 @@ const main = async () => {
   const useVite = usePage || opts.via === 'vite';
   const taken = new Set();
   const vitePort = useVite ? await freePort(taken) : null;
+  const shaperPort = await freePort(taken);
   const corsOrigins = vitePort ? [`http://127.0.0.1:${vitePort}`, `http://localhost:${vitePort}`] : ['http://localhost'];
 
-  log('starting server (game ' + opts.game + ')');
+  // Vite and Chrome start at once, in parallel with the server (Vite proxies to the shaper's port,
+  // which is chosen now and listened on below).
+  log('starting server (game ' + opts.game + '), vite and chrome');
+  let vite = null;
+  const viteStarting = useVite
+    ? startVite({ port: vitePort, proxy: 'http://127.0.0.1:' + shaperPort, logFile: join(opts.out, 'vite.log') }).then((v) => {
+        vite = v;
+        cleanups.push(() => v.kill());
+        log('vite up (pid ' + v.pid + ')');
+        return v;
+      })
+    : Promise.resolve(null);
+  const chromeStarting = usePage
+    ? launchChrome({ name: 'shaped' }).then((c) => {
+        cleanups.push(() => c.kill());
+        log('chrome up (pid ' + c.pid + ')');
+        return c;
+      })
+    : Promise.resolve(null);
+  // Awaited after the server is up; until then a rejection must not count as unhandled.
+  viteStarting.catch(() => undefined);
+  chromeStarting.catch(() => undefined);
   const serverOptions = plugin.serverOptions ? await plugin.serverOptions({ loadServer }) : {};
   const server = await startBenchServer({ corsOrigins, arcade: serverOptions });
   cleanups.push(() => server.close());
-  const shaper = await createShaper({ target: { host: '127.0.0.1', port: server.port }, link: link3g() });
+  const shaper = await createShaper({ target: { host: '127.0.0.1', port: server.port }, port: shaperPort, link: link3g() });
   cleanups.push(() => shaper.close());
   server.setShapedCheck((port) => shaper.localPorts.has(port));
   run.ports = { server: server.port, shaper: shaper.port, vite: vitePort };
@@ -210,22 +247,6 @@ const main = async () => {
   }, 2000);
   cleanups.push(() => clearInterval(adminTimer));
 
-  let vite = null;
-  const viteStarting = useVite
-    ? startVite({ port: vitePort, proxy: 'http://127.0.0.1:' + shaper.port, logFile: join(opts.out, 'vite.log') }).then((v) => {
-        vite = v;
-        cleanups.push(() => v.kill());
-        log('vite up (pid ' + v.pid + ')');
-        return v;
-      })
-    : Promise.resolve(null);
-  const chromeStarting = usePage
-    ? launchChrome({ name: 'shaped' }).then((c) => {
-        cleanups.push(() => c.kill());
-        log('chrome up (pid ' + c.pid + ')');
-        return c;
-      })
-    : Promise.resolve(null);
   // Settle every start before anything fails, so a refused start still gets its cleanup registered.
   const [viteResult, chromeResult] = await Promise.allSettled([viteStarting, chromeStarting]);
   if (viteResult.status === 'rejected') throw viteResult.reason;
@@ -246,7 +267,8 @@ const main = async () => {
     await waitUntil(() => server.signedIn(shapedAccount.id), 40000, 'the page to sign in');
     await page.eval(PAGE_SETUP);
     client = pageClient(page);
-    await client.init();
+    // A plugin exporting `stage = true` keeps the app's own lobby handling (its stage opens).
+    await client.init({ stage: plugin.stage === true });
     log('page signed in');
   } else {
     client = await createNodeShaped({ url: opts.via === 'vite' ? vite.url : 'http://127.0.0.1:' + shaper.port, token: shapedAccount.token });
@@ -262,19 +284,27 @@ const main = async () => {
   server.startChat(shapedAccount.id);
   const pump = setInterval(() => void drainNow(), 500);
   cleanups.push(() => clearInterval(pump));
-  await waitUntil(async () => {
-    await drainNow();
-    return store.frames.length > 0;
-  }, 15000, 'the first frames at the shaped client');
+  // A game without lane frames (a table game) says when it is ready with `ready(store)`.
+  await waitUntil(
+    async () => {
+      await drainNow();
+      return plugin.ready ? plugin.ready(store) === true : store.frames.length > 0;
+    },
+    15000,
+    plugin.ready ? 'the game to be ready' : 'the first frames at the shaped client',
+  );
   run.setupS = Math.round((Date.now() - wallStart) / 100) / 10;
-  log('match running; setup took ' + run.setupS + ' s');
+  log((plugin.ready ? 'game ready' : 'match running') + '; setup took ' + run.setupS + ' s');
 
-  for (const id of wanted) {
+  for (const [i, id] of wanted.entries()) {
     if (wallExceeded) {
       run.notes.push('scenario ' + id + ' skipped: max wall time');
       continue;
     }
-    run.scenarios.push(await runScenario(SCENARIOS[id](opts.scale), { shaper, server, chrome }));
+    const def = SCENARIOS[id](opts.scale);
+    // A plugin's `criteria[id]` replaces the scenario's criteria (e.g. no frames check for a table game).
+    if (plugin.criteria?.[id]) def.criteria = plugin.criteria[id];
+    run.scenarios.push(await runScenario(def, { shaper, server, settleS: i === 0 ? opts.settleS : opts.settleNextS }));
   }
 
   await drainNow();
@@ -291,11 +321,11 @@ const main = async () => {
   return run;
 };
 
-const runScenario = async (def, { shaper, server }) => {
-  const settleMs = opts.settleS * 1000;
+const runScenario = async (def, { shaper, server, settleS }) => {
+  const settleMs = settleS * 1000;
   const settleAt = Date.now();
   shaper.setLink(def.phases[0].link);
-  log('scenario ' + def.id + ' (' + def.label + '): settle ' + opts.settleS + ' s, measure ' + def.measureS + ' s');
+  log('scenario ' + def.id + ' (' + def.label + '): settle ' + settleS + ' s, measure ' + def.measureS + ' s');
   while (Date.now() < settleAt + settleMs && !wallExceeded) await sleep(100);
   const mStart = Date.now();
   const mEnd = mStart + def.measureS * 1000;

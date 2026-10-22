@@ -13,7 +13,7 @@
  */
 import { connectMain, openLane } from '../lib/clients.mjs';
 
-export const scenarios = ['3g', '3g-loss', 'collapse'];
+export const scenarios = ['3g', '3g-loss', 'collapse', 'squeeze'];
 export const game = 'fuseyard';
 export const humans = 4;
 

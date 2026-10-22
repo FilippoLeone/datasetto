@@ -8,12 +8,15 @@
  *
  * `window.__bench` keeps the samples (all `Date.now()`, the same clock as the server and the bench):
  * frames [t, divisor, lagging], keyframes [t, reason], chat [t, oneWayMs], probes [t, rttMs, ok],
- * lane / sock events, yields [t, on]. `drain()` hands them over and empties the lists.
+ * lane / sock events, yields [t, on], game (a plugin's own samples, pushed from its enter()).
+ * `drain()` hands them over and empties the lists. `init({ stage: true })` keeps the app's lobby
+ * handling; `startProbes(ms)` starts the probe for a game that plays no lane.
  */
 
 export const PAGE_SETUP = String.raw`(() => {
   if (window.__bench) return 'already';
-  const KEYS = ['frames', 'keyframes', 'chat', 'probes', 'lane', 'sock', 'yields', 'phases', 'errors'];
+  // 'game': a plugin's own samples (B.game.push(...) from its enter()); they arrive as store.game.
+  const KEYS = ['frames', 'keyframes', 'chat', 'probes', 'lane', 'sock', 'yields', 'phases', 'errors', 'game'];
   const B = { ups: 0 };
   for (const k of KEYS) B[k] = [];
   window.__bench = B;
@@ -43,7 +46,7 @@ export const PAGE_SETUP = String.raw`(() => {
     return out;
   };
 
-  B.init = async () => {
+  B.init = async (opts) => {
     const { socketClient } = await import('/src/services/socket/client.ts');
     B.sc = socketClient;
     const started = Date.now();
@@ -53,12 +56,15 @@ export const PAGE_SETUP = String.raw`(() => {
     }
     const raw = socketClient.socket;
     // The app opens its own stage (and a second lane for the same seat) when the lobby it is in goes
-    // live. The bench drives the lane itself, so the app does not see lobby updates.
-    const emitEvent = raw.emitEvent;
-    raw.emitEvent = function (args) {
-      if (args && args[0] === 'arcade:lobby') return;
-      return emitEvent.call(this, args);
-    };
+    // live. The bench drives the lane itself, so the app does not see lobby updates, unless the game
+    // plays through the app's stage ({ stage: true }).
+    if (!(opts && opts.stage)) {
+      const emitEvent = raw.emitEvent;
+      raw.emitEvent = function (args) {
+        if (args && args[0] === 'arcade:lobby') return;
+        return emitEvent.call(this, args);
+      };
+    }
     raw.on('bench:chat', (p) => B.chat.push([Date.now(), Date.now() - p.t]));
     raw.on('disconnect', (reason) => B.sock.push({ t: Date.now(), e: 'disconnect', reason }));
     raw.on('connect', () => B.sock.push({ t: Date.now(), e: 'connect' }));
@@ -111,14 +117,21 @@ export const PAGE_SETUP = String.raw`(() => {
       host.sendUp(payload);
       B.ups += 1;
     }, o.upEveryMs);
+    B.startProbes(o.probeEveryMs);
+    return true;
+  };
+
+  // The acked arcade:probe every everyMs (play() starts it; a game without a lane calls it itself).
+  B.startProbes = (everyMs) => {
+    if (B.probeTimer) return true;
     B.probeTimer = setInterval(() => {
       const at = Date.now();
       const t0 = performance.now();
-      sc.request('arcade:probe', {}, 5000).then(
+      B.sc.request('arcade:probe', {}, 5000).then(
         (r) => B.probes.push([at, performance.now() - t0, r && r.ok ? 1 : 0]),
         () => B.probes.push([at, performance.now() - t0, -1]),
       );
-    }, o.probeEveryMs);
+    }, everyMs || 2100);
     return true;
   };
 
@@ -135,9 +148,10 @@ export const PAGE_SETUP = String.raw`(() => {
 export const pageClient = (page) => ({
   kind: 'chrome',
   page,
-  init: () => page.eval('window.__bench.init()'),
+  init: (opts = {}) => page.eval(`window.__bench.init(${JSON.stringify(opts)})`),
   join: (ch, id) => page.eval(`window.__bench.join(${JSON.stringify(ch)}, ${JSON.stringify(id)})`),
   play: (id, o) => page.eval(`window.__bench.play(${JSON.stringify(id)}, ${JSON.stringify(o)})`),
+  startProbes: (everyMs = 2100) => page.eval(`window.__bench.startProbes(${Number(everyMs)})`),
   drain: () => page.eval('window.__bench.drain()', 10000),
   stop: () => page.eval('window.__bench && window.__bench.stop ? window.__bench.stop() : true', 5000).catch(() => false),
 });

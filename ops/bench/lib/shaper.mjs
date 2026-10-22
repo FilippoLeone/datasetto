@@ -47,8 +47,9 @@ const LOG_MAX = 20000;
  */
 export const createShaper = async (o) => {
   const makeDir = (name) => ({ name, rateBps: 1, delayMs: 0, bufferBytes: 65536, lossEvery: 0, rtoMs: 200, queue: [], qBytes: 0, qClass: emptyClassMap(), freeAt: 0, seq: 0, paused: new Set() });
-  // What went into the link and when (the sender's time): lane messages per direction, as
-  // [t, type, detail] (detail: the FRAME divisor, the KEYFRAME reason, the VIS state, the PHASE).
+  // Lane messages as the server sends them (down, read on entering the link) and receives them (up,
+  // read on delivery): down [t, type, detail, frameSeq], up [t, type, detail, ackFrame, ackDelayMs]
+  // (detail: the FRAME divisor, the KEYFRAME reason, the PHASE, the VIS state, the RESYNC reason).
   const laneLog = { down: [], up: [] };
   const dirs = { down: makeDir('down'), up: makeDir('up') };
   const conns = new Set();
@@ -179,6 +180,14 @@ export const createShaper = async (o) => {
           }
           dest.write(item.buf);
           (name === 'down' ? dirs.up : dirs.down).queue.push({ ack: true, conn: null, buf: null, at: now });
+          // The up stream is read as the server receives it (its ACK arrival times).
+          if (name === 'up' && conn.readers?.up) {
+            try {
+              conn.readers.up(item.buf);
+            } catch {
+              conn.readers = null;
+            }
+          }
         }
         if (side.flight.length > 0) next = Math.min(next, side.flight[0].at);
       }
@@ -209,10 +218,13 @@ export const createShaper = async (o) => {
       const b = bucket();
       b.qMax[d.name] = Math.max(b.qMax[d.name], d.qBytes);
       for (const c of CLASSES) b.qClassMax[d.name][c] = Math.max(b.qClassMax[d.name][c], d.qClass[c]);
-      try {
-        conn.readers?.[d.name]?.(chunk);
-      } catch {
-        conn.readers = null;
+      // The down stream is read as the server sends it.
+      if (d.name === 'down' && conn.readers?.down) {
+        try {
+          conn.readers.down(chunk);
+        } catch {
+          conn.readers = null;
+        }
       }
       if (d.qBytes >= d.bufferBytes && source && !d.paused.has(source)) {
         source.pause();
@@ -236,13 +248,16 @@ export const createShaper = async (o) => {
           if (op !== 2 || head.length === 0) return;
           const t = head[0];
           const detail = t === 0x81 && head.length >= 8 ? DIVISORS[(head[7] >> 2) & 3] : t === 0x82 && head.length >= 8 ? head[7] : t === 0x85 && head.length >= 2 ? head[1] : null;
-          logPush(laneLog.down, [Date.now(), t, detail]);
+          const frameSeq = (t === 0x81 || t === 0x82) && head.length >= 3 ? head[1] | (head[2] << 8) : null;
+          logPush(laneLog.down, [Date.now(), t, detail, frameSeq]);
         }),
         up: createWsReader((op, head) => {
           if (op === 1) return logPush(laneLog.up, [Date.now(), 'hello', null]);
           if (op !== 2 || head.length === 0) return;
           const t = head[0];
-          logPush(laneLog.up, [Date.now(), t, (t === 0x05 || t === 0x06) && head.length >= 2 ? head[1] : null]);
+          // UP: T, u16 upSeq, u16 ackFrame, u8 ackDelay (4 ms); ACK: T, u16 ackFrame, u8 ackDelay.
+          const ack = t === 0x01 && head.length >= 6 ? [head[3] | (head[4] << 8), head[5] * 4] : t === 0x02 && head.length >= 4 ? [head[1] | (head[2] << 8), head[3] * 4] : [null, null];
+          logPush(laneLog.up, [Date.now(), t, (t === 0x05 || t === 0x06) && head.length >= 2 ? head[1] : null, ack[0], ack[1]]);
         }),
       };
     }

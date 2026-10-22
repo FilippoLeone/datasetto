@@ -191,14 +191,30 @@ export const openLane = async ({ url, ticket, game = 'fuseyard', payload = Uint8
  * through Vite in front of it).
  */
 export const createNodeShaped = async ({ url, token, moveMs = 4000, cycleMs = 5000, probeEveryMs = 2100 }) => {
-  const B = { frames: [], keyframes: [], chat: [], probes: [], lane: [], sock: [], yields: [], phases: [], errors: [], ups: 0 };
+  const B = { frames: [], keyframes: [], chat: [], probes: [], lane: [], sock: [], yields: [], phases: [], errors: [], game: [], ups: 0 };
   const main = await connectMain(url, token);
   main.raw.on('bench:chat', (p) => B.chat.push([Date.now(), Date.now() - p.t]));
   main.raw.on('disconnect', (reason) => B.sock.push({ t: Date.now(), e: 'disconnect', reason }));
   let lane = null;
   let probeTimer = null;
+  const startProbes = (everyMs = 2100) => {
+    if (probeTimer) return;
+    probeTimer = setInterval(() => {
+      const at = Date.now();
+      const t0 = performance.now();
+      main.request('arcade:probe', {}, 5000).then(
+        (r) => B.probes.push([at, performance.now() - t0, r?.ok ? 1 : 0]),
+        () => B.probes.push([at, performance.now() - t0, -1]),
+      );
+    }, everyMs);
+  };
   return {
     kind: 'node',
+    /** The main socket (socket.io-client) and the plugin's own samples, for a game's enter(). */
+    main,
+    game: B.game,
+    startProbes,
+    async init() {},
     async join(ch, id) {
       await main.joinVoice(ch);
       const r = await main.request('arcade:lobby:join', { id, as: 'player' });
@@ -208,21 +224,12 @@ export const createNodeShaped = async ({ url, token, moveMs = 4000, cycleMs = 50
       const t = await main.request('arcade:ticket', { id });
       if (!t?.ok) throw new Error('ticket refused: ' + t?.code);
       lane = await openLane({ url, ticket: t.ticket, game: o.game, record: B, moving: () => Date.now() % cycleMs < moveMs });
-      probeTimer = setInterval(() => {
-        const at = Date.now();
-        const t0 = performance.now();
-        main.request('arcade:probe', {}, 5000).then(
-          (r) => B.probes.push([at, performance.now() - t0, r?.ok ? 1 : 0]),
-          () => B.probes.push([at, performance.now() - t0, -1]),
-        );
-      }, probeEveryMs);
+      startProbes(probeEveryMs);
     },
     async drain() {
       const out = { now: Date.now(), ups: lane ? lane.stats.ups : 0 };
-      for (const k of ['frames', 'keyframes', 'chat', 'probes', 'lane', 'sock', 'yields', 'phases', 'errors']) {
-        out[k] = B[k];
-        B[k] = [];
-      }
+      // splice keeps the arrays themselves, so `game` stays the list a plugin pushes to.
+      for (const k of ['frames', 'keyframes', 'chat', 'probes', 'lane', 'sock', 'yields', 'phases', 'errors', 'game']) out[k] = B[k].splice(0);
       return out;
     },
     async stop() {

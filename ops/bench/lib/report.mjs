@@ -5,7 +5,8 @@
  * |---|---|
  * | 3g | frames/s (median 1 s window) ≥ 13; chat one-way p95 < 300 ms |
  * | 3g-loss | frames/s ≥ 10; chat p95 < 450 ms |
- * | collapse | ladder down within 1 s once the link queues; ≥ 5 frames/s or a clean park while collapsed; ≥ 13 frames/s within 5 s after the link returns; no probe over 2 s |
+ * | collapse (120 kbit/s), squeeze (12 kbit/s) | the first FRAME at a lower rate (or a park) leaves the server ≤ 1.25 s after its own RTT view starts a sustained run above minRtt + 150 ms (n/a when it never does); ≥ 5 frames/s (mean) or a clean park while collapsed; ≥ 13 frames/s within 5 s after the link returns; no probe over 2 s |
+ * | plugin `criteria` | a game may replace a scenario's criteria: `framesMedian`, `chatP95`, `chatP50`, `sioDownKbps {kinds, max}`, `probeMaxMs`, `collapse` + `recoverFrames` |
  * | all | no disconnect or ping timeout on the main socket or the lane, either side; lane `bufferedAmount` < 8 KB |
  *
  * `evaluate` is called every second while a scenario runs and once at the end. A check whose
@@ -45,6 +46,48 @@ const firstRateAt = (frames, from, until, need) => {
 const p95Allowance = (n) => n - Math.ceil(0.95 * n) + 1;
 
 const sum = (xs) => xs.reduce((a, b) => a + b, 0);
+const TICK_MS = 1000 / 30;
+/** platform §6.1: a step down follows rtt − minRtt > 150 ms (pacer PACE.queueHighMs). */
+const QUEUE_HIGH_MS = 150;
+/** The integrator's bar: the pacer steps after 1 s of queueing; the first FRAME at the new rate leaves within 1.25 s. */
+const LADDER_LIMIT_MS = 1250;
+const seqDelta = (a, b) => ((((a - b) & 0xffff) + 0x8000) & 0xffff) - 0x8000;
+
+/**
+ * The server's RTT samples rebuilt from the shaper's lane log, the way its pacer takes them: an ACK
+ * or UP that acks a newer frame than the last one gives arrival − sent(ackFrame) − ackDelay (the
+ * arrival is the shaper's delivery to the server, the send is the server's write). minRtt is the
+ * minimum over the last 10 s. Returns [t, rtt, minRtt, rtt − minRtt].
+ */
+export const serverRttView = (down, up) => {
+  const sentAt = new Map();
+  const history = [];
+  const samples = [];
+  let di = 0;
+  let lastAcked = null;
+  for (const e of up) {
+    if (e[1] !== 0x01 && e[1] !== 0x02) continue;
+    const t = e[0];
+    while (di < down.length && down[di][0] <= t) {
+      const d = down[di];
+      if ((d[1] === 0x81 || d[1] === 0x82) && d[3] !== null && d[3] !== undefined) sentAt.set(d[3], d[0]);
+      di += 1;
+    }
+    const ackFrame = e[3];
+    if (ackFrame === null || ackFrame === undefined) continue;
+    if (lastAcked !== null && seqDelta(ackFrame, lastAcked) <= 0) continue;
+    lastAcked = ackFrame;
+    const sent = sentAt.get(ackFrame);
+    if (sent === undefined) continue;
+    const rtt = Math.max(1, t - sent - (e[4] ?? 0));
+    history.push([t, rtt]);
+    while (history.length > 0 && history[0][0] < t - 10_000) history.shift();
+    let minRtt = Infinity;
+    for (const h of history) if (h[1] < minRtt) minRtt = h[1];
+    samples.push([t, rtt, minRtt, rtt - minRtt]);
+  }
+  return samples;
+};
 
 export const shaperSummary = (buckets) => {
   const kbps = (pick) => buckets.map((b) => (pick(b) * 8) / 1000);
@@ -94,7 +137,7 @@ export const evaluate = (o) => {
   const laneBufferedMax = Math.max(0, ...srv.map((b) => b.laneShaped));
   const shaper = shaperSummary(o.shaperSeconds.filter((b) => within(b.sec * 1000, Math.floor(mStart / 1000) * 1000, end)));
 
-  // The shaped lane as the server sent it (shaper.laneLog: [t, type, detail]).
+  // The shaped lane as the server sent and received it (shaper.laneLog).
   const laneDown = o.laneLog?.down ?? [];
   const laneUp = o.laneLog?.up ?? [];
   const sentInWindow = laneDown.filter((e) => e[1] === 0x81 && within(e[0], mStart, end));
@@ -104,16 +147,19 @@ export const evaluate = (o) => {
   {
     const inScenario = laneDown.filter((e) => within(e[0], settleAt, end));
     let lastFrameAt = null;
+    let lastDivisor = 2;
     let beats = 0;
     for (const e of inScenario) {
       if (e[1] === 0x83) beats += 1;
       if (e[1] !== 0x81 && e[1] !== 0x82) continue;
-      if (lastFrameAt !== null && e[0] - lastFrameAt >= 1000) sendGaps.push({ from: lastFrameAt, to: e[0], beats, endedBy: e[1] === 0x82 ? 'keyframe:' + e[2] : 'frame' });
+      if (lastFrameAt !== null && e[0] - lastFrameAt >= 1000) sendGaps.push({ from: lastFrameAt, to: e[0], divisor: lastDivisor, beats, endedBy: e[1] === 0x82 ? 'keyframe:' + e[2] : 'frame' });
       lastFrameAt = e[0];
+      if (e[1] === 0x81) lastDivisor = e[2];
       beats = 0;
     }
-    if (lastFrameAt !== null && end - lastFrameAt >= 1000) sendGaps.push({ from: lastFrameAt, to: end, beats, endedBy: 'still parked' });
+    if (lastFrameAt !== null && end - lastFrameAt >= 1000) sendGaps.push({ from: lastFrameAt, to: end, divisor: lastDivisor, beats, endedBy: 'still parked' });
   }
+  const rttView = def.collapse ? serverRttView(laneDown, laneUp) : [];
   const sioDown = {};
   for (const b of o.shaperSeconds.filter((x) => within(x.sec * 1000, Math.floor(mStart / 1000) * 1000, end))) for (const [k, v] of Object.entries(b.sio?.down ?? {})) sioDown[k] = (sioDown[k] ?? 0) + v;
 
@@ -198,50 +244,92 @@ export const evaluate = (o) => {
     const p95 = m.chatOneWayMs.p95;
     add('chat-p95', 'chat one-way p95 (ms)', p95, '< ' + limit, p95 === null ? (o.final ? false : null) : o.final ? p95 < limit : null, bad >= p95Allowance(totalWindows + 2));
   }
+  if (def.criteria.chatP50 !== undefined) {
+    const limit = def.criteria.chatP50;
+    const bad = chat.filter((v) => v >= limit).length;
+    const p50 = m.chatOneWayMs.p50;
+    // Certain once more than half of the most samples the scenario can give (one a second) are over.
+    add('chat-p50', 'chat one-way median (ms)', p50, '< ' + limit, p50 === null ? (o.final ? false : null) : o.final ? p50 < limit : null, bad > (totalWindows + 2) / 2);
+  }
+  if (def.criteria.sioDownKbps !== undefined) {
+    const { kinds, max } = def.criteria.sioDownKbps;
+    let bytes = 0;
+    for (const b of o.shaperSeconds.filter((x) => within(x.sec * 1000, Math.floor(mStart / 1000) * 1000, end))) {
+      for (const [kind, n] of Object.entries(b.sio?.down ?? {})) if (kinds.some((prefix) => kind.startsWith(prefix))) bytes += n;
+    }
+    const kbps = measuredS > 0 ? round((bytes * 8) / 1000 / measuredS, 2) : null;
+    m.sioDownKbps = { kinds, kbps, bytes };
+    // Bytes only add up: over the limit for the whole planned window is certain.
+    add('sio-down', 'socket.io down kbit/s for [' + kinds.join(', ') + '] (mean over the measured window)', kbps, '<= ' + max, kbps === null ? (o.final ? false : null) : o.final ? kbps <= max : null, (bytes * 8) / 1000 / def.measureS > max);
+  }
 
-  if (def.criteria.collapse) {
+  if (def.collapse && def.criteria.collapse) {
     const tC = mStart + def.collapse.fromS * 1000;
     const tR = mStart + def.collapse.toS * 1000;
     const need = def.criteria.recoverFrames;
-    // Onset: the first moment the shaper's down queue held a segment for over 150 ms while collapsed.
-    const onsets = o.shaperSeconds.filter((b) => b.over150?.down && within(b.over150.down, tC, tR)).map((b) => b.over150.down);
-    const onset = onsets.length ? Math.min(...onsets) : null;
-    // What the server did, as the shaper saw it leave (the sender's clock, before the link's delay):
-    // a FRAME at a divisor above 2 is a ladder step; a stretch of at least 1 s without FRAMEs is a park
-    // (BEATs only: yield or stalled; nothing: overflow), ended by a KEYFRAME when it unparks.
+    // The server's reaction, as the shaper saw it leave: the first FRAME at a divisor above 2 (a
+    // ladder step), or the first missed slot of a send gap of at least 1 s (a park).
     const sentFrames = laneDown.filter((e) => e[1] === 0x81);
     const stepSent = sentFrames.find((e) => e[0] >= tC && e[0] < tR + 1000 && e[2] > 2);
     const gapsInCollapse = sendGaps.filter((g) => g.to > tC && g.from < tR + 5000);
-    const parkAt = gapsInCollapse.length ? gapsInCollapse[0].from : null;
+    const parkAt = gapsInCollapse.length ? gapsInCollapse[0].from + gapsInCollapse[0].divisor * TICK_MS : null;
     const yieldVis = laneUp.find((e) => e[1] === 0x05 && e[2] === 2 && e[0] >= tC && e[0] < tR + 5000);
     const reactions = [stepSent?.[0], parkAt].filter((t) => t !== undefined && t !== null);
     const reaction = reactions.length ? Math.min(...reactions) : null;
-    const ladderMs = onset !== null && reaction !== null ? Math.max(0, reaction - onset) : null;
-    const parkEnds = gapsInCollapse.map((g) => g.endedBy);
+
+    // Onset, the server's own view (the integrator's rule): its RTT samples (ACK arrival − FRAME
+    // send − ackDelay, minRtt over 10 s); the onset is the first sample of the first run of samples
+    // that all stay above minRtt + 150 ms and that lasts 1 s, or is still running when the server
+    // reacts.
+    const view = rttView.filter((s) => within(s[0], tC - 2000, tR + 1000));
+    let serverOnset = null;
+    let runInfo = null;
+    for (let i = 0; i < view.length && serverOnset === null; i += 1) {
+      if (view[i][3] <= QUEUE_HIGH_MS || view[i][0] < tC) continue;
+      let j = i;
+      while (j + 1 < view.length && view[j + 1][3] > QUEUE_HIGH_MS) j += 1;
+      const endsAt = j + 1 < view.length ? view[j + 1][0] : Infinity;
+      const lasts = endsAt - view[i][0];
+      const reactedInRun = reaction !== null && reaction >= view[i][0] && reaction <= endsAt;
+      if (lasts >= 1000 || reactedInRun) {
+        serverOnset = view[i][0];
+        runInfo = { samples: j - i + 1, lastsMs: Number.isFinite(lasts) ? lasts : null, maxQueueMs: Math.max(...view.slice(i, j + 1).map((s) => s[3])) };
+      }
+      i = j;
+    }
+    const ladderMs = serverOnset !== null && reaction !== null ? reaction - serverOnset : null;
+
+    // The link's view, for information: the first moment the shaper's down queue held a segment
+    // for over 150 ms while collapsed.
+    const linkOnsets = o.shaperSeconds.filter((b) => b.over150?.down && within(b.over150.down, tC, tR)).map((b) => b.over150.down);
+    const linkOnset = linkOnsets.length ? Math.min(...linkOnsets) : null;
+    const collapsedView = rttView.filter((s) => within(s[0], tC, tR));
     m.collapse = {
       kbps: def.collapse.kbps,
-      onsetMsAfterCollapse: onset !== null ? onset - tC : null,
-      firstSentStepDownMsAfterCollapse: stepSent ? stepSent[0] - tC : null,
-      firstSendGapMsAfterCollapse: parkAt !== null ? parkAt - tC : null,
-      clientYieldMsAfterCollapse: yieldVis ? yieldVis[0] - tC : null,
+      serverOnsetMsAfterDrop: serverOnset !== null ? serverOnset - tC : null,
+      serverRun: runInfo,
+      reactionMsAfterDrop: reaction !== null ? reaction - tC : null,
+      reactedBy: reaction === null ? null : stepSent && stepSent[0] === reaction ? 'FRAME at d=' + stepSent[2] : 'send gap (park)',
+      ladderMsServerView: ladderMs,
+      ladderMsFromLink: linkOnset !== null && reaction !== null ? reaction - linkOnset : null,
+      linkOnsetMsAfterDrop: linkOnset !== null ? linkOnset - tC : null,
+      clientYieldMsAfterDrop: yieldVis ? yieldVis[0] - tC : null,
+      rttSamplesWhileCollapsed: collapsedView.length,
+      maxQueueMsServerView: collapsedView.length ? Math.round(Math.max(...collapsedView.map((s) => s[3]))) : null,
       sendGaps: gapsInCollapse.map((g) => ({ fromMs: g.from - tC, toMs: g.to - tC, beats: g.beats, endedBy: g.endedBy })),
-      ladderMs,
       collapsedWindows: frameWindows(store.frames, tC + 1000, Math.min(end, tR)),
       sentDuringCollapse: frameWindows(sentFrames, tC, Math.min(end, tR)),
       recoveryMs: null,
     };
-    if (onset === null) {
-      add('ladder', 'server steps down or parks within 1 s of the link queueing (ms)', o.now >= tR ? 'link never queued' : null, '<= 1000', null, false, o.now >= tR ? 'the game fits the collapsed link: no queue built, no step needed' : undefined);
+    const label = 'steps down once queueing has held 1 s as the server sees it; first FRAME at the new rate within 1.25 s (ms after the server-view onset)';
+    if (serverOnset === null) {
+      const done = o.now >= tR;
+      add('ladder', label, done ? 'never queued (server view)' : null, '<= ' + LADDER_LIMIT_MS, null, false, done ? 'the server never saw a sustained RTT rise: the game fits the collapsed link, no step needed' + (reaction !== null ? ' (it still reacted at +' + (reaction - tC) + ' ms)' : '') : undefined);
     } else {
-      add(
-        'ladder',
-        'server steps down or parks within 1 s of the link queueing (ms)',
-        ladderMs,
-        '<= 1000',
-        ladderMs !== null ? ladderMs <= 1000 : o.now > onset + 1000 ? false : null,
-        ladderMs === null && o.now > onset + 1000,
-        stepSent ? 'first FRAME at d=' + stepSent[2] + ' sent ' + (stepSent[0] - onset) + ' ms after onset' : parkAt !== null ? 'no divisor step; FRAMEs stopped ' + (parkAt - onset) + ' ms after onset' : 'no divisor step and no park',
-      );
+      const note =
+        (reaction === null ? 'no divisor step and no park' : m.collapse.reactedBy + ' left the server ' + ladderMs + ' ms after the onset') +
+        (m.collapse.ladderMsFromLink !== null ? '; from the link (shaper queue > 150 ms → reaction): ' + m.collapse.ladderMsFromLink + ' ms' : '');
+      add('ladder', label, ladderMs, '<= ' + LADDER_LIMIT_MS, ladderMs !== null ? ladderMs <= LADDER_LIMIT_MS : o.now > serverOnset + LADDER_LIMIT_MS ? false : null, ladderMs === null && o.now > serverOnset + LADDER_LIMIT_MS, note);
     }
     // At d = 6 the design rate is exactly 5 frames/s, so a single 1 s window can hold 4 by alignment
     // alone: the floor is judged on the mean over the collapsed period (from 1 s after the drop).
@@ -250,6 +338,7 @@ export const evaluate = (o) => {
     const collapsedMean = cw.length ? round(sum(cw) / cw.length, 1) : null;
     m.collapse.collapsedMean = collapsedMean;
     m.collapse.collapsedMin = collapsedMin;
+    const parkEnds = gapsInCollapse.map((g) => g.endedBy);
     const cleanPark = gapsInCollapse.length > 0 && gapsInCollapse.every((g) => g.endedBy === 'keyframe:2' || g.endedBy === 'keyframe:5') && laneEvents.length === 0;
     const floorDone = o.final || o.now >= tR + 5000;
     add(
@@ -269,9 +358,13 @@ export const evaluate = (o) => {
     } else {
       add('recovery', 'back to >= ' + need + ' frames/s after the link returns (ms)', null, '<= 5000', null);
     }
+  }
+
+  if (def.criteria.probeMaxMs !== undefined) {
+    const limit = def.criteria.probeMaxMs;
     const worst = m.probeRttMs.max;
     const timeouts = m.probeRttMs.timeouts;
-    add('probe-max', 'no probe over 2 s (max RTT, ms)', worst, '< 2000', worst === null ? (o.final ? false : null) : worst < 2000 && timeouts === 0 ? (o.final ? true : null) : false, (worst !== null && worst >= 2000) || timeouts > 0);
+    add('probe-max', 'no probe over ' + limit / 1000 + ' s (max RTT, ms)', worst, '< ' + limit, worst === null ? (o.final ? false : null) : worst < limit && timeouts === 0 ? (o.final ? true : null) : false, (worst !== null && worst >= limit) || timeouts > 0);
   }
 
   const failed = checks.filter((c) => c.pass === false);
@@ -309,7 +402,8 @@ export const textSummary = (run) => {
         pad(fmt(m.server.laneBufferedMax), 10) +
         pad(fmt(m.disconnects.pageMainSocket.length + m.disconnects.pageLane.length + m.disconnects.serverMainSocket.length + m.disconnects.serverLane.length), 6) +
         s.verdict +
-        (s.aborted ? ' (stopped early: ' + s.aborted + ')' : ''),
+        (s.aborted ? ' (stopped early: ' + s.aborted + ')' : '') +
+        (m.sioDownKbps ? '  socket.io down [' + m.sioDownKbps.kinds.join(', ') + '] ' + fmt(m.sioDownKbps.kbps) + ' kbit/s' : ''),
     );
   }
   for (const s of run.scenarios) {
@@ -325,7 +419,11 @@ export const textSummary = (run) => {
     lines.push('  server: main socket bufferedAmount max ' + s.metrics.server.mainBufferedMax + ' B, writeBuffer max ' + s.metrics.server.mainWriteBufferMax + ', bot lanes max ' + s.metrics.server.botLaneBufferedMax + ' B; yields ' + s.metrics.yields.length + '; ping timeouts ' + s.metrics.disconnects.pingTimeouts);
     if (s.metrics.collapse) {
       const c = s.metrics.collapse;
-      lines.push('  collapse to ' + c.kbps + ' kbit/s: queue onset +' + fmt(c.onsetMsAfterCollapse) + ' ms, first sent step-down +' + fmt(c.firstSentStepDownMsAfterCollapse) + ' ms, first send gap +' + fmt(c.firstSendGapMsAfterCollapse) + ' ms, client yield +' + fmt(c.clientYieldMsAfterCollapse) + ' ms, reaction after onset ' + fmt(c.ladderMs) + ' ms, recovery ' + fmt(c.recoveryMs) + ' ms');
+      lines.push(
+        '  drop to ' + c.kbps + ' kbit/s (times after the drop): server RTT onset +' + fmt(c.serverOnsetMsAfterDrop) + ' ms ' + (c.serverRun ? JSON.stringify(c.serverRun) : '') +
+          ', reaction +' + fmt(c.reactionMsAfterDrop) + ' ms (' + fmt(c.reactedBy) + '), ladder (server view) ' + fmt(c.ladderMsServerView) + ' ms; from the link: queue onset +' + fmt(c.linkOnsetMsAfterDrop) +
+          ' ms, ladder ' + fmt(c.ladderMsFromLink) + ' ms; max queueing (server view) ' + fmt(c.maxQueueMsServerView) + ' ms over ' + c.rttSamplesWhileCollapsed + ' samples; client yield +' + fmt(c.clientYieldMsAfterDrop) + ' ms; recovery ' + fmt(c.recoveryMs) + ' ms',
+      );
       lines.push('  collapsed: browser frames/s ' + c.collapsedWindows.join(' ') + '; server sent/s ' + c.sentDuringCollapse.join(' '));
     }
     for (const c of s.checks) lines.push('  ' + (c.pass === true ? 'PASS' : c.pass === false ? 'FAIL' : 'n/a ') + '  ' + c.label + ': ' + fmt(c.value) + ' (' + c.limit + ')' + (c.note ? ' — ' + c.note : ''));

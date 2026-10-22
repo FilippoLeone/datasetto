@@ -15,7 +15,12 @@ import { isCapacitor } from '@/lib/device';
 // ------------------------------------------------------------------ frames (P0c)
 
 export interface FrameOpts {
-  /** Skip callbacks closer than 1000/maxFps − 1 ms. When every subscriber asks for ≤ 15, the scheduler uses setTimeout plus one rAF. */
+  /**
+   * Skip callbacks closer than 1000/maxFps − 1 ms. When every subscriber is capped well below the
+   * display's rate (≤ 15 fps, or a period of at least 1.5 display frames), the scheduler sleeps on a
+   * timer until just before the soonest one is due and then asks for a single frame, instead of
+   * keeping a frame request pending on every refresh (a 60 fps game on a 240 Hz screen).
+   */
   maxFps?: number;
   /** Shown in the dev counter. */
   label?: string;
@@ -28,22 +33,62 @@ interface FrameSub {
   last: number;
 }
 
+/** The scheduler's timer functions; `installFakeFrames()` swaps them for virtual time. */
+export const frameTimers: { set(fn: () => void, ms: number): unknown; clear(handle: unknown): void } = {
+  set: (fn, ms) => setTimeout(fn, ms),
+  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
 const LOW_RATE_FPS = 15;
+/** Timer wake-up ahead of the soonest due subscriber: 8 ms in low-rate mode, 1 ms when pacing a capped rate. */
+const LOW_RATE_LEAD_MS = 8;
+const PACED_LEAD_MS = 1;
+/** Pace a capped subscriber only when its period is at least this many display frames. */
+const PACE_MIN_FRAMES = 1.5;
 
 const createFrames = () => {
   const subs = new Set<FrameSub>();
   let onceQueue: Array<(now: number) => void> = [];
   let raf: number | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timer: unknown = null;
+  // The display's frame period, from back-to-back frames (the smallest of the last 8 gaps).
+  let vsyncMs = 0;
+  const gaps: number[] = [];
+  let lastTick = 0;
+  let backToBack = false;
+  let inTick = false;
 
-  const lowRate = (): boolean => {
-    if (onceQueue.length > 0 || subs.size === 0) return false;
-    for (const sub of subs) if (!(sub.maxFps > 0 && sub.maxFps <= LOW_RATE_FPS)) return false;
-    return true;
+  const mode = (): 'frame' | 'low' | 'paced' => {
+    if (onceQueue.length > 0 || subs.size === 0) return 'frame';
+    let low = true;
+    let paceable = vsyncMs > 0;
+    for (const sub of subs) {
+      if (!(sub.maxFps > 0)) return 'frame';
+      if (sub.maxFps > LOW_RATE_FPS) low = false;
+      if (1000 / sub.maxFps < vsyncMs * PACE_MIN_FRAMES) paceable = false;
+    }
+    return low ? 'low' : paceable ? 'paced' : 'frame';
+  };
+
+  const clearTimer = (): void => {
+    if (timer === null) return;
+    frameTimers.clear(timer);
+    timer = null;
   };
 
   const tick = (now: number): void => {
     raf = null;
+    if (backToBack && lastTick > 0) {
+      const gap = now - lastTick;
+      if (gap > 2 && gap < 50) {
+        gaps.push(gap);
+        if (gaps.length > 8) gaps.shift();
+        if (gaps.length >= 4) vsyncMs = Math.min(...gaps);
+      }
+    }
+    lastTick = now;
+    backToBack = false;
+    inTick = true;
     const queued = onceQueue;
     onceQueue = [];
     for (const cb of queued) {
@@ -64,42 +109,47 @@ const createFrames = () => {
         console.error('[frames] callback failed', sub.label, error);
       }
     }
-    schedule();
+    inTick = false;
+    schedule(true);
   };
 
-  const schedule = (): void => {
+  const schedule = (fromTick = false): void => {
     if (raf !== null || timer !== null) return;
     if (subs.size === 0 && onceQueue.length === 0) return;
-    if (lowRate()) {
+    const m = mode();
+    if (m !== 'frame') {
       let soonest = Infinity;
       const now = performance.now();
-      for (const sub of subs) soonest = Math.min(soonest, sub.last + 1000 / sub.maxFps - now);
-      timer = setTimeout(() => {
+      // Due at last + period − 1 ms (the tick's tolerance); a new subscriber (last 0) is due at once.
+      for (const sub of subs) soonest = Math.min(soonest, sub.last + 1000 / sub.maxFps - 1 - now);
+      const lead = m === 'low' ? LOW_RATE_LEAD_MS : PACED_LEAD_MS;
+      timer = frameTimers.set(() => {
         timer = null;
         if (raf === null) raf = requestAnimationFrame(tick);
-      }, Math.max(0, Math.min(1000, soonest - 8)));
+      }, Math.max(0, Math.min(1000, soonest - lead)));
       return;
     }
+    backToBack = fromTick && !inTick;
     raf = requestAnimationFrame(tick);
   };
 
   const stopIfIdle = (): void => {
     if (subs.size > 0 || onceQueue.length > 0) return;
     if (raf !== null) cancelAnimationFrame(raf);
-    if (timer !== null) clearTimeout(timer);
+    clearTimer();
     raf = null;
-    timer = null;
+    // Measure the display again next time (the window may be on another screen by then).
+    gaps.length = 0;
+    vsyncMs = 0;
+    lastTick = 0;
   };
 
   const api = {
     add(cb: (now: number, dt: number) => void, opts: FrameOpts = {}): () => void {
       const sub: FrameSub = { cb, maxFps: opts.maxFps ?? 0, label: opts.label ?? 'anonymous', last: 0 };
       subs.add(sub);
-      // A full-rate subscriber must not wait out a low-rate timer.
-      if (timer !== null && !lowRate()) {
-        clearTimeout(timer);
-        timer = null;
-      }
+      // The newcomer may be due sooner than the running timer, or not cappable at all.
+      clearTimer();
       schedule();
       return () => {
         subs.delete(sub);
@@ -108,10 +158,7 @@ const createFrames = () => {
     },
     once(cb: (now: number) => void): void {
       onceQueue.push(cb);
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
+      clearTimer();
       schedule();
     },
     get active(): number {

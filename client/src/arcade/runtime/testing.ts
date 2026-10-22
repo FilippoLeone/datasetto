@@ -11,11 +11,12 @@
  */
 import { ByteWriter } from '@arcade/core/bytes';
 import type { CoreMatch, EventChunk, HostEvent, RecipientView, SeatCmd } from '@arcade/core/net/match';
+import { frameTimers } from './p0';
 
 export interface FakeFrames {
   /** Advance virtual time by `ms`, running a frame every 1000/fps ms. */
   advance(ms: number, fps?: number): void;
-  /** Pending rAF callbacks. */
+  /** Pending rAF callbacks and frame-scheduler timers. */
   readonly pending: number;
   readonly now: number;
   restore(): void;
@@ -25,9 +26,12 @@ export const installFakeFrames = (): FakeFrames => {
   let now = 1000;
   let nextId = 1;
   const queue = new Map<number, FrameRequestCallback>();
+  // The frame scheduler's own timers (its capped-rate pacing) run in the same virtual time.
+  const timers = new Map<number, { at: number; fn: () => void }>();
   const raf = window.requestAnimationFrame;
   const caf = window.cancelAnimationFrame;
   const perfNow = performance.now.bind(performance);
+  const realTimers = { set: frameTimers.set, clear: frameTimers.clear };
   window.requestAnimationFrame = (cb: FrameRequestCallback) => {
     const id = nextId++;
     queue.set(id, cb);
@@ -36,19 +40,37 @@ export const installFakeFrames = (): FakeFrames => {
   window.cancelAnimationFrame = (id: number) => {
     queue.delete(id);
   };
+  frameTimers.set = (fn, ms) => {
+    const id = nextId++;
+    timers.set(id, { at: now + Math.max(0, ms), fn });
+    return id;
+  };
+  frameTimers.clear = (handle) => {
+    timers.delete(handle as number);
+  };
   Object.defineProperty(performance, 'now', { configurable: true, value: () => now });
+  const runTimers = (): void => {
+    for (;;) {
+      let next: [number, { at: number; fn: () => void }] | null = null;
+      for (const entry of timers) if (entry[1].at <= now && (!next || entry[1].at < next[1].at)) next = entry;
+      if (!next) return;
+      timers.delete(next[0]);
+      next[1].fn();
+    }
+  };
   return {
     advance(ms, fps = 60) {
       const step = 1000 / fps;
       for (let t = 0; t < ms; t += step) {
         now += step;
+        runTimers();
         const due = Array.from(queue.entries());
         queue.clear();
         for (const [, cb] of due) cb(now);
       }
     },
     get pending() {
-      return queue.size;
+      return queue.size + timers.size;
     },
     get now() {
       return now;
@@ -56,8 +78,11 @@ export const installFakeFrames = (): FakeFrames => {
     restore() {
       window.requestAnimationFrame = raf;
       window.cancelAnimationFrame = caf;
+      frameTimers.set = realTimers.set;
+      frameTimers.clear = realTimers.clear;
       Object.defineProperty(performance, 'now', { configurable: true, value: perfNow });
       queue.clear();
+      timers.clear();
     },
   };
 };
