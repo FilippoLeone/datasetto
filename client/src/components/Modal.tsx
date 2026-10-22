@@ -52,7 +52,8 @@ export const Modal = ({ title, subtitle, onClose, size = 'md', footer, children 
         aria-label={title}
         tabIndex={-1}
         className={cn(
-          'dialog-card flex max-h-[90vh] w-full flex-col overflow-hidden rounded-lg bg-sidebar shadow-modal outline-none supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]',
+          // The desktop app's title bar (--titlebar-height, 0 elsewhere) comes off the height too.
+          'dialog-card flex max-h-[90vh] w-full flex-col overflow-hidden rounded-lg bg-sidebar shadow-modal outline-none supports-[height:100dvh]:max-h-[calc(100dvh-2rem-var(--titlebar-height,0px))]',
           SIZES[size],
         )}
       >

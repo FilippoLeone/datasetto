@@ -67,6 +67,10 @@ During packaging the build script also regenerates the desktop icon (PNG + ICO) 
 
 The published installers come from `.github/workflows/release.yml`: on every GitHub release it runs these same steps on Windows, Linux and macOS runners, sets the package version from the release tag (`v0.1.9` → `0.1.9`) and attaches the installers together with the `latest*.yml` and `.blockmap` files to the release. The metadata must sit next to the installers in the release, that is what installed apps read.
 
+## Title bar
+
+The main window has no native title bar; the client draws its own 32 px bar (logo and name, `client/src/app/TitleBar.tsx`) and the system's caption buttons stay on top of it. On Windows and Linux they are the Window Controls Overlay buttons (`titleBarStyle: 'hidden'` + `titleBarOverlay`), so Snap Layouts on hover over maximize, double-click to maximize, drag to snap and the system menu (right click on the bar) behave as with a native frame. On macOS the traffic lights sit inset at the left end of the bar (`hiddenInset`). The bar is a drag region (`app-region: drag`); anything clickable added to it needs `no-drag`. The preload exposes `desktopAPI.titleBar` (`{ height, platform }`, only when `main.js` asks for the page-drawn bar) and `setTitleBarColors({ color, symbolColor })`, which the client calls with the bar's computed colours whenever the theme changes, so the buttons always sit on the bar's background (IPC `titlebar:colors`, `#rrggbb` only). The client sets `data-titlebar` on `<html>`, and its `.safe-top` / `.p-safe` paddings clear the bar the way they clear a phone's notch. The browser and Android builds have no `titleBar` and look as before; the picker, overlay and video pop-out windows keep their own frames.
+
 ## Automatic updates
 
 The packaged app keeps itself current through [electron-updater](https://www.electron.build/auto-update) and the releases of `FilippoLeone/datasetto` (`updater.js`):

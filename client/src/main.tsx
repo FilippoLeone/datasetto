@@ -4,6 +4,7 @@ import { App } from '@/app/App';
 import { installBackStack } from '@/lib/backStack';
 import { isCapacitor, isTouchPrimary } from '@/lib/device';
 import { installKeyboardTracking } from '@/lib/keyboard';
+import { installTitleBar } from '@/app/TitleBar';
 import { runtimeUrls } from '@/lib/runtimeConfig';
 import { serverConfig } from '@/services/ServerConfigService';
 import { installSocketBindings } from '@/services/socket/bindings';
@@ -27,6 +28,8 @@ const bootstrap = async (): Promise<void> => {
   // Back closes panels before leaving: Capacitor has its own back event, touch browsers get a history entry per panel.
   installBackStack({ history: !isCapacitor() && isTouchPrimary() });
   installKeyboardTracking();
+  // Desktop app: its own title bar, before anything awaits so it is there from the first frame.
+  installTitleBar();
   // Chrome fires beforeinstallprompt early: listen before anything awaits.
   installInstallPrompt();
   // Runtime config (registration mode, ICE servers, public URLs, push). Non-fatal when unreachable.

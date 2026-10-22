@@ -167,8 +167,9 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
+  /* Below a notch, and below the desktop app's title bar (--titlebar-height is only set there). */
   .safe-top {
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: max(env(safe-area-inset-top, 0px), var(--titlebar-height, 0px));
   }
 
   .safe-x {
@@ -176,10 +177,10 @@
     padding-right: env(safe-area-inset-right, 0px);
   }
 
-  /* At least 1rem on every side, more where the device has a notch or home indicator. */
+  /* At least 1rem on every side, more where the device has a notch or home indicator, or a desktop title bar. */
   .p-safe {
-    padding: max(1rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) max(1rem, env(safe-area-inset-bottom, 0px))
-      max(1rem, env(safe-area-inset-left, 0px));
+    padding: max(1rem, env(safe-area-inset-top, 0px), calc(var(--titlebar-height, 0px) + 1rem)) max(1rem, env(safe-area-inset-right, 0px))
+      max(1rem, env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
   }
 
   /* Room for the fixed phone toolbar (h-14) plus the home indicator. */
@@ -846,6 +847,53 @@
 
 video.mirror {
   transform: scaleX(-1);
+}
+
+/* ------------------------------------------------------ desktop title bar */
+/* The desktop app draws its own title bar (app/TitleBar.tsx) under the system's caption
+   buttons. Its height comes from the Window Controls Overlay, which follows page zoom; the
+   shell's value stands in where there is none (macOS, a fullscreen window). Every layer that
+   pads for a notch (.safe-top, .p-safe) pads for the bar too. */
+html[data-titlebar] {
+  --titlebar-height: env(titlebar-area-height, var(--titlebar-fallback-height, 32px));
+}
+
+.titlebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  /* Above dialogs (50), menus (65), the lightbox and sheets (70): always there, like a native one. */
+  z-index: 80;
+  display: flex;
+  height: var(--titlebar-height);
+  background: var(--color-base);
+  color: var(--color-text-muted);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+/* The part the caption buttons leave free: titlebar-area-x/width come from the overlay
+   (left of the buttons on Windows and Linux); the fallbacks fit Windows' three 46px buttons
+   and the macOS traffic lights. */
+.titlebar-area {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-left: env(titlebar-area-x, 0px);
+  width: env(titlebar-area-width, calc(100% - 138px));
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+html[data-titlebar='mac'] .titlebar-area {
+  margin-left: 72px;
+  width: calc(100% - 72px);
 }
 
 /* -------------------------------------------------------- reduced motion */

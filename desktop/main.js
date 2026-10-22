@@ -1026,6 +1026,58 @@ function updateTrayVoiceIndicator(partialState = {}) {
   tray.setToolTip(`Datasetto — ${tooltipDetail}`);
 }
 
+// ============================================
+// Title bar
+// ============================================
+// The main window has no native title bar. The page draws its own across the top
+// (client/src/app/TitleBar.tsx) and the system's caption buttons stay: minimize,
+// maximize/restore and close over the right end of the bar on Windows and Linux
+// (Window Controls Overlay), the traffic lights at its left end on macOS. They are the
+// operating system's own buttons, so Snap Layouts on hover over maximize, the system
+// menu, double-click to maximize and drag to snap keep working. The page sends the
+// bar's colours so the buttons sit on the same background (Windows and Linux).
+const TITLE_BAR_HEIGHT = 32;
+// The client's --color-base and --color-text-muted, until the page sends its own.
+const titleBarColors = { color: '#1e1f22', symbolColor: '#949ba4' };
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
+
+function titleBarWindowOptions() {
+  if (process.platform === 'darwin') {
+    // The traffic lights, centred in the page's bar; the page keeps its text clear of them.
+    return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 12, y: 9 } };
+  }
+  return { titleBarStyle: 'hidden', titleBarOverlay: { ...titleBarColors, height: TITLE_BAR_HEIGHT } };
+}
+
+function setTitleBarColors(payload) {
+  if (process.platform === 'darwin' || !mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  const color = typeof payload?.color === 'string' ? payload.color.toLowerCase() : '';
+  const symbolColor = typeof payload?.symbolColor === 'string' ? payload.symbolColor.toLowerCase() : '';
+  if (!HEX_COLOR_PATTERN.test(color) || !HEX_COLOR_PATTERN.test(symbolColor)) {
+    return;
+  }
+  // Every page load sends them; the window already has these (they are also its initial ones).
+  if (color === titleBarColors.color && symbolColor === titleBarColors.symbolColor) {
+    return;
+  }
+  titleBarColors.color = color;
+  titleBarColors.symbolColor = symbolColor;
+  try {
+    mainWindow.setTitleBarOverlay({ color, symbolColor, height: TITLE_BAR_HEIGHT });
+    console.log('[Desktop] Title bar colours:', color, symbolColor);
+  } catch (error) {
+    console.warn('[Desktop] Could not recolour the title bar buttons:', error?.message ?? error);
+  }
+}
+
+ipcMain.on('titlebar:colors', (event, payload) => {
+  if (mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents) {
+    setTitleBarColors(payload);
+  }
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -1035,14 +1087,12 @@ function createWindow() {
     backgroundColor: '#09090b',
     title: 'Datasetto',
     autoHideMenuBar: true,
-    titleBarOverlay: {
-      color: '#09090b',
-      symbolColor: '#ffffff',
-      height: 30
-    },
+    ...titleBarWindowOptions(),
     icon: resolveResourcePath('icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      // The page draws the title bar (see "Title bar"); the preload passes its height on.
+      additionalArguments: [`--datasetto-title-bar=${TITLE_BAR_HEIGHT}`],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
