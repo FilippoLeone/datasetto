@@ -1037,3 +1037,32 @@ This replaces the first spec's 2-minute network check. The real shaped smoke (pl
 ## 21. Out of scope
 
 Straddles, running it twice, rabbit hunting, multi-table tournaments, rake, spectator delay (spectators never see hidden cards), push notifications for turns, and anything to do with real money or purchases.
+
+---
+
+## 22. As built
+
+Where the implementation fills in or differs from the sections above.
+
+| # | Where | Note |
+|---|---|---|
+| 1 | `lamplight:hand` | Also carries `n` (the first seat to act) and `ms`, plus `xb` (seats posting a late big blind) when there are any. Offline it carries `sd`, the hand's deck seed, and no `cr`. |
+| 2 | `lamplight:act` | `a` is the seat's total for the street after the action (before any uncalled refund). Every all-in, called or raised, is `k: 'a'`. |
+| 3 | `lamplight:show` | Also sent with `rv` only (no `pots`) when an all-in runout starts; the final `show` then lists only hands not yet face up. |
+| 4 | Snap and `seat` | Seat status is one letter on the wire (`e w a o x`). Snap seats also carry `tot` (chips in this hand), `ac` (the seat's `actedAt`, or −1) and `tb`; the snap adds `hp`, `lbb`, `h.tq` (`turnQ`), `h.la`, `h.bk`, `h.xb`, `h.ro`, `h.pend`. Tournament snaps add `bi`, `pay`, `pool`, `mult`; offline snaps add `local`, `bal` and `res`. |
+| 5 | Intents | `lamplight:sitOut` takes an optional `post`. Offline only: `lamplight:join` (sit down or register), `lamplight:refill` and `lamplight:fast`. |
+| 6 | `TableConfig` | No schedule array: the host reads levels from `schedule.ts` at each hand start. Time-bank growth is `timeBankAddMs` and `timeBankMaxMs`. |
+| 7 | `ranks169.ts` | The order is the average equity share against 2, 5 and 8 random hands. Heads-up equity alone ranks 32o below 72o; from about five opponents on 72o is the weakest, so the averaged order runs from AA to 72o. |
+| 8 | Bots | A heads-up button opens 60 % (Regular) or 70 % (Sharp). Calling an all-in uses about half the range that would shove it. On the server the CPU budget is enforced by the host's slicing, so Sharp may decide before its trial cap. |
+| 9 | Engine | Fold is always legal; chips a fold leaves above every live contribution join the last pot. Raising is refused when no other seat could answer it. A cash seat with no chips is `busted` until it tops up. |
+| 10 | Offline | The bot Worker stops as soon as the table hides and starts again on the next decision. The table pauses while you are busted or sitting out, so bots never play on alone. An offline Cup or Trio ends when you bust or win. |
+| 11 | Hand rows | Written to `arcade_poker_hands` when the platform's `TableApi` carries the database; otherwise kept in memory. |
+| 12 | Lobby hooks | `onCreate` does not know the mode, so mode checks (Trio bots, the tier's bot rule) run in `onCreated(c, lobby)`; refusing there closes the lobby. A table lists itself in the channel activity only once its lobby is live: while a Cup or Trio forms, the hub lists it. `hub.update` keeps the lobby's seats, watchers and state (`live` at once for a cash table, at the start for a tournament). |
+| 13 | Online bots | The lobby form's "Bots at an online table" switch (off by default) plus the bot level. Without the switch (the API, tests) a bot level alone asks for bots. A cash table seats at most `seats − 2` bots and at most 4, within the server-wide cap. At a full table a bot gives its seat to a person who sits down: at once if it is not in the hand, else when the hand ends (the sit answers `soon` and the client sends it again once a seat is free). |
+| 14 | Sends | Every event goes per socket (`api.emit`) to the table's sockets that are not away; nothing is broadcast to a room. The turn-timer credit counts only the acting player's own queue. A spectator's client sends `arcade:away` when hidden or closed and `arcade:back` with `since` on return; seated players keep the stream (their turn must reach them). |
+| 15 | Refusals | `onCreate` answers with codes the Arcade sheet explains: `channel-limit`, `server-limit`, `already` (you hold a seat or a registration at another Lamplight table) and `hidden`; `bots` when bots are not allowed there. In a running table the bar shows its own texts (`soon`, `full`, `seated`, `funds`). |
+| 16 | Join online | In a Cup or Trio the table bar's Join uses `arcade:lobby:join`, which registers and escrows the buy-in like the sheet's Join seat. |
+| 17 | Disconnects | The platform calls `onSocketGone` while presence still lists the closing socket; a seat counts as disconnected when no other socket of that account is left. |
+| 18 | Turn ring | A CSS pie (transform and opacity only, so the compositor runs it) restarted for each turn; the 10 Hz timer text runs only on your own turn. |
+| 19 | Layout | In landscape the raise sheet opens beside the button column, which starts below the menu buttons. The board moves up or down by up to 30 px, then shrinks to ×1.5 and ×1.25, while a side seat's name plate or cards would cover it (short stages such as the online stage under the voice strip). |
+| 20 | Platform lobby panel | The catalogue entry sets `hostBots: false`: the sheet shows no "Bots in free seats" stepper (Lamplight's bots come from its lobby options) and leaves the two-player minimum to `onStart`, which answers `players`. |
