@@ -474,7 +474,8 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   });
 
   const heroButtons = (): number => {
-    const b = (held | pending) & 0x7f;
+    // Online the world runs on under a dialogue or the pause menu; the hero stands still there.
+    const b = mode === 'play' ? (held | pending) & 0x7f : 0;
     pending = 0;
     return b;
   };
