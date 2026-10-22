@@ -1,6 +1,6 @@
 # Installs your SSH public key on a fresh VPS using the password from the provider's
 # delivery email (typed once, interactively). Afterwards ssh works without a password.
-#   .\ops\vps\install-ssh-key.ps1 -Server 57.128.227.59 -User debian
+#   .\ops\vps\install-ssh-key.ps1 -Server <server-ip> -User debian
 param(
   [Parameter(Mandatory = $true)] [string] $Server,
   [string] $User = 'debian',
