@@ -1,4 +1,5 @@
-import { computed, signal } from '@preact/signals';
+import { computed, Signal, signal } from '@preact/signals';
+import '@/lib/devTimerProbe';
 import type { NeuralStatus } from '@/services/voice/neuralSuppression';
 
 /** `reconnecting`: the socket is gone but the call is kept; it rejoins by itself when the socket is back. */
@@ -31,8 +32,53 @@ export const voicePeers = signal<Record<string, VoicePeer>>({});
 export const localMuted = signal(false);
 export const localDeafened = signal(false);
 export const localSpeaking = signal(false);
-/** 0..1 microphone level for the meter. */
-export const micLevel = signal(0);
+
+/**
+ * Smallest level change the meter is told about: 2 % of the settings meter's scale (it shows the
+ * level × 3, rounded to whole percent), so smaller steps would not move it visibly.
+ */
+export const MIC_LEVEL_STEP = 0.02 / 3;
+
+/**
+ * The microphone level for a meter. It is sampled 20 times a second in a call, but only written
+ * while a meter shows it (the signal has a subscriber) and only when it moved by more than
+ * MIC_LEVEL_STEP, so nothing re-renders for a level nobody looks at. The speaking state is fed
+ * from the samples themselves, not from this signal.
+ */
+class MicLevelSignal extends Signal<number> {
+  private shown = false;
+
+  constructor() {
+    super(0, {
+      watched(this: Signal<number>) {
+        (this as MicLevelSignal).shown = true;
+      },
+      unwatched(this: Signal<number>) {
+        const level = this as MicLevelSignal;
+        level.shown = false;
+        level.store(0); // the next meter starts from silence, not from a stale reading
+      },
+    });
+  }
+
+  override get value(): number {
+    return super.value;
+  }
+
+  override set value(next: number) {
+    if (!this.shown) return;
+    const current = this.peek();
+    if (next === current || (next !== 0 && Math.abs(next - current) <= MIC_LEVEL_STEP)) return;
+    super.value = next;
+  }
+
+  private store(next: number): void {
+    super.value = next;
+  }
+}
+
+/** 0..1 microphone level for the meter (see MicLevelSignal). */
+export const micLevel: Signal<number> = new MicLevelSignal();
 /** What the "strong" noise suppression runs right now (engine, loading state, last notice). */
 export const noiseSuppressionStatus = signal<NeuralStatus>({ tier: 'deepfilternet3', state: 'idle', notice: null, load: null });
 export const pttPressed = signal(false);
