@@ -107,6 +107,8 @@ export const registerAdminHandlers = (sctx: SocketContext): void => {
     socket.emit('admin:accounts:deleted', { account: deleted });
     app.broadcast.users();
     app.broadcast.channels();
+    // Their old messages fall back to the generated avatar (the picture file is gone).
+    app.broadcast.avatar(accountId, null);
     app.log.warn({ accountId, by: actor.accountId }, 'account deleted (soft)');
   });
 

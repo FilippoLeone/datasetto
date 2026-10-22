@@ -215,6 +215,8 @@ export interface ReplyRef {
   /** Null when the original is gone for good (pruned). */
   from: string | null;
   accountId: string | null;
+  /** The original author's current profile picture (absent from older servers). */
+  avatarUrl?: string | null;
   /** The start of the original's text; empty when deleted or picture-only. */
   text: string;
   deleted: boolean;
@@ -228,6 +230,12 @@ export interface ChatMessage {
   from: string;
   fromId?: string | null;
   accountId?: string | null;
+  /**
+   * The author's profile picture as it is now (null: none, or the account was deleted;
+   * absent from older servers). Render through `avatarOf` (state/avatars.ts), which
+   * also follows later changes.
+   */
+  authorAvatarUrl?: string | null;
   text: string;
   ts: number;
   roles?: RoleName[];

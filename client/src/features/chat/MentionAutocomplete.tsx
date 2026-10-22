@@ -1,5 +1,6 @@
 import { Avatar } from '@/components';
 import { cn } from '@/lib/cn';
+import { avatarOf } from '@/state/avatars';
 import type { MentionCandidate } from '@/types/protocol';
 
 interface MentionAutocompleteProps {
@@ -44,7 +45,7 @@ export const MentionAutocomplete = ({ id, candidates, activeIndex, onPick, onAct
           onMouseEnter={() => onActivate(index)}
           onClick={() => onPick(candidate)}
         >
-          <Avatar seed={candidate.accountId} name={candidate.displayName} src={candidate.avatarUrl} size={24} />
+          <Avatar seed={candidate.accountId} name={candidate.displayName} src={avatarOf(candidate.accountId, candidate.avatarUrl)} size={24} />
           <span className="truncate font-medium">{candidate.displayName}</span>
           <span className={cn('ml-auto min-w-0 truncate text-xs', active ? 'text-white/80' : 'text-text-faint')}>{candidate.username}</span>
         </button>

@@ -179,6 +179,8 @@ export interface ReplyRef {
   /** Null when the original is gone (pruned). */
   from: string | null;
   accountId: string | null;
+  /** The original author's current profile picture (as in {@link MessageRecord.authorAvatarUrl}). */
+  avatarUrl: string | null;
   /** First part of the original's text; empty when it was deleted or carried only pictures. */
   text: string;
   /** The original was deleted (or is gone): the quote says so instead of showing text. */
@@ -193,6 +195,11 @@ export interface MessageRecord {
   from: string;
   fromId: string | null;
   accountId: string | null;
+  /**
+   * The author's profile picture as it is now (an uploaded `/api/avatars/…` path or an
+   * external URL), not as it was when the message was sent; null for none or a deleted account.
+   */
+  authorAvatarUrl: string | null;
   text: string;
   ts: number;
   roles: RoleName[];
