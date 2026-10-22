@@ -63,6 +63,40 @@ describe('Glimmerhall on the server', () => {
     expect(h.call(h.ctx('a'), 'glimmer:spin', { m: 1, b: 20, id: sid() })).toEqual({ ok: false, code: 'disabled' });
   });
 
+  it('is the channel lobby: one per channel, live at once, seats for the whole hall, no spectators, closed when empty', () => {
+    const h = createHarness({ rng: scripted(2).rng, potRng: () => 999_999 });
+    const ids = Array.from({ length: 12 }, (_, i) => 'm' + i);
+    h.addAccount(...ids, 'outside');
+    for (const id of ids) h.voice.set(id, CH);
+    expect(h.createLobby(h.ctx('outside'))).toEqual({ ok: false, code: 'not-in-voice' });
+    const created = h.createLobby(h.ctx('m0'));
+    expect(created.ok).toBe(true);
+    const id = (created as { id: string }).id;
+    // Live at once, so the stage opens for the creator and for everyone who joins.
+    expect(h.lobbies.get(id)?.state).toBe('live');
+    expect(h.createLobby(h.ctx('m1'))).toEqual({ ok: false, code: 'exists' });
+    expect(h.game.lobby?.onJoin(h.ctx('m1'), h.lobbies.get(id) as never, 'spectator')).toEqual({ ok: false, code: 'no-spectators' });
+    // More people than the hub's 9 table seats: the hall keeps the record padded to its size.
+    for (const m of ids) {
+      if (m !== 'm0') expect(h.joinLobby(h.ctx(m), id)).toEqual({ ok: true });
+      expect(h.call<EnterOk>(h.ctx(m), 'glimmer:enter', { ch: CH, v: V }).ok).toBe(true);
+    }
+    const record = h.lobbies.get(id);
+    expect(record?.seats.length).toBeGreaterThanOrEqual(16);
+    expect(record?.seats.filter((s) => s.accountId).map((s) => s.accountId).sort()).toEqual(ids.slice().sort());
+    expect(h.game.activity(CH)).toEqual([{ g: 'glimmer', id, st: 'open', n: 12, max: 16, w: 0 }]);
+    // Leaving the call frees the seat; leaving the lobby leaves the hall.
+    h.game.onVoiceLeft('m11', CH);
+    expect(h.lobbies.get(id)?.seats.some((s) => s.accountId === 'm11')).toBe(false);
+    h.leaveLobby(h.ctx('m10'), id);
+    expect(h.game.debug.halls.get(CH)?.members.has('m10')).toBe(false);
+    // The last one out closes the lobby; the next "Start" makes a new one.
+    for (const m of ids.slice(0, 10)) h.call(h.ctx(m), 'glimmer:leave', {});
+    expect(h.lobbies.get(id)?.state).toBe('ended');
+    expect(h.game.activity(CH)).toEqual([]);
+    expect(h.createLobby(h.ctx('m0')).ok).toBe(true);
+  });
+
   it('settles each spin in one transaction with net legs; the books balance after every spin', () => {
     const r = scripted(7);
     const h = createHarness({ rng: r.rng, potRng: () => 999_999 });

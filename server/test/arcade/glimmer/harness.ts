@@ -11,7 +11,9 @@ import { DEFAULT_SETTINGS, type ArcadeSettings } from '../../../src/arcade/setti
 import { createResults, createStats } from '../../../src/arcade/stats.js';
 import type { CallerCtx, EmitOpts, TableApi } from '../../../src/arcade/tables/types.js';
 import { createWallet, type Wallet } from '../../../src/arcade/wallet.js';
-import { startGlimmer, type GlimmerGame, type GlimmerOptions, type PendingStore } from '../../../src/arcade/halls/glimmer.js';
+import { createPending } from '../../../src/arcade/pending.js';
+import type { LobbyRecord } from '../../../src/arcade/tables/types.js';
+import { startGlimmer, type GlimmerGame, type GlimmerOptions } from '../../../src/arcade/halls/glimmer.js';
 
 export interface Emit {
   socketId: string;
@@ -55,14 +57,6 @@ export const virtualClock = (start = Date.UTC(2026, 9, 22, 18, 0, 0)) => {
   return clock;
 };
 
-/** The arcade_pending store as the platform is asked to provide it, over the test database. */
-export const dbPending = (db: DB, now: () => number): PendingStore => ({
-  get: (a, g) => (db.prepare('SELECT kind, txn_id AS txnId, data, created_at AS createdAt FROM arcade_pending WHERE account_id = ? AND game = ?').get(a, g) as never) ?? null,
-  put: (a, g, kind, txnId, data) => void db.prepare('INSERT OR REPLACE INTO arcade_pending (account_id, game, kind, txn_id, data, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(a, g, kind, txnId, data, now()),
-  remove: (a, g) => void db.prepare('DELETE FROM arcade_pending WHERE account_id = ? AND game = ?').run(a, g),
-  olderThan: (g, ms) => db.prepare('SELECT account_id AS accountId, kind, txn_id AS txnId, data, created_at AS createdAt FROM arcade_pending WHERE game = ? AND created_at < ?').all(g, now() - ms) as never,
-});
-
 export interface Harness {
   db: DB;
   clock: ReturnType<typeof virtualClock>;
@@ -78,11 +72,20 @@ export interface Harness {
   flushSent(): void;
   addAccount(...ids: string[]): void;
   call<T = any>(c: CallerCtx, ev: string, payload: unknown): T;
+  /** The hub's lobby records (what `HubApi.get/update/close` see). */
+  lobbies: Map<string, LobbyRecord>;
+  /** The hub's lobby create flow for Glimmerhall: onCreate, then the record, then onCreated. */
+  createLobby(c: CallerCtx): { ok: true; id: string } | { ok: false; code: string };
+  /** The hub's join and leave for a table lobby. */
+  joinLobby(c: CallerCtx, id: string): { ok: boolean; code?: string };
+  leaveLobby(c: CallerCtx, id: string): void;
   ctx(accountId: string, socketId?: string): CallerCtx;
   to(socketId: string, ev?: string): unknown[];
 }
 
-export const createHarness = (o: GlimmerOptions & { pending?: 'db' | 'none'; settings?: Partial<ArcadeSettings> } = {}): Harness => {
+export const createHarness = (
+  o: GlimmerOptions & { settings?: Partial<ArcadeSettings>; /** Route every emit here instead of recording it (the link simulator). */ emit?: (socketId: string, ev: string, data: unknown, opts: EmitOpts) => void } = {},
+): Harness => {
   const db = openDatabase(':memory:', { memory: true });
   const clock = virtualClock();
   const settings: ArcadeSettings = { ...DEFAULT_SETTINGS, ...o.settings, gameSettings: { glimmer: { slotsMaxBet: 500 }, ...o.settings?.gameSettings } };
@@ -97,6 +100,10 @@ export const createHarness = (o: GlimmerOptions & { pending?: 'db' | 'none'; set
   const log = { warn: () => undefined, info: () => undefined, error: () => undefined, debug: () => undefined };
   const h: Partial<Harness> = { autoSent: true };
   const emit = (socketId: string, ev: string, data: unknown, opts: EmitOpts): void => {
+    if (o.emit) {
+      o.emit(socketId, ev, data, opts);
+      return;
+    }
     const at = clock.now();
     const stamped = opts.stamp ? opts.stamp(data, at) : data;
     // Coalesced emits replace a queued one with the same key.
@@ -113,7 +120,9 @@ export const createHarness = (o: GlimmerOptions & { pending?: 'db' | 'none'; set
     if (h.autoSent) sent();
     else queued.push(sent);
   };
-  const api: TableApi & { pending?: PendingStore } = {
+  const lobbies = new Map<string, LobbyRecord>();
+  let lobbySeq = 0;
+  const api: TableApi = {
     on: (event, opts, fn) => void handlers.set(event, { schema: opts.schema as ZodType<unknown>, fn: fn as (c: CallerCtx, p: unknown) => unknown }),
     queuePolicy: () => undefined,
     emit,
@@ -124,10 +133,18 @@ export const createHarness = (o: GlimmerOptions & { pending?: 'db' | 'none'; set
     stats: createStats(db, clock),
     results: createResults(db, clock),
     hub: {
-      get: () => null,
+      get: (id) => lobbies.get(id) ?? null,
       publish: () => undefined,
       activityChanged: (ch) => void activity.push(ch),
-      close: () => undefined,
+      close: (id) => {
+        const r = lobbies.get(id);
+        if (r) lobbies.set(id, { ...r, state: 'ended' });
+      },
+      update: (id, patch) => {
+        const r = lobbies.get(id);
+        if (!r || r.state === 'ended') return;
+        lobbies.set(id, { ...r, ...(patch.seats ? { seats: patch.seats } : {}), ...(patch.state ? { state: patch.state } : {}), ...(patch.watchers ? { watchers: patch.watchers } : {}) });
+      },
       bots: { take: () => false, give: () => undefined },
       limits: () => settings.limits,
     },
@@ -137,8 +154,9 @@ export const createHarness = (o: GlimmerOptions & { pending?: 'db' | 'none'; set
     clock,
     log: log as never,
     settings: () => settings,
+    db,
+    pending: createPending(db, clock),
   };
-  if (o.pending !== 'none') api.pending = dbPending(db, () => clock.now());
   const game = startGlimmer(api, o);
   Object.assign(h, {
     db,
@@ -164,6 +182,37 @@ export const createHarness = (o: GlimmerOptions & { pending?: 'db' | 'none'; set
       return handler.fn(c, parsed.data);
     },
     ctx: (accountId: string, socketId = 's-' + accountId) => ({ accountId, socketId, voiceChannelId: voice.get(accountId) ?? null }),
+    lobbies,
+    createLobby: (c: CallerCtx) => {
+      const refusal = game.lobby?.onCreate(c, {});
+      if (!refusal?.ok) return refusal as { ok: false; code: string };
+      lobbySeq += 1;
+      const id = 'L' + lobbySeq;
+      const record: LobbyRecord = { id, game: 'glimmer', channelId: c.voiceChannelId as string, mode: 'hall', cfg: {}, host: c.accountId, seats: Array.from({ length: 9 }, (_, i) => ({ accountId: i === 0 ? c.accountId : null, bot: false, state: 0 })), watchers: [], state: 'open' };
+      lobbies.set(id, record);
+      game.lobby?.onCreated?.(c, record);
+      return { ok: true, id };
+    },
+    joinLobby: (c: CallerCtx, id: string) => {
+      const r = lobbies.get(id);
+      if (!r || r.state === 'ended') return { ok: false, code: 'gone' };
+      if (r.seats.some((s) => s.accountId === c.accountId)) return { ok: true };
+      const free = r.seats.findIndex((s) => s.accountId === null && !s.bot);
+      if (free < 0) return { ok: false, code: 'full' };
+      const answer = game.lobby?.onJoin(c, r, 'player');
+      if (answer && !answer.ok) return answer;
+      const seatsNow = r.seats.slice();
+      seatsNow[free] = { accountId: c.accountId, bot: false, state: 0 };
+      lobbies.set(id, { ...r, seats: seatsNow });
+      return { ok: true };
+    },
+    leaveLobby: (c: CallerCtx, id: string) => {
+      const r = lobbies.get(id);
+      if (!r) return;
+      const seatsNow = r.seats.map((s) => (s.accountId === c.accountId ? { ...s, accountId: null } : s));
+      lobbies.set(id, { ...r, seats: seatsNow });
+      game.lobby?.onLeave(c, lobbies.get(id) as LobbyRecord);
+    },
     to: (socketId: string, ev?: string) => emits.filter((e) => e.socketId === socketId && (!ev || e.ev === ev)).map((e) => e.data),
   });
   return h as Harness;

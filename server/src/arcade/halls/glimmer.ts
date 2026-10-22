@@ -52,7 +52,7 @@ import {
 } from '../core/glimmer/wire.js';
 import { DEFS } from '../core/version.js';
 import { statBoard } from '../stats.js';
-import type { ActivityEntry, CallerCtx, Leg, TableApi, TableGame, TableGameDef } from '../tables/types.js';
+import type { ActivityEntry, CallerCtx, Leg, LobbyRecord, PendingRow, PendingStore, TableApi, TableGame, TableGameDef } from '../tables/types.js';
 import { potAccount, walletAccount } from '../wallet.js';
 import { createDashes, type Dashes } from './dash.js';
 
@@ -65,38 +65,13 @@ export const POT_CHIP_MS = 60_000;
 
 // ------------------------------------------------------------------ pending vaults
 
-export interface PendingRow {
-  kind: string;
-  txnId: number;
-  data: string;
-  createdAt: number;
-}
-
-/** The `arcade_pending` store (requested from the platform; an in-memory stand-in until then). */
-export interface PendingStore {
-  get(accountId: string, game: 'glimmer'): PendingRow | null;
-  put(accountId: string, game: 'glimmer', kind: string, txnId: number, data: string): void;
-  remove(accountId: string, game: 'glimmer'): void;
-  olderThan(game: 'glimmer', ms: number): readonly (PendingRow & { accountId: string })[];
-}
-
-export const memoryPending = (now: () => number): PendingStore => {
-  const rows = new Map<string, PendingRow>();
-  return {
-    get: (a) => rows.get(a) ?? null,
-    put: (a, _g, kind, txnId, data) => void rows.set(a, { kind, txnId, data, createdAt: now() }),
-    remove: (a) => void rows.delete(a),
-    olderThan: (_g, ms) => [...rows].filter(([, r]) => r.createdAt < now() - ms).map(([accountId, r]) => ({ accountId, ...r })),
-  };
-};
-
 interface VaultData {
   m: MachineIdx;
   bet: number;
   doors: number[];
 }
 
-const parseVault = (row: PendingRow | null): VaultData | null => {
+const parseVault = (row: Omit<PendingRow, 'accountId'> | null): VaultData | null => {
   if (!row || row.kind !== 'vault') return null;
   try {
     const d = JSON.parse(row.data) as VaultData;
@@ -128,6 +103,8 @@ export interface Seat {
   /** Per-recipient push state: what waits, and what the platform has queued but not sent. */
   feed: FeedPending;
   queued: FeedView | null;
+  /** When the platform last sent this member a push (pushes stay at most one a second on the wire). */
+  sentAt: number;
 }
 
 export interface Hall {
@@ -164,11 +141,11 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
   const rng: Rng = o.rng ?? ((n) => randomInt(n));
   const potRng: Rng = o.potRng ?? ((n) => randomInt(n));
   const clock = api.clock;
-  const extended = (api as TableApi & { pending?: PendingStore }).pending;
-  const pending: PendingStore = extended ?? memoryPending(() => clock.now());
-  if (!extended) api.log.warn('[glimmer] no arcade_pending store from the platform: pending vaults are kept in memory');
+  const pending: PendingStore = api.pending;
   const seats = new Map<string, Seat>();
   const halls = new Map<string, Hall>();
+  /** Each channel's Glimmerhall lobby (the hub's record; the hall is that lobby, live from the start). */
+  const lobbyOf = new Map<string, string>();
   let stopped = false;
 
   const settings = (): GlimmerSettings => (api.settings().gameSettings.glimmer as GlimmerSettings | undefined) ?? SETTINGS_DEFAULTS;
@@ -204,6 +181,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
       sub: { rateBps: PUSH_BUCKET.rateBps, depth: PUSH_BUCKET.depth },
       stamp: deadline === null ? undefined : (data, sentAt) => ({ ...(data as FeedView), d: { ...(data as FeedView).d, t: Math.max(0, Math.ceil((deadline - sentAt) / 1000)) } }),
       onSent: () => {
+        seat.sentAt = clock.now();
         if (seat.queued === view) seat.queued = null;
       },
     });
@@ -221,22 +199,29 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
       hall.lastPotAt = now;
       hall.potDirty = false;
     }
+    let later = Infinity;
     for (const seat of hall.members.values()) {
       if (seat.away) continue;
       if (pot !== undefined && seat.potSent !== pot) {
         seat.feed.p = pot;
         seat.potSent = pot;
       }
-      if (!pendingEmpty(seat.feed) || seat.queued) sendFeed(seat, hall);
+      if (pendingEmpty(seat.feed) && !seat.queued) continue;
+      // The last push left the server less than a second ago (it waited behind chat): this one waits too.
+      if (now - seat.sentAt < FEED_GAP_MS) {
+        later = Math.min(later, seat.sentAt + FEED_GAP_MS);
+        continue;
+      }
+      sendFeed(seat, hall);
     }
-    // Pot changes held back by the 2 s rule, and leftovers that did not fit, go in the next flush.
-    if (hall.potDirty || [...hall.members.values()].some((s) => !s.away && !pendingEmpty(s.feed))) arm(hall);
+    // Pot changes held back by the 2 s rule, members held by the 1 s rule, and leftovers that did not fit, go next.
+    if (later !== Infinity || hall.potDirty || [...hall.members.values()].some((s) => !s.away && !pendingEmpty(s.feed))) arm(hall, later);
   };
 
-  const arm = (hall: Hall): void => {
+  const arm = (hall: Hall, notBefore = 0): void => {
     if (hall.flushTimer !== null || stopped) return;
     const now = clock.now();
-    const at = Math.max(hall.lastFlushAt + FEED_GAP_MS, now, hall.potDirty ? hall.lastPotAt + POT_GAP_MS : now);
+    const at = Math.max(hall.lastFlushAt + FEED_GAP_MS, now, notBefore === Infinity ? now : notBefore, hall.potDirty ? hall.lastPotAt + POT_GAP_MS : now);
     hall.flushTimer = clock.setTimeout(() => flush(hall), at - now);
   };
 
@@ -284,6 +269,37 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     }
   };
 
+  // ---------------------------------------------------------------- the hub's lobby record
+
+  /** The channel's hall lobby, if the hub still has it. */
+  const liveLobby = (ch: string): LobbyRecord | null => {
+    const id = lobbyOf.get(ch);
+    if (!id) return null;
+    const record = api.hub.get(id);
+    if (!record || record.state === 'ended') {
+      lobbyOf.delete(ch);
+      return null;
+    }
+    return record;
+  };
+
+  /**
+   * Keeps the lobby's seats in step with the hall: the people in it plus anyone the hub seated who has
+   * not entered yet, padded to the hall's size so joining never runs out of seats.
+   */
+  const syncSeats = (ch: string, add: string | null, remove: string | null): void => {
+    const record = liveLobby(ch);
+    if (!record) return;
+    const ids: string[] = [];
+    for (const s of record.seats) if (s.accountId && s.accountId !== remove && !ids.includes(s.accountId)) ids.push(s.accountId);
+    const hall = halls.get(ch);
+    if (hall) for (const id of hall.members.keys()) if (id !== remove && !ids.includes(id)) ids.push(id);
+    if (add && !ids.includes(add)) ids.push(add);
+    const size = Math.max(maxMembers(), ids.length + 1);
+    const seatsOut: LobbyRecord['seats'] = Array.from({ length: size }, (_, i) => ({ accountId: ids[i] ?? null, bot: false, state: 0 }));
+    api.hub.update(record.id, { seats: seatsOut });
+  };
+
   // ---------------------------------------------------------------- halls and seats
 
   const memberRows = (hall: Hall | undefined): MemberRow[] =>
@@ -303,7 +319,13 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     if (hall.members.size === 0) {
       if (hall.flushTimer !== null) clock.clearTimeout(hall.flushTimer);
       halls.delete(hall.ch);
-    }
+      // The last one out closes the channel's hall lobby.
+      const record = liveLobby(hall.ch);
+      if (record && !record.seats.some((s) => s.accountId && s.accountId !== seat.accountId)) {
+        lobbyOf.delete(hall.ch);
+        api.hub.close(record.id, 'empty');
+      } else syncSeats(hall.ch, null, seat.accountId);
+    } else syncSeats(hall.ch, null, seat.accountId);
     api.hub.activityChanged(hall.ch);
   };
 
@@ -334,6 +356,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     seat.feed = emptyPending();
     seat.queued = null;
     memberDelta(hall, seat, false);
+    syncSeats(ch, seat.accountId, null);
     api.hub.activityChanged(ch);
     return true;
   };
@@ -592,7 +615,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
       seat.queued = null;
     }
     if (!seat) {
-      seat = { accountId: c.accountId, socketId: c.socketId, hall: null, slot: -1, machine: 1, away: false, awayShownAt: 0, lastInputAt: now, lastReactAt: -1e12, potSent: null, lw: 0, lx: 0, dropTimer: null, feed: emptyPending(), queued: null };
+      seat = { accountId: c.accountId, socketId: c.socketId, hall: null, slot: -1, machine: 1, away: false, awayShownAt: 0, lastInputAt: now, lastReactAt: -1e12, potSent: null, lw: 0, lx: 0, dropTimer: null, feed: emptyPending(), queued: null, sentAt: -1e12 };
       seats.set(c.accountId, seat);
     }
     if (seat.dropTimer !== null) clock.clearTimeout(seat.dropTimer);
@@ -714,6 +737,31 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
   };
 
   return {
+    lobby: {
+      onCreate(c) {
+        if (!enabled()) return refuse('disabled');
+        if (!c.voiceChannelId) return refuse('not-in-voice');
+        // One hall per voice channel: open the one that is there.
+        if (liveLobby(c.voiceChannelId)) return refuse('exists');
+        return { ok: true };
+      },
+      onCreated(c, record) {
+        lobbyOf.set(record.channelId, record.id);
+        // Live at once: the stage opens for whoever creates or joins the hall.
+        api.hub.update(record.id, { state: 'live' });
+        syncSeats(record.channelId, c.accountId, null);
+      },
+      onJoin(_c, _lobby, as) {
+        return as === 'spectator' ? refuse('no-spectators') : { ok: true };
+      },
+      onLeave(c, lobby) {
+        const seat = seats.get(c.accountId);
+        if (seat && seat.hall === lobby.channelId) leaveHall(seat);
+      },
+      onStart() {
+        return { ok: true };
+      },
+    },
     onAway() {},
     onBack() {},
     onVoiceLeft(accountId, channelId) {
@@ -753,7 +801,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     activity(channelId): readonly ActivityEntry[] {
       const hall = halls.get(channelId);
       if (!hall || hall.members.size === 0) return [];
-      const e: ActivityEntry = { g: GAME, id: 'hall:' + channelId, st: dashes.live(channelId) ? 'dash' : 'open', n: hall.members.size, max: maxMembers(), w: 0 };
+      const e: ActivityEntry = { g: GAME, id: liveLobby(channelId)?.id ?? 'hall:' + channelId, st: dashes.live(channelId) ? 'dash' : 'open', n: hall.members.size, max: maxMembers(), w: 0 };
       if (hall.potWon && clock.now() - hall.potWon.at < POT_CHIP_MS) e.j = { amt: hall.potWon.amt };
       return [e];
     },

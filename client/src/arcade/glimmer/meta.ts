@@ -7,7 +7,7 @@ export const meta: GameMeta = {
   tagline: 'Three play-chip machines, the Glimmer Pot and the Glimmer Dash',
   icon: 'coins',
   lane: 'table',
-  ready: { offline: true, online: false },
+  ready: { offline: true, online: true },
   modes: [{ id: 'hall', label: 'The hall', online: true, offline: true }],
   seats: [1, 16],
   watch: false,
