@@ -3,9 +3,9 @@
  * limits, the poker bot cap, invites and the passive activity summaries (platform.md §9.2–9.3).
  *
  * Joining is opt-in. People in a voice channel see a lobby only as a passive chip fed by
- * `arcade:activity` (at most one update per 2 s per channel, ≤ 150 B); only lobby members get
- * `arcade:lobby` (coalesced, ≤ 2 Hz). Channel viewers outside the call get activity only. An account
- * that hid the Arcade (or that game) gets nothing.
+ * `arcade:activity` (at most one update per 2 s per channel, ≤ 150 B; a close goes out at once); only
+ * lobby members get `arcade:lobby` (coalesced, ≤ 2 Hz). Channel viewers outside the call get activity
+ * only. An account that hid the Arcade (or that game) gets nothing.
  */
 import { randomBytes } from 'node:crypto';
 import type { Server } from 'socket.io';
@@ -290,6 +290,17 @@ export const createHub = (d: HubDeps): Hub => {
     );
   };
 
+  /**
+   * A removal skips the throttle: a closed lobby or table leaves everyone's channel list at once, and
+   * an update still waiting for the window goes out with it. Closes are bounded by lobby creation
+   * (per-channel limits and the `arcade` limiter), so this cannot flood a channel.
+   */
+  const activityNow = (channelId: string): void => {
+    const pending = activityTimers.get(channelId);
+    if (pending !== undefined) clock.clearTimeout(pending);
+    sendActivity(channelId);
+  };
+
   // ------------------------------------------------------------ lobby lifecycle
 
   const armIdle = (lobby: Lobby): void => {
@@ -311,7 +322,7 @@ export const createHub = (d: HubDeps): Hub => {
     lobbies.delete(lobbyId);
     if (lobby.save) savesInUse.delete(lobby.save.ownerId + ':' + lobby.game + ':' + lobby.save.slot);
     ctx.log.debug({ lobby: lobbyId, game: lobby.game, reason }, 'arcade lobby closed');
-    activityChanged(lobby.channelId);
+    activityNow(lobby.channelId);
   };
 
   const passHost = (lobby: Lobby): void => {

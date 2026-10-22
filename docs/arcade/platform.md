@@ -427,7 +427,7 @@ Snapshots, events and keyframes go only to heroes in that room (§8.3).
 | `arcade:lobby:join` | C→S | `{id, as: 'player'\|'spectator', seat?}` → `{ok, lobby, ticket?}` | 50 / 300 |
 | `arcade:lobby:leave` / `:start` / `:bots` / `:config` | C→S | `{id, …}` → `{ok}` | 30–80 |
 | `arcade:lobby` | S→C, lobby room, ≤ 2 Hz coalesced | `{id, game, ch, st, host, seats:[{a, bot, st}], spec, cfg, v}` | 150–350 |
-| `arcade:activity` | S→C, channel viewers, on change, ≤ 1 per 2 s per channel | `{ch, a:[{g, id, st, n, max, w}]}` | 60–150 |
+| `arcade:activity` | S→C, channel viewers, on change, ≤ 1 per 2 s per channel; a lobby or table that closes goes out at once | `{ch, a:[{g, id, st, n, max, w}]}` | 60–150 |
 | `arcade:activity:all` | S→C, once after `auth:success` | `{chs:[…]}` | ≤ 1 KB |
 | `arcade:ticket` | C→S | `{id}` → `{ok, ticket, exp}` | 30 / 120 |
 | `arcade:invite` | C→S | `{id, to}` → `{ok}`; the recipient gets `arcade:invited {id, from, game, ch}` | 50 |
@@ -667,7 +667,7 @@ Per the slots spec.
   | Create a lobby, sit as a player | voice members of that channel |
   | Watch | voice members, and anyone with `view` on the channel; up to 4 per action match and 8 per table (none in Bellwick v1) |
 
-  Channel viewers outside the call receive only `arcade:activity` (≤ 150 B, on change, at most once per 2 s) until they press Watch.
+  Channel viewers outside the call receive only `arcade:activity` (≤ 150 B, on change, at most once per 2 s) until they press Watch. A close skips the 2 s wait, so a lobby or table that ends leaves everyone's list at once.
 - **Invites.** `arcade:invite` pings one named voice member, at most once a minute per pair, and never while they are on Do Not Disturb. It shows as a dismissible InviteChip that expires after 60 s.
 - **Late join**
   - Fuseyard: late joiners watch until the next round, then take a free or bot seat.
