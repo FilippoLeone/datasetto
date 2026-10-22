@@ -470,7 +470,8 @@ export interface VoiceJoinedEvent {
 
 export interface VoiceSignalEvent {
   from: string;
-  data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
+  /** `offerId` rides with an offer and is echoed by its answer (older clients send none). */
+  data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; offerId?: number };
 }
 
 export interface ScreenshareSessionEvent {
@@ -769,8 +770,9 @@ export interface StreamMetadata {
 
 /** Events emitted by the media services (VoiceService, AudioService). */
 export type EventMap = {
-  'voice:offer': { peerId: string; offer: RTCSessionDescriptionInit };
-  'voice:answer': { peerId: string; answer: RTCSessionDescriptionInit };
+  'voice:offer': { peerId: string; offer: RTCSessionDescriptionInit; offerId?: number };
+  /** `offerId`: the offer this answers, when the offer carried one. */
+  'voice:answer': { peerId: string; answer: RTCSessionDescriptionInit; offerId?: number };
   'voice:ice-candidate': { peerId: string; candidate: RTCIceCandidateInit };
   'voice:send-stream-metadata': { to: string; metadata: StreamMetadata };
   /** A friend's voice stream arrived or went (the clip mixer follows them). */
