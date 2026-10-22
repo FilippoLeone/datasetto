@@ -244,7 +244,7 @@ export const BOSS_RULES = {
   ringBand: 96,
   ringDamage: 2,
   /** Phase 2: rolls along the walls; 3 notes every 60 ticks; 2 bats every 240 ticks, at most 4; dizzy 60 after 3 laps. */
-  rollSpeed: 40,
+  rollSpeed: 36,
   noteEvery: 60,
   batEvery: 240,
   batMax: 4,
@@ -303,6 +303,12 @@ export const maxHp = (vessels: number, shards: number): number => Math.min(12, 6
 export const respawnHp = (max: number): number => Math.max(6, Math.ceil(max / 2));
 
 export const bossHp = (heroes: number): number => BOSS_RULES.hpBase + BOSS_RULES.hpPerHero * Math.max(0, heroes - 1);
+
+/**
+ * The codec contract's hash for `VERSION.codec` (bellwick.md §3.6). Changing HERO_RULES or TILE_FLAGS
+ * changes `rulesHash()`; bump `VERSION.codec` and record the new hash here together.
+ */
+export const RULES_HASH = { codec: 1, hash: 0x4bef2c1c } as const;
 
 /** FNV-1a over HERO_RULES (in HERO_RULE_ORDER) and TILE_FLAGS: the codec contract of §3.6. */
 export const rulesHash = (): number => {

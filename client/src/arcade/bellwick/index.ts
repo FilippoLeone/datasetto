@@ -1,10 +1,20 @@
 /**
- * Bellwick's lazy chunk (plan.md §2.6.6: the default export is a GameChunk). Handover stub from the
- * platform: it mounts a "coming soon" card until the Bellwick package replaces it (owned by that
- * package from arcade-p-m1).
+ * Bellwick's lazy chunk (plan.md §2.6.6): the game module and, for Solo Tale, the local tale the
+ * platform's local host steps. Party Tale mounts the same module on a remote host.
  */
-import { comingSoon } from '../runtime/comingSoon';
-import type { GameChunk } from '../runtime/types';
+import type { GameChunk, GameModule, MatchHost } from '../runtime/types';
+import { mountBellwick } from './game';
+import { createLocalTale, offerLocalTale } from './offline';
 
-const chunk: GameChunk = comingSoon("Bellwick");
+const module: GameModule<MatchHost> = { mount: mountBellwick };
+
+const chunk: GameChunk = {
+  module,
+  local(o) {
+    const tale = createLocalTale(o.seed[0] ?? 1);
+    offerLocalTale(tale);
+    return tale;
+  },
+};
+
 export default chunk;

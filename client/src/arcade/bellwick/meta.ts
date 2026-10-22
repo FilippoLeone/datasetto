@@ -1,4 +1,4 @@
-/** Bellwick's catalogue entry (main bundle, ≤ 300 B gzip). Handover stub from the platform; owned by Bellwick from arcade-p-m1. */
+/** Bellwick's catalogue entry (main bundle, ≤ 300 B gzip). Party Tale shows once its server room ships. */
 import type { GameMeta } from '../catalog';
 
 export const meta: GameMeta = {
@@ -7,7 +7,7 @@ export const meta: GameMeta = {
   tagline: 'Wake the bells of the Drowned Bellhouse, alone or together',
   icon: 'sword',
   lane: 'action',
-  ready: { offline: false, online: false },
+  ready: { offline: true, online: false },
   modes: [
     { id: 'party', label: 'Party Tale', online: true, offline: false },
     { id: 'solo', label: 'Solo Tale', online: false, offline: true },

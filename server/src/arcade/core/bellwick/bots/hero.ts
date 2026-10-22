@@ -5,12 +5,27 @@
  * included; fixed-capacity queues, no `while`), fights what comes near (spins at Shellbacks, sidesteps
  * charges), drinks a Hearthbrew when low, and fights Old Clapper only in his windows.
  */
-import type { ClientWorld, CEnt } from '../client.js';
-import { T } from '../content/legend.js';
-import { content, flaggedTile, screen, type ScreenDef } from '../content/parse.js';
-import walkthrough from '../content/walkthrough.js';
-import { edgeOpen, F, TILE_FLAGS, walkable } from '../rules.js';
-import { Act, Btn, DX8, DY8, ItemBit, Item, Kind, Pick, Status } from '../types.js';
+import type { ClientWorld, CEnt } from "../client.js";
+import { T } from "../content/legend.js";
+import {
+  content,
+  flaggedTile,
+  screen,
+  type ScreenDef,
+} from "../content/parse.js";
+import walkthrough from "../content/walkthrough.js";
+import { edgeOpen, F, TILE_FLAGS, walkable } from "../rules.js";
+import {
+  Act,
+  Btn,
+  DX8,
+  DY8,
+  ItemBit,
+  Item,
+  Kind,
+  Pick,
+  Status,
+} from "../types.js";
 
 export interface BotActions {
   buy(item: number): void;
@@ -19,55 +34,67 @@ export interface BotActions {
 }
 
 type Step =
-  | { k: 'go'; room: number; tile: number }
-  | { k: 'use'; dir: number }
-  | { k: 'push'; dir: number }
-  | { k: 'hook'; dir: number }
-  | { k: 'item'; item: number }
-  | { k: 'shield'; room: number; tile: number; dir: number }
-  | { k: 'buy'; item: number }
-  | { k: 'clear' }
-  | { k: 'boss' };
+  | { k: "go"; room: number; tile: number }
+  | { k: "use"; dir: number }
+  | { k: "push"; dir: number }
+  | { k: "hook"; dir: number }
+  | { k: "item"; item: number }
+  | { k: "shield"; room: number; tile: number; dir: number }
+  | { k: "buy"; item: number }
+  | { k: "clear" }
+  | { k: "boss" };
 
 const DIRS: Readonly<Record<string, number>> = { d: 0, u: 1, l: 2, r: 3 };
 const BTN_OF: readonly number[] = [Btn.down, Btn.up, Btn.left, Btn.right];
 const DX: readonly number[] = [0, 0, -1, 1];
 const DY: readonly number[] = [1, -1, 0, 0];
-const ITEMS: Readonly<Record<string, number>> = { buckler: Item.Buckler, brew: Item.Brew, shard: Item.Shard, hook: Item.Hook };
+const ITEMS: Readonly<Record<string, number>> = {
+  buckler: Item.Buckler,
+  brew: Item.Brew,
+  shard: Item.Shard,
+  hook: Item.Hook,
+};
 
 export const parseWalkthrough = (lines: readonly string[]): Step[] => {
   const steps: Step[] = [];
   for (const line of lines) {
-    const w = line.split(' ');
-    const at = (key: string | undefined, pos: string | undefined): { room: number; tile: number } => {
-      const def = content().byKey[key ?? ''];
-      const m = /^(\d+),(\d+)$/.exec(pos ?? '');
+    const w = line.split(" ");
+    const at = (
+      key: string | undefined,
+      pos: string | undefined,
+    ): { room: number; tile: number } => {
+      const def = content().byKey[key ?? ""];
+      const m = /^(\d+),(\d+)$/.exec(pos ?? "");
       if (!def || !m) throw new Error('walkthrough: bad step "' + line + '"');
       return { room: def.id, tile: Number(m[2]) * 12 + Number(m[1]) };
     };
     switch (w[0]) {
-      case 'go':
-        steps.push({ k: 'go', ...at(w[1], w[2]) });
+      case "go":
+        steps.push({ k: "go", ...at(w[1], w[2]) });
         break;
-      case 'use':
-      case 'push':
-      case 'hook':
-        steps.push({ k: w[0], dir: DIRS[w[1] ?? ''] ?? 0 });
+      case "use":
+      case "push":
+      case "hook":
+        steps.push({ k: w[0], dir: DIRS[w[1] ?? ""] ?? 0 });
         break;
-      case 'item':
-        steps.push({ k: 'item', item: w[1] === 'hook' ? 1 : 0 });
+      case "item":
+        steps.push({ k: "item", item: w[1] === "hook" ? 1 : 0 });
         break;
-      case 'shield':
-        steps.push({ k: 'shield', ...at(w[1], w[2]), dir: DIRS[w[3] ?? ''] ?? 1 });
+      case "shield":
+        steps.push({
+          k: "shield",
+          ...at(w[1], w[2]),
+          dir: DIRS[w[3] ?? ""] ?? 1,
+        });
         break;
-      case 'buy':
-        steps.push({ k: 'buy', item: ITEMS[w[1] ?? ''] ?? 0 });
+      case "buy":
+        steps.push({ k: "buy", item: ITEMS[w[1] ?? ""] ?? 0 });
         break;
-      case 'clear':
-        steps.push({ k: 'clear' });
+      case "clear":
+        steps.push({ k: "clear" });
         break;
-      case 'boss':
-        steps.push({ k: 'boss' });
+      case "boss":
+        steps.push({ k: "boss" });
         break;
       default:
         throw new Error('walkthrough: unknown step "' + line + '"');
@@ -95,26 +122,54 @@ const ensureGraph = (): void => {
   graphReady = true;
 };
 
-const flagOn = (c: ClientWorld, id: number): boolean => id >= 0 && ((c.flags[id >> 3] as number) & (1 << (id & 7))) !== 0;
+const flagOn = (c: ClientWorld, id: number): boolean =>
+  id >= 0 && ((c.flags[id >> 3] as number) & (1 << (id & 7))) !== 0;
+
+/** Every room's tiles as the party's flags leave them, rebuilt when the flags change. */
+const staticCodes = new Uint8Array(NODES);
+const staticFlags = new Uint8Array(32);
+let staticReady = false;
+
+const refreshStatic = (c: ClientWorld): void => {
+  let same = staticReady;
+  for (let i = 0; i < 32 && same; i += 1)
+    if (staticFlags[i] !== c.flags[i]) same = false;
+  if (same) return;
+  staticFlags.set(c.flags);
+  staticReady = true;
+  const on = (id: number): boolean => flagOn(c, id);
+  for (let ri = 0; ri < 36; ri += 1) {
+    const def = screen(idxRoom[ri] as number);
+    for (let t = 0; t < 108; t += 1)
+      staticCodes[ri * 108 + t] = flaggedTile(def, t, on);
+  }
+};
 
 /** A tile as the bot believes it is: live in the hero's room, else the definition with the party's flags. */
 const codeAt = (c: ClientWorld, room: number, tile: number): number => {
   if (room === c.room && c.hasRoom) return c.tiles[tile] as number;
-  return flaggedTile(screen(room), tile, (id) => flagOn(c, id));
+  return staticCodes[(roomIdx[room] as number) * 108 + tile] as number;
 };
 
 /** May the bot walk onto this tile (cutting it first if needed)? */
 const passable = (code: number): boolean => {
   if (code === T.BLOCK || code === T.POT) return false;
   const f = TILE_FLAGS[code] ?? 1;
-  return walkable(code) || (f & F.WARP) !== 0 || ((f & F.CUT) !== 0 && (f & (F.WATER | F.PIT)) === 0);
+  return (
+    walkable(code) ||
+    (f & F.WARP) !== 0 ||
+    ((f & F.CUT) !== 0 && (f & (F.WATER | F.PIT)) === 0)
+  );
 };
 
 const queue = new Int16Array(NODES);
 const prev = new Int16Array(NODES);
 const pathBuf = new Int16Array(NODES);
 
-const warpOf = (def: ScreenDef, tile: number): { to: number; tile2: number } | null => {
+const warpOf = (
+  def: ScreenDef,
+  tile: number,
+): { to: number; tile2: number } | null => {
   for (const w of def.warps) if (w.tile === tile) return w;
   return null;
 };
@@ -122,11 +177,14 @@ const warpOf = (def: ScreenDef, tile: number): { to: number; tile2: number } | n
 /** BFS from the hero to (room, tile); fills `pathBuf` and returns its length (0: unreachable). */
 const plan = (c: ClientWorld, goalRoom: number, goalTile: number): number => {
   ensureGraph();
+  refreshStatic(c);
   const me = c.me;
   const sr = roomIdx[me.room] as number;
   const gr = roomIdx[goalRoom] as number;
   if (sr < 0 || gr < 0) return 0;
-  const startTile = Math.max(0, Math.min(8, me.y >> 8)) * 12 + Math.max(0, Math.min(11, me.x >> 8));
+  const startTile =
+    Math.max(0, Math.min(8, me.y >> 8)) * 12 +
+    Math.max(0, Math.min(11, me.x >> 8));
   const start = sr * 108 + startTile;
   const goal = gr * 108 + goalTile;
   prev.fill(-1);
@@ -145,18 +203,20 @@ const plan = (c: ClientWorld, goalRoom: number, goalTile: number): number => {
     const t = node - ri * 108;
     const room = idxRoom[ri] as number;
     const def = screen(room);
-    const visit = (r2: number, t2: number): void => {
-      const i2 = roomIdx[r2] as number;
-      if (i2 < 0) return;
-      const n2 = i2 * 108 + t2;
-      if (prev[n2] !== -1) return;
-      prev[n2] = node;
-      queue[tail++] = n2;
-    };
+
     // A door: stepping on it goes through.
-    if (node !== start && ((TILE_FLAGS[codeAt(c, room, t)] ?? 0) & F.WARP) !== 0) {
+    if (
+      node !== start &&
+      ((TILE_FLAGS[codeAt(c, room, t)] ?? 0) & F.WARP) !== 0
+    ) {
       const w = warpOf(def, t);
-      if (w) visit(w.to, w.tile2);
+      if (w) {
+        const n2 = (roomIdx[w.to] as number) * 108 + w.tile2;
+        if (prev[n2] === -1) {
+          prev[n2] = node;
+          queue[tail++] = n2;
+        }
+      }
       continue;
     }
     const tx = t % 12;
@@ -169,10 +229,22 @@ const plan = (c: ClientWorld, goalRoom: number, goalTile: number): number => {
         const code = codeAt(c, room, t2);
         if (code === T.LEDGE) {
           // One way, south: over the ledge onto the tile below it.
-          if (d === 0 && ny + 1 < 9 && walkable(codeAt(c, room, t2 + 12))) visit(room, t2 + 12);
+          if (d === 0 && ny + 1 < 9 && walkable(codeAt(c, room, t2 + 12))) {
+            const n2 = (roomIdx[room] as number) * 108 + (t2 + 12);
+            if (prev[n2] === -1) {
+              prev[n2] = node;
+              queue[tail++] = n2;
+            }
+          }
           continue;
         }
-        if (passable(code)) visit(room, t2);
+        if (passable(code)) {
+          const n2 = (roomIdx[room] as number) * 108 + t2;
+          if (prev[n2] === -1) {
+            prev[n2] = node;
+            queue[tail++] = n2;
+          }
+        }
         continue;
       }
       // Off the screen: an edge exit.
@@ -180,14 +252,33 @@ const plan = (c: ClientWorld, goalRoom: number, goalTile: number): number => {
       const pos = edge < 2 ? tx : ty;
       const ex = def.exits[edge];
       if (ex) {
-        visit(ex.to, ex.tile2);
+        {
+          const n2 = (roomIdx[ex.to] as number) * 108 + ex.tile2;
+          if (prev[n2] === -1) {
+            prev[n2] = node;
+            queue[tail++] = n2;
+          }
+        }
         continue;
       }
       const to = def.near[edge] as number;
       if (to < 0) continue;
-      const t2 = edge === 0 ? pos : edge === 1 ? 96 + pos : edge === 2 ? pos * 12 + 11 : pos * 12;
+      const t2 =
+        edge === 0
+          ? pos
+          : edge === 1
+            ? 96 + pos
+            : edge === 2
+              ? pos * 12 + 11
+              : pos * 12;
       const code = codeAt(c, to, t2);
-      if (edgeOpen(code) && passable(code)) visit(to, t2);
+      if (edgeOpen(code) && passable(code)) {
+        const n2 = (roomIdx[to] as number) * 108 + t2;
+        if (prev[n2] === -1) {
+          prev[n2] = node;
+          queue[tail++] = n2;
+        }
+      }
     }
   }
   if (!found) return 0;
@@ -217,7 +308,9 @@ export interface HeroBot {
 const cx = (tile: number): number => (tile % 12) * 256 + 128;
 const cy = (tile: number): number => Math.floor(tile / 12) * 256 + 128;
 
-export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot => {
+export const createHeroBot = (
+  lines: readonly string[] = walkthrough,
+): HeroBot => {
   const steps = parseWalkthrough(lines);
   const path = new Int16Array(NODES);
   let pathLen = 0;
@@ -268,7 +361,12 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     return bPhase ? Btn.b : 0;
   };
 
-  const towards = (c: ClientWorld, x: number, y: number, tol: number): number => {
+  const towards = (
+    c: ClientWorld,
+    x: number,
+    y: number,
+    tol: number,
+  ): number => {
     const me = c.me;
     const dx = x - me.x;
     const dy = y - me.y;
@@ -290,10 +388,25 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     return (f & (F.PIT | F.WATER)) !== 0;
   };
 
-  const DIR8 = [Btn.up, Btn.down, Btn.left, Btn.right, Btn.up | Btn.left, Btn.up | Btn.right, Btn.down | Btn.left, Btn.down | Btn.right];
+  const DIR8 = [
+    Btn.up,
+    Btn.down,
+    Btn.left,
+    Btn.right,
+    Btn.up | Btn.left,
+    Btn.up | Btn.right,
+    Btn.down | Btn.left,
+    Btn.down | Btn.right,
+  ];
 
   /** The open direction that ends furthest from (fx, fy), then from (gx, gy) as a tie-breaker. */
-  const flee = (c: ClientWorld, fx: number, fy: number, gx = fx, gy = fy): number => {
+  const flee = (
+    c: ClientWorld,
+    fx: number,
+    fy: number,
+    gx = fx,
+    gy = fy,
+  ): number => {
     const me = c.me;
     let best = 0;
     let bestD = -1;
@@ -302,9 +415,14 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
       const y = me.y + (b & Btn.down ? 384 : b & Btn.up ? -384 : 0);
       if (x < 160 || y < 160 || x >= 2912 || y >= 2144) continue;
       const code = c.tiles[(y >> 8) * 12 + (x >> 8)] as number;
-      const near = c.tiles[((me.y + (b & Btn.down ? 160 : b & Btn.up ? -160 : 0)) >> 8) * 12 + ((me.x + (b & Btn.right ? 200 : b & Btn.left ? -200 : 0)) >> 8)] as number;
+      const near = c.tiles[
+        ((me.y + (b & Btn.down ? 160 : b & Btn.up ? -160 : 0)) >> 8) * 12 +
+          ((me.x + (b & Btn.right ? 200 : b & Btn.left ? -200 : 0)) >> 8)
+      ] as number;
       if (!walkable(code) || !walkable(near) || unsafe(c, b)) continue;
-      const d = Math.sqrt((x - fx) * (x - fx) + (y - fy) * (y - fy)) * 4 + Math.sqrt((x - gx) * (x - gx) + (y - gy) * (y - gy));
+      const d =
+        Math.sqrt((x - fx) * (x - fx) + (y - fy) * (y - fy)) * 4 +
+        Math.sqrt((x - gx) * (x - gx) + (y - gy) * (y - gy));
       if (d > bestD) {
         bestD = d;
         best = b;
@@ -314,9 +432,19 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
   };
 
   /** Follows a planned path to (room, tile); true once there. */
-  const goTo = (c: ClientWorld, room: number, tile: number, out: { b: number }): boolean => {
+  const goTo = (
+    c: ClientWorld,
+    room: number,
+    tile: number,
+    out: { b: number },
+  ): boolean => {
     const me = c.me;
-    if (me.room === room && Math.abs(me.x - cx(tile)) <= 40 && Math.abs(me.y - cy(tile)) <= 40) return true;
+    if (
+      me.room === room &&
+      Math.abs(me.x - cx(tile)) <= 40 &&
+      Math.abs(me.y - cy(tile)) <= 40
+    )
+      return true;
     const goal = room * 108 + tile;
     planT += 1;
     if (planGoal !== goal || planT >= 15 || (pathLen === 0 && planT >= 15)) {
@@ -333,7 +461,10 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     }
     unreachable = 0;
     const ri = roomIdx[me.room] as number;
-    const here = ri * 108 + Math.max(0, Math.min(8, me.y >> 8)) * 12 + Math.max(0, Math.min(11, me.x >> 8));
+    const here =
+      ri * 108 +
+      Math.max(0, Math.min(8, me.y >> 8)) * 12 +
+      Math.max(0, Math.min(11, me.x >> 8));
     for (let i = pathI; i < pathLen && i < pathI + 8; i += 1) {
       if (path[i] === here) {
         pathI = i;
@@ -357,7 +488,10 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
       else if (tx === 0 && nt % 12 === 11) d = 2;
       else if (tx === 11 && nt % 12 === 0) d = 3;
       if (d < 0) d = ty === 8 ? 0 : ty === 0 ? 1 : tx === 0 ? 2 : 3;
-      const along = d < 2 ? towards(c, cx(ty * 12 + tx), me.y, 24) & (Btn.left | Btn.right) : towards(c, me.x, cy(ty * 12 + tx), 24) & (Btn.up | Btn.down);
+      const along =
+        d < 2
+          ? towards(c, cx(ty * 12 + tx), me.y, 24) & (Btn.left | Btn.right)
+          : towards(c, me.x, cy(ty * 12 + tx), 24) & (Btn.up | Btn.down);
       out.b = (BTN_OF[d] as number) | along;
       return false;
     }
@@ -365,7 +499,14 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     const f = TILE_FLAGS[code] ?? 0;
     if ((f & F.SOLID) !== 0 && (f & F.CUT) !== 0) {
       // A bush in the way: face it and cut.
-      const d = nt === here % 108 + 1 ? 3 : nt === here % 108 - 1 ? 2 : nt > here % 108 ? 0 : 1;
+      const d =
+        nt === (here % 108) + 1
+          ? 3
+          : nt === (here % 108) - 1
+            ? 2
+            : nt > here % 108
+              ? 0
+              : 1;
       if (me.facing !== d) {
         out.b = BTN_OF[d] as number;
         return false;
@@ -409,7 +550,14 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     let bestD = range;
     const me = c.me;
     for (const e of c.ents) {
-      if (!e.on || e.hiddenAt >= 0 || e.kind === Kind.Sentinel || e.kind === Kind.Block || e.kind === Kind.Boss) continue;
+      if (
+        !e.on ||
+        e.hiddenAt >= 0 ||
+        e.kind === Kind.Sentinel ||
+        e.kind === Kind.Block ||
+        e.kind === Kind.Boss
+      )
+        continue;
       const dx = (e.x << 4) - me.x;
       const dy = (e.y << 4) - (me.y - 64);
       const d = Math.abs(dx) + Math.abs(dy);
@@ -425,26 +573,54 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
   };
 
   /** Would a slash facing `f` hit an entity at pixel (ex, ey)? */
-  const slashHits = (c: ClientWorld, f: number, ex: number, ey: number, half: number): boolean => {
+  const slashHits = (
+    c: ClientWorld,
+    f: number,
+    ex: number,
+    ey: number,
+    half: number,
+  ): boolean => {
     const x = c.me.x >> 4;
     const y = c.me.y >> 4;
     const h = half >> 4;
-    if (f === 3) return x + 6 < ex + h && ex - h < x + 16 && y - 10 < ey + h && ey - h < y + 4;
-    if (f === 2) return x - 16 < ex + h && ex - h < x - 6 && y - 10 < ey + h && ey - h < y + 4;
-    if (f === 0) return x - 7 < ex + h && ex - h < x + 7 && y + 4 < ey + h && ey - h < y + 14;
-    return x - 7 < ex + h && ex - h < x + 7 && y - 20 < ey + h && ey - h < y - 10;
+    if (f === 3)
+      return (
+        x + 6 < ex + h && ex - h < x + 16 && y - 10 < ey + h && ey - h < y + 4
+      );
+    if (f === 2)
+      return (
+        x - 16 < ex + h && ex - h < x - 6 && y - 10 < ey + h && ey - h < y + 4
+      );
+    if (f === 0)
+      return (
+        x - 7 < ex + h && ex - h < x + 7 && y + 4 < ey + h && ey - h < y + 14
+      );
+    return (
+      x - 7 < ex + h && ex - h < x + 7 && y - 20 < ey + h && ey - h < y - 10
+    );
   };
 
   const fight = (c: ClientWorld, e: CEnt): number => {
     const me = c.me;
-    const half = e.kind === Kind.Shellback ? 104 : e.kind === Kind.Wisp || e.kind === Kind.Bat ? 80 : 96;
+    const half =
+      e.kind === Kind.Shellback
+        ? 104
+        : e.kind === Kind.Wisp || e.kind === Kind.Bat
+          ? 80
+          : 96;
     // Shellbacks: spin attacks get round the shell (or flip it with the hook first).
     if (e.kind === Kind.Shellback && e.pose !== 2) {
-      if ((c.items & ItemBit.hook) !== 0 && me.item === 1 && me.hookCd === 0 && me.act !== Act.Hook) {
+      if (
+        (c.items & ItemBit.hook) !== 0 &&
+        me.item === 1 &&
+        me.hookCd === 0 &&
+        me.act !== Act.Hook
+      ) {
         const ax = Math.abs((e.x << 4) - me.x);
         const ay = Math.abs((e.y << 4) - (me.y - 64));
         if ((ax < 96 && ay < 900) || (ay < 96 && ax < 900)) {
-          const f = ax < 96 ? ((e.y << 4) < me.y - 64 ? 1 : 0) : (e.x << 4) < me.x ? 2 : 3;
+          const f =
+            ax < 96 ? (e.y << 4 < me.y - 64 ? 1 : 0) : e.x << 4 < me.x ? 2 : 3;
           if (me.facing !== f) return BTN_OF[f] as number;
           return tapB();
         }
@@ -483,8 +659,21 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
       const sameRow = Math.abs(ey - me.y) < 320;
       const sameCol = Math.abs(ex - me.x) < 320;
       if (sameRow || sameCol || e.pose === 2) {
-        let b = sameRow ? (me.y > ey ? Btn.down : Btn.up) : me.x > ex ? Btn.right : Btn.left;
-        if (unsafe(c, b) || stuckT > 6) b = sameRow ? (b === Btn.down ? Btn.up : Btn.down) : b === Btn.right ? Btn.left : Btn.right;
+        let b = sameRow
+          ? me.y > ey
+            ? Btn.down
+            : Btn.up
+          : me.x > ex
+            ? Btn.right
+            : Btn.left;
+        if (unsafe(c, b) || stuckT > 6)
+          b = sameRow
+            ? b === Btn.down
+              ? Btn.up
+              : Btn.down
+            : b === Btn.right
+              ? Btn.left
+              : Btn.right;
         return unsafe(c, b) ? 0 : b;
       }
       // Diagonal from it: wait, it will patrol into reach or charge a wall.
@@ -505,7 +694,16 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     let bestX = ex;
     let bestY = ey - 144;
     let bestD = 0x7fffffff;
-    const spots = [ex - 224, ey + 48, ex + 224, ey + 48, ex, ey - 144, ex, ey + 240];
+    const spots = [
+      ex - 224,
+      ey + 48,
+      ex + 224,
+      ey + 48,
+      ex,
+      ey - 144,
+      ex,
+      ey + 240,
+    ];
     for (let i = 0; i < 4; i += 1) {
       const sx = spots[i * 2] as number;
       const sy = spots[i * 2 + 1] as number;
@@ -557,7 +755,14 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
         for (let f = 0; f < 4; f += 1) {
           const sx = tx - (DX[f] as number) * 256;
           const sy = ty - (DY[f] as number) * 256;
-          if (sx < 0 || sy < 0 || sx >= 3072 || sy >= 2304 || !walkable(c.tiles[(sy >> 8) * 12 + (sx >> 8)] as number)) continue;
+          if (
+            sx < 0 ||
+            sy < 0 ||
+            sx >= 3072 ||
+            sy >= 2304 ||
+            !walkable(c.tiles[(sy >> 8) * 12 + (sx >> 8)] as number)
+          )
+            continue;
           const d = Math.abs(sx - me.x) + Math.abs(sy - me.y);
           if (d < bd) {
             bd = d;
@@ -608,7 +813,9 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     for (const e of c.ents) if (e.on && e.kind === Kind.Boss) bossEnt = e;
     if (!bossEnt) {
       // Take the Heart Vessel.
-      for (const p of c.picks) if (p.on && p.kind === Pick.Vessel) return towards(c, p.x << 4, (p.y << 4) + 32, 24);
+      for (const p of c.picks)
+        if (p.on && p.kind === Pick.Vessel)
+          return towards(c, p.x << 4, (p.y << 4) + 32, 24);
       if (c.vessels > 0 || flagOn(c, 32)) next();
       return 0;
     }
@@ -619,7 +826,8 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     const dx = bx - hx;
     const dy = by - hy;
     const dist2 = dx * dx + dy * dy;
-    const faceBoss = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 2 : 3) : dy < 0 ? 1 : 0;
+    const faceBoss =
+      Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 2 : 3) : dy < 0 ? 1 : 0;
     const pose = bossEnt.pose;
     if (pose !== 1) dodge = 0;
     // A shock ring on its way: Buckler towards its centre.
@@ -629,7 +837,11 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
       const sx = sh.x - me.x;
       const sy = sh.y - me.y;
       const d = Math.sqrt(sx * sx + sy * sy);
-      if (r < 1536 && r < d + 160) return shieldTo(c, Math.abs(sx) >= Math.abs(sy) ? (sx < 0 ? 2 : 3) : sy < 0 ? 1 : 0);
+      if (r < 1536 && r < d + 160)
+        return shieldTo(
+          c,
+          Math.abs(sx) >= Math.abs(sy) ? (sx < 0 ? 2 : 3) : sy < 0 ? 1 : 0,
+        );
     }
     // Notes or pebbles about to reach us: the soonest one decides; keep a Buckler that already stops it.
     let soon = 99;
@@ -649,7 +861,10 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
       }
     }
     if (soonDir >= 0) {
-      const blocks = (f: number): boolean => (DX8[soonDir] as number) * (DX[f] as number) + (DY8[soonDir] as number) * (DY[f] as number) < 0;
+      const blocks = (f: number): boolean =>
+        (DX8[soonDir] as number) * (DX[f] as number) +
+          (DY8[soonDir] as number) * (DY[f] as number) <
+        0;
       if (me.act === Act.Shield && blocks(me.facing)) return Btn.b;
       let f = me.facing;
       for (let k = 0; k < 4 && !blocks(f); k += 1) f = k;
@@ -657,12 +872,29 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     }
     // Too close to a boss that can hurt and cannot be hurt: get away first.
     // Phase 3 starts: the Vinehook first.
-    if ((pose === 5 || pose === 6) && (c.items & ItemBit.hook) !== 0 && me.item !== 1 && dist2 > 420 * 420 && me.act !== Act.Shield && me.act !== Act.Hook && me.act !== Act.Slash) {
+    if (
+      (pose === 5 || pose === 6) &&
+      (c.items & ItemBit.hook) !== 0 &&
+      me.item !== 1 &&
+      dist2 > 420 * 420 &&
+      me.act !== Act.Shield &&
+      me.act !== Act.Hook &&
+      me.act !== Act.Slash
+    ) {
       aPhase ^= 1;
       return aPhase ? Btn.swap : 0;
     }
-    const lined = (Math.abs(dy) < 192 && Math.abs(dx) < 1000) || (Math.abs(dx) < 176 && Math.abs(dy) < 1000);
-    if ((pose === 0 && dist2 < 760 * 760) || (pose === 5 && dist2 < (lined && me.item === 1 ? 300 : 480) * (lined && me.item === 1 ? 300 : 480)) || (pose === 3 && dist2 < 520 * 520)) {
+    const lined =
+      (Math.abs(dy) < 192 && Math.abs(dx) < 1000) ||
+      (Math.abs(dx) < 176 && Math.abs(dy) < 1000);
+    if (
+      (pose === 0 && dist2 < 760 * 760) ||
+      (pose === 5 &&
+        dist2 <
+          (lined && me.item === 1 ? 300 : 480) *
+            (lined && me.item === 1 ? 300 : 480)) ||
+      (pose === 3 && dist2 < 520 * 520)
+    ) {
       if (me.act === Act.Shield) return 0;
       return flee(c, bx, by);
     }
@@ -678,7 +910,14 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     }
     // A swooping bat close by comes first; then any heart lying about.
     const bat = threat(c, 700, false);
-    if (bat && bat.kind === Kind.Bat && bat.pose !== 0 && pose !== 2 && pose !== 4 && pose !== 6) {
+    if (
+      bat &&
+      bat.kind === Kind.Bat &&
+      bat.pose !== 0 &&
+      pose !== 2 &&
+      pose !== 4 &&
+      pose !== 6
+    ) {
       if (me.act === Act.Shield) return 0;
       return fight(c, bat);
     }
@@ -691,7 +930,13 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
       }
     }
     const wantItem = pose === 5 || pose === 6 ? 1 : 0;
-    if ((c.items & ItemBit.hook) !== 0 && me.item !== wantItem && me.act !== Act.Shield && me.act !== Act.Hook && me.act !== Act.Slash) {
+    if (
+      (c.items & ItemBit.hook) !== 0 &&
+      me.item !== wantItem &&
+      me.act !== Act.Shield &&
+      me.act !== Act.Hook &&
+      me.act !== Act.Slash
+    ) {
       aPhase ^= 1;
       return aPhase ? Btn.swap : 0;
     }
@@ -708,10 +953,12 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
       const sx = bx + side * 368;
       const sy = by + 32;
       // On the wrong side: go round above or below it, not through it.
-      if (Math.sign(me.x - bx) !== side && Math.abs(me.y - 48 - by) < 420) return towards(c, me.x, by + (me.y - 48 > by ? 520 : -460), 24);
+      if (Math.sign(me.x - bx) !== side && Math.abs(me.y - 48 - by) < 420)
+        return towards(c, me.x, by + (me.y - 48 > by ? 520 : -460), 24);
       return towards(c, sx, sy, 24);
     };
-    const keepAway = (min: number): number => (dist2 < min * min ? flee(c, bx, by + 48) : 0);
+    const keepAway = (min: number): number =>
+      dist2 < min * min ? flee(c, bx, by + 48) : 0;
     switch (pose) {
       case 7:
         return towards(c, 1536, 1216, 32);
@@ -719,7 +966,13 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
         if (me.act === Act.Shield) return 0;
         if (dist2 < 900 * 900) return flee(c, bx, by);
         // Out of the doorway and off the walls while it gathers itself.
-        if (me.y > 1900 || me.y < 500 || me.x < 600 || me.x > 2470) return towards(c, Math.max(640, Math.min(2430, me.x)), Math.max(560, Math.min(1860, me.y)), 32);
+        if (me.y > 1900 || me.y < 500 || me.x < 600 || me.x > 2470)
+          return towards(
+            c,
+            Math.max(640, Math.min(2430, me.x)),
+            Math.max(560, Math.min(1860, me.y)),
+            32,
+          );
         return 0;
       case 1:
         // It is coming down where we were: get out from under it.
@@ -745,7 +998,9 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
           if (me.facing !== faceBoss) return BTN_OF[faceBoss] as number;
           return me.hookCd > 0 ? 0 : tapB();
         }
-        return ay < ax ? towards(c, me.x, by + 48, 16) & (Btn.up | Btn.down) : towards(c, bx, me.y, 16) & (Btn.left | Btn.right);
+        return ay < ax
+          ? towards(c, me.x, by + 48, 16) & (Btn.up | Btn.down)
+          : towards(c, bx, me.y, 16) & (Btn.left | Btn.right);
       }
       default:
         return keepAway(700);
@@ -765,7 +1020,16 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
       return 0;
     }
     sent = sent && me.status !== Status.Active ? sent : sent;
-    if (!c.hasRoom || c.awaitingKey || me.act === Act.Transit || me.act === Act.Got || me.act === Act.Fall || me.act === Act.Pulled || me.act === Act.Ledge) return 0;
+    if (
+      !c.hasRoom ||
+      c.awaitingKey ||
+      me.act === Act.Transit ||
+      me.act === Act.Got ||
+      me.act === Act.Fall ||
+      me.act === Act.Pulled ||
+      me.act === Act.Ledge
+    )
+      return 0;
     if (me.hp <= 2 && me.brew) act.brew();
     const step = steps[bot.step] as Step;
     // Stuck detection: jiggle sideways.
@@ -775,15 +1039,30 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
     lastY = me.y;
     const out = { b: 0 };
     // Fighting comes first, except while shielding through Gloam Gate or fighting the boss.
-    if (step.k !== 'shield' && step.k !== 'boss' && step.k !== 'hook' && step.k !== 'push') {
-      const e = threat(c, step.k === 'clear' ? 0x7fffffff : 1100, step.k === 'clear');
+    if (
+      step.k !== "shield" &&
+      step.k !== "boss" &&
+      step.k !== "hook" &&
+      step.k !== "push"
+    ) {
+      const e = threat(
+        c,
+        step.k === "clear" ? 0x7fffffff : 1100,
+        step.k === "clear",
+      );
       if (e) {
         if (e.kind === Kind.Rootling && e.pose < 2) {
           // Wake it from a safe angle, then wait beside its line.
           const dx = (e.x << 4) - me.x;
           const dy = (e.y << 4) - (me.y - 64);
-          if (Math.abs(dx) + Math.abs(dy) > 700) return towards(c, e.x << 4, (e.y << 4) + 64, 32);
-          return towards(c, me.x + (Math.abs(dx) < Math.abs(dy) ? (dx > 0 ? -300 : 300) : 0), me.y + (Math.abs(dx) >= Math.abs(dy) ? (dy > 0 ? -300 : 300) : 0), 32);
+          if (Math.abs(dx) + Math.abs(dy) > 700)
+            return towards(c, e.x << 4, (e.y << 4) + 64, 32);
+          return towards(
+            c,
+            me.x + (Math.abs(dx) < Math.abs(dy) ? (dx > 0 ? -300 : 300) : 0),
+            me.y + (Math.abs(dx) >= Math.abs(dy) ? (dy > 0 ? -300 : 300) : 0),
+            32,
+          );
         }
         const b = fight(c, e);
         if (stuckT > 40) {
@@ -793,13 +1072,13 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
         return b;
       }
     }
-    if (me.act === Act.Charge && step.k !== 'boss') return 0;
-    if (step.k === 'go' || step.k === 'clear') {
+    if (me.act === Act.Charge && step.k !== "boss") return 0;
+    if (step.k === "go" || step.k === "clear") {
       const l = loot(c);
       if (l >= 0) return l;
     }
     switch (step.k) {
-      case 'go': {
+      case "go": {
         if (goTo(c, step.room, step.tile, out)) {
           next();
           return 0;
@@ -808,7 +1087,7 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
           // Back to the last place we can walk to (a hook or a block brought us here before).
           for (let j = bot.step - 1; j >= 0; j -= 1) {
             const s2 = steps[j] as Step;
-            if (s2.k !== 'go') continue;
+            if (s2.k !== "go") continue;
             if (plan(c, s2.room, s2.tile) > 0) {
               bot.step = j;
               bot.stepT = 0;
@@ -826,9 +1105,10 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
         }
         return out.b;
       }
-      case 'use': {
+      case "use": {
         if (!sent) {
-          if (me.facing !== step.dir || me.act !== Act.Idle) return me.facing !== step.dir ? (BTN_OF[step.dir] as number) : 0;
+          if (me.facing !== step.dir || me.act !== Act.Idle)
+            return me.facing !== step.dir ? (BTN_OF[step.dir] as number) : 0;
           sent = true;
           bot.stepT = 0;
           return Btn.a;
@@ -836,8 +1116,11 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
         if (bot.stepT > 3) next();
         return 0;
       }
-      case 'push': {
-        const t = ((me.y >> 8) + (DY[step.dir] as number)) * 12 + (me.x >> 8) + (DX[step.dir] as number);
+      case "push": {
+        const t =
+          ((me.y >> 8) + (DY[step.dir] as number)) * 12 +
+          (me.x >> 8) +
+          (DX[step.dir] as number);
         if (pushTile < 0) pushTile = t;
         if (c.tiles[pushTile] !== T.BLOCK) {
           next();
@@ -850,10 +1133,13 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
         // Centre on the tile across the push, then lean on the block.
         const tileX = (me.x >> 8) * 256 + 128;
         const tileY = (me.y >> 8) * 256 + 128;
-        const centre = step.dir < 2 ? towards(c, tileX, me.y, 16) & (Btn.left | Btn.right) : towards(c, me.x, tileY, 16) & (Btn.up | Btn.down);
+        const centre =
+          step.dir < 2
+            ? towards(c, tileX, me.y, 16) & (Btn.left | Btn.right)
+            : towards(c, me.x, tileY, 16) & (Btn.up | Btn.down);
         return (BTN_OF[step.dir] as number) | centre;
       }
-      case 'hook': {
+      case "hook": {
         if (me.item !== 1) {
           aPhase ^= 1;
           return aPhase ? Btn.swap : 0;
@@ -878,16 +1164,23 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
         hookStarted = hookStarted || bot.stepT > 3;
         return tapB();
       }
-      case 'item': {
-        if (me.item === step.item || (c.items & (step.item === 1 ? ItemBit.hook : ItemBit.buckler)) === 0) {
+      case "item": {
+        if (
+          me.item === step.item ||
+          (c.items & (step.item === 1 ? ItemBit.hook : ItemBit.buckler)) === 0
+        ) {
           next();
           return 0;
         }
         aPhase ^= 1;
         return aPhase ? Btn.swap : 0;
       }
-      case 'shield': {
-        if (me.room === step.room && Math.abs(me.x - cx(step.tile)) <= 40 && Math.abs(me.y - cy(step.tile)) <= 40) {
+      case "shield": {
+        if (
+          me.room === step.room &&
+          Math.abs(me.x - cx(step.tile)) <= 40 &&
+          Math.abs(me.y - cy(step.tile)) <= 40
+        ) {
           next();
           return 0;
         }
@@ -902,7 +1195,7 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
         goTo(c, step.room, step.tile, out);
         return out.b | Btn.b;
       }
-      case 'buy': {
+      case "buy": {
         if (!sent) {
           act.buy(step.item);
           sent = true;
@@ -910,13 +1203,15 @@ export const createHeroBot = (lines: readonly string[] = walkthrough): HeroBot =
         if (bot.stepT > 6) next();
         return 0;
       }
-      case 'clear': {
+      case "clear": {
         let left = 0;
-        for (const e of c.ents) if (e.on && e.kind !== Kind.Sentinel && e.kind !== Kind.Block) left += 1;
+        for (const e of c.ents)
+          if (e.on && e.kind !== Kind.Sentinel && e.kind !== Kind.Block)
+            left += 1;
         if (left === 0 && bot.stepT > 10) next();
         return 0;
       }
-      case 'boss':
+      case "boss":
         return boss(c);
       default:
         return 0;

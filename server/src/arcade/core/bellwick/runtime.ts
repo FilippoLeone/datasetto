@@ -494,9 +494,11 @@ export const createBellwick = (o: BellwickOpts): BellwickMatch => {
 
 const EMPTY: readonly HostEvent[] = [];
 
-/** A canonical byte dump of the world (hashes, replays). */
-export const dumpWorld = (w: World): Uint8Array => {
-  const wr = new ByteWriter(64 * 1024);
+const dumpW = new ByteWriter(64 * 1024);
+
+/** A canonical byte dump of the world (hashes, replays); a view valid until the next dump. */
+const dumpView = (w: World): Uint8Array => {
+  const wr = dumpW.reset();
   wr.u32(w.tick >>> 0).u32(w.seed >>> 0);
   const p = w.party;
   wr.bytes(p.flags).u16(p.purse).u8(p.keys).u8(itemsByte(p)).u8(p.shards).u8(p.vessels).u8(p.lantern).u32(p.playTicks >>> 0).u16(p.cleared);
@@ -527,10 +529,13 @@ export const dumpWorld = (w: World): Uint8Array => {
     }
     if (room.boss) wr.u8(room.boss.phase).u8(room.boss.mode).u16(room.boss.timer & 0xffff);
   }
-  return wr.copy();
+  return wr.view();
 };
 
-export const hashWorld = (w: World): number => fnv1a32(dumpWorld(w));
+/** A canonical byte dump of the world (hashes, replays). */
+export const dumpWorld = (w: World): Uint8Array => dumpView(w).slice();
+
+export const hashWorld = (w: World): number => fnv1a32(dumpView(w));
 
 let cachedHash = -1;
 
