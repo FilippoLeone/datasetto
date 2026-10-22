@@ -117,6 +117,18 @@ interface DesktopAPI {
   listProcesses?: () => Promise<{ processes: string[]; error?: string }>;
   /** The matched title changed (`null`: no listed game runs, or the feature is off). Returns an unsubscribe function. */
   onGameActivity?: (handler: (event: { title: string | null }) => void) => () => void;
+
+  // Window visibility and attention, also optional: see services/native/appVisibility.ts and desktop.ts.
+
+  /**
+   * The main window was minimized, restored, hidden to the tray or shown, and once per page
+   * load. The shell keeps background throttling off, so `document.visibilityState` stays
+   * "visible" through all of these. The last state is replayed to a new subscriber.
+   * Returns an unsubscribe function.
+   */
+  onWindowVisibility?(cb: (visible: boolean) => void): () => void;
+  /** `true`: flash the taskbar button (Windows, Linux) or bounce the dock (macOS) until the window is focused; `false` stops it. */
+  requestAttention?(on: boolean): void;
 }
 
 interface DesktopGameActivityConfig {

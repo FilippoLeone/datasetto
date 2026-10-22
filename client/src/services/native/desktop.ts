@@ -35,6 +35,20 @@ export const updateDesktopVoiceActivity = (state: { connected: boolean; speaking
   }
 };
 
+/**
+ * Ask for the user's attention until the main window is focused: the taskbar button
+ * flashes (Windows, Linux) or the dock icon bounces (macOS). `false` stops it early.
+ * The shell skips the request while its window is already in front. A no-op in the
+ * browser, on mobile and in desktop shells older than this bridge.
+ */
+export const requestDesktopAttention = (on: boolean): void => {
+  try {
+    window.desktopAPI?.requestAttention?.(on);
+  } catch {
+    /* ignore */
+  }
+};
+
 export const openExternal = (url: string): void => {
   if (window.desktopAPI?.openExternal) {
     void window.desktopAPI.openExternal(url);

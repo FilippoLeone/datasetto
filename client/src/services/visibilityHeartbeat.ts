@@ -1,6 +1,12 @@
+import { appVisibility, type AppVisibility } from '@/services/native/appVisibility';
+
 /**
  * Tells the server whether this page is visible (`presence:visibility`), so push
  * notifications only go out when none of the user's windows shows the app.
+ *
+ * Visibility is the merged app visibility (services/native/appVisibility.ts), so a
+ * minimized or tray-hidden desktop window and a backgrounded Android app count as hidden
+ * too, not only a background browser tab.
  *
  * Reports at once on start, on every visibility change and, while visible, every
  * `intervalMs`; the server treats a visible page that stops reporting for 90 s as
@@ -11,8 +17,8 @@ export interface VisibilityHeartbeatOptions {
   /** Delivers one report; gate it on the socket being connected and signed in. */
   send: (visible: boolean) => void;
   intervalMs?: number;
-  /** The document to observe (tests pass a stand-in). */
-  doc?: Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
+  /** Where visibility comes from (tests pass a stand-in). */
+  source?: AppVisibility;
 }
 
 export interface VisibilityHeartbeat {
@@ -25,11 +31,10 @@ export interface VisibilityHeartbeat {
 
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 
-export const createVisibilityHeartbeat = ({ send, intervalMs = HEARTBEAT_INTERVAL_MS, doc = document }: VisibilityHeartbeatOptions): VisibilityHeartbeat => {
+export const createVisibilityHeartbeat = ({ send, intervalMs = HEARTBEAT_INTERVAL_MS, source = appVisibility }: VisibilityHeartbeatOptions): VisibilityHeartbeat => {
   let running = false;
   let timer: ReturnType<typeof setInterval> | null = null;
-
-  const isVisible = () => doc.visibilityState !== 'hidden';
+  let unsubscribe: (() => void) | null = null;
 
   const clear = () => {
     if (timer !== null) clearInterval(timer);
@@ -38,12 +43,12 @@ export const createVisibilityHeartbeat = ({ send, intervalMs = HEARTBEAT_INTERVA
 
   const schedule = () => {
     clear();
-    if (isVisible()) timer = setInterval(() => send(true), intervalMs);
+    if (source.visible) timer = setInterval(() => send(true), intervalMs);
   };
 
   const onChange = () => {
     if (!running) return;
-    send(isVisible());
+    send(source.visible);
     schedule();
   };
 
@@ -54,18 +59,19 @@ export const createVisibilityHeartbeat = ({ send, intervalMs = HEARTBEAT_INTERVA
     start() {
       if (running) return;
       running = true;
-      doc.addEventListener('visibilitychange', onChange);
-      send(isVisible());
+      unsubscribe = source.subscribe(onChange);
+      send(source.visible);
       schedule();
     },
     stop() {
       if (!running) return;
       running = false;
-      doc.removeEventListener('visibilitychange', onChange);
+      unsubscribe?.();
+      unsubscribe = null;
       clear();
     },
     pulse() {
-      if (running) send(isVisible());
+      if (running) send(source.visible);
     },
   };
 };
