@@ -141,6 +141,7 @@ const mount = (el: HTMLElement, host: MatchHost, opts: MountOpts): GameHandle =>
 
   let disposed = false;
   let visible = true;
+  const showAtlas = import.meta.env.DEV && typeof location !== 'undefined' && location.search.includes('fuseyard-atlas');
   let ui: Atlas | null = null;
   let wickAtlas: Atlas | null = null;
   let renderer: Renderer | null = null;
@@ -690,6 +691,14 @@ const mount = (el: HTMLElement, host: MatchHost, opts: MountOpts): GameHandle =>
         const n = Math.ceil((w.phaseEnd - (w.tick + frac)) / 30);
         if (n !== lastCountdown && n >= 1 && n <= 3) sfx.play('tick');
         lastCountdown = n;
+      }
+      if (showAtlas && ui && wickAtlas) {
+        // Dev only (?fuseyard-atlas): the two baked atlases instead of the game.
+        stage.ctx.fillStyle = '#202030';
+        stage.ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+        stage.ctx.drawImage(ui.image, 0, 0);
+        stage.ctx.drawImage(wickAtlas.image, 120, 0);
+        return;
       }
       renderer.draw(draw);
     },

@@ -797,3 +797,53 @@ Totals: about 16 s of server tests, about 2 s of client tests, and under 6 minut
 | 4 | Controls | stick, buttons, phone layouts, pixelated scaling, gamepad | the phone checklist passes |
 | 5 | Art and sound | sprites, themes, atlas, effects, music | the budgets hold at 4× throttle in the CDP smoke |
 | 6 | Polish | Quickfire, the match-end panel, stats and boards, accessibility pass, the closed-game cost check | the platform's §15.6 states pass |
+
+## 15. As built
+
+Where the implementation fills in or differs from the sections above. Code: `server/src/arcade/core/fuseyard/` (rules, arenas, sim, danger, bots, view, codec, replay, runtime, golden), `server/src/arcade/rooms/fuseyard.ts`, `client/src/arcade/fuseyard/`.
+
+### 15.1 Rules and state
+
+| Topic | As built |
+|---|---|
+| Arena legend | A fixed block is `X`, so `B`/`b` stay the second pad pair. |
+| Two fighters | Slot 1 starts on (13,11), opposite slot 0, instead of (13,1). Three or four fighters use the table in §1.1. |
+| Ice | Momentum is the `moving` flag. A fighter stopped on ice moves with its input like on floor; leaving the ice without input it stops on the first floor cell. |
+| Belt bombs | A bomb carried by a belt follows the belt's turns (each change is a BombKicked with bit 7) and stops where the belt ends. A kicked bomb ignores belts while it slides. |
+| Sliding bombs | A live fighter who steps into a sliding bomb's cell gets its passer bit, so nobody is trapped inside a bomb. |
+| Timers | Shields and pad cooldowns count down at the start of every playing step; flames, fuses and warnings during it. So every timer reads its full value after the step that sets it, and the client derives all of them from the round tick (R), which advances only while the round plays. |
+| Steel under a shield | A shielded fighter is moved by steel like a ghost. |
+| Bot memory | Each bot's plan (`BotBrain`) is part of the match state and of the canonical dump, so a restored match steps identically. |
+| `Match` | Adds `draws`, `arenasPlayed`, `seatOut` (applied seat changes) and the `roundStarted` / `roundEnded` / `matchEnded` flags the runtime reads. |
+
+### 15.2 Bots
+
+The rules of §7 with these additions, each found by tracing self-kills in the soak:
+- Bots leave any blast area at once (not only within 30 ticks), and only bomb from a cell that is safe now, never on ice or a belt.
+- Walking about (not fleeing) uses a 30-tick margin, the same horizon that triggers a flight; a flight keeps its goal while it stays safe. Both stop a bot from dithering on the edge of a soon-to-burn cell.
+- If no safe cell is reachable with the level's margin, the flight retries with none; with nowhere better to go the bot waits.
+- Before dropping a bomb, the way out keeps 10 ticks to spare.
+- The danger map forecasts Closing Time drops due within 5 s, places a sliding bomb's blast where it will rest (that cell counts as blocked for paths), and flags remote bombs (and the bombs they would set off) per holder: never safe to stand in, crossed only to get out of one. A bot's own remote area never blocks it.
+- Pads are modelled as jumps in path searches. A bot standing still on the tick it detonates. Sprout and Scrapper detonate a Clicker bomb as soon as they are outside it, but never into someone else's bomb; Menace detonates when an opponent is in the blast.
+- Menace and Scrapper also walk to a trap spot (up to 7 or 4 cells away) where a bomb would leave an opponent at most one refuge; Scrapper and Menace score bomb spots by opponents caught as well as blocks.
+
+Soak results (CI size, seeds fixed): Menace beats Sprout in 93 % of 60 Quickfire duels; self-kills are 0–8 % of Menace's deaths and 6–9 % of Sprout's; the median four-bot Brawl round is 50–68 s; think time p99 is about 20 µs. The four-bot rounds use the lobby default (Scrapper ×4); Scrapper self-kills are about 18 %, mostly chain reactions.
+
+### 15.3 Wire
+
+| Topic | As built |
+|---|---|
+| KEYFRAME header | The 11th byte is `holdTicks` in full (u8, at most 150) while frozen, else the countdown, resume or card ticks left. Flags: winner + 1 in bits 0–2, hold winner + 1 in bits 3–5. |
+| Bomb entry | `u8 owner:2 | range:4 | sliding:1`, `u8 passers:4 | slideDir:3 | belt:1` (bit 7: carried by a belt, 4 units per tick). |
+| Round start | The runtime emits `roundStart` and a `rekey` (reason 5) for every seated slot and for slot 0xFF, because each round's block layout is new. |
+| View check | The client world, encoded as a keyframe, equals the server's public view after every message, except passer masks, which events do not carry (the predictor uses its own overlap rule). |
+| HANDOVER, replay | Raw dumps from the core, deflated by `rooms/fuseyard.ts` (about 1 KB and under 8 KB). |
+| Offline rematch | `sendEvent([1, u32 seed])` restarts the local match with a seed from the device; online, the next match comes from the lobby. |
+
+### 15.4 Client
+
+- The board container is laid out per orientation (`controls.ts` `layoutFor`); the platform's touch overlay is moved above the board (35 % opacity) when the landscape margins are under 140 px.
+- Online input: one input per 30 Hz tick; only ticks that go out in an UP (while anything is held, plus one after release) enter the batch and the predictor, so a batch is always consecutive ticks. Only reconciliation differences are blended; the predictor's normal advance is not.
+- Music is an 8-bar loop per arena (rendered once by the platform's audio module, about 1 MB of samples); effects stay under 300 KB.
+- Offline stats: `datasetto.arcade.fuseyard.stats.v1` = `{matches, wins, roundWins, bestStreak, streak}`; device options in the game's pref slot `{lanes, music}`.
+- Under Vitest every imported binding is read through a getter; the hot core modules copy their imports into module-local constants, which made the sim about five times faster in tests (no effect in Node or the browser build).
