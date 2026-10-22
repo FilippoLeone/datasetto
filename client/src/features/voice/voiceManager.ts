@@ -7,10 +7,9 @@ import { socketClient } from '@/services/socket/client';
 import { sounds } from '@/services/sounds';
 import { updateDesktopVoiceActivity } from '@/services/native/desktop';
 import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '@/services/native/ForegroundServiceManager';
-import { isCancelError, missingAudioHint } from '@/services/screenCapture';
+import { isCancelError } from '@/services/screenCapture';
 import { clipManager } from '@/services/clips/clipManager';
 import { CameraError } from '@/services/voice/cameraCapture';
-import { isDesktopApp } from '@/services/native/desktop';
 import { parseShortcut, shortcutMatchesEvent } from '@/lib/shortcut';
 import { channelsById } from '@/state/channels';
 import { DEFAULT_PEER_AUDIO, peerAudioPrefs } from '@/state/peerAudio';
@@ -661,10 +660,10 @@ class VoiceManager {
       localCameraStream.value = null;
       if (voiceStatus.value === 'connected') api.setVideoState('camera', false);
     });
-    this.voice.on('video:screen:started', ({ stream, hasAudio }) => {
+    this.voice.on('video:screen:started', ({ stream, audioNotice }) => {
       localScreenStream.value = stream;
       api.setVideoState('screen', true);
-      if (!hasAudio) toast.warning(missingAudioHint(isDesktopApp() ? 'desktop' : 'browser'), 9000);
+      if (audioNotice) toast.warning(audioNotice, 9000);
     });
     this.voice.on('video:screen:stopped', () => {
       localScreenStream.value = null;

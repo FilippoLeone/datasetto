@@ -101,7 +101,7 @@ export const ScreensharePage = ({ channel }: { channel: Channel }) => {
                   <MonitorUp size={16} /> Share your screen
                 </Button>
                 <p className="max-w-md text-xs text-text-faint">
-                  To stream a game with sound, pick <strong>Entire screen</strong> and tick <strong>Share audio</strong> in the picker (in the desktop app: <strong>Share system audio</strong>). Wear headphones so your friends are not echoed back.
+                  To stream a game with sound, pick <strong>Entire screen</strong> and tick <strong>Share audio</strong> in the picker (in the desktop app: <strong>Share system audio</strong>). Datasetto's own sound is left out on Windows 11 and macOS 14.2 or later, so nobody hears themselves back.
                 </p>
               </>
             )}

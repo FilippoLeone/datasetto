@@ -1,4 +1,5 @@
 import { pushStatus } from '@/state/notifications';
+import { isSharingScreenAudio } from '@/services/screenCapture';
 
 /**
  * Electron bridge helpers. Every call is a no-op in the browser and on mobile.
@@ -10,7 +11,9 @@ export const notifyDesktop = async (title: string, body: string): Promise<void> 
   const bridge = window.desktopAPI;
   if (bridge?.showNotification) {
     try {
-      await bridge.showNotification({ title, body, type: 'message' });
+      // The OS plays notification sounds itself, outside Datasetto, so a screen share's
+      // system audio would carry them to everyone watching: stay silent while sharing sound.
+      await bridge.showNotification({ title, body, type: 'message', silent: isSharingScreenAudio() });
     } catch {
       /* ignore */
     }

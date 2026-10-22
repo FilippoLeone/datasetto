@@ -109,16 +109,26 @@ Screen share works like a go-live button, no OBS needed, in two places: a
 screenshare room (one presenter, chat on the side) and the "Share screen"
 button of a voice channel. Both capture through `services/screenCapture.ts`.
 
-- In Chrome or Edge pick **Entire screen** (or a browser tab) and tick **Share
-  audio** in the picker. A single window cannot carry sound on Windows and macOS,
-  so share the whole screen for games. In the desktop app tick **Share system
-  audio** in its picker.
+- In Chrome or Edge pick **Entire screen**, a window or a browser tab and tick
+  **Share audio** in the picker. A shared window sends only that program's sound
+  where Chromium can (`windowAudio: 'window'`, Windows 11), otherwise the whole
+  system's; the Datasetto tab itself is not offered. In the desktop app tick
+  **Share system audio** in its picker (screens and windows both send system audio).
+- Datasetto's own sound (friends' voices, alert sounds, a stream watched in
+  Datasetto) is kept out of the shared audio so nobody hears themselves echoed
+  back. The capture asks for `restrictOwnAudio`, which Chromium honours on
+  Windows 11 (WASAPI process loopback without the browser's or the desktop app's
+  audio process) and macOS 14.2+ (a CoreAudio tap without it). The desktop app
+  captures through `getDisplayMedia()` and its own picker for that reason
+  (`desktop/picker/share-audio.js`). Windows 10, older macOS and Linux cannot
+  exclude it: the desktop picker says so under its audio switch, the presenter
+  gets a toast after the share starts, and in a browser sharing a tab avoids it.
+  Headphones do not help here: system audio is captured before it reaches them.
 - The tile shows **Audio on** or **No audio** for the presenter and every viewer,
   from the audio track of the stream itself. The presenter also gets a toast
   with these steps when the picker returned no audio.
-- Wear headphones. Browsers that support it (Chromium 128+) are asked to leave
-  this page's own audio, the voice chat, out of the capture (`restrictOwnAudio`)
-  so friends are not echoed back; speakers still feed the microphone.
+- Desktop notifications are silent while a share carries sound, because the
+  operating system plays their sound itself, outside Datasetto.
 - Quality presets live in Voice & audio settings and next to the share button:
   **720p30** (about 3.5 Mbit/s), **1080p60** (default, up to 8 Mbit/s),
   **Native resolution · 60 fps** (the display's own size, up to 12 Mbit/s) and

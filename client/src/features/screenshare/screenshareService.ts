@@ -2,7 +2,7 @@ import { batch, effect, signal } from '@preact/signals';
 import { api } from '@/services/socket/api';
 import { socketClient } from '@/services/socket/client';
 import { serverConfig } from '@/services/ServerConfigService';
-import { applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError, missingAudioHint } from '@/services/screenCapture';
+import { applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError, screenAudioNotice } from '@/services/screenCapture';
 import { dtlsFingerprint } from '@/services/voice/VoiceService';
 import { screenshareSessions, setScreenshareSession } from '@/state/misc';
 import { account, socketId } from '@/state/session';
@@ -116,13 +116,18 @@ class ScreenshareService {
         screenshareRole.value = 'host';
         screenshareChannel.value = channelId;
         screenshareStream.value = stream;
-        screenshareStatus.value = capture.hasAudio ? 'Sharing your screen with sound' : 'Sharing your screen without sound';
+        screenshareStatus.value = !capture.hasAudio
+          ? 'Sharing your screen without sound'
+          : capture.ownAudio === 'included'
+            ? "Sharing your screen with sound (Datasetto's own sound is in it too)"
+            : 'Sharing your screen with sound';
       });
       this.dispatch({ type: 'started', role: 'host', channelId });
       this.hostConfirmed = false;
       this.sentAllowClips = audioSettings.value.shareClipsAllowed;
       api.startScreenshare(channelId, this.rtcSessionId, [], this.sentAllowClips);
-      if (!capture.hasAudio) toast.warning(missingAudioHint(capture.source), 9000);
+      const audioNotice = screenAudioNotice(capture);
+      if (audioNotice) toast.warning(audioNotice, 9000);
     } catch (error) {
       if (!isCancelError(error)) toast.error(error instanceof Error ? error.message : 'Could not capture the screen');
       this.localStream?.getTracks().forEach((track) => track.stop());

@@ -64,10 +64,16 @@ interface DesktopAPI {
     audio?: boolean;
     /** Shown in the picker's footer; older shells ignore it. `null` width/height = the display's native resolution. */
     quality?: { width: number | null; height: number | null; fps: number; label: string };
+    /** Ask the shell to answer our next getDisplayMedia() call with the picked source; older shells ignore it. */
+    displayMedia?: boolean;
   }) => Promise<{
     success: boolean;
     source?: DesktopScreenshareSource;
     shareAudio?: boolean;
+    /** True when the shell armed that hand-over (desktop/picker/share-audio.js). */
+    displayMedia?: boolean;
+    /** Whether this OS lets the shell leave Datasetto's own playback out of system audio. */
+    ownAudioExcluded?: boolean;
     error?: string;
   }>;
   openExternal: (url: string) => Promise<unknown>;

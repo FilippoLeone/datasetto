@@ -1,8 +1,10 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell, screen, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell, screen, globalShortcut, webContents } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const { createUpdater } = require('./updater');
 const { execFile } = require('node:child_process');
+const shareAudio = require('./picker/share-audio.js');
 
 // Force GPU Acceleration for NVENC/Hardware Encoding
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -204,6 +206,14 @@ let updater = null;
 // the cards show what each screen and window is doing right now.
 const PICKER_THUMBNAIL_SIZE = { width: 480, height: 270 };
 const PICKER_REFRESH_MS = 2000;
+// Whether this OS lets Chromium leave Datasetto's own playback out of system audio
+// (desktop/picker/share-audio.js explains the route), and the picked source waiting
+// for the page's getDisplayMedia() call.
+const shareAudioExclusion = shareAudio.ownAudioExclusion(
+  process.platform,
+  process.platform === 'darwin' ? process.getSystemVersion() : os.release(),
+);
+const displayMediaGrants = shareAudio.createGrantStore();
 
 /** Physical size and primary flag of the display a screen source belongs to. */
 function describeDisplay(source) {
@@ -333,6 +343,8 @@ async function promptScreenshareSource(options = {}) {
       }
       pickerWindow.webContents.send('screenshare-picker:sources', {
         allowAudio,
+        audioHint: shareAudio.shareAudioHint(shareAudioExclusion),
+        ownAudioExcluded: shareAudioExclusion.supported,
         quality,
         update,
         sources: buildPickerPayload(withoutPicker(list)),
@@ -408,6 +420,54 @@ async function promptScreenshareSource(options = {}) {
     pickerWindow.loadFile(path.join(__dirname, 'picker', 'index.html')).catch((error) => {
       console.error('[Desktop] Failed to load screenshare picker UI:', error);
       cleanup(null);
+    });
+  });
+}
+
+/**
+ * getDisplayMedia() from a page: answer with the source the picker just handed over
+ * (or show the picker now when the page called it directly) and with system audio as
+ * 'loopback', which Electron narrows to "everything except Datasetto" when the page
+ * asked with restrictOwnAudio and the OS allows it. See picker/share-audio.js.
+ */
+async function answerDisplayMediaRequest(request) {
+  const frame = request?.frame ?? null;
+  // Only a top-level page may capture; an embedded frame never gets the screen.
+  if (!frame || frame.parent) {
+    return null;
+  }
+  const contentsId = webContents.fromFrame(frame)?.id;
+  let grant = displayMediaGrants.take(contentsId);
+  if (!grant) {
+    const selection = await promptScreenshareSource({ requestAudio: Boolean(request.audioRequested) });
+    if (!selection?.source || !displayMediaGrants.arm(contentsId, selection.source, selection.shareAudio)) {
+      return null;
+    }
+    grant = displayMediaGrants.take(contentsId);
+  }
+  const answer = shareAudio.displayMediaAnswer(request, grant);
+  console.log('[Desktop] Screen share granted:', shareAudio.describeAnswer(answer, shareAudioExclusion));
+  return answer;
+}
+
+const sessionsWithDisplayMediaHandler = new WeakSet();
+
+function installDisplayMediaHandler(targetSession) {
+  if (!targetSession || sessionsWithDisplayMediaHandler.has(targetSession)) {
+    return;
+  }
+  sessionsWithDisplayMediaHandler.add(targetSession);
+  targetSession.setDisplayMediaRequestHandler((request, callback) => {
+    const respond = (answer) => {
+      try {
+        callback(answer);
+      } catch (error) {
+        console.error('[Desktop] Screen share answer was refused:', error?.message ?? error);
+      }
+    };
+    answerDisplayMediaRequest(request).then(respond, (error) => {
+      console.error('[Desktop] Screen share request failed:', error?.message ?? error);
+      respond(null);
     });
   });
 }
@@ -944,6 +1004,8 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
   }
 
+  installDisplayMediaHandler(mainWindow.webContents.session);
+
   // window.open(): keep in-app popouts (windows the client renders into itself),
   // send every real URL to the system browser instead of a chromeless Electron window.
   mainWindow.webContents.setWindowOpenHandler(({ url, frameName, features }) => {
@@ -1336,17 +1398,25 @@ ipcMain.handle('app:open-log-file', async () => {
   return false;
 });
 
-ipcMain.handle('screenshare:pick-source', async (_event, payload) => {
+ipcMain.handle('screenshare:pick-source', async (event, payload) => {
   try {
     const selection = await promptScreenshareSource({ requestAudio: payload?.audio !== false, quality: payload?.quality });
     if (!selection || !selection.source) {
+      displayMediaGrants.clear();
       return { success: false, error: 'cancelled' };
     }
 
+    // Clients that capture through getDisplayMedia() (the route that can leave our own
+    // audio out) ask for the pick to be handed to that call; older clients use the
+    // source id with getUserMedia as before.
+    const displayMedia =
+      payload?.displayMedia === true && displayMediaGrants.arm(event.sender.id, selection.source, selection.shareAudio);
     return {
       success: true,
       source: selection.source,
       shareAudio: Boolean(selection.shareAudio),
+      displayMedia,
+      ownAudioExcluded: shareAudioExclusion.supported,
     };
   } catch (error) {
     console.error('[Desktop] Failed to select screenshare source:', error);

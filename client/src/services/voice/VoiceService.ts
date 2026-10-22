@@ -7,7 +7,7 @@ import { Storage } from '@/lib/storage';
 import { isNativeAudioRoutingAvailable, selectNativeAudioRoute } from '@/services/native/NativeAudioRouteService';
 import { config } from '@/config';
 import { serverConfig } from '@/services/ServerConfigService';
-import { DEFAULT_SCREEN_QUALITY, applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError } from '@/services/screenCapture';
+import { DEFAULT_SCREEN_QUALITY, applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError, screenAudioNotice } from '@/services/screenCapture';
 import { captureCamera } from './cameraCapture';
 import { PeerAudioManager, type PeerAudioPreference } from './PeerAudioManager';
 
@@ -1504,7 +1504,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       // Add the screen's tracks to all existing peers
       await this.addVideoTrackToAllPeers('screen', stream);
 
-      this.emit('video:screen:started', { stream, hasAudio: capture.hasAudio } as never);
+      this.emit('video:screen:started', { stream, hasAudio: capture.hasAudio, audioNotice: screenAudioNotice(capture) } as never);
       return stream;
     } catch (error) {
       if (!isCancelError(error)) {
