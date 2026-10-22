@@ -959,3 +959,17 @@ Where the build fills in or differs from this spec. Each row also says why.
 | 25 | 10, session | Runs on the live test server. It uses its own lane client (`test/arcade/bellwick/live.ts`), because the harness's HELLO names Fuseyard's codec only. |
 | 26 | Bot | The walkthrough bot's "use" step first walks up to the thing it uses, because a fight can push it out of reach. |
 | 27 | Not built | Pip, the helper hero, and the solo save import (both M7). |
+
+### 17.6 Verification (2026-10-22)
+
+| Check | Result |
+|---|---|
+| Server suite | 68 files, 457 tests, 24 s; Bellwick's 13 files and 68 tests take 4.8 s. Typecheck (with core purity) is clean. |
+| Client | 60 files and 413 tests; lint clean. `npm run build` passes, with the Bellwick chunk at 58.4 KB gzip of 60 KB and the main bundle 74 B larger for the catalogue entry. |
+| Bots | The walkthrough bot finishes the tale from seed 1. 32 seeded dungeon runs finish. Behind 167 ms each way, a bot clears the dungeon with no `Correct` and no refused claim. |
+| Boss room traffic (4 heroes, 3G delay) | 1,709 B/s mean and 1,868 B/s peak per client (budget 2,750 and 4,000); snapshot at most 36 B; keyframe at most 196 B; no refused claim. |
+| Shaped bench (real Chrome plus 3 Node bot heroes in the Belfry) | 3G: 15 frames/s, chat p95 171 ms, lane 13.9 kbit/s down. 3G + 1 % loss: median 11 frames/s, chat p95 170 ms. Both pass. |
+| Web | Chrome and Firefox: a two-player Party Tale passed 10/10 checks (drop-in, both heroes seen within 3 px, the host's slot saved under both accounts, leaving). Solo Tale passed 11/11. |
+| CPU | Boss fight at 4× throttle: 18.9 % main thread, no task over 16 ms. |
+| Packaged desktop | Solo Tale and Party Tale pass 5/5, but only with `file://` added to `CORS_ORIGINS`. The shared origin check turns `file://` into `file:` and refuses the action lane with 403 (reported to the platform). |
+| Android emulator | 7/7: joins and walks; fits the phone; in the background it draws no frames and the hero rests; back in front, active again. |
