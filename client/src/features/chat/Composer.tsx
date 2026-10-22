@@ -3,6 +3,7 @@ import { AlertTriangle, CornerUpLeft, ImagePlus, Send, Smile, X } from 'lucide-p
 import { IconButton } from '@/components';
 import { addFiles, attachmentIds, canSend, filesFromTransfer, removeDraft, transferHasFiles, updateDraft, type AttachmentDraft } from '@/lib/attachments';
 import { cn } from '@/lib/cn';
+import { frames } from '@/lib/frames';
 import { quoteText } from '@/lib/markdown';
 import { sounds } from '@/services/sounds';
 import { serverConfig } from '@/services/ServerConfigService';
@@ -162,7 +163,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
     if (reply) setReplyTarget(channel.id, null);
     for (const draft of drafts) URL.revokeObjectURL(draft.previewUrl);
     setDrafts([]);
-    requestAnimationFrame(resize);
+    frames.once(resize);
   };
 
   const insertEmoji = (emoji: string) => {
@@ -171,7 +172,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
     const end = node?.selectionEnd ?? text.length;
     setText(text.slice(0, start) + emoji + text.slice(end));
     setEmojiOpen(false);
-    requestAnimationFrame(() => {
+    frames.once(() => {
       node?.focus();
       node?.setSelectionRange(start + emoji.length, start + emoji.length);
       resize();
@@ -211,7 +212,7 @@ export const Composer = ({ channel, compact }: { channel: Channel; compact?: boo
     setText(next.text);
     setMention(null);
     const node = textareaRef.current;
-    requestAnimationFrame(() => {
+    frames.once(() => {
       node?.focus();
       node?.setSelectionRange(next.caret, next.caret);
       resize();

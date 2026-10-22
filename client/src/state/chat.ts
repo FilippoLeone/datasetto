@@ -1,6 +1,7 @@
 import { batch, signal } from '@preact/signals';
 import type { PendingMessage } from '@/features/chat/outbox';
 import type { ChatMessage, ReactionSummary, ReplyRef } from '@/types/protocol';
+import { rememberMessageAuthors } from './avatars';
 
 /** Kept per channel; matches the server's default retention so a jump can reach any message. */
 const MAX_PER_CHANNEL = 2000;
@@ -44,6 +45,7 @@ export const replyRefOf = (message: ChatMessage): ReplyRef => ({
   id: message.id,
   from: message.from,
   accountId: message.accountId ?? null,
+  avatarUrl: message.authorAvatarUrl ?? null,
   text: message.text.replace(/\s+/g, ' ').trim().slice(0, 200),
   deleted: message.deleted === true,
   pictures: message.attachments?.length ?? 0,
@@ -55,8 +57,11 @@ export const setPendingMessages = (entries: PendingMessage[]): void => {
   pendingMessages.value = next;
 };
 
+// Every message that arrives also tells us its author's current picture (state/avatars.ts).
+
 export const setHistory = (channelId: string, history: ChatMessage[]): void => {
   batch(() => {
+    rememberMessageAuthors(history);
     messages.value = { ...messages.value, [channelId]: history.slice(-MAX_PER_CHANNEL) };
     loadedChannels.value = { ...loadedChannels.value, [channelId]: true };
     historyVersion.value = { ...historyVersion.value, [channelId]: (historyVersion.value[channelId] ?? 0) + 1 };
@@ -71,6 +76,7 @@ export const setHistory = (channelId: string, history: ChatMessage[]): void => {
 
 export const appendMessage = (message: ChatMessage): void => {
   const existing = messages.value[message.channelId] ?? [];
+  rememberMessageAuthors([message]);
   if (existing.some((entry) => entry.id === message.id)) return;
   const next = [...existing, message];
   if (next.length > MAX_PER_CHANNEL) next.splice(0, next.length - MAX_PER_CHANNEL);
@@ -79,6 +85,7 @@ export const appendMessage = (message: ChatMessage): void => {
 
 /** Put an older page (oldest first) in front of what is loaded, skipping duplicates. */
 export const prependMessages = (channelId: string, older: ChatMessage[]): void => {
+  rememberMessageAuthors(older);
   const existing = messages.value[channelId] ?? [];
   const known = new Set(existing.map((entry) => entry.id));
   const fresh = older.filter((entry) => !known.has(entry.id));

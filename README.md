@@ -15,7 +15,7 @@ VM for about the price of a coffee a week.
 ## Features
 
 - **Text channels** with persistent history, moderation (delete, ban, voice timeout)
-- **Voice channels** over WebRTC mesh: echo cancellation, noise suppression (with an optional neural level that removes keyboard typing and chewing on the device), push to talk, camera, screenshare
+- **Voice channels** over WebRTC mesh: echo cancellation, noise suppression (with an optional neural level that removes keyboard typing and chewing on the device), push to talk, camera (with optional background blur, done on the device), screenshare
 - **Live streams**: OBS publishes over RTMPS (or plain RTMP on the LAN), viewers watch low-latency HLS in a theater layout with chat
 - **Screenshare rooms** for one presenter and many viewers
 - **The Arcade**: original games for the people in a voice channel who choose to join, built so they never slow down chat or voice on a phone link: poker and slot machines with virtual chips (nothing can be bought, sold or cashed out), a bomb arena and a top-down adventure. Every game also plays offline against bots. Design: [docs/arcade](docs/arcade/README.md)

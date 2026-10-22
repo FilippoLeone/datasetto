@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn';
 import { CHANNEL_ICONS } from '@/app/layout/MainArea';
 import { api } from '@/services/socket/api';
 import { peerAudioPref } from '@/state/peerAudio';
+import { avatarOf } from '@/state/avatars';
 import { channelsByType, collapsedGroups, mentions, selectedChannelId, toggleGroup, unread } from '@/state/channels';
 import { usersInVoice } from '@/state/presence';
 import { can } from '@/state/session';
@@ -186,7 +187,7 @@ const DmRow = ({ channel }: { channel: Channel }) => {
           title={peer?.peerUsername}
           className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left pointer-coarse:py-3"
         >
-          <Avatar seed={peer?.peerId ?? channel.id} name={name} src={peer?.peerAvatarUrl} size={24} />
+          <Avatar seed={peer?.peerId ?? channel.id} name={name} src={avatarOf(peer?.peerId, peer?.peerAvatarUrl)} size={24} />
           <span className={cn('min-w-0 flex-1 truncate', unreadCount > 0 && 'font-semibold')}>{name}</span>
         </button>
         {!active && <UnreadBadge unreadCount={unreadCount} mentionCount={0} />}

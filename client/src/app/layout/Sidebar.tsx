@@ -1,5 +1,5 @@
 import { Film, Gamepad2, Settings, Shield, Wifi, WifiOff } from 'lucide-preact';
-import { Avatar, IconButton, RoleBadge } from '@/components';
+import { Avatar, IconButton, Logo, RoleBadge } from '@/components';
 import { ChannelList } from '@/features/channels/ChannelList';
 import { InstallHint } from '@/features/settings/InstallHint';
 import { VoiceDock } from '@/features/voice/VoiceDock';
@@ -59,7 +59,10 @@ const UserBar = () => {
 export const Sidebar = () => (
   <>
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4 shadow-sm">
-      <h1 className="truncate text-base font-bold text-text-bright">Datasetto</h1>
+      <h1 className="flex min-w-0 items-center gap-2 text-base font-bold text-text-bright">
+        <Logo size={22} className="shrink-0" />
+        <span className="truncate">Datasetto</span>
+      </h1>
       <ConnectionIcon />
     </header>
     <div className="scrollbar-thin flex-1 overflow-y-auto px-2 py-3">

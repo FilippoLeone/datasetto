@@ -9,3 +9,4 @@ Dockerfile* text eol=lf
 *.png binary
 *.ico binary
 *.jar binary
+*.tflite binary

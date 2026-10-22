@@ -1,4 +1,5 @@
 import { pushStatus } from '@/state/notifications';
+import { isSharingScreenAudio } from '@/services/screenCapture';
 
 /**
  * Electron bridge helpers. Every call is a no-op in the browser and on mobile.
@@ -10,7 +11,9 @@ export const notifyDesktop = async (title: string, body: string): Promise<void> 
   const bridge = window.desktopAPI;
   if (bridge?.showNotification) {
     try {
-      await bridge.showNotification({ title, body, type: 'message' });
+      // The OS plays notification sounds itself, outside Datasetto, so a screen share's
+      // system audio would carry them to everyone watching: stay silent while sharing sound.
+      await bridge.showNotification({ title, body, type: 'message', silent: isSharingScreenAudio() });
     } catch {
       /* ignore */
     }
@@ -30,6 +33,20 @@ export const notifyDesktop = async (title: string, body: string): Promise<void> 
 export const updateDesktopVoiceActivity = (state: { connected: boolean; speaking: boolean; muted: boolean }): void => {
   try {
     window.desktopAPI?.updateVoiceActivity(state);
+  } catch {
+    /* ignore */
+  }
+};
+
+/**
+ * Ask for the user's attention until the main window is focused: the taskbar button
+ * flashes (Windows, Linux) or the dock icon bounces (macOS). `false` stops it early.
+ * The shell skips the request while its window is already in front. A no-op in the
+ * browser, on mobile and in desktop shells older than this bridge.
+ */
+export const requestDesktopAttention = (on: boolean): void => {
+  try {
+    window.desktopAPI?.requestAttention?.(on);
   } catch {
     /* ignore */
   }

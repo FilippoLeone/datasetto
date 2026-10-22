@@ -33,7 +33,11 @@ const clamp = (value: number, min: number, max: number): number => {
 export const MICROPHONE_PERMISSION_HELP_TEXT =
   'Microphone permission is blocked. Enable access in your browser or system settings, then reload. On iOS Safari: Settings → Safari → Camera & Microphone. On Android Chrome: Settings → Site Settings → Microphone.';
 
-/** How often the local mic level is sampled (ms); matches the remote speaking detector. */
+/**
+ * How often the local mic level is sampled (ms), only while the microphone is open (a call or the
+ * settings meter). It feeds your own speaking state; the `micLevel` signal takes a sample only
+ * while a meter shows it (state/voice.ts).
+ */
 const MIC_LEVEL_INTERVAL_MS = 50;
 
 export class AudioService extends EventEmitter {
@@ -44,6 +48,8 @@ export class AudioService extends EventEmitter {
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   private analyser: AnalyserNode | null = null;
+  /** Reused for every level reading (20 a second) instead of a new array each time. */
+  private levelData: Uint8Array<ArrayBuffer> | null = null;
   /** Mic level sampling runs on a timer, not animation frames: frames stop when the window is minimized. */
   private meterTimer: number | null = null;
   private settings: AudioSettings;
@@ -662,7 +668,9 @@ export class AudioService extends EventEmitter {
   getAudioLevel(): number {
     if (!this.analyser) return 0;
 
-    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+    const bins = this.analyser.frequencyBinCount;
+    if (!this.levelData || this.levelData.length !== bins) this.levelData = new Uint8Array(bins);
+    const dataArray = this.levelData;
     this.analyser.getByteTimeDomainData(dataArray);
 
     let peak = 0;

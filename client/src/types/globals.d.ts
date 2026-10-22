@@ -53,6 +53,14 @@ interface DesktopScreenshareSource {
   display_id?: string;
 }
 
+/** The desktop window's own title bar, drawn by the page (app/TitleBar.tsx). */
+interface DesktopTitleBar {
+  /** Height in pixels, the same as the system's caption buttons drawn over it. */
+  height: number;
+  /** Node's `process.platform` of the shell: `win32`, `darwin`, `linux`. */
+  platform: string;
+}
+
 /** Bridge exposed by desktop/preload.js through contextBridge. */
 interface DesktopAPI {
   getInfo: () => Promise<{ version?: string; platform?: string }>;
@@ -64,16 +72,26 @@ interface DesktopAPI {
     audio?: boolean;
     /** Shown in the picker's footer; older shells ignore it. `null` width/height = the display's native resolution. */
     quality?: { width: number | null; height: number | null; fps: number; label: string };
+    /** Ask the shell to answer our next getDisplayMedia() call with the picked source; older shells ignore it. */
+    displayMedia?: boolean;
   }) => Promise<{
     success: boolean;
     source?: DesktopScreenshareSource;
     shareAudio?: boolean;
+    /** True when the shell armed that hand-over (desktop/picker/share-audio.js). */
+    displayMedia?: boolean;
+    /** Whether this OS lets the shell leave Datasetto's own playback out of system audio. */
+    ownAudioExcluded?: boolean;
     error?: string;
   }>;
   openExternal: (url: string) => Promise<unknown>;
   getLogPath: () => Promise<string>;
   openLogFile: () => Promise<unknown>;
   log: (level: string, ...args: unknown[]) => void;
+  /** Set when the shell hid the native title bar and the page draws its own; absent or null with a native frame. */
+  titleBar?: DesktopTitleBar | null;
+  /** The bar's colours (`#rrggbb`), for the caption buttons drawn over it (Windows, Linux; macOS ignores them). */
+  setTitleBarColors?: (colors: { color: string; symbolColor: string }) => void;
   /** Updater bridge; absent in desktop shells older than the updater. */
   getUpdateState?: () => Promise<DesktopUpdateState>;
   setAutoUpdate?: (enabled: boolean) => Promise<DesktopUpdateState>;
@@ -117,6 +135,18 @@ interface DesktopAPI {
   listProcesses?: () => Promise<{ processes: string[]; error?: string }>;
   /** The matched title changed (`null`: no listed game runs, or the feature is off). Returns an unsubscribe function. */
   onGameActivity?: (handler: (event: { title: string | null }) => void) => () => void;
+
+  // Window visibility and attention, also optional: see services/native/appVisibility.ts and desktop.ts.
+
+  /**
+   * The main window was minimized, restored, hidden to the tray or shown, and once per page
+   * load. The shell keeps background throttling off, so `document.visibilityState` stays
+   * "visible" through all of these. The last state is replayed to a new subscriber.
+   * Returns an unsubscribe function.
+   */
+  onWindowVisibility?(cb: (visible: boolean) => void): () => void;
+  /** `true`: flash the taskbar button (Windows, Linux) or bounce the dock (macOS) until the window is focused; `false` stops it. */
+  requestAttention?(on: boolean): void;
 }
 
 interface DesktopGameActivityConfig {

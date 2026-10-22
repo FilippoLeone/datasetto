@@ -21,6 +21,7 @@
     "@capacitor/filesystem": "^8.1.5",
     "@capacitor/share": "^8.0.3",
     "@capawesome-team/capacitor-android-foreground-service": "^8.1.0",
+    "@mediapipe/tasks-vision": "1.1.1",
     "@preact/signals": "^2.11.3",
     "clsx": "^2.1.1",
     "hls.js": "^1.7.3",

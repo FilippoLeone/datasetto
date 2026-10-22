@@ -17,17 +17,30 @@ export interface ScreenQualityPreset {
   maxBitrateBps: number;
 }
 
+/**
+ * Whether Datasetto's own playback (friends' voices, alert sounds, a stream being
+ * watched) can be in the shared audio: 'excluded' when the engine left it out or the
+ * sound comes from one tab or one app only, 'included' for plain whole-system
+ * loopback, 'none' when the share has no sound.
+ */
+export type OwnAudio = 'none' | 'excluded' | 'included';
+
 export interface ScreenCaptureResult {
   stream: MediaStream;
   /** True when the capture carries a live audio track. */
   hasAudio: boolean;
   /** Which capture path produced the stream. */
   source: 'browser' | 'desktop';
-  /** True when the browser confirmed it excluded this page's own audio. */
-  ownAudioExcluded: boolean;
+  ownAudio: OwnAudio;
+  /** Whether the capture asked the engine to leave our own playback out (restrictOwnAudio). */
+  restrictRequested: boolean;
 }
 
-type DisplayMediaRequest = MediaStreamConstraints & { systemAudio?: 'include' | 'exclude' };
+type DisplayMediaRequest = MediaStreamConstraints & {
+  systemAudio?: 'include' | 'exclude';
+  windowAudio?: 'exclude' | 'window' | 'system';
+  selfBrowserSurface?: 'include' | 'exclude';
+};
 
 type DisplayMediaDevices = {
   getDisplayMedia?: (constraints?: DisplayMediaRequest) => Promise<MediaStream>;
@@ -116,8 +129,11 @@ const notAllowed = (message: string): Error => {
 };
 
 /**
- * Chromium 128+ can leave this page's own audio (the voice chat) out of a
- * system-audio capture so viewers do not hear themselves echoed back.
+ * Whether the engine knows the restrictOwnAudio constraint, which leaves this
+ * page's (and on Chromium, this whole browser's) own playback out of system audio
+ * so viewers do not hear themselves echoed back. Chromium only honours it where the
+ * OS allows (Windows 11, macOS 14.2+) and silently drops it elsewhere; the track's
+ * settings tell which happened (see classifyOwnAudio).
  */
 export const supportsRestrictOwnAudio = (mediaDevices: DisplayMediaDevices | undefined = navigator.mediaDevices): boolean => {
   try {
@@ -127,44 +143,137 @@ export const supportsRestrictOwnAudio = (mediaDevices: DisplayMediaDevices | und
   }
 };
 
-/** getDisplayMedia request for a preset; the audio hint is only sent when the engine advertises it. */
-export const buildDisplayMediaRequest = (quality: unknown, restrictOwnAudio: boolean): DisplayMediaRequest => {
+/**
+ * getDisplayMedia request for a preset. The audio is unprocessed system audio
+ * without this app's own playback where the engine can do that; a shared window
+ * sends only that app's sound where supported (Chromium falls back to system audio);
+ * the Datasetto tab itself is not offered.
+ */
+export const buildDisplayMediaRequest = (quality: unknown, restrictOwnAudio: boolean, withAudio = true): DisplayMediaRequest => {
   const limits = screenQualityLimits(quality);
+  const request: DisplayMediaRequest = {
+    video: videoConstraints(limits),
+    audio: false,
+    selfBrowserSurface: 'exclude',
+  };
+  if (!withAudio) return request;
   const audio: MediaTrackConstraints & { restrictOwnAudio?: boolean } = {
     echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false,
   };
   if (restrictOwnAudio) audio.restrictOwnAudio = true;
-  return {
-    video: videoConstraints(limits),
-    audio,
-    systemAudio: 'include',
-  };
+  return { ...request, audio, systemAudio: 'include', windowAudio: 'window' };
 };
 
-const finish = (stream: MediaStream, source: ScreenCaptureResult['source'], quality: unknown): ScreenCaptureResult => {
+type AudioTrackSettings = { deviceId?: string; restrictOwnAudio?: boolean };
+type VideoTrackSettings = { displaySurface?: string };
+
+/** Chromium's whole-system loopback devices; all of them carry this app's own playback. */
+const LOOPBACK_WITH_OWN_AUDIO = new Set(['loopback', 'loopbackWithMute', 'loopbackAllDevices']);
+
+/**
+ * What the captured audio contains as far as our own sound goes, from the tracks'
+ * settings. The audio device id is the ground truth where the engine reports it
+ * ("loopbackWithoutChrome" is the process-excluding loopback, "applicationLoopback:…"
+ * one app's sound); otherwise restrictOwnAudio says whether the exclusion applied,
+ * and a shared tab only carries that tab's sound.
+ */
+export const classifyOwnAudio = (audio: AudioTrackSettings | null, video: VideoTrackSettings | null): OwnAudio => {
+  if (!audio) return 'none';
+  const deviceId = typeof audio.deviceId === 'string' ? audio.deviceId : '';
+  if (LOOPBACK_WITH_OWN_AUDIO.has(deviceId)) return 'included';
+  if (
+    deviceId === 'loopbackWithoutChrome' ||
+    deviceId.startsWith('applicationLoopback') ||
+    deviceId.startsWith('restrictOwnAudioBrowserLoopback') ||
+    audio.restrictOwnAudio === true
+  ) {
+    return 'excluded';
+  }
+  // Another tab's sound; the Datasetto tab is never offered (selfBrowserSurface: 'exclude').
+  if (video?.displaySurface === 'browser') return 'excluded';
+  return 'included';
+};
+
+const trackSettings = <T>(track: MediaStreamTrack | undefined): T | null => {
+  try {
+    return (track?.getSettings() as T | undefined) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/** Captures that send sound; OS notification sounds would end up in them (see isSharingScreenAudio). */
+const liveAudioCaptures = new Set<MediaStream>();
+
+/** True while one of our screen captures is sending sound. */
+export const isSharingScreenAudio = (): boolean => {
+  for (const stream of liveAudioCaptures) {
+    if (stream.getAudioTracks().some((track) => track.readyState === 'live')) return true;
+    liveAudioCaptures.delete(stream);
+  }
+  return false;
+};
+
+const finish = (stream: MediaStream, source: ScreenCaptureResult['source'], quality: unknown, restrictRequested: boolean): ScreenCaptureResult => {
   const limits = screenQualityLimits(quality);
   const video = stream.getVideoTracks()[0];
   if (video) video.contentHint = videoContentHint(limits.fps);
   const audio = stream.getAudioTracks()[0];
   if (audio) audio.contentHint = 'music';
-  let ownAudioExcluded = false;
-  try {
-    ownAudioExcluded = (audio?.getSettings() as { restrictOwnAudio?: boolean } | undefined)?.restrictOwnAudio === true;
-  } catch {
-    /* settings unavailable */
+  const hasAudio = Boolean(audio && audio.readyState === 'live');
+  const audioSettings = hasAudio ? (trackSettings<AudioTrackSettings>(audio) ?? {}) : null;
+  const ownAudio = classifyOwnAudio(audioSettings, trackSettings<VideoTrackSettings>(video));
+  if (hasAudio) liveAudioCaptures.add(stream);
+  // One line for support: which audio device the engine opened and what that means.
+  console.info('[screenCapture]', source, 'audio:', audioSettings ? audioSettings.deviceId || 'unknown device' : 'none', '→ own audio', ownAudio);
+  return { stream, hasAudio, source, ownAudio, restrictRequested };
+};
+
+/**
+ * Desktop shell with the getDisplayMedia() hand-over: the shell answers these calls
+ * with the source just picked (desktop/picker/share-audio.js), and asking with
+ * restrictOwnAudio is what lets Chromium leave Datasetto's own playback out. If the
+ * system cannot open that audio, share with plain system audio, then without sound,
+ * rather than fail; the caller explains either case.
+ */
+const captureThroughShellGrant = async (mediaDevices: DisplayMediaDevices, quality: unknown, withAudio: boolean): Promise<ScreenCaptureResult> => {
+  const getDisplayMedia = mediaDevices.getDisplayMedia!.bind(mediaDevices);
+  const restrictOwnAudio = supportsRestrictOwnAudio(mediaDevices);
+  const attempts: Array<[restrict: boolean, audio: boolean]> = withAudio
+    ? [[restrictOwnAudio, true], ...(restrictOwnAudio ? [[false, true] as [boolean, boolean]] : []), [false, false]]
+    : [[false, false]];
+  let lastError: unknown = null;
+  for (const [restrict, audio] of attempts) {
+    try {
+      return finish(await getDisplayMedia(buildDisplayMediaRequest(quality, restrict, audio)), 'desktop', quality, restrict);
+    } catch (error) {
+      if (isCancelError(error)) throw error;
+      lastError = error;
+    }
   }
-  return { stream, hasAudio: Boolean(audio && audio.readyState === 'live'), source, ownAudioExcluded };
+  throw lastError;
 };
 
 const captureInDesktopShell = async (quality: unknown): Promise<ScreenCaptureResult | null> => {
   const bridge = window.desktopAPI;
   if (!bridge?.pickScreenshareSource) return null;
   const limits = screenQualityLimits(quality);
-  // The quality is only a hint for the picker's footer; the result object is unchanged.
-  const picked = await bridge.pickScreenshareSource({ audio: true, quality: { ...limits, label: screenQualityPreset(quality).label } });
+  const mediaDevices = navigator.mediaDevices as DisplayMediaDevices | undefined;
+  const canHandOver = typeof mediaDevices?.getDisplayMedia === 'function';
+  // The quality is only a hint for the picker's footer. `displayMedia` asks the shell to
+  // hand the pick to our next getDisplayMedia() call; older shells ignore it.
+  const picked = await bridge.pickScreenshareSource({
+    audio: true,
+    quality: { ...limits, label: screenQualityPreset(quality).label },
+    displayMedia: canHandOver,
+  });
   if (!picked?.success || !picked.source) throw notAllowed('Screen share was cancelled');
+  if (picked.displayMedia && mediaDevices && canHandOver) {
+    return captureThroughShellGrant(mediaDevices, quality, Boolean(picked.shareAudio));
+  }
+  // Legacy route (shells before the hand-over): plain system loopback, Datasetto included.
   const video = {
     mandatory: {
       chromeMediaSource: 'desktop',
@@ -176,12 +285,12 @@ const captureInDesktopShell = async (quality: unknown): Promise<ScreenCaptureRes
   } as unknown as MediaTrackConstraints;
   const audio = picked.shareAudio ? ({ mandatory: { chromeMediaSource: 'desktop' } } as unknown as MediaTrackConstraints) : false;
   try {
-    return finish(await navigator.mediaDevices.getUserMedia({ audio, video }), 'desktop', quality);
+    return finish(await navigator.mediaDevices.getUserMedia({ audio, video }), 'desktop', quality, false);
   } catch (error) {
     // System-audio loopback is not available on every OS (macOS needs a virtual
     // device). Share without sound rather than fail; the caller explains why.
     if (audio === false || isCancelError(error)) throw error;
-    return finish(await navigator.mediaDevices.getUserMedia({ audio: false, video }), 'desktop', quality);
+    return finish(await navigator.mediaDevices.getUserMedia({ audio: false, video }), 'desktop', quality, false);
   }
 };
 
@@ -190,11 +299,11 @@ const captureInBrowser = async (quality: unknown): Promise<ScreenCaptureResult> 
   if (!mediaDevices?.getDisplayMedia) throw new Error('Screen sharing is not supported in this browser');
   const restrictOwnAudio = supportsRestrictOwnAudio(mediaDevices);
   try {
-    return finish(await mediaDevices.getDisplayMedia(buildDisplayMediaRequest(quality, restrictOwnAudio)), 'browser', quality);
+    return finish(await mediaDevices.getDisplayMedia(buildDisplayMediaRequest(quality, restrictOwnAudio)), 'browser', quality, restrictOwnAudio);
   } catch (error) {
     // An engine that advertises the hint but rejects it must not break the share.
     if (!restrictOwnAudio || isCancelError(error)) throw error;
-    return finish(await mediaDevices.getDisplayMedia(buildDisplayMediaRequest(quality, false)), 'browser', quality);
+    return finish(await mediaDevices.getDisplayMedia(buildDisplayMediaRequest(quality, false)), 'browser', quality, false);
   }
 };
 
@@ -251,11 +360,64 @@ const isFirefox = (): boolean => typeof navigator !== 'undefined' && /firefox/i.
 /** Shown to the host when the capture came back without an audio track. */
 export const missingAudioHint = (source: ScreenCaptureResult['source']): string => {
   if (source === 'desktop') {
-    return 'Sharing without sound. Pick a screen and tick "Share system audio" in the picker to stream game audio. Use headphones so your friends do not hear themselves twice.';
+    return 'Sharing without sound. Tick "Share system audio" in the picker to stream game audio.';
   }
   if (isFirefox()) {
     // Firefox's screen picker has no audio option at all (no tab or system audio capture).
     return 'Sharing without sound: Firefox cannot capture screen audio. To stream game sound, share from Chrome or Edge ("Entire screen" + "Share audio") or from the desktop app.';
   }
-  return 'Sharing without sound. Choose "Entire screen" (or a browser tab) and tick "Share audio" in the picker to stream game audio. Use headphones so your friends do not hear themselves twice.';
+  return 'Sharing without sound. Choose "Entire screen", a window or a browser tab and tick "Share audio" in the picker to stream game audio.';
+};
+
+export type ClientPlatform = 'windows' | 'mac' | 'linux' | 'other';
+
+type PlatformHints = { userAgent?: string; userAgentData?: { platform?: string } };
+
+/** The operating system, for wording only. */
+export const detectPlatform = (nav: PlatformHints | undefined = typeof navigator === 'undefined' ? undefined : navigator): ClientPlatform => {
+  const hints = `${nav?.userAgentData?.platform ?? ''} ${nav?.userAgent ?? ''}`;
+  if (/windows|win32|win64/i.test(hints)) return 'windows';
+  if (/mac ?os|macintosh/i.test(hints)) return 'mac';
+  if (/linux|x11|cros/i.test(hints)) return 'linux';
+  return 'other';
+};
+
+const ECHO = 'so your friends may hear themselves echoed back.';
+
+/**
+ * Shown to the host when the shared audio also carries Datasetto's own sound.
+ * `restrictRequested` says whether we asked the engine to leave it out: if we did,
+ * the operating system is what cannot (Chromium only can on Windows 11 and macOS
+ * 14.2+); if not, this browser or app version could not.
+ */
+export const ownAudioWarning = (
+  source: ScreenCaptureResult['source'],
+  restrictRequested: boolean,
+  platform: ClientPlatform = detectPlatform(),
+): string => {
+  const tabTip = source === 'browser' ? ' Sharing a browser tab avoids it.' : '';
+  if (!restrictRequested) {
+    const engineTip = source === 'browser' ? ' Chrome or Edge on Windows 11 or macOS 14.2+ can leave it out.' : '';
+    return `Datasetto's own sound could not be left out of the shared audio, ${ECHO}${engineTip}${tabTip}`;
+  }
+  switch (platform) {
+    case 'windows':
+      return `Windows 10 cannot leave Datasetto out of system audio, ${ECHO} Windows 11 can.${tabTip}`;
+    case 'mac':
+      return `This macOS version cannot leave Datasetto out of system audio, ${ECHO} macOS 14.2 or later can.${tabTip}`;
+    case 'linux':
+      return `Linux cannot leave Datasetto out of system audio, ${ECHO}${tabTip}`;
+    default:
+      return `This system cannot leave Datasetto out of system audio, ${ECHO}${tabTip}`;
+  }
+};
+
+/** The toast for the host after a share started: why there is no sound, or that the call is in it; null when all is well. */
+export const screenAudioNotice = (
+  capture: Pick<ScreenCaptureResult, 'source' | 'ownAudio' | 'restrictRequested'>,
+  platform: ClientPlatform = detectPlatform(),
+): string | null => {
+  if (capture.ownAudio === 'none') return missingAudioHint(capture.source);
+  if (capture.ownAudio === 'included') return ownAudioWarning(capture.source, capture.restrictRequested, platform);
+  return null;
 };

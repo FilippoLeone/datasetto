@@ -216,6 +216,7 @@ export const registerAuthHandlers = (sctx: SocketContext, arcade: Arcade): void 
 
       // Switching to an external avatar URL (or none) discards the uploaded file.
       if (payload.avatarUrl !== undefined && !AvatarService.isLocalUrl(payload.avatarUrl)) app.avatars.remove(user.accountId);
+      const previousAvatar = app.accounts.getById(user.accountId)?.avatarUrl ?? null;
 
       const updated = app.accounts.updateProfile(user.accountId, {
         displayName: payload.displayName,
@@ -232,6 +233,7 @@ export const registerAuthHandlers = (sctx: SocketContext, arcade: Arcade): void 
       socket.emit('account:updated', { account: updated, user: app.presence.exportUser(socket.id) });
       app.broadcast.users();
       app.broadcast.channels();
+      if ((updated.avatarUrl ?? null) !== previousAvatar) app.broadcast.avatar(updated.id, updated.avatarUrl ?? null);
     },
   );
 };

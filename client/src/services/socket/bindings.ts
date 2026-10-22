@@ -43,6 +43,7 @@ import { attachmentSummary } from '@/lib/attachments';
 import { mediaTicket, mediaTicketStale, setMediaTicket, TICKET_RENEW_MARGIN_MS } from '@/lib/media';
 import { notificationPreferences } from '@/state/notifications';
 import { users } from '@/state/presence';
+import { rememberAvatar, rememberOnlineAvatars } from '@/state/avatars';
 import { closeModal, modal, toast } from '@/state/ui';
 import {
   adminAccounts,
@@ -431,6 +432,13 @@ export const installSocketBindings = (): void => {
 
   socketClient.on<User[]>('user:update', (list) => {
     users.value = Array.isArray(list) ? list : [];
+    rememberOnlineAvatars(users.value);
+  });
+
+  // Someone's profile picture changed (or went with a deleted account): every message and
+  // conversation of theirs follows, whether or not they are online.
+  socketClient.on<{ accountId?: string; avatarUrl?: string | null }>('user:avatar', (payload) => {
+    if (payload?.accountId) rememberAvatar(payload.accountId, payload.avatarUrl ?? null);
   });
 
   // ----------------------------------------------------- generic feedback

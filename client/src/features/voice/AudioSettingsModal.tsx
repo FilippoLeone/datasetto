@@ -8,7 +8,8 @@ import { supportsNeuralSuppression } from '@/services/voice/neuralSuppression';
 import type { MicSample } from '@/services/voice/AudioService';
 import { micLevel, noiseSuppressionStatus, voiceStatus } from '@/state/voice';
 import { SCREEN_QUALITY_OPTIONS } from '@/services/screenCapture';
-import { audioSettings, updateAudioSettings } from '@/state/settings';
+import { audioSettings, updateAudioSettings, type DataSaverVoice } from '@/state/settings';
+import { linkAutoReason, type LinkReason } from '@/services/voice/linkConstraint';
 import { closeModal, toast } from '@/state/ui';
 import { GameActivitySection } from '@/features/settings/GameActivitySection';
 import { NotificationsSection } from '@/features/settings/NotificationsSection';
@@ -17,6 +18,7 @@ import { supportsVoiceOverlay } from './desktopVoice';
 import { ShortcutCapture } from './ShortcutCapture';
 import { DesktopUpdatesSection } from '@/features/settings/DesktopUpdatesSection';
 import { ClipsSection } from '@/features/settings/ClipsSection';
+import { CameraSection } from '@/features/settings/CameraSection';
 import { formatShortcut, parseShortcut } from '@/lib/shortcut';
 import { voiceManager } from './voiceManager';
 import type { OverlayCorner } from './voiceOverlayState';
@@ -43,6 +45,26 @@ const BITRATES = [
   { value: '96000', label: '96 kbps' },
   { value: '128000', label: '128 kbps (default, best quality)' },
 ];
+
+const DATA_SAVER_OPTIONS: Array<{ value: DataSaverVoice; label: string }> = [
+  { value: 'auto', label: 'Auto (mobile data or a slow connection)' },
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+];
+
+const AUTO_REASONS: Record<LinkReason, string> = {
+  cellular: 'you are on mobile data',
+  'slow-network': 'the connection is slow',
+  'save-data': 'data saver is on in your browser or phone',
+  'low-downlink': 'the download speed is low',
+  'call-bandwidth': 'the call needs more upload than the connection has',
+};
+
+const dataSaverHint = (choice: DataSaverVoice, reason: LinkReason | null): string => {
+  const what = 'Caps your voice, and what friends send you, at 24 kbps per person: about a fifth of the data, and speech stays clear.';
+  if (choice !== 'auto') return what;
+  return what + (reason ? ' On now: ' + AUTO_REASONS[reason] + '.' : ' Off now: the connection looks fast enough.');
+};
 
 export const AudioSettingsModal = () => {
   const [draft, setDraft] = useState<AudioSettings>({ ...audioSettings.value });
@@ -171,6 +193,7 @@ export const AudioSettingsModal = () => {
           </div>
           <Slider label="Mic gain" value={draft.micGain} min={0} max={2} step={0.05} format={(v) => Math.round(v * 100) + '%'} onChange={(value) => patch({ micGain: value })} />
           <Slider label="Output volume" value={draft.outputVol} min={0} max={1} step={0.05} format={(v) => Math.round(v * 100) + '%'} onChange={(value) => patch({ outputVol: value })} />
+          <CameraSection draft={draft} patch={patch} />
         </section>
 
         <section>
@@ -220,6 +243,10 @@ export const AudioSettingsModal = () => {
           {draft.pttEnable && <ShortcutCapture value={draft.pttKey} onChange={(pttKey) => patch({ pttKey })} />}
           <Select label="Bitrate" value={String(draft.voiceBitrate)} options={BITRATES} onChange={(value) => patch({ voiceBitrate: Number(value) })} />
           <Toggle label="Send silence efficiently (DTX)" description="Saves bandwidth when you are not talking." checked={draft.dtx} onChange={(value) => patch({ dtx: value })} />
+          <Select label="Data-saver voice" value={draft.dataSaverVoice} options={DATA_SAVER_OPTIONS} onChange={(value) => patch({ dataSaverVoice: value as DataSaverVoice })} />
+          <p className="text-xs text-text-muted" data-testid="data-saver-hint">
+            {dataSaverHint(draft.dataSaverVoice, linkAutoReason.value)}
+          </p>
 
           <h3 className="mt-3 mb-1 text-xs font-semibold tracking-wide text-text-muted uppercase">Screen share</h3>
           <Select label="Quality" value={draft.screenQuality} options={SCREEN_QUALITY_OPTIONS} onChange={(value) => patch({ screenQuality: value as ScreenQuality })} />

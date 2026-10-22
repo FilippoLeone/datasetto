@@ -13,7 +13,9 @@ const audioHint = document.getElementById('audioHint');
 const qualityHint = document.getElementById('qualityHint');
 const cardTemplate = document.getElementById('cardTemplate');
 
-const AUDIO_HINT = 'Sends everything your computer plays (game sound, music), not just the picked window. Wear headphones so your friends are not echoed back.';
+// main.js sends the line for this OS (picker/share-audio.js): whether Datasetto's own
+// sound is left out of the shared audio or why it cannot be.
+const AUDIO_HINT = 'Sends everything your computer plays (game sound, music), not just the picked window.';
 const AUDIO_UNAVAILABLE_HINT = 'System audio is not available for this share.';
 
 const state = {
@@ -22,6 +24,9 @@ const state = {
   selectedId: null,
   allowAudio: false,
   shareAudio: true,
+  audioHint: AUDIO_HINT,
+  /** False when this OS cannot keep Datasetto out of the shared audio: the hint is a warning then. */
+  ownAudioExcluded: true,
   /** Cards currently in the grid, by source id (kept across thumbnail refreshes). */
   cards: new Map(),
 };
@@ -95,7 +100,8 @@ const updateSelectionUi = () => {
   shareBtn.textContent = source ? (source.type === 'screen' ? 'Share screen' : 'Share window') : 'Share';
   audioRow.disabled = !state.allowAudio;
   audioRow.setAttribute('aria-checked', state.allowAudio && state.shareAudio ? 'true' : 'false');
-  audioHint.textContent = state.allowAudio ? AUDIO_HINT : AUDIO_UNAVAILABLE_HINT;
+  audioHint.textContent = state.allowAudio ? state.audioHint : AUDIO_UNAVAILABLE_HINT;
+  audioHint.classList.toggle('audio-row__hint--warning', state.allowAudio && state.shareAudio && !state.ownAudioExcluded);
 };
 
 const renderGrid = () => {
@@ -265,6 +271,8 @@ const describeQuality = (quality) => {
 window.pickerAPI.onSources((payload) => {
   state.sources = Array.isArray(payload.sources) ? payload.sources : [];
   state.allowAudio = Boolean(payload.allowAudio);
+  if (typeof payload.audioHint === 'string' && payload.audioHint) state.audioHint = payload.audioHint;
+  state.ownAudioExcluded = payload.ownAudioExcluded !== false;
   if (payload.update) {
     // Thumbnail refresh: keep the tab, the selection and the audio choice.
     if (state.selectedId && !state.sources.some((source) => source.id === state.selectedId)) state.selectedId = sourcesIn(state.tab)[0]?.id ?? null;

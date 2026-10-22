@@ -22,6 +22,7 @@
   --color-brand-hover: #4752c4;
   --color-brand-soft: rgba(88, 101, 242, 0.16);
   --color-success: #23a559;
+  --color-warning: #f0b232;
 
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -429,6 +430,11 @@ h1 {
   color: var(--color-text-muted);
 }
 
+/* This OS cannot keep Datasetto's own sound out of the shared audio. */
+.audio-row__hint--warning {
+  color: var(--color-warning);
+}
+
 .footer-bottom {
   display: flex;
   align-items: center;
@@ -561,7 +567,7 @@ h1 {
 
 @media (max-height: 520px) {
   .picker__subtitle,
-  .audio-row__hint {
+  .audio-row__hint:not(.audio-row__hint--warning) {
     display: none;
   }
 }

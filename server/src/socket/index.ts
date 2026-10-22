@@ -92,6 +92,12 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext, opti
       }
     },
     users: coalesce(() => io.emit('user:update', ctx.presence.exportUsers())),
+    avatar: (accountId, avatarUrl) => {
+      for (const socket of io.sockets.sockets.values()) {
+        const sctx = socket.data.ctx as SocketContext | undefined;
+        if (sctx?.user) socket.emit('user:avatar', { accountId, avatarUrl });
+      }
+    },
     screenshare: (channelId, targetSocketId = null, extra = {}) => {
       const payload = { ...ctx.presence.screenshareView(channelId), ...extra };
       if (targetSocketId) io.to(targetSocketId).emit('screenshare:session', payload);

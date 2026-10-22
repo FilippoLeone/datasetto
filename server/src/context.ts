@@ -42,6 +42,11 @@ export interface Broadcaster {
   /** Re-send the channel list to every socket of one account (a change only they see, such as a closed conversation). */
   channelsTo(accountId: string): void;
   users(): void;
+  /**
+   * Tell every signed-in socket that an account's profile picture changed (`user:avatar`),
+   * so messages and conversations show the new one even when the account is offline.
+   */
+  avatar(accountId: string, avatarUrl: string | null): void;
   /** `extra` rides along on the event (e.g. `endedBy` when a share ended, so viewers know whether to wait). */
   screenshare(channelId: string, targetSocketId?: string | null, extra?: Record<string, unknown>): void;
   /** Toast for everyone currently in a channel. */
@@ -81,6 +86,7 @@ const noopBroadcaster: Broadcaster = {
   channels: () => undefined,
   channelsTo: () => undefined,
   users: () => undefined,
+  avatar: () => undefined,
   screenshare: () => undefined,
   notifyChannel: () => undefined,
   toChannelViewers: () => undefined,

@@ -1,8 +1,10 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell, screen, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Notification, Tray, Menu, nativeImage, desktopCapturer, shell, screen, globalShortcut, webContents } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const { createUpdater } = require('./updater');
 const { execFile } = require('node:child_process');
+const shareAudio = require('./picker/share-audio.js');
 
 // Force GPU Acceleration for NVENC/Hardware Encoding
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -178,6 +180,41 @@ function closeLogging() {
 // Allow screen capture APIs (getDisplayMedia) inside our file:// based renderer
 app.commandLine.appendSwitch('allow-http-screen-capture');
 
+// Which copy of the app this is (desktop/app-identity.js). Only the installed one uses the app's
+// taskbar ID and native notifications: on Windows both are tied to its Start Menu shortcut, and
+// Electron's notification code points that shortcut at whichever exe uses notifications.
+const { resolveAppIdentity } = require('./app-identity');
+const appIdentity = resolveAppIdentity({
+  platform: process.platform,
+  isPackaged: app.isPackaged,
+  execPath: process.execPath,
+  env: process.env,
+  fileExists: (file) => fs.existsSync(file),
+  startMenuTarget: () => {
+    // The shortcut Electron would write: Start Menu\Programs\<product name>.lnk.
+    const lnk = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', `${path.basename(process.execPath, '.exe')}.lnk`);
+    return fs.existsSync(lnk) ? shell.readShortcutLink(lnk).target : null;
+  },
+});
+
+/** Native notifications, in a copy that may use them; Notification.isSupported() alone already rewrites the shortcut. */
+function nativeNotificationsAvailable() {
+  return appIdentity.nativeNotifications && Notification.isSupported();
+}
+
+// Test builds and dev runs say so in the title bar and on the taskbar. Only the main window:
+// the picker and the overlay keep the exact titles another running copy recognises them by.
+if (appIdentity.titleSuffix) {
+  app.on('browser-window-created', (_event, window) => {
+    window.on('page-title-updated', (event, title) => {
+      if (window === mainWindow) {
+        event.preventDefault();
+        window.setTitle(`${title}${appIdentity.titleSuffix}`);
+      }
+    });
+  });
+}
+
 const isDev = Boolean(process.env.ELECTRON_START_URL);
 let mainWindow;
 let tray;
@@ -204,6 +241,14 @@ let updater = null;
 // the cards show what each screen and window is doing right now.
 const PICKER_THUMBNAIL_SIZE = { width: 480, height: 270 };
 const PICKER_REFRESH_MS = 2000;
+// Whether this OS lets Chromium leave Datasetto's own playback out of system audio
+// (desktop/picker/share-audio.js explains the route), and the picked source waiting
+// for the page's getDisplayMedia() call.
+const shareAudioExclusion = shareAudio.ownAudioExclusion(
+  process.platform,
+  process.platform === 'darwin' ? process.getSystemVersion() : os.release(),
+);
+const displayMediaGrants = shareAudio.createGrantStore();
 
 /** Physical size and primary flag of the display a screen source belongs to. */
 function describeDisplay(source) {
@@ -241,6 +286,28 @@ function buildPickerPayload(sources) {
           : null,
     };
   });
+}
+
+// The picker and the voice overlay are never offered as windows to share (picker/own-windows.js).
+const ownWindows = require('./picker/own-windows.js');
+
+/** One of this app's helper windows, as picker/own-windows.js wants it (null once closed). */
+function helperWindowRef(window) {
+  if (!window || window.isDestroyed()) {
+    return null;
+  }
+  const read = (getter) => {
+    try {
+      return getter();
+    } catch {
+      return null;
+    }
+  };
+  return {
+    mediaSourceId: read(() => window.getMediaSourceId()),
+    // On Windows this is the HWND that desktopCapturer puts in its window ids.
+    nativeHandle: process.platform === 'win32' ? read(() => window.getNativeWindowHandle()) : null,
+  };
 }
 
 function fetchPickerSources() {
@@ -305,7 +372,7 @@ async function promptScreenshareSource(options = {}) {
       maximizable: false,
       minimizable: false,
       fullscreenable: false,
-      title: 'Share your screen',
+      title: ownWindows.PICKER_TITLE,
       modal: true,
       parent: mainWindow ?? undefined,
       autoHideMenuBar: true,
@@ -319,9 +386,11 @@ async function promptScreenshareSource(options = {}) {
     });
 
     activePickerWindow = pickerWindow;
-    // Neither the picker itself nor the voice overlay must be offered as a window to share.
-    const ownSourceIds = new Set([pickerWindow.getMediaSourceId(), overlayMediaSourceId()].filter(Boolean));
-    const withoutPicker = (list) => list.filter((source) => !ownSourceIds.has(source.id));
+    // Neither the picker nor the voice overlay may be offered as a window to share, not even
+    // another running copy's. Worked out again on every refresh: the overlay window is
+    // created the first time it shows, which can happen while the picker is open.
+    const withoutPicker = (list) =>
+      ownWindows.withoutHelperWindows(list, [pickerWindow, activePickerWindow, overlayWindow].map(helperWindowRef));
 
     let refreshTimer = null;
     let refreshing = false;
@@ -333,6 +402,8 @@ async function promptScreenshareSource(options = {}) {
       }
       pickerWindow.webContents.send('screenshare-picker:sources', {
         allowAudio,
+        audioHint: shareAudio.shareAudioHint(shareAudioExclusion),
+        ownAudioExcluded: shareAudioExclusion.supported,
         quality,
         update,
         sources: buildPickerPayload(withoutPicker(list)),
@@ -408,6 +479,54 @@ async function promptScreenshareSource(options = {}) {
     pickerWindow.loadFile(path.join(__dirname, 'picker', 'index.html')).catch((error) => {
       console.error('[Desktop] Failed to load screenshare picker UI:', error);
       cleanup(null);
+    });
+  });
+}
+
+/**
+ * getDisplayMedia() from a page: answer with the source the picker just handed over
+ * (or show the picker now when the page called it directly) and with system audio as
+ * 'loopback', which Electron narrows to "everything except Datasetto" when the page
+ * asked with restrictOwnAudio and the OS allows it. See picker/share-audio.js.
+ */
+async function answerDisplayMediaRequest(request) {
+  const frame = request?.frame ?? null;
+  // Only a top-level page may capture; an embedded frame never gets the screen.
+  if (!frame || frame.parent) {
+    return null;
+  }
+  const contentsId = webContents.fromFrame(frame)?.id;
+  let grant = displayMediaGrants.take(contentsId);
+  if (!grant) {
+    const selection = await promptScreenshareSource({ requestAudio: Boolean(request.audioRequested) });
+    if (!selection?.source || !displayMediaGrants.arm(contentsId, selection.source, selection.shareAudio)) {
+      return null;
+    }
+    grant = displayMediaGrants.take(contentsId);
+  }
+  const answer = shareAudio.displayMediaAnswer(request, grant);
+  console.log('[Desktop] Screen share granted:', shareAudio.describeAnswer(answer, shareAudioExclusion));
+  return answer;
+}
+
+const sessionsWithDisplayMediaHandler = new WeakSet();
+
+function installDisplayMediaHandler(targetSession) {
+  if (!targetSession || sessionsWithDisplayMediaHandler.has(targetSession)) {
+    return;
+  }
+  sessionsWithDisplayMediaHandler.add(targetSession);
+  targetSession.setDisplayMediaRequestHandler((request, callback) => {
+    const respond = (answer) => {
+      try {
+        callback(answer);
+      } catch (error) {
+        console.error('[Desktop] Screen share answer was refused:', error?.message ?? error);
+      }
+    };
+    answerDisplayMediaRequest(request).then(respond, (error) => {
+      console.error('[Desktop] Screen share request failed:', error?.message ?? error);
+      respond(null);
     });
   });
 }
@@ -508,14 +627,6 @@ const overlayConfig = { enabled: false, corner: 'top-right' };
 let overlayState = null;
 let overlayHeight = 120;
 
-function overlayMediaSourceId() {
-  try {
-    return overlayWindow && !overlayWindow.isDestroyed() ? overlayWindow.getMediaSourceId() : null;
-  } catch {
-    return null;
-  }
-}
-
 function overlayBounds() {
   const area = screen.getPrimaryDisplay().workArea;
   const height = Math.max(OVERLAY_MIN_HEIGHT, Math.min(OVERLAY_MAX_HEIGHT, Math.round(overlayHeight)));
@@ -543,7 +654,7 @@ function createOverlayWindow() {
   const bounds = overlayBounds();
   overlayWindow = new BrowserWindow({
     ...bounds,
-    title: 'Datasetto voice overlay',
+    title: ownWindows.OVERLAY_TITLE,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -849,6 +960,12 @@ function resolveResourcePath(...segments) {
   return path.join(__dirname, 'resources', ...segments);
 }
 
+// Window icon: on Windows the .ico, so the title bar and taskbar use its hand-tuned 16 to 48 px
+// frames instead of a scaled-down 1024 px PNG; elsewhere the PNG.
+function windowIconPath() {
+  return resolveResourcePath(process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+}
+
 function loadTrayImages() {
   if (!supportsTrayMinimize) {
     return;
@@ -915,6 +1032,58 @@ function updateTrayVoiceIndicator(partialState = {}) {
   tray.setToolTip(`Datasetto — ${tooltipDetail}`);
 }
 
+// ============================================
+// Title bar
+// ============================================
+// The main window has no native title bar. The page draws its own across the top
+// (client/src/app/TitleBar.tsx) and the system's caption buttons stay: minimize,
+// maximize/restore and close over the right end of the bar on Windows and Linux
+// (Window Controls Overlay), the traffic lights at its left end on macOS. They are the
+// operating system's own buttons, so Snap Layouts on hover over maximize, the system
+// menu, double-click to maximize and drag to snap keep working. The page sends the
+// bar's colours so the buttons sit on the same background (Windows and Linux).
+const TITLE_BAR_HEIGHT = 32;
+// The client's --color-base and --color-text-muted, until the page sends its own.
+const titleBarColors = { color: '#1e1f22', symbolColor: '#949ba4' };
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
+
+function titleBarWindowOptions() {
+  if (process.platform === 'darwin') {
+    // The traffic lights, centred in the page's bar; the page keeps its text clear of them.
+    return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 12, y: 9 } };
+  }
+  return { titleBarStyle: 'hidden', titleBarOverlay: { ...titleBarColors, height: TITLE_BAR_HEIGHT } };
+}
+
+function setTitleBarColors(payload) {
+  if (process.platform === 'darwin' || !mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  const color = typeof payload?.color === 'string' ? payload.color.toLowerCase() : '';
+  const symbolColor = typeof payload?.symbolColor === 'string' ? payload.symbolColor.toLowerCase() : '';
+  if (!HEX_COLOR_PATTERN.test(color) || !HEX_COLOR_PATTERN.test(symbolColor)) {
+    return;
+  }
+  // Every page load sends them; the window already has these (they are also its initial ones).
+  if (color === titleBarColors.color && symbolColor === titleBarColors.symbolColor) {
+    return;
+  }
+  titleBarColors.color = color;
+  titleBarColors.symbolColor = symbolColor;
+  try {
+    mainWindow.setTitleBarOverlay({ color, symbolColor, height: TITLE_BAR_HEIGHT });
+    console.log('[Desktop] Title bar colours:', color, symbolColor);
+  } catch (error) {
+    console.warn('[Desktop] Could not recolour the title bar buttons:', error?.message ?? error);
+  }
+}
+
+ipcMain.on('titlebar:colors', (event, payload) => {
+  if (mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents) {
+    setTitleBarColors(payload);
+  }
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -924,14 +1093,12 @@ function createWindow() {
     backgroundColor: '#09090b',
     title: 'Datasetto',
     autoHideMenuBar: true,
-    titleBarOverlay: {
-      color: '#09090b',
-      symbolColor: '#ffffff',
-      height: 30
-    },
-    icon: resolveResourcePath('icon.png'),
+    ...titleBarWindowOptions(),
+    icon: windowIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      // The page draws the title bar (see "Title bar"); the preload passes its height on.
+      additionalArguments: [`--datasetto-title-bar=${TITLE_BAR_HEIGHT}`],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -944,6 +1111,8 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
   }
 
+  installDisplayMediaHandler(mainWindow.webContents.session);
+
   // window.open(): keep in-app popouts (windows the client renders into itself),
   // send every real URL to the system browser instead of a chromeless Electron window.
   mainWindow.webContents.setWindowOpenHandler(({ url, frameName, features }) => {
@@ -955,7 +1124,7 @@ function createWindow() {
           menuBarVisible: false,
           backgroundColor: '#000000',
           title: 'Datasetto - Video',
-          icon: resolveResourcePath('icon.png'),
+          icon: windowIconPath(),
         }
       };
     }
@@ -1020,6 +1189,13 @@ function createWindow() {
     resetActivity();
   });
 
+  // Tell the client when the window stops or starts being seen (see "Window visibility").
+  for (const eventName of ['minimize', 'restore', 'hide', 'show']) {
+    mainWindow.on(eventName, sendWindowVisibility);
+  }
+  mainWindow.webContents.on('did-finish-load', sendWindowVisibility);
+  mainWindow.on('focus', () => setAttention(false));
+
   mainWindow.on('closed', () => {
     mainWindow = null;
     unregisterPushToTalk();
@@ -1044,7 +1220,7 @@ function createWindow() {
 
       if (!trayHintShown) {
         trayHintShown = true;
-        if (Notification.isSupported()) {
+        if (nativeNotificationsAvailable()) {
           const hint = new Notification({
             title: 'Datasetto is still running',
             body: 'Find the Datasetto icon in the system tray to reopen the app.',
@@ -1133,7 +1309,7 @@ function showAlreadyRunningWarning() {
   }
   lastSingleInstanceWarningAt = now;
 
-  if (Notification.isSupported()) {
+  if (nativeNotificationsAvailable()) {
     const warning = new Notification({
       title: 'Datasetto is already running',
       body: 'Use the existing window or the tray icon instead of opening another copy.',
@@ -1152,22 +1328,91 @@ function showAlreadyRunningWarning() {
   }
 }
 
+// ============================================
+// Window visibility and attention
+// ============================================
+// Background throttling is off on the main window (push to talk and mic levels keep
+// running), so the page's own Page Visibility API keeps saying "visible" while the
+// window is minimized or hidden in the tray. The shell tells the client instead.
+let lastWindowVisible = null;
+
+function sendWindowVisibility() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  const visible = mainWindow.isVisible() && !mainWindow.isMinimized();
+  if (visible !== lastWindowVisible) {
+    lastWindowVisible = visible;
+    console.log('[Desktop] Window visibility:', visible ? 'visible' : 'hidden');
+  }
+  // Sent even when unchanged: a page that just loaded needs the current state.
+  mainWindow.webContents.send('window:visibility', { visible });
+}
+
+// "Your turn" and similar: flash the taskbar button (Windows, Linux) or bounce the dock
+// (macOS) until the window gets focus. A window already in front needs nothing.
+let attentionRequested = false;
+let dockBounceId = null;
+
+function setAttention(on) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  if (on) {
+    if (mainWindow.isFocused() && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+      return;
+    }
+    attentionRequested = true;
+    if (process.platform === 'darwin') {
+      if (app.dock && dockBounceId === null) {
+        dockBounceId = app.dock.bounce('informational');
+      }
+      console.log('[Desktop] Attention requested: dock bounce');
+    } else {
+      mainWindow.flashFrame(true);
+      console.log('[Desktop] Attention requested: flashFrame(true)');
+    }
+    return;
+  }
+  if (!attentionRequested) {
+    return;
+  }
+  attentionRequested = false;
+  if (process.platform === 'darwin') {
+    if (app.dock && dockBounceId !== null) {
+      app.dock.cancelBounce(dockBounceId);
+    }
+    dockBounceId = null;
+  } else {
+    mainWindow.flashFrame(false);
+  }
+  console.log('[Desktop] Attention cleared');
+}
+
+ipcMain.on('window:attention', (event, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    return;
+  }
+  setAttention(Boolean(payload?.on));
+});
+
 app.whenReady().then(() => {
   // Initialize logging first (needs app to be ready for getPath)
   initLogging();
   
-  // Set app user model ID for Windows notifications
+  // Windows groups windows under taskbar pins and routes notifications by this ID.
+  console.log(`[Desktop] Build: ${appIdentity.kind}, native notifications ${appIdentity.nativeNotifications ? 'on' : 'off'}`);
   if (process.platform === 'win32') {
-    app.setAppUserModelId('com.datasetto.desktop');
-    console.log('[Desktop] App User Model ID set for Windows notifications');
+    app.setAppUserModelId(appIdentity.appUserModelId);
+    console.log('[Desktop] App User Model ID:', appIdentity.appUserModelId);
   }
 
   createWindow();
   loadTrayImages();
   createTray();
 
-  // Test notification support on startup
-  console.log('[Desktop] Notification supported:', Notification.isSupported());
+  // Test notification support on startup (in the installed app this also repairs its Start Menu shortcut)
+  console.log('[Desktop] Notification supported:', nativeNotificationsAvailable());
 
   // Keep the overlay in its corner when displays change (resolution, taskbar, monitors).
   screen.on('display-metrics-changed', () => positionOverlay());
@@ -1250,6 +1495,10 @@ ipcMain.handle('shell:open-external', async (_event, url) => {
 ipcMain.handle('notification:show', async (event, { title, body, type, silent }) => {
   console.log('[Desktop] Notification request received:', { title, body, type, silent });
   
+  if (!appIdentity.nativeNotifications) {
+    console.log(`[Desktop] Notification not shown: native notifications are off in this ${appIdentity.kind} build`);
+    return { success: false, error: 'Notifications are off in this build' };
+  }
   if (!Notification.isSupported()) {
     console.error('[Desktop] Notifications not supported on this platform');
     return { success: false, error: 'Notifications not supported' };
@@ -1320,7 +1569,7 @@ async function processNotificationQueue() {
 
 // Check notification permission on startup
 ipcMain.handle('notification:check-permission', async () => {
-  return Notification.isSupported();
+  return nativeNotificationsAvailable();
 });
 
 // Log file handlers
@@ -1336,17 +1585,25 @@ ipcMain.handle('app:open-log-file', async () => {
   return false;
 });
 
-ipcMain.handle('screenshare:pick-source', async (_event, payload) => {
+ipcMain.handle('screenshare:pick-source', async (event, payload) => {
   try {
     const selection = await promptScreenshareSource({ requestAudio: payload?.audio !== false, quality: payload?.quality });
     if (!selection || !selection.source) {
+      displayMediaGrants.clear();
       return { success: false, error: 'cancelled' };
     }
 
+    // Clients that capture through getDisplayMedia() (the route that can leave our own
+    // audio out) ask for the pick to be handed to that call; older clients use the
+    // source id with getUserMedia as before.
+    const displayMedia =
+      payload?.displayMedia === true && displayMediaGrants.arm(event.sender.id, selection.source, selection.shareAudio);
     return {
       success: true,
       source: selection.source,
       shareAudio: Boolean(selection.shareAudio),
+      displayMedia,
+      ownAudioExcluded: shareAudioExclusion.supported,
     };
   } catch (error) {
     console.error('[Desktop] Failed to select screenshare source:', error);

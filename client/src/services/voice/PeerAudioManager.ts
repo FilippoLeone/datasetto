@@ -42,10 +42,60 @@ export const supportsPlaybackBoost = (): boolean => {
 /** Seconds a volume change takes to settle; long enough to avoid clicks, short enough to feel instant. */
 const GAIN_RAMP_S = 0.03;
 
+/** How often every remote voice is checked for speaking, all on one timer. */
+export const SPEAKING_CHECK_MS = 100;
+
+/**
+ * The analyser's own smoothing per read. It was 0.8 when voices were read every 50 ms; read half
+ * as often, 0.8² keeps the same decay per second, so the speaking ring reacts as before.
+ */
+const ANALYSER_SMOOTHING = 0.64;
+
+/**
+ * One timer for every speaking monitor in the call (not one per person): it starts with the
+ * first remote voice and stops with the last, so outside a call there is none.
+ */
+class SpeakingClock {
+  private readonly monitors = new Set<SpeakingMonitor>();
+  private timer: number | null = null;
+
+  /** Monitors on the clock; exported for tests. */
+  get size(): number {
+    return this.monitors.size;
+  }
+
+  add(monitor: SpeakingMonitor): void {
+    this.monitors.add(monitor);
+    if (this.timer === null) this.timer = window.setInterval(() => this.tick(), SPEAKING_CHECK_MS);
+  }
+
+  remove(monitor: SpeakingMonitor): void {
+    this.monitors.delete(monitor);
+    if (this.monitors.size === 0 && this.timer !== null) {
+      window.clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  private tick(): void {
+    for (const monitor of [...this.monitors]) {
+      try {
+        monitor.check();
+      } catch (error) {
+        console.error('[PeerAudioManager] Speaking check failed:', error);
+      }
+    }
+  }
+}
+
+export const speakingClock = new SpeakingClock();
+
 export class SpeakingMonitor {
-  private interval: number | null = null;
+  private running = false;
+  private data: Uint8Array<ArrayBuffer> | null = null;
   private history: number[] = [];
-  private readonly historySize = 10;
+  /** The last 500 ms of readings. */
+  private readonly historySize = 500 / SPEAKING_CHECK_MS;
   private isSpeaking = false;
   private speakingStartTime = 0;
   private silenceStartTime = 0;
@@ -63,14 +113,15 @@ export class SpeakingMonitor {
   }
 
   start(): void {
-    if (this.interval) return;
-    this.interval = window.setInterval(() => this.check(), 50);
+    if (this.running) return;
+    this.running = true;
+    speakingClock.add(this);
   }
 
   stop(): void {
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
+    if (this.running) {
+      this.running = false;
+      speakingClock.remove(this);
     }
     this.isSpeaking = false;
     this.history = [];
@@ -81,8 +132,11 @@ export class SpeakingMonitor {
     this.hysteresisLow = threshold * 0.6;
   }
 
-  private check(): void {
-    const data = new Uint8Array(this.analyser.frequencyBinCount);
+  /** One reading; the shared clock calls it every SPEAKING_CHECK_MS. */
+  check(): void {
+    const bins = this.analyser.frequencyBinCount;
+    if (!this.data || this.data.length !== bins) this.data = new Uint8Array(bins);
+    const data = this.data;
     this.analyser.getByteFrequencyData(data);
 
     const voiceBins = Math.min(18, data.length);
@@ -180,7 +234,7 @@ export class PeerAudioManager {
     element.play()?.catch(() => {});
 
     this.analyserNode.fftSize = 256;
-    this.analyserNode.smoothingTimeConstant = 0.8;
+    this.analyserNode.smoothingTimeConstant = ANALYSER_SMOOTHING;
     this.speakingMonitor = new SpeakingMonitor(this.analyserNode, this.onSpeaking, this.vadThreshold);
     this.speakingMonitor.start();
 
