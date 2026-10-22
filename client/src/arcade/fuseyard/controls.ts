@@ -137,6 +137,8 @@ export interface LayoutBox {
 export const DECK_MIN = 200;
 export const MARGIN_MIN = 140;
 const GUTTER = 8;
+/** The platform's pause button: a 44 px target 8 px from the top right corner. */
+const MENU_SPACE = 52;
 const LEGEND_H = 28;
 
 /** Where the board goes for a game element of `w` × `h` CSS px (pure; exported for tests). */
@@ -146,8 +148,20 @@ export const layoutFor = (w: number, h: number, coarse: boolean): LayoutBox => {
   }
   if (h >= w) {
     // The board in the top 60 % (with a gutter), the control deck below it, at least 200 px.
-    const boardH = Math.max(0, Math.min(h * 0.6, h - DECK_MIN) - GUTTER);
-    return { left: GUTTER, top: GUTTER, width: Math.max(0, w - 2 * GUTTER), height: boardH, overlay: false, orientation: 'portrait' };
+    const deckTop = Math.min(h * 0.6, h - DECK_MIN);
+    const width = Math.max(0, w - 2 * GUTTER);
+    let top = GUTTER;
+    let boardH = Math.max(0, deckTop - GUTTER);
+    // The board is centred in its box at 240:224. When it would reach the pause button in the top
+    // right corner (a short stage, so the board starts at the top), it starts below the button.
+    const scale = Math.min(width / 240, boardH / 224);
+    const boardTop = top + (boardH - 224 * scale) / 2;
+    const boardRight = GUTTER + (width + 240 * scale) / 2;
+    if (boardTop < MENU_SPACE && boardRight > w - MENU_SPACE) {
+      top = MENU_SPACE;
+      boardH = Math.max(0, deckTop - MENU_SPACE);
+    }
+    return { left: GUTTER, top, width, height: boardH, overlay: false, orientation: 'portrait' };
   }
   // Landscape: the board fits the height; the controls take the side margins when there is room.
   const boardW = Math.min(w, (h * 240) / 224);

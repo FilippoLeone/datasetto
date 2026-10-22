@@ -397,6 +397,12 @@ describe('controls', () => {
     expect(portrait.orientation).toBe('portrait');
     expect(640 - (portrait.top + portrait.height)).toBeGreaterThanOrEqual(200);
     expect(portrait.height).toBeLessThanOrEqual(640 * 0.6);
+    // A tall stage keeps the board where it is (it is centred well below the pause button)...
+    expect(layoutFor(411, 866, true).top).toBe(8);
+    // ...a short one (the online stage under the call bar) starts the board below the button.
+    const short = layoutFor(411, 535, true);
+    expect(short.top).toBe(52);
+    expect(535 - (short.top + short.height)).toBeGreaterThanOrEqual(200);
     expect(layoutFor(640, 360, true)).toMatchObject({ orientation: 'landscape', overlay: true });
     expect(layoutFor(900, 360, true)).toMatchObject({ orientation: 'landscape', overlay: false });
     expect(layoutFor(1280, 720, false).orientation).toBe('desktop');
