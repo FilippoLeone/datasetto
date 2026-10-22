@@ -342,6 +342,8 @@ export const decodeKeyframe = (r: ByteReader, tick: number, w: World): boolean =
       w.flameStart[c] = R + left - 15;
     }
   }
+  // A broken block still burning shows as crumbling until its item appears.
+  for (let c = 0; c < CELLS; c += 1) w.crumbleEnd[c] = (w.pending[c] as number) !== 0 ? (w.flameEnd[c] as number) : 0;
   w.warnEnd.fill(0);
   const nw = r.u8();
   if (nw > 32) return false;

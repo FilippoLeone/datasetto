@@ -96,6 +96,8 @@ export interface World {
   flameStart: Int32Array;
   /** Round tick at which a warned cell drops (warned while > roundTick). */
   warnEnd: Int32Array;
+  /** Round tick until which a broken block is drawn crumbling (cosmetic, not in keyframes). */
+  crumbleEnd: Int32Array;
   fight: WFighter[];
   bombs: WBomb[];
   bombCount: number;
@@ -155,6 +157,7 @@ export const createWorld = (fighters: number): World => {
     flameEnd: new Int32Array(CELLS),
     flameStart: new Int32Array(CELLS),
     warnEnd: new Int32Array(CELLS),
+    crumbleEnd: new Int32Array(CELLS),
     fight: [newFighter(0), newFighter(1), newFighter(2), newFighter(3)],
     bombs,
     bombCount: 0,
@@ -315,6 +318,7 @@ const applyGame = (w: World, kind: number, r: ByteReader, t: number): boolean =>
       if (!r.ok || cell >= CELLS || item > 5) return false;
       w.cells[cell] = Cell.Floor;
       if (item !== 0) w.pending[cell] = item;
+      w.crumbleEnd[cell] = w.roundTick + FLAME - 1;
       touch(w, cell);
       fx(w, kind, item, cell, t);
       return true;
