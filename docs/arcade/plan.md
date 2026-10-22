@@ -221,7 +221,8 @@ What the stubs contain:
 
 ```
 client/src/features/arcade/  ArcadeButton.tsx ArcadeSheet.tsx ArcadeOverlay.tsx GameStage.tsx LobbyChip.tsx InviteChip.tsx
-                             LobbyForm.tsx WalletPill.tsx BoardsPanel.tsx ArcadePrefs.tsx state.ts api.ts bindings.ts (+ tests)
+                             LobbyForm.tsx (SetupForm) GameCard.tsx setup.ts WalletPill.tsx BoardsPanel.tsx ArcadePrefs.tsx
+                             state.ts api.ts bindings.ts (+ tests)
 client/src/features/admin/ArcadeSection.tsx
 client/src/arcade/catalog.ts
 client/src/arcade/runtime/   types.ts loop.ts canvas.ts audio.ts sprites.ts font.ts visibility.ts store.ts practiceWallet.ts
@@ -747,16 +748,27 @@ export function writeLocal(key: string, value: unknown): boolean;
 #### 2.6.7 Client: shell, catalogue, signals (`client/src/features/arcade/`, `client/src/arcade/catalog.ts`)
 
 ```ts
-// client/src/arcade/<id>/meta.ts — main bundle, ≤ 300 B gzip each, game-owned after P-M1
-export type OptionField = { key: string; label: string; when?: { mode: readonly string[] } } & (
-  | { kind: 'choice'; choices: readonly { value: string | number; label: string }[]; default: string | number }
+// client/src/arcade/<id>/meta.ts — main bundle, ≤ 1 KB gzip each (see "Meta budget" below), game-owned after P-M1
+export type Where = 'online' | 'offline';
+export interface Choice { value: string | number; label: string; hint?: string }   // hint: one short line ("Buy in up to 1,000")
+export type OptionField = {
+  key: string; label: string; hint?: string;
+  // Only for these modes, only here, only while another field holds one of these values (a hidden field sends its default).
+  when?: { mode?: readonly string[]; where?: Where; field?: { key: string; in: readonly unknown[] } };
+  more?: boolean | Where;                              // under "More options" (everywhere, or only there)
+  setsSeats?: boolean;                                 // the seat count at create (hub seatCountFor): read-only in the lobby
+  sum?: string;                                        // summary line: "# bots" → "Regular bots"
+} & (
+  | { kind: 'choice'; choices: readonly Choice[]; default: string | number; control?: 'pills' | 'stepper' | 'select' }
   | { kind: 'toggle'; default: boolean }
-  | { kind: 'saveSlot' });                             // calls arcade:saves {game} and lists the slots
+  | { kind: 'saveSlot'; into?: string });              // arcade:saves {game}; `into`: the "new tale in" field the shell fills
 export interface GameMeta {
   id: GameId; name: string; tagline: string; icon: 'cards' | 'coins' | 'bomb' | 'sword';
   lane: 'action' | 'table'; ready: { offline: boolean; online: boolean };
-  modes: readonly { id: string; label: string; online: boolean; offline: boolean }[];
-  seats: readonly [number, number]; watch: boolean; options: readonly OptionField[];
+  modes: readonly { id: string; label: string; blurb?: string; online: boolean; offline: boolean }[];   // blurb: one line
+  seats: readonly [number, number]; watch: boolean; hostBots?: boolean;
+  chips?: boolean;                                     // plays with chips: wallet in the sheet, PRACTICE badge solo
+  options: readonly OptionField[];
   load(): Promise<GameChunk>;                          // () => import('./index.ts')
 }
 // catalog.ts (P)
@@ -769,7 +781,27 @@ export const arcadeSession: Signal<{ game: GameId; id: string; role: 'player' | 
   status: 'connecting' | 'live' | 'lagging' | 'paused' | 'away' | 'ended'; attention: boolean; minimized: boolean } | null>;
 export const arcadeWallet: Signal<{ bal: number; esc: number; claim: boolean } | null>;
 export function openArcade(o: { game?: GameId; mode: 'local' | 'remote'; channelId?: string }): void;   // overlay or stage
+
+// setup.ts (P) — the shell reads the fields; no game code
+export function fieldsFor(meta, where, mode, values, editable?: 'all' | 'lobby'): { all; main; more };   // ≤ 2 main per (mode, where)
+export function cfgFor(meta, where, mode, values): Record<string, unknown>;   // in-cfg keys only; hidden → default
+export function summaryOf(meta, where, mode, values, o?: { all?: boolean; editable?: 'all' | 'lobby' }): string;
+export function resolveSetup(meta, where): { mode: string; values: Record<string, unknown> };   // datasetto.arcade.setup.v1
+export function saveSetup(meta, where, setup): void;                      // when Play or Start succeeded
 ```
+
+**Menus.** A game card plays its remembered setup in one tap (solo: the overlay starts the game; in a call: the
+sheet creates the lobby), and its Options button opens the short setup screen (`SetupForm`: mode cards, at most
+two main fields, "More options", one sticky Play or Start). The in-call sheet's order is fixed: Your game → Play
+with your call (Join rows, then start cards) → Play solo → footer (chips, Boards, Settings); platform.md §10.6.
+The cfg each setup sends keeps the shape the servers parse (lamplight `parseCfg` always gets `onlineBots`,
+Fuseyard's strict schema only its keys, Bellwick `{slot}` or `{slot: 'new', into}`); `setup.test.ts` holds it.
+
+**Meta budget.** Measured as each `meta.ts` minified on its own, gzip -9, after the menu copy (blurbs, hints)
+landed: Lamplight 924 B, Fuseyard 729 B, Bellwick 479 B, Glimmerhall 279 B (before it: 603, 494, 358, 241, so the
+old "≤ 300 B each" had already gone). The documented figure is now ≤ 1 KB each. What binds is the Arcade's share
+of the main bundle, ≤ 4 KB gzip in all, which `client/scripts/check-bundle.mjs` enforces on every build (3,879 B
+with this copy). Keep new copy terse.
 
 #### 2.6.8 Budget constants (per-client byte budget, `core/net/budget.ts` plus `core/<id>/budget.ts`)
 

@@ -8,8 +8,9 @@ const chips = (n: number): string => n.toLocaleString() + ' chips';
 /**
  * Play chips (platform.md §11.2): the balance, what sits at tables, and the daily claim. Play chips
  * have no value outside the Arcade. The first read creates the wallet with the starting chips.
+ * `compact` is the sheet footer's form: "20,000 · Daily chips", the rest in the tooltip.
  */
-export const WalletPill = () => {
+export const WalletPill = ({ compact = false }: { compact?: boolean }) => {
   const wallet = arcadeWallet.value;
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -37,6 +38,30 @@ export const WalletPill = () => {
     arcadeWallet.value = { bal: answer.bal, esc: current?.esc ?? 0, claim: false };
     setNote('+' + chips(answer.got));
   };
+
+  if (compact) {
+    const detail = wallet ? chips(wallet.bal) + (wallet.esc > 0 ? ', +' + wallet.esc.toLocaleString() + ' at tables' : '') : 'Play chips';
+    return (
+      <div className="flex min-h-11 min-w-0 items-center gap-1.5" data-arcade-wallet>
+        <span className="flex min-w-0 items-center gap-1.5 text-xs text-text-bright" title={detail + '. Play chips have no value outside the Arcade.'}>
+          <Coins size={14} className="shrink-0 text-warning" />
+          <span className="truncate tabular-nums">{wallet ? wallet.bal.toLocaleString() : '…'}</span>
+        </span>
+        {note && <span className="min-w-0 truncate text-xs text-text-muted">{note}</span>}
+        {!note && wallet?.claim && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void claim()}
+            className="flex min-h-11 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-semibold text-[#a3abff] hover:bg-hover disabled:opacity-50"
+            data-arcade-claim
+          >
+            <Gift size={14} /> Daily chips
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-12 flex-wrap items-center gap-2 px-3" data-arcade-wallet>

@@ -100,12 +100,16 @@ describe('the Arcade sheet online', () => {
     const onClose = vi.fn();
     act(() => render(<ArcadeSheet channelId="c1" anchor={null} onClose={onClose} />, host));
 
+    // One tap on the start card creates the lobby with the remembered (here the default) setup.
     await click('[data-arcade-row="start-fuseyard"]');
-    expect(document.querySelector('[data-arcade-setup="fuseyard"]')).not.toBeNull();
-    await click('[data-arcade-create]');
+    expect(document.querySelector('[data-arcade-setup]')).toBeNull();
     await until(act, () => document.querySelector('[data-arcade-lobby="' + id + '"]') !== null, 'the lobby panel');
     expect(fakeSocket.sent('arcade:lobby:create')).toEqual([{ ch: 'c1', game: 'fuseyard', mode: 'brawl', cfg: { fighters: 4 } }]);
     expect(arcadeLobby.value?.id).toBe(id);
+    expect(document.querySelector('[data-arcade-lobby]')?.textContent).toContain("You're the host · waiting for players");
+    expect(document.querySelector('[data-arcade-people]')?.textContent).toBe('Me (host) · 3 open seats');
+    // Already in a game here: the start cards fold away under "Start a different game".
+    expect(document.querySelector('[data-arcade-row="start-fuseyard"]')).toBeNull();
 
     // One human: Start waits for a second seat (a bot here).
     const start = document.querySelector('[data-arcade-start-lobby]') as HTMLButtonElement;
@@ -127,6 +131,30 @@ describe('the Arcade sheet online', () => {
     leaveCurrent();
     expect(fakeSocket.sent('arcade:lobby:leave')).toEqual([{ id }]);
     expect(arcadeLobby.value).toBeNull();
+  });
+
+  it('creates from the options screen, then lets the host change the lobby without asking again for the seats', async () => {
+    const id = nextId();
+    fakeSocket.responders.set('arcade:lobby:create', (p) => ({ ok: true, lobby: lobbyView({ id, cfg: (p as { cfg: unknown }).cfg }) }));
+    fakeSocket.responders.set('arcade:lobby:config', () => ({ ok: true }));
+    act(() => render(<ArcadeSheet channelId="c1" anchor={null} onClose={() => undefined} />, host));
+    // Glimmerhall has nothing to choose: no Options button.
+    expect(document.querySelector('[data-arcade-options="glimmer"]')).toBeNull();
+    await click('[data-arcade-options="fuseyard"]');
+    expect(document.querySelector('[data-arcade-setup="fuseyard"]')).not.toBeNull();
+    await click('[data-arcade-field="fighters"] [role="radio"]:first-child');
+    await click('[data-arcade-create]');
+    await until(act, () => document.querySelector('[data-arcade-lobby="' + id + '"]') !== null, 'the lobby panel');
+    expect(fakeSocket.sent('arcade:lobby:create')).toEqual([{ ch: 'c1', game: 'fuseyard', mode: 'brawl', cfg: { fighters: 2 } }]);
+    // The card now plays the remembered setup.
+    await click('[data-arcade-disclosure="start"]');
+    expect(document.querySelector('[data-arcade-row="start-fuseyard"]')?.getAttribute('aria-label')).toBe('Play Fuseyard: Brawl, 2');
+
+    // The lobby shows a summary line; Change opens the fields the lobby may change, in place.
+    expect(document.querySelector('[data-arcade-lobby-options]')?.textContent).toContain('Brawl · 2');
+    await click('[data-arcade-change]');
+    await click('[data-arcade-lobby] [data-arcade-field="fighters"] [role="radio"]:last-child');
+    expect(fakeSocket.sent('arcade:lobby:config')).toEqual([{ id, cfg: { fighters: 4 } }]);
   });
 
   it('shows no bot stepper and no Bot seats for a game whose options choose its bots', async () => {
@@ -158,7 +186,8 @@ describe('the Arcade sheet online', () => {
     await click('[data-arcade-join="' + id + '"]');
     expect(fakeSocket.sent('arcade:lobby:join')[1]).toEqual({ id, as: 'player' });
     await until(act, () => document.querySelector('[data-arcade-lobby="' + id + '"]') !== null, 'the lobby panel');
-    expect(document.querySelector('[data-arcade-lobby]')?.textContent).toContain('Waiting for the host to start');
+    expect(document.querySelector('[data-arcade-lobby]')?.textContent).toContain('Waiting for Sam to start');
+    expect(document.querySelector('[data-arcade-people]')?.textContent).toBe('Sam (host), Me');
 
     await click('[data-arcade-invite-open]');
     expect(document.querySelector('[data-arcade-invite-to="sam"]')).toBeNull();
@@ -194,22 +223,24 @@ describe('the voice header chips', () => {
     act(() => render(<ArcadeChips channelId="c1" />, host));
     const fuse = host.querySelector('[data-arcade-chip="A"]') as HTMLElement;
     expect(fuse.textContent).toContain('Fuseyard · 2/4');
-    expect(buttonByText(fuse, 'Join seat')).toBeTruthy();
+    expect(buttonByText(fuse, 'Join')).toBeTruthy();
     expect(buttonByText(fuse, 'Watch')).toBeTruthy();
     const hall = host.querySelector('[data-arcade-chip="G"]') as HTMLElement;
     expect(hall.textContent).toContain('Glimmerhall · Cobble 25/50 · 3 playing');
     expect(hall.textContent).toContain('Pot 12,000');
-    expect(buttonByText(hall, 'Open')).toBeTruthy();
+    expect(buttonByText(hall, 'Join')).toBeTruthy();
     // A hall with a Glimmer Dash running stays open: only the Dash itself can't be joined.
-    expect(buttonByText(host.querySelector('[data-arcade-chip="D"]') as HTMLElement, 'Open')).toBeTruthy();
+    expect(buttonByText(host.querySelector('[data-arcade-chip="D"]') as HTMLElement, 'Join')).toBeTruthy();
     expect(host.querySelector('[data-arcade-chip="B"]')).toBeNull();
 
-    // Join from a chip.
+    // Join from a chip: your own game's chip offers no Join or Watch.
     fakeSocket.responders.set('arcade:lobby:join', () => ({ ok: true, lobby: lobbyView({ id: 'A', host: 'sam', seats: [{ a: 'sam', bot: false, st: 0 }, { a: 'me', bot: false, st: 0 }] }) }));
     await act(async () => {
-      buttonByText(fuse, 'Join seat').click();
+      buttonByText(fuse, 'Join').click();
     });
-    await until(act, () => (host.querySelector('[data-arcade-chip="A"]')?.textContent ?? '').includes("You're in"), 'the joined chip');
+    await until(act, () => (host.querySelector('[data-arcade-chip="A"]')?.textContent ?? '').includes('Your game'), 'the joined chip');
+    const mine = host.querySelector('[data-arcade-chip="A"]') as HTMLElement;
+    expect(Array.from(mine.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['Leave']);
     expect(fakeSocket.sent('arcade:lobby:join')).toEqual([{ id: 'A', as: 'player' }]);
 
     // One game hidden, then the whole Arcade.

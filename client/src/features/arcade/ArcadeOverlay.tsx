@@ -1,15 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import {
-  Bomb,
-  ChevronLeft,
-  Coins,
-  Gamepad2,
-  Minimize2,
-  Play,
-  Spade,
-  Sword,
-  X,
-} from 'lucide-preact';
+import { ChevronLeft, Gamepad2, Menu, Minimize2, Play, X } from 'lucide-preact';
 import { Button, IconButton, Spinner } from '@/components';
 import { pushBackHandler } from '@/lib/backStack';
 import { cn } from '@/lib/cn';
@@ -23,18 +13,9 @@ import {
   gameHidden,
   openArcade,
 } from './state';
-import { LobbyForm } from './LobbyForm';
-
-export const GameIcon = ({ icon, size = 20 }: { icon: GameMeta['icon']; size?: number }) =>
-  icon === 'cards' ? (
-    <Spade size={size} />
-  ) : icon === 'coins' ? (
-    <Coins size={size} />
-  ) : icon === 'bomb' ? (
-    <Bomb size={size} />
-  ) : (
-    <Sword size={size} />
-  );
+import { GameCard } from './GameCard';
+import { SetupForm } from './LobbyForm';
+import { cfgFor, hasOptions, resolveSetup, saveSetup, summaryOf } from './setup';
 
 /** Games that can start offline here: built, switched on, not hidden by the account. */
 export const offlineGames = (): GameMeta[] =>
@@ -54,15 +35,13 @@ type Step =
   | { kind: 'setup'; meta: GameMeta; mode: string; values: Record<string, unknown> }
   | { kind: 'play'; meta: GameMeta; mode: string; values: Record<string, unknown> };
 
-const setupFor = (meta: GameMeta): Step => {
-  const mode = meta.modes.find((m) => m.offline)?.id ?? meta.modes[0]?.id ?? '';
-  return { kind: 'setup', meta, mode, values: defaultOptions(meta, mode) };
-};
+const setupFor = (meta: GameMeta): Step => ({ kind: 'setup', meta, ...resolveSetup(meta, 'offline') });
 
 /**
- * Local play over the whole window (platform.md §10.6, §12): "Solo vs bots" in the Arcade sheet,
+ * Local play over the whole window (platform.md §10.6, §12): "Play solo" in the Arcade sheet,
  * "Arcade" in the user menu, and "Play offline" on the sign-in screen and the offline banner. It
- * needs no socket, no /api/config and no account. Results and chips stay on this device.
+ * needs no socket, no /api/config and no account. Results and chips stay on this device. A game
+ * card plays the remembered setup in one tap; its Options button opens the setup first.
  */
 export const ArcadeOverlay = () => {
   const view = arcadeView.value;
@@ -98,22 +77,27 @@ export const ArcadeOverlay = () => {
         startLocalSession({
           meta: step.meta,
           mode: step.mode,
-          cfg: step.values,
+          cfg: cfgFor(step.meta, 'offline', step.mode, step.values),
           el: stageRef.current as HTMLElement,
           onLeave: leave,
           onMinimize: () => undefined,
         })
       )
       .then((handle) => {
-        if (cancelled) handle.stop();
-        else sessionRef.current = handle;
+        if (cancelled) {
+          handle.stop();
+          return;
+        }
+        sessionRef.current = handle;
+        saveSetup(step.meta, 'offline', { mode: step.mode, values: step.values });
       })
       .catch((reason: unknown) => {
         if (cancelled) return;
         setError(
           reason instanceof Error && reason.message ? reason.message : 'The game could not start.'
         );
-        setStep(setupFor(step.meta));
+        // Back to the setup that failed, with the error above Play.
+        setStep({ kind: 'setup', meta: step.meta, mode: step.mode, values: step.values });
       })
       .finally(() => {
         if (!cancelled) setStarting(false);
@@ -132,6 +116,7 @@ export const ArcadeOverlay = () => {
       return;
     }
     if (step.kind === 'setup' && !view?.game) {
+      setError(null);
       setStep({ kind: 'pick' });
       return;
     }
@@ -197,13 +182,22 @@ export const ArcadeOverlay = () => {
         data-arcade-overlay
       >
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-2">
-          <IconButton label={step.kind === 'pick' ? 'Close' : 'Back'} onClick={back}>
-            {step.kind === 'pick' ? <X size={18} /> : <ChevronLeft size={18} />}
+          <IconButton
+            label={step.kind === 'pick' ? 'Close' : step.kind === 'play' ? 'Game menu' : 'Back'}
+            onClick={back}
+          >
+            {step.kind === 'pick' ? (
+              <X size={18} />
+            ) : step.kind === 'play' ? (
+              <Menu size={18} />
+            ) : (
+              <ChevronLeft size={18} />
+            )}
           </IconButton>
           <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-text-bright">
             {title}
           </h2>
-          <PracticeBadge />
+          {step.kind !== 'pick' && step.meta.chips && <PracticeBadge />}
           {step.kind === 'play' && (
             <>
               <IconButton label="Minimize" onClick={minimize}>
@@ -219,74 +213,82 @@ export const ArcadeOverlay = () => {
         {step.kind === 'pick' && (
           <div className="scrollbar-thin flex-1 overflow-y-auto p-4">
             <p className="mb-3 text-sm text-text-muted">
-              Play against bots on this device. Nothing is sent to the server, and results don't
-              count.
+              Play on this device. Nothing is sent to the server and results don't count.
             </p>
             {games.length === 0 ? (
               <p className="rounded-md bg-sidebar p-4 text-sm text-text-muted" data-arcade-empty>
                 No games are ready to play offline yet.
               </p>
             ) : (
-              <ul className="grid gap-3 sm:grid-cols-2">
-                {games.map((meta) => (
-                  <li key={meta.id}>
-                    <button
-                      type="button"
-                      onClick={() => setStep(setupFor(meta))}
-                      className="flex min-h-16 w-full items-center gap-3 rounded-lg bg-sidebar p-3 text-left transition-colors hover:bg-hover"
-                      data-arcade-tile={meta.id}
-                    >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-elevated text-text-bright">
-                        <GameIcon icon={meta.icon} />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-text-bright">
-                          {meta.name}
-                        </span>
-                        <span className="block text-xs text-text-muted">{meta.tagline}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
+              <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {games.map((meta) => {
+                  const setup = resolveSetup(meta, 'offline');
+                  return (
+                    <li key={meta.id} className="min-w-0">
+                      <GameCard
+                        meta={meta}
+                        summary={summaryOf(meta, 'offline', setup.mode, setup.values)}
+                        onPlay={() => {
+                          setError(null);
+                          setStep({ kind: 'play', meta, ...setup });
+                        }}
+                        onOptions={
+                          hasOptions(meta, 'offline', setup)
+                            ? () => setStep({ kind: 'setup', meta, ...setup })
+                            : undefined
+                        }
+                        data={{ 'data-arcade-tile': meta.id }}
+                      />
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
         )}
 
         {step.kind === 'setup' && (
-          <div className="scrollbar-thin flex-1 overflow-y-auto p-4">
-            <div className="mx-auto flex max-w-md flex-col gap-5">
+          <div className="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-md flex-col gap-5 p-4">
               <p className="text-sm text-text-muted">{step.meta.tagline}</p>
-              <LobbyForm
+              <SetupForm
                 meta={step.meta}
                 where="offline"
                 mode={step.mode}
                 values={step.values}
                 onMode={(mode) =>
-                  setStep({
-                    ...step,
-                    mode,
-                    values: { ...defaultOptions(step.meta, mode), ...step.values },
-                  })
+                  setStep((s) =>
+                    s.kind === 'setup'
+                      ? { ...s, mode, values: { ...defaultOptions(s.meta, mode, 'offline'), ...s.values } }
+                      : s
+                  )
                 }
                 onChange={(key, value) =>
-                  setStep({ ...step, values: { ...step.values, [key]: value } })
+                  setStep((s) =>
+                    s.kind === 'setup' ? { ...s, values: { ...s.values, [key]: value } } : s
+                  )
                 }
               />
-              {error && (
-                <p className="text-sm text-[#fa777c]" role="alert">
-                  {error}
-                </p>
-              )}
-              <Button
-                size="lg"
-                onClick={() =>
-                  setStep({ kind: 'play', meta: step.meta, mode: step.mode, values: step.values })
-                }
-                data-arcade-start
-              >
-                <Play size={18} /> Play vs bots
-              </Button>
+            </div>
+            <div className="sticky bottom-0 bg-base px-4 pt-2 pb-4">
+              <div className="mx-auto flex max-w-md flex-col gap-2">
+                {error && (
+                  <p className="text-sm text-[#fa777c]" role="alert">
+                    {error}
+                  </p>
+                )}
+                <Button
+                  size="lg"
+                  block
+                  onClick={() => {
+                    setError(null);
+                    setStep({ kind: 'play', meta: step.meta, mode: step.mode, values: step.values });
+                  }}
+                  data-arcade-start
+                >
+                  <Play size={18} /> Play
+                </Button>
+              </div>
             </div>
           </div>
         )}
