@@ -37,7 +37,7 @@ The outputs are committed. Builds (desktop packaging, the release workflow, the 
 - `mobile/android/app/src/main/res/`: `ic_launcher`, `ic_launcher_round` and `ic_launcher_foreground` in every mipmap density, the adaptive icon XML with a monochrome layer for Android 13 themed icons (`drawable/ic_launcher_monochrome.xml`), the Night background colour, the notification icon `drawable/ic_stat_datasetto.xml` and `splash.png` in every drawable density and orientation.
 - `mobile/ios/App/App/Assets.xcassets/`: the 1024 App Store icon and the three splash images.
 
-`client/public/og-image.png` and `client/public/landing.html` are made separately (`client/scripts/brand-assets.py`).
+`client/public/og-image.png` (the social card) is drawn by `client/scripts/brand-assets.py`, which takes the mark from `brand/logo-1024.png`: rerun it after changing the mark. `client/public/landing.html` uses `/favicon.svg`.
 
 ## Tray states
 

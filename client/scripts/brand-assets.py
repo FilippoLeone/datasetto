@@ -1,15 +1,16 @@
-"""Generate the PNG brand assets (icons and the social card) from the SVG logo's geometry.
+"""Draw the Open Graph card (og-image.png) with the Datasetto mark.
 
 Usage: python scripts/brand-assets.py public   (needs Pillow; fonts are read from C:/Windows/Fonts,
 adjust FONT_BOLD/FONT_REG on other systems). Re-run when the tagline or the logo changes.
+The mark comes from brand/logo-1024.png; the app icons are drawn by brand/generate.mjs, not here.
 """
 import sys
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 OUT = sys.argv[1]
-TEAL = (15, 164, 165)
-ORANGE = (255, 138, 61)
-WHITE = (249, 250, 251)
+TEAL = (18, 168, 157)  # brand teal #12A89D
+ORANGE = (255, 106, 61)  # brand persimmon #FF6A3D
 BASE = (30, 31, 34)
 BRIGHT = (242, 243, 245)
 MUTED = (148, 155, 164)
@@ -17,6 +18,7 @@ BRAND = (88, 101, 242)
 
 FONT_BOLD = "C:/Windows/Fonts/segoeuib.ttf"
 FONT_REG = "C:/Windows/Fonts/segoeui.ttf"
+MARK = Path(__file__).resolve().parents[2] / "brand" / "logo-1024.png"
 
 
 def gradient(size, c1, c2):
@@ -28,30 +30,8 @@ def gradient(size, c1, c2):
 
 
 def logo(size):
-    """The favicon: rounded gradient square with the white stack glyph. Rendered at 4x."""
-    s = size * 4
-    u = s / 64  # svg user unit
-    mask = Image.new("L", (s, s), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, s - 1, s - 1), radius=int(14 * u), fill=255)
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    img.paste(gradient(s, TEAL, ORANGE), (0, 0), mask)
-    d = ImageDraw.Draw(img)
-    # body: x 20..44, y 18..37 with curved top (concave rim) and convex bottom
-    d.rectangle((20 * u, 18 * u, 44 * u, 37 * u), fill=WHITE)
-    d.ellipse((20 * u, 33 * u, 44 * u, 41 * u), fill=WHITE)
-    # top rim: cut a lens out of the body top, then add the lighter cap below it
-    cap = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    cd = ImageDraw.Draw(cap)
-    cd.ellipse((20 * u, 14 * u, 44 * u, 22 * u), fill=WHITE)
-    img.alpha_composite(cap)
-    # lower stripe: a crescent band under the body
-    band = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    bd = ImageDraw.Draw(band)
-    bd.ellipse((20 * u, 37 * u, 44 * u, 49 * u), fill=WHITE)
-    bd.ellipse((20 * u, 33 * u, 44 * u, 45 * u), fill=(0, 0, 0, 0))
-    bd.rectangle((0, 0, s, 41 * u), fill=(0, 0, 0, 0))
-    img.alpha_composite(band)
-    return img.resize((size, size), Image.LANCZOS)
+    """The Datasetto mark (brand/logo-1024.png, drawn by brand/generate.mjs) at size x size px."""
+    return Image.open(MARK).convert("RGBA").resize((size, size), Image.LANCZOS)
 
 
 def social_card():
@@ -92,6 +72,4 @@ def social_card():
 
 
 social_card().save(f"{OUT}/og-image.png", optimize=True)
-for name, size in (("apple-touch-icon.png", 180), ("icon-192.png", 192), ("icon-512.png", 512)):
-    logo(size).save(f"{OUT}/{name}", optimize=True)
-print("assets written")
+print("og-image.png written")
