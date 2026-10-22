@@ -125,7 +125,7 @@ export const abandonedPrizes = (t: Tournament, state: TableState): Map<string, n
  * Pay out in one `prize` txn: every human's buy-in escrow to 0, each prize to its wallet, and the
  * house covers the difference (only the Trio: pool ≠ buy-ins).
  */
-export const settle = (wallet: Wallet, t: Tournament, prizes: ReadonlyMap<string, number>): boolean => {
+export const settle = (wallet: Wallet, t: Tournament, prizes: ReadonlyMap<string, number>, key: string): boolean => {
   const legs: Leg[] = [];
   let paidIn = 0;
   let paidOut = 0;
@@ -139,7 +139,7 @@ export const settle = (wallet: Wallet, t: Tournament, prizes: ReadonlyMap<string
     paidOut += v;
   }
   if (paidIn !== paidOut) legs.push({ account: 'house' as LedgerAccount, delta: paidIn - paidOut });
-  const r = wallet.transfer('prize', t.ref, 'system', 'settle:' + t.ref, legs);
+  const r = wallet.transfer('prize', t.ref, 'system', key, legs);
   t.ended = true;
-  return r.ok;
+  return r.ok && !r.dup;
 };

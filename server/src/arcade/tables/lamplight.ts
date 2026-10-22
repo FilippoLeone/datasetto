@@ -75,6 +75,7 @@ export const TRIO_DEAL_MS = 3500;
 export const PROOF_DAYS_MS = 30 * 86_400_000;
 export const SLOW_INTENT_NS = 20_000_000n;
 export const SPECTATORS = 8;
+export const REGISTRANT_HOLD_MS = 30_000;
 
 const ROOM = (t: string): string => 'table:' + t;
 
@@ -306,6 +307,8 @@ interface SeatInfo {
   emoteAt: number;
   /** A seat event is due (coalesced connection changes). */
   dirtyAt: number | null;
+  /** Dealt in at least once (a newcomer who sits out and back in still waits for the big blind). */
+  everDealt: boolean;
 }
 
 const freshInfo = (): SeatInfo => ({
@@ -319,6 +322,7 @@ const freshInfo = (): SeatInfo => ({
   lastAct: null,
   emoteAt: 0,
   dirtyAt: null,
+  everDealt: false,
 });
 
 interface RingEntry {
@@ -363,6 +367,10 @@ interface Table {
   createdAt: number;
   showUntil: number;
   slow: number;
+  /** Nonce for idempotency keys of system and per-sitting transfers (unique per table session). */
+  seq: number;
+  /** Seats in deal order for the current hand (the deck proof's positions), fixed at the deal. */
+  dealt: number[];
 }
 
 export interface LamplightDeps {
@@ -396,6 +404,8 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
   let botsInUse = 0;
 
   const settings = () => settingsOf(api.settings().gameSettings.lamplight ?? LAMPLIGHT_DEFAULTS);
+  /** A key no other transfer of this table session uses (table ids may come back after a restart). */
+  const nonce = (tb: Table): string => tb.id + ':' + tb.createdAt + ':' + ++tb.seq;
   const humanConnected = (tb: Table): boolean => tb.state.seats.some((s) => s.player?.accountId && s.connected);
 
   // -------------------------------------------------------------- emitting
@@ -503,7 +513,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       bot: null,
       credited: { key: '', ms: 0 },
       closed: false,
-      emptySince: clock.now(),
+      emptySince: mode === 'open' ? clock.now() : null,
       allOutSince: null,
       tournament: null,
       started: mode === 'open',
@@ -512,9 +522,13 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       createdAt: clock.now(),
       showUntil: 0,
       slow: 0,
+      seq: 0,
+      dealt: [],
     };
     tables.set(lobby.id, tb);
     if (mode === 'open' && cfg.bots) seatBots(tb);
+    // Arms the idle close, so a table nobody sits at never holds bots or memory for long.
+    arm(tb);
     return tb;
   };
 
@@ -528,7 +542,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       botsInUse++;
       const stack = BUY_IN_BB.default * TIER_BLINDS[tb.cfg.tier].bb;
       const id = BOTS[(n + tb.id.length) % BOTS.length].id;
-      const r = api.wallet.transfer('buyin', tb.ref, 'system', 'bot:' + tb.id + ':' + n + ':1', [
+      const r = api.wallet.transfer('buyin', tb.ref, 'system', 'bot:' + nonce(tb), [
         { account: 'house' as LedgerAccount, delta: -stack },
         { account: escrowAccount(tb.ref, 'bot:' + n), delta: stack },
       ]);
@@ -540,6 +554,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       seatPlayer(tb.state, n, { accountId: null, botId: id, avatarSeed: n * 977 }, stack);
       tb.state.seats[n].status = 'active';
       tb.state.seats[n].post = null;
+      emitEvents(tb, updateSeat(tb.state, n, {}));
       tb.info[n] = { ...freshInfo(), level: tb.cfg.bots, buyIns: 1 };
       placed++;
     }
@@ -552,7 +567,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     const s = tb.state.seats[n];
     if (!s.player?.botId) return;
     const stack = s.stack;
-    if (stack > 0) api.wallet.transfer('cashout', tb.ref, 'system', 'botout:' + tb.id + ':' + n + ':' + tb.state.handsPlayed, [
+    if (stack > 0) api.wallet.transfer('cashout', tb.ref, 'system', 'botout:' + nonce(tb), [
       { account: escrowAccount(tb.ref, 'bot:' + n), delta: -stack },
       { account: 'house' as LedgerAccount, delta: stack },
     ]);
@@ -562,24 +577,30 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     botsInUse--;
   };
 
-  const cashout = (tb: Table, n: number, reason: string): void => {
+  const cashout = (tb: Table, n: number, reason: string): boolean => {
     const s = tb.state.seats[n];
     const a = s.player?.accountId;
-    if (!a) return;
+    if (!a) return false;
     if (tb.mode === 'open') {
       const stack = s.stack;
       if (stack > 0) {
-        api.wallet.transfer('cashout', tb.ref, a, 'out:' + tb.id + ':' + n + ':' + tb.state.handsPlayed + ':' + reason, [
+        const r = api.wallet.transfer('cashout', tb.ref, a, 'out:' + nonce(tb) + ':' + reason, [
           { account: escrowAccount(tb.ref, a), delta: -stack },
           { account: walletAccount(a), delta: stack },
         ]);
+        if (!r.ok) {
+          api.log.error({ table: tb.id, seat: n, code: r.code }, 'lamplight: cashout refused');
+          return false;
+        }
         leftWith.set(a, { t: tb.id, stack, at: clock.now() });
       }
     }
     seatOf.delete(a);
     emitEvents(tb, unseat(tb.state, n).events);
     tb.info[n] = freshInfo();
+    refreshIdle(tb, clock.now());
     api.hub.activityChanged(tb.channelId);
+    return true;
   };
 
   const closeTable = (tb: Table, reason: string): void => {
@@ -663,6 +684,13 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
   };
 
   const setIdleWake = (tb: Table, now: number): void => {
+    if (!tb.started) {
+      setWake(tb, tb.createdAt + api.hub.limits().lobbyIdleMs, 'idle');
+      for (const s of tb.state.seats) {
+        const at = tb.info[s.seat].disconnectedAt;
+        if (s.player?.accountId && at !== null) setWake(tb, at + REGISTRANT_HOLD_MS, 'idle');
+      }
+    }
     if (tb.emptySince !== null) setWake(tb, tb.emptySince + IDLE_EMPTY_MS, 'idle');
     if (tb.allOutSince !== null) setWake(tb, tb.allOutSince + IDLE_ALL_OUT_MS, 'idle');
     for (const s of tb.state.seats) {
@@ -797,6 +825,8 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     tb.handOpen = true;
     tb.holes.clear();
     const pos = dealPositions(tb.state);
+    tb.dealt = [...pos.holes.entries()].sort((x, y) => x[1][0] - y[1][0]).map(([seatNo]) => seatNo);
+    for (const seatNo of tb.dealt) tb.info[seatNo].everDealt = true;
     for (const [seatNo, [i, j]] of pos.holes) {
       const s = tb.state.seats[seatNo];
       if (s.hole && tb.commit) tb.holes.set(seatNo, { c: s.hole, s: [b64url(tb.commit.salts[i]), b64url(tb.commit.salts[j])] });
@@ -862,14 +892,21 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       }
     });
     tb.commit = null;
+    if (tb.mode === 'open') {
+      for (const s of state.seats) {
+        const info = tb.info[s.seat];
+        if (s.player?.accountId && (info.leaveAfter || info.leaveNow)) cashout(tb, s.seat, 'leave');
+      }
+      if (state.handsPlayed % 10 === 0) for (const s of state.seats) if (s.player) emitEvents(tb, updateSeat(state, s.seat, {}));
+    }
+    refreshIdle(tb, now);
     if (tb.tournament && recordBusts(tb.tournament, state)) finishTournament(tb, false);
   };
 
   const handRecord = (tb: Table, net: number[]): HandRecordJson => {
     const state = tb.state;
     const hand = state.hand;
-    const dealt: number[] = [];
-    if (hand) for (let i = 1; i <= state.seats.length; i++) if (state.seats[(hand.button + i) % state.seats.length].inHand) dealt.push((hand.button + i) % state.seats.length);
+    const dealt = tb.dealt.slice();
     const pots = tb.ring.filter((r) => r.out.name === 'lamplight:show' && Array.isArray(r.out.data.pots) && r.hand === null).slice(-1)[0]?.out.data.pots as { a: number; w: number[] }[] | undefined;
     return {
       no: hand?.handNo ?? 0,
@@ -898,7 +935,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
           else {
             const stack = BUY_IN_BB.default * TIER_BLINDS[tb.cfg.tier].bb;
             info.buyIns++;
-            const r = api.wallet.transfer('buyin', tb.ref, 'system', 'bot:' + tb.id + ':' + s.seat + ':' + info.buyIns, [
+            const r = api.wallet.transfer('buyin', tb.ref, 'system', 'bot:' + nonce(tb), [
               { account: 'house' as LedgerAccount, delta: -stack },
               { account: escrowAccount(tb.ref, 'bot:' + s.seat), delta: stack },
             ]);
@@ -938,6 +975,15 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
   };
 
   const checkIdle = (tb: Table, now: number): void => {
+    if (!tb.started) {
+      if (now - tb.createdAt >= api.hub.limits().lobbyIdleMs) return closeTable(tb, 'idle');
+      for (const s of tb.state.seats) {
+        const a = s.player?.accountId;
+        const at = tb.info[s.seat].disconnectedAt;
+        if (a && at !== null && now - at >= REGISTRANT_HOLD_MS) unregister(tb, a);
+      }
+      return;
+    }
     if (tb.emptySince !== null && now - tb.emptySince >= IDLE_EMPTY_MS) return closeTable(tb, 'idle');
     if (tb.allOutSince !== null && now - tb.allOutSince >= IDLE_ALL_OUT_MS) return closeTable(tb, 'idle');
     if (tb.tournament && !tb.tournament.ended && !humanConnected(tb)) {
@@ -975,7 +1021,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       for (const s of tb.state.seats) {
         if (s.player || !api.hub.bots.take(1)) continue;
         botsInUse++;
-        seatPlayer(tb.state, s.seat, { accountId: null, botId: BOTS[s.seat % BOTS.length].id, avatarSeed: s.seat * 977 }, tb.state.seats.find((x) => x.player)?.stack ?? 1500);
+        emitEvents(tb, seatPlayer(tb.state, s.seat, { accountId: null, botId: BOTS[s.seat % BOTS.length].id, avatarSeed: s.seat * 977 }, tb.state.seats.find((x) => x.player)?.stack ?? 1500));
         tb.info[s.seat] = { ...freshInfo(), level: tb.cfg.bots };
       }
     }
@@ -1000,7 +1046,10 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     const prizes = abandoned ? abandonedPrizes(t, tb.state) : finalPrizes(t, tb.state);
     const places = finalPlaces(t, tb.state);
     api.wallet.tx(() => {
-      settle(api.wallet, t, prizes);
+      if (!settle(api.wallet, t, prizes, 'settle:' + nonce(tb))) {
+        api.log.error({ table: tb.id }, 'lamplight: prize transfer refused; refunding buy-ins');
+        api.wallet.refund(tb.ref, 'refund');
+      }
       const now = clock.now();
       api.results.record(
         { game: 'lamplight', mode: tb.mode, channelId: tb.channelId, humans: t.humans.length, startedAt: t.startedAt, endedAt: now, summary: { buyIn: t.buyIn, mult: t.mult, pool: t.pool, hands: tb.state.handsPlayed, abandoned } },
@@ -1034,6 +1083,11 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     if (on) {
       info.disconnectedAt = null;
       info.handsDisconnected = 0;
+      // A tournament seat that sat out while away plays again once it is back.
+      if (tb.mode !== 'open' && s.status === 'sittingOut') {
+        s.status = 'active';
+        s.timeouts = 0;
+      }
     } else info.disconnectedAt = clock.now();
     const now = clock.now();
     info.dirtyAt = info.dirtyAt ?? now + (on ? 0 : SEAT_COALESCE_MS);
@@ -1081,6 +1135,26 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     emitEvents(tb, voidHand(tb.state, reason));
     tb.handOpen = false;
     closeTable(tb, reason);
+  };
+
+  const unregister = (tb: Table, a: string): void => {
+    const r = api.wallet.transfer('refund', tb.ref, a, 'unreg:' + nonce(tb), [
+      { account: escrowAccount(tb.ref, a), delta: -tb.cfg.buyIn },
+      { account: walletAccount(a), delta: tb.cfg.buyIn },
+    ]);
+    if (!r.ok) {
+      api.log.error({ table: tb.id, code: r.code }, 'lamplight: unregister refund refused');
+      return;
+    }
+    tb.registered = tb.registered.filter((x) => x !== a);
+    seatOf.delete(a);
+    const n = seatIndexOf(tb, a);
+    if (n >= 0) {
+      emitEvents(tb, unseat(tb.state, n).events);
+      tb.info[n] = freshInfo();
+    }
+    api.hub.publish(tb.id);
+    api.hub.activityChanged(tb.channelId);
   };
 
   const tableOf = (t: string): Table | null => {
@@ -1154,7 +1228,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       // Acting brings a seat back from sitting out (cash) and clears a disconnect.
       const s = tb.state.seats[seatNo];
       emitEvents(tb, r.events);
-      if (s.status === 'sittingOut' && tb.mode === 'open') {
+      if (s.status === 'sittingOut') {
         info.sitOutSince = null;
         emitEvents(tb, updateSeat(tb.state, seatNo, { status: 'active' }));
       }
@@ -1205,11 +1279,9 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     const n = seatIndexOf(tb, c.accountId);
     if (n < 0 || tb.mode !== 'open') return ok;
     const s = tb.state.seats[n];
-    const running = tb.state.hand && tb.state.hand.street !== 'done' && s.inHand && !s.folded;
-    if (!running) {
-      cashout(tb, n, 'leave');
-      refreshIdle(tb, clock.now());
-    } else if (p.now) tb.info[n].leaveNow = true;
+    const running = tb.state.hand && tb.state.hand.street !== 'done' && s.inHand;
+    if (!running) cashout(tb, n, 'leave');
+    else if (p.now && !s.folded) tb.info[n].leaveNow = true;
     else tb.info[n].leaveAfter = true;
     arm(tb);
     return ok;
@@ -1217,17 +1289,20 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
 
   api.on('lamplight:sitOut', { schema: z.object({ t: tId, on: z.boolean(), post: z.enum(['now', 'wait']).optional() }), limiter: 'arcadeAct', acked: true }, (c, p) => {
     const tb = tables.get(p.t);
-    if (!tb || tb.mode !== 'open') return no('illegal');
+    if (!tb) return no('illegal');
     const n = seatIndexOf(tb, c.accountId);
     if (n < 0) return no('illegal');
     const s = tb.state.seats[n];
+    // Only cash seats may choose to sit out; any seat may come back.
+    if (p.on && tb.mode !== 'open') return no('illegal');
     if (p.on && (s.status === 'active' || s.status === 'waiting')) {
       tb.info[n].sitOutSince = clock.now();
       emitEvents(tb, updateSeat(tb.state, n, { status: 'sittingOut' }));
     } else if (!p.on && s.status === 'sittingOut') {
       s.timeouts = 0;
       tb.info[n].sitOutSince = null;
-      emitEvents(tb, updateSeat(tb.state, n, s.missedBB ? { status: 'waiting', post: p.post ?? 'wait' } : { status: 'active' }));
+      const owes = tb.mode === 'open' && (s.missedBB || !tb.info[n].everDealt);
+      emitEvents(tb, updateSeat(tb.state, n, owes ? { status: 'waiting', post: p.post ?? 'wait' } : { status: 'active' }));
     }
     refreshIdle(tb, clock.now());
     arm(tb);
@@ -1345,13 +1420,13 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
         if (held) return held.t === tb.id ? ok : no('seated');
         const free = tb.state.seats.findIndex((s) => !s.player);
         if (free < 0) return no('full');
-        const r = api.wallet.transfer('buyin', tb.ref, c.accountId, 'reg:' + tb.id, [
+        const r = api.wallet.transfer('buyin', tb.ref, c.accountId, 'reg:' + nonce(tb), [
           { account: walletAccount(c.accountId), delta: -tb.cfg.buyIn },
           { account: escrowAccount(tb.ref, c.accountId), delta: tb.cfg.buyIn },
         ]);
         if (!r.ok) return no(r.code === 'funds' ? 'funds' : 'busy');
         const stack = tb.mode === 'cup' ? 1500 : 500;
-        seatPlayer(tb.state, free, { accountId: c.accountId, botId: null, avatarSeed: 0 }, stack);
+        emitEvents(tb, seatPlayer(tb.state, free, { accountId: c.accountId, botId: null, avatarSeed: 0 }, stack));
         tb.registered.push(c.accountId);
         seatOf.set(c.accountId, { t: tb.id, seat: free });
         join(c.socketId, tb);
@@ -1373,18 +1448,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
           watching.delete(c.socketId);
         }
         // Unregistering refunds the buy-in, but only before the start (and never after the Firefly draw).
-        if (tb.mode !== 'open' && !tb.started && tb.registered.includes(c.accountId)) {
-          api.wallet.transfer('refund', tb.ref, c.accountId, 'unreg:' + tb.id + ':' + tb.registered.length, [
-            { account: escrowAccount(tb.ref, c.accountId), delta: -tb.cfg.buyIn },
-            { account: walletAccount(c.accountId), delta: tb.cfg.buyIn },
-          ]);
-          tb.registered = tb.registered.filter((a) => a !== c.accountId);
-          seatOf.delete(c.accountId);
-          const n = seatIndexOf(tb, c.accountId);
-          if (n >= 0) emitEvents(tb, unseat(tb.state, n).events);
-          api.hub.publish(tb.id);
-          api.hub.activityChanged(tb.channelId);
-        }
+        if (tb.mode !== 'open' && !tb.started && tb.registered.includes(c.accountId)) unregister(tb, c.accountId);
       },
       onStart(lobby) {
         const tb = tables.get(lobby.id);

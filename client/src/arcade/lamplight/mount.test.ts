@@ -163,6 +163,9 @@ const mountScripted = async (o: Partial<MountOpts> = {}) => {
 
 describe('the mounted table', () => {
   it('draws on events and leaves nothing behind after unmount', async () => {
+    // jsdom builds its selector engine on the first selector query of a document (a <style> insert
+    // triggers one) and that registers window listeners once; warm it up before counting.
+    document.querySelector('.ll-warm-up');
     const resources = trackResources();
     const baseline = resources.live();
     const s = await mountScripted();
@@ -180,8 +183,8 @@ describe('the mounted table', () => {
     // Preact's effect scheduler keeps a 100 ms fallback timer for a frame that never comes in jsdom.
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(frames.active).toBe(0);
-    expect(resources.live()).toEqual(baseline);
     expect(resources.listenerTypes()).toEqual({});
+    expect(resources.live()).toEqual(baseline);
     expect(audio.closed).toBe(audio.contexts);
     expect(el.childNodes.length).toBe(0);
     resources.restore();

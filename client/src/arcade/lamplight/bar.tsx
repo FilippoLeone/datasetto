@@ -511,7 +511,17 @@ const Bar = ({ s, api }: { s: BarState; api: BarApi }) => {
       </>
     );
   } else {
-    body = <p class={'text-center text-sm text-[#9aa3a0] ' + grow}>{seat.status === 'sittingOut' ? 'Sitting out' : seat.status === 'waiting' ? 'Waiting for the big blind' : 'Waiting for the next hand'}</p>;
+    body =
+      seat.status === 'sittingOut' ? (
+        <>
+          <p class={'text-sm text-[#9aa3a0] ' + grow}>Sitting out</p>
+          <button type="button" class={solid} onClick={() => api.sitOut(false)} data-ll-sitin>
+            Sit back in
+          </button>
+        </>
+      ) : (
+        <p class={'text-center text-sm text-[#9aa3a0] ' + grow}>{seat.status === 'waiting' ? 'Waiting for the big blind' : 'Waiting for the next hand'}</p>
+      );
   }
 
   return (

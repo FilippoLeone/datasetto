@@ -252,7 +252,8 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
   offs.push(opts.shell.practice.onChange(() => writeSeat()));
 
   // ---------------------------------------------------------------- clocks, ring, expiry
-  const ring = createRing(root, () => dpr);
+  const ring = createRing(root);
+  let ringKey = '';
   let ringTimer: ReturnType<typeof setTimeout> | null = null;
   let lastTickSecond = -1;
   const pad = createPad({ on: (c) => command(c) });
@@ -260,44 +261,44 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
     const view = model.view;
     const hand = view?.hand;
     const l = scene?.layout;
-    if (!hand || hand.toAct < 0 || !l || hand.pending) ring.place(null);
-    else ring.place(l.seats[hand.toAct]);
+    if (!view || !hand || hand.toAct < 0 || !l || hand.pending || !visible) {
+      ring.place(null);
+      ringKey = '';
+      return;
+    }
+    ring.place(l.seats[hand.toAct]);
+    // A new turn, a time bank or a deadline credit restarts the countdown (the compositor runs it).
+    const key = hand.handNo + ':' + hand.turnQ + ':' + (hand.bank ? 1 : 0) + ':' + Math.round(hand.deadline);
+    if (key === ringKey) return;
+    ringKey = key;
+    const total = hand.bank ? Math.max(1000, view.seats[hand.toAct].timeBankMs || view.config.timeBankMs) : view.config.actionMs;
+    ring.start({ total, remaining: hand.deadline - performance.now(), bank: hand.bank });
   };
-  const ringTick = (): void => {
+  /** The 10 Hz timer: only on your own turn (the last-5-seconds tick and the gamepad). */
+  const myTick = (): void => {
     ringTimer = null;
     if (!visible || disposed) return;
-    const view = model.view;
-    const hand = view?.hand;
-    if (!view || !hand || hand.toAct < 0 || hand.pending) {
-      ring.place(null);
-      return;
-    }
+    const hand = model.view?.hand;
+    if (!hand || hand.toAct < 0 || hand.toAct !== model.me || hand.pending) return;
     const now = performance.now();
     const ms = Math.max(0, hand.deadline - now);
-    const total = hand.bank ? Math.max(1000, view.config.timeBankMs) : view.config.actionMs;
-    placeRing();
-    ring.draw(ms / total, ms, hand.bank);
-    if (hand.toAct === model.me) {
-      const second = Math.ceil(ms / 1000);
-      if (ms > 0 && ms <= 5000 && second !== lastTickSecond) sound('tick');
-      lastTickSecond = second;
-      pad.poll(now);
-    }
-    ringTimer = setTimeout(ringTick, 100);
+    const second = Math.ceil(ms / 1000);
+    if (ms > 0 && ms <= 5000 && second !== lastTickSecond) sound('tick');
+    lastTickSecond = second;
+    pad.poll(now);
+    ringTimer = setTimeout(myTick, 100);
   };
   const startRing = (): void => {
+    placeRing();
     if (ringTimer !== null || !visible || disposed) return;
     const hand = model.view?.hand;
-    if (!hand || hand.toAct < 0 || hand.pending) {
-      ring.place(null);
-      return;
-    }
-    ringTick();
+    if (hand && hand.toAct >= 0 && hand.toAct === model.me && !hand.pending) myTick();
   };
   const stopRing = (): void => {
     if (ringTimer !== null) clearTimeout(ringTimer);
     ringTimer = null;
     ring.place(null);
+    ringKey = '';
   };
 
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
