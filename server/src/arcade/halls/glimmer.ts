@@ -62,6 +62,8 @@ export const POT_SCOPE = 'glimmer';
 export const VAULT_AUTO_PICK_MS = 24 * 60 * 60_000;
 /** The LobbyChip shows "Glimmer Pot won" this long. */
 export const POT_CHIP_MS = 60_000;
+/** Report st 'dash' in the channel activity while a Dash forms or runs (see `activity`). */
+export const DASH_ACTIVITY = false;
 
 // ------------------------------------------------------------------ pending vaults
 
@@ -92,7 +94,10 @@ export interface Seat {
   slot: number;
   machine: MachineIdx;
   away: boolean;
+  /** The away state the hall last saw, when, and the timer that shows a change held back by the 5 s gap. */
+  awayShown: boolean;
   awayShownAt: number;
+  awayTimer: unknown;
   lastInputAt: number;
   lastReactAt: number;
   /** Last pot value sent to this socket. */
@@ -260,6 +265,36 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
       },
       seat.accountId,
     );
+    if (!gone) seat.awayShown = seat.away;
+  };
+
+  /**
+   * The hall sees a member's away state change at most once per AWAY_GAP_MS. A change inside the gap
+   * is held back, not dropped: when the gap ends the hall gets the state as it is then.
+   */
+  const showAway = (seat: Seat): void => {
+    const hall = seat.hall ? halls.get(seat.hall) : undefined;
+    if (!hall || seat.awayShown === seat.away) return;
+    const now = clock.now();
+    const wait = seat.awayShownAt + AWAY_GAP_MS - now;
+    if (wait > 0) {
+      if (seat.awayTimer === null) {
+        seat.awayTimer = clock.setTimeout(() => {
+          seat.awayTimer = null;
+          showAway(seat);
+        }, wait);
+      }
+      return;
+    }
+    seat.awayShownAt = now;
+    memberDelta(hall, seat, false);
+  };
+
+  const clearSeatTimers = (seat: Seat): void => {
+    if (seat.dropTimer !== null) clock.clearTimeout(seat.dropTimer);
+    seat.dropTimer = null;
+    if (seat.awayTimer !== null) clock.clearTimeout(seat.awayTimer);
+    seat.awayTimer = null;
   };
 
   const markPot = (): void => {
@@ -308,6 +343,8 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
   const leaveHall = (seat: Seat): void => {
     const hall = seat.hall ? halls.get(seat.hall) : undefined;
     seat.hall = null;
+    if (seat.awayTimer !== null) clock.clearTimeout(seat.awayTimer);
+    seat.awayTimer = null;
     seat.feed = emptyPending();
     seat.queued = null;
     if (!hall) return;
@@ -330,8 +367,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
   };
 
   const dropSeat = (seat: Seat): void => {
-    if (seat.dropTimer !== null) clock.clearTimeout(seat.dropTimer);
-    seat.dropTimer = null;
+    clearSeatTimers(seat);
     leaveHall(seat);
     seats.delete(seat.accountId);
   };
@@ -509,7 +545,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     markPot();
   };
 
-  const pick =(c: CallerCtx, p: { door: 0 | 1 | 2; id: string }): PickOk | Refused | { ok: true; settled: true; bal: number } => {
+  const pick = (c: CallerCtx, p: { door: 0 | 1 | 2; id: string }): PickOk | Refused | { ok: true; settled: true; bal: number } => {
     const seat = own(c);
     if ('ok' in seat) return seat;
     if (!isSpinId(p.id)) return refuse('invalid');
@@ -602,10 +638,27 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
 
   // ---------------------------------------------------------------- enter, leave, away, react
 
+  /**
+   * The pot starts at the seed, as it does after every win; the 1.5 % return (glimmerhall.md §4.1)
+   * counts on it. Once per database: the txn's key is fixed, and a pot that was ever won is reseeded.
+   */
+  let potChecked = false;
+  const seedFirstPot = (): void => {
+    if (potChecked) return;
+    potChecked = true;
+    if (api.wallet.pot(POT_SCOPE).last) return;
+    const t = api.wallet.transfer('pot_seed', POT_SCOPE, 'system', 'ps:first', [
+      { account: 'house', delta: -POT_SEED },
+      { account: potAccount(POT_SCOPE), delta: POT_SEED },
+    ]);
+    if (!t.ok) api.log.error({ code: t.code }, '[glimmer] first pot seed refused');
+  };
+
   const enter = (c: CallerCtx, p: { ch: string | null; v: number }): EnterOk | Refused => {
     if (p.v !== DEFS.glimmer) return refuse('update');
     if (!enabled()) return refuse('disabled');
     if (api.prefs.hidden(c.accountId, GAME)) return refuse('hidden');
+    seedFirstPot();
     autoPick(c.accountId);
     let seat = seats.get(c.accountId);
     const now = clock.now();
@@ -615,7 +668,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
       seat.queued = null;
     }
     if (!seat) {
-      seat = { accountId: c.accountId, socketId: c.socketId, hall: null, slot: -1, machine: 1, away: false, awayShownAt: 0, lastInputAt: now, lastReactAt: -1e12, potSent: null, lw: 0, lx: 0, dropTimer: null, feed: emptyPending(), queued: null, sentAt: -1e12 };
+      seat = { accountId: c.accountId, socketId: c.socketId, hall: null, slot: -1, machine: 1, away: false, awayShown: false, awayShownAt: -1e12, awayTimer: null, lastInputAt: now, lastReactAt: -1e12, potSent: null, lw: 0, lx: 0, dropTimer: null, feed: emptyPending(), queued: null, sentAt: -1e12 };
       seats.set(c.accountId, seat);
     }
     if (seat.dropTimer !== null) clock.clearTimeout(seat.dropTimer);
@@ -627,10 +680,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     const hall = seat.hall ? halls.get(seat.hall) : undefined;
     if (seat.away) {
       seat.away = false;
-      if (hall && now - seat.awayShownAt >= AWAY_GAP_MS) {
-        seat.awayShownAt = now;
-        memberDelta(hall, seat, false);
-      }
+      showAway(seat);
     }
     // A fresh snapshot replaces whatever was waiting for this member.
     seat.feed = emptyPending();
@@ -658,12 +708,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     seat.away = true;
     seat.feed = emptyPending();
     seat.queued = null;
-    const hall = seat.hall ? halls.get(seat.hall) : undefined;
-    const now = clock.now();
-    if (hall && now - seat.awayShownAt >= AWAY_GAP_MS) {
-      seat.awayShownAt = now;
-      memberDelta(hall, seat, false);
-    }
+    showAway(seat);
   };
 
   const react = (c: CallerCtx, p: { to: number; e: number }): void => {
@@ -732,7 +777,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
       api.hub.activityChanged(hall.ch);
     }
     halls.clear();
-    for (const seat of seats.values()) if (seat.dropTimer !== null) clock.clearTimeout(seat.dropTimer);
+    for (const seat of seats.values()) clearSeatTimers(seat);
     seats.clear();
   };
 
@@ -782,12 +827,13 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
       for (const hall of halls.values()) for (const seat of hall.members.values()) if (!seat.away && !pendingEmpty(seat.feed)) sendFeed(seat, hall);
       for (const hall of halls.values()) if (hall.flushTimer !== null) clock.clearTimeout(hall.flushTimer);
       halls.clear();
-      for (const seat of seats.values()) if (seat.dropTimer !== null) clock.clearTimeout(seat.dropTimer);
+      for (const seat of seats.values()) clearSeatTimers(seat);
       seats.clear();
     },
     onBoot() {
       const refunded = api.wallet.refund('dash:', 'restart-refund');
       if (refunded > 0) api.log.info({ refunded }, '[glimmer] refunded leftover Dash buy-ins');
+      seedFirstPot();
       autoPick(null);
     },
     daily() {
@@ -801,7 +847,11 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     activity(channelId): readonly ActivityEntry[] {
       const hall = halls.get(channelId);
       if (!hall || hall.members.size === 0) return [];
-      const e: ActivityEntry = { g: GAME, id: liveLobby(channelId)?.id ?? 'hall:' + channelId, st: dashes.live(channelId) ? 'dash' : 'open', n: hall.members.size, max: maxMembers(), w: 0 };
+      // The design reports st 'dash' while a Dash forms or runs, but the platform's sheet and chip show
+      // no Open button for 'dash' (asked to change), which locks newcomers out of the hall for up to
+      // 10 minutes. Until that lands the hall says 'open' (DASH_ACTIVITY flips it back).
+      const st = DASH_ACTIVITY && dashes.live(channelId) ? 'dash' : 'open';
+      const e: ActivityEntry = { g: GAME, id: liveLobby(channelId)?.id ?? 'hall:' + channelId, st, n: hall.members.size, max: maxMembers(), w: 0 };
       if (hall.potWon && clock.now() - hall.potWon.at < POT_CHIP_MS) e.j = { amt: hall.potWon.amt };
       return [e];
     },
@@ -809,7 +859,7 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
       stopped = true;
       dashes.stop();
       for (const hall of halls.values()) if (hall.flushTimer !== null) clock.clearTimeout(hall.flushTimer);
-      for (const seat of seats.values()) if (seat.dropTimer !== null) clock.clearTimeout(seat.dropTimer);
+      for (const seat of seats.values()) clearSeatTimers(seat);
     },
     debug: { seats, halls, dashes, pending },
   };

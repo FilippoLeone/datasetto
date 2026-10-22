@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DEFS } from '../../../src/arcade/core/version.js';
-import type { EnterOk, SpinOk } from '../../../src/arcade/core/glimmer/wire.js';
+import { POT_SEED, type EnterOk, type SpinOk } from '../../../src/arcade/core/glimmer/wire.js';
 import { checkInvariant } from '../../../src/arcade/wallet.js';
 import { createHarness, scripted, sid } from './harness.js';
 
@@ -40,7 +40,8 @@ describe('the Glimmer Pot', () => {
     expect(freeSpins).toBeGreaterThan(0);
     expect(potDraws).toBe(10_000);
     const pot = h.wallet.pot('glimmer');
-    expect(pot.pool).toBe(Math.floor((sum * 75) / 10_000));
+    // The first enter seeded the pot.
+    expect(pot.pool).toBe(POT_SEED + Math.floor((sum * 75) / 10_000));
     expect(pot.carryE4).toBe((sum * 75) % 10_000);
     expect(checkInvariant(h.db)).toEqual([]);
   }, 20_000);

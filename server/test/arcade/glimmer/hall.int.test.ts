@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFS } from '../../../src/arcade/core/version.js';
 import { DASH_ST, POT_SEED, SIZE, type DashView, type EnterOk, type FeedView, type PickOk, type SpinOk } from '../../../src/arcade/core/glimmer/wire.js';
 import { checkInvariant, clearReceipts } from '../../../src/arcade/wallet.js';
-import glimmer from '../../../src/arcade/halls/glimmer.js';
+import glimmer, { DASH_ACTIVITY } from '../../../src/arcade/halls/glimmer.js';
 import { createHarness, scripted, sid, type Harness } from './harness.js';
 
 const CH = 'chan_voice_1';
@@ -47,7 +47,9 @@ describe('Glimmerhall on the server', () => {
     expect(h.call(h.ctx('x'), 'glimmer:enter', { ch: CH, v: V })).toEqual({ ok: false, code: 'hidden' });
     h.voice.set('a', CH);
     const a = h.call<EnterOk>(h.ctx('a'), 'glimmer:enter', { ch: CH, v: V });
-    expect([a.ok, a.me, a.bal, a.pot, a.maxBet]).toEqual([true, 0, 20_000, 0, 500]);
+    // The first enter seeds a pot that never held a chip (once per database).
+    expect([a.ok, a.me, a.bal, a.pot, a.maxBet]).toEqual([true, 0, 20_000, POT_SEED, 500]);
+    expect(count(h, "SELECT COUNT(*) FROM arcade_txns WHERE kind = 'pot_seed'")).toBe(1);
     // Not in that call: plays alone, no hall.
     const b = h.call<EnterOk>(h.ctx('b'), 'glimmer:enter', { ch: CH, v: V });
     expect([b.ok, b.me, b.mem.length]).toEqual([true, -1, 0]);
@@ -217,8 +219,10 @@ describe('Glimmerhall on the server', () => {
     const h = createHarness({ rng: r.rng, potRng: (n) => (potQueue.length ? (potQueue.shift() as number) : n - 1) });
     hallOf(h, 'a', 'b');
     for (let i = 0; i < 200; i += 1) h.call(h.ctx('b'), 'glimmer:spin', { m: 1, b: 500, id: sid() });
+    // a's hall push carries the grown pot, so a's spin ack has to say it is back at the seed.
+    h.clock.advance(3000);
     const pool = h.wallet.pot('glimmer').pool;
-    expect(pool).toBe(Math.floor((200 * 500 * 75) / 10_000));
+    expect(pool).toBe(POT_SEED + Math.floor((200 * 500 * 75) / 10_000));
     const before = balance(h, 'a');
     potQueue.push(0);
     const ack = h.call<SpinOk>(h.ctx('a'), 'glimmer:spin', { m: 1, b: 20, id: sid() });
@@ -230,7 +234,8 @@ describe('Glimmerhall on the server', () => {
     expect(pot.pool).toBe(POT_SEED);
     expect(pot.last?.accountId).toBe('a');
     expect(pot.last?.amount).toBe(ack.pt);
-    expect(count(h, "SELECT COUNT(*) FROM arcade_txns WHERE kind = 'pot_seed'")).toBe(1);
+    // The first seed and the reseed after the win.
+    expect(count(h, "SELECT COUNT(*) FROM arcade_txns WHERE kind = 'pot_seed'")).toBe(2);
     expect(h.game.activity(CH)[0]?.j).toEqual({ amt: ack.pt });
     h.clock.advance(61_000);
     expect(h.game.activity(CH)[0]?.j).toBeUndefined();
@@ -273,6 +278,42 @@ describe('Glimmerhall on the server', () => {
     expect(count(h, 'SELECT COUNT(*) FROM arcade_pending')).toBe(0);
     expect(balance(h, 'b')).toBeGreaterThanOrEqual(bBefore);
     sound(h);
+  });
+
+  it('shows away and back to the hall at most once per 5 s, and a change inside the gap when the gap ends', () => {
+    const h = createHarness({ rng: scripted(23).rng, potRng: () => 999_999 });
+    hallOf(h, 'a', 'b');
+    h.clock.advance(2000);
+    h.emits.length = 0;
+    // What a sees of b's away flag, push by push.
+    const seenByA = (): number[] =>
+      h.emits
+        .filter((e) => e.socketId === 's-a' && e.ev === 'glimmer:feed')
+        .flatMap((e) => (e.data as FeedView).h ?? [])
+        .filter((m) => m[0] === 1)
+        .map((m) => m[3]);
+    h.call(h.ctx('b'), 'glimmer:away', {});
+    h.clock.advance(1100);
+    expect(seenByA()).toEqual([1]);
+    // Back 1 s later: held until the gap ends, then shown (it used to be dropped, leaving b "away").
+    h.call(h.ctx('b'), 'glimmer:enter', { ch: CH, v: V });
+    h.clock.advance(2000);
+    expect(seenByA()).toEqual([1]);
+    h.clock.advance(3000);
+    expect(seenByA()).toEqual([1, 0]);
+    // Away and back again inside one gap: the hall saw nothing change, so nothing goes out.
+    h.call(h.ctx('b'), 'glimmer:away', {});
+    h.call(h.ctx('b'), 'glimmer:enter', { ch: CH, v: V });
+    h.clock.advance(6000);
+    expect(seenByA()).toEqual([1, 0]);
+    // Leaving with a change held back clears its timer.
+    h.call(h.ctx('b'), 'glimmer:away', {});
+    h.clock.advance(1100);
+    h.call(h.ctx('b'), 'glimmer:enter', { ch: CH, v: V });
+    const seat = h.game.debug.seats.get('b');
+    expect(seat?.awayTimer).not.toBeNull();
+    h.call(h.ctx('b'), 'glimmer:leave', {});
+    expect(seat?.awayTimer).toBeNull();
   });
 
   it('never sends a balance, door contents or a quiet spin to anyone else; away members and non-members get nothing', () => {
@@ -393,7 +434,8 @@ describe('Glimmerhall on the server', () => {
     expect(h.call(h.ctx('c'), 'glimmer:dash:join', { id: d.id })).toMatchObject({ ok: true });
     expect(h.call(h.ctx('b'), 'glimmer:dash:start', { id: d.id })).toEqual({ ok: false, code: 'host' });
     expect(h.call(h.ctx('a'), 'glimmer:dash:start', { id: d.id })).toEqual({ ok: true });
-    expect(h.game.activity(CH)[0]?.st).toBe('dash');
+    // Still 'open' while the platform's sheet would hide Open for 'dash' (DASH_ACTIVITY).
+    expect(h.game.activity(CH)[0]?.st).toBe(DASH_ACTIVITY ? 'dash' : 'open');
     const spinsBefore = count(h, "SELECT COUNT(*) FROM arcade_txns WHERE kind = 'spin'");
     const potBefore = h.wallet.pot('glimmer');
     // An immediate vault for a: keys on reels 1, 3 and 5, doors shuffled, door drawn.
