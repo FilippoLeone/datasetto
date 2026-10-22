@@ -7,6 +7,8 @@
  *
  * The same run checks that no item code reaches the client for a cell before its BlockBroken.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { ByteReader, ByteWriter } from '../../../src/arcade/core/bytes.js';
 import { xorshift32 } from '../../../src/arcade/core/rng.js';
@@ -158,6 +160,16 @@ describe('the client world', () => {
     for (let seed = 1; seed <= 3; seed += 1) {
       const r = fuzz({ seed: 700 + seed, ticks: 4200, arena: 'rotation', mode: 'quickfire', seats: true });
       expect(r.keyframes).toBeGreaterThan(1);
+    }
+  });
+});
+
+describe('hidden items', () => {
+  it('never appear in the modules that build what clients and bots see (fuseyard.md §12 "fuseyard.hidden")', () => {
+    // The hidden layer (items under unbroken blocks) lives only in the sim; these files must not read it.
+    for (const file of ['codec.ts', 'view.ts', 'danger.ts', 'bots.ts']) {
+      const src = readFileSync(fileURLToPath(new URL('../../../src/arcade/core/fuseyard/' + file, import.meta.url)), 'utf8');
+      expect(/hidden/i.test(src), file).toBe(false);
     }
   });
 });

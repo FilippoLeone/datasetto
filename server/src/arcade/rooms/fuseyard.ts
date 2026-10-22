@@ -2,7 +2,7 @@
  * Fuseyard's MatchGameDef (plan.md §2.6.3, fuseyard.md §3–§5, §10): the lobby options, how a match
  * is built from a live lobby, its seat and idle rules, its pacing budget, and what is written at the
  * end. The match itself is the shared core runtime (core/fuseyard/runtime.ts) wrapped by `wrapCore`;
- * the server adds the deflated HANDOVER and replay bodies.
+ * the server adds the HANDOVER body (the dump; the platform deflates it) and the deflated replay.
  */
 import { deflateRawSync } from 'node:zlib';
 import { z } from 'zod';
@@ -71,10 +71,12 @@ const fuseyard: MatchGameDef = {
   create(ctx) {
     const cfg = ctx.cfg as FuseyardCfg | null;
     const config = configOf(cfg, ctx.seed, ctx.mode);
-    const seats = ctx.seats.map((s) => ({ slot: s.slot, human: !s.bot, botLevel: s.bot ? s.botLevel : config.botLevel }));
+    // Bot strength is the lobby's Bots option (the hub's own bot level is always 1 from the sheet).
+    const seats = ctx.seats.map((s) => ({ slot: s.slot, human: !s.bot, botLevel: config.botLevel }));
     const core = createFuseyardCore({ config, seats, offline: false, replay: true });
     return wrapCore('fuseyard', ctx.id, core, {
-      handover: () => deflateRawSync(core.dump()),
+      // The platform deflates the HANDOVER body; the client inflates it before the game sees it.
+      handover: () => core.dump(),
       replay: () => deflateRawSync(core.replayBytes()),
     });
   },
