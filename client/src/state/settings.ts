@@ -4,6 +4,7 @@ import { parseShortcut, serializeShortcut } from '@/lib/shortcut';
 import { Storage } from '@/lib/storage';
 import { DEFAULT_OVERLAY_CORNER, isOverlayCorner } from '@/features/voice/voiceOverlayState';
 import { clampStrength, DEFAULT_STRENGTH_DB } from '@/services/voice/neuralEngine';
+import { normalizeBlurLevel } from '@/services/voice/backgroundBlur';
 import type { AudioSettings, ClipSeconds, NoiseSuppressionLevel, ScreenQuality } from '@/types/protocol';
 
 const SETTINGS_KEY = 'rtmpdisc.settings.v1';
@@ -45,6 +46,7 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   clipIncludeVoice: false,
   clipShortcut: DEFAULT_CLIP_SHORTCUT,
   shareClipsAllowed: true,
+  cameraBlur: 'off',
 };
 
 /** Merge stored settings over the defaults, dropping values this build does not know. */
@@ -64,6 +66,8 @@ export const normalizeAudioSettings = (stored: Partial<AudioSettings> | null | u
   if (!CLIP_SECONDS.includes(next.clipSeconds)) next.clipSeconds = DEFAULT_AUDIO_SETTINGS.clipSeconds;
   next.clipIncludeVoice = Boolean(next.clipIncludeVoice);
   next.shareClipsAllowed = next.shareClipsAllowed !== false;
+  // Settings saved before background blur existed (or a value this build does not know) mean Off.
+  next.cameraBlur = normalizeBlurLevel(next.cameraBlur);
   // An unset shortcut stays unset (people may turn the key off); garbage falls back to the default.
   if (typeof next.clipShortcut !== 'string') next.clipShortcut = DEFAULT_CLIP_SHORTCUT;
   else if (next.clipShortcut !== '') {

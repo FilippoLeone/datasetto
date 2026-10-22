@@ -1,5 +1,6 @@
 import { computed, signal } from '@preact/signals';
 import type { NeuralStatus } from '@/services/voice/neuralSuppression';
+import { OFF_STATUS, type CameraBlurStatus } from '@/services/voice/backgroundBlur';
 
 /** `reconnecting`: the socket is gone but the call is kept; it rejoins by itself when the socket is back. */
 export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting';
@@ -38,7 +39,11 @@ export const noiseSuppressionStatus = signal<NeuralStatus>({ tier: 'deepfilterne
 export const pttPressed = signal(false);
 export const overallQuality = signal<ConnectionQuality>('unknown');
 
+/** Background blur of my camera (in the call or in the settings preview): where it runs, its cost, any notice. */
+export const cameraBlurStatus = signal<CameraBlurStatus>(OFF_STATUS);
 export const localCameraStream = signal<MediaStream | null>(null);
+/** The settings dialog's own camera preview (outside a call), blurred as drafted. */
+export const cameraPreviewStream = signal<MediaStream | null>(null);
 export const localScreenStream = signal<MediaStream | null>(null);
 /** Remote video streams keyed by peer id. */
 export const remoteVideo = signal<Record<string, { camera?: MediaStream; screen?: MediaStream }>>({});

@@ -17,6 +17,7 @@ import { supportsVoiceOverlay } from './desktopVoice';
 import { ShortcutCapture } from './ShortcutCapture';
 import { DesktopUpdatesSection } from '@/features/settings/DesktopUpdatesSection';
 import { ClipsSection } from '@/features/settings/ClipsSection';
+import { CameraSection } from '@/features/settings/CameraSection';
 import { formatShortcut, parseShortcut } from '@/lib/shortcut';
 import { voiceManager } from './voiceManager';
 import type { OverlayCorner } from './voiceOverlayState';
@@ -244,6 +245,7 @@ export const AudioSettingsModal = () => {
           )}
         </section>
 
+        <CameraSection draft={draft} patch={patch} />
         <ClipsSection draft={draft} patch={patch} />
         {supportsGameActivity() && <GameActivitySection />}
         <NotificationsSection />
