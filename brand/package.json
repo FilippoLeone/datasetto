@@ -1,0 +1,15 @@
+{
+  "name": "datasetto-brand",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Draws every Datasetto icon, splash screen and logo file from orbit.mjs.",
+  "type": "module",
+  "license": "AGPL-3.0",
+  "scripts": {
+    "generate": "node generate.mjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "sharp": "^0.35.5"
+  }
+}

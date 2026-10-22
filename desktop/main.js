@@ -849,6 +849,12 @@ function resolveResourcePath(...segments) {
   return path.join(__dirname, 'resources', ...segments);
 }
 
+// Window icon: on Windows the .ico, so the title bar and taskbar use its hand-tuned 16 to 48 px
+// frames instead of a scaled-down 1024 px PNG; elsewhere the PNG.
+function windowIconPath() {
+  return resolveResourcePath(process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+}
+
 function loadTrayImages() {
   if (!supportsTrayMinimize) {
     return;
@@ -929,7 +935,7 @@ function createWindow() {
       symbolColor: '#ffffff',
       height: 30
     },
-    icon: resolveResourcePath('icon.png'),
+    icon: windowIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -955,7 +961,7 @@ function createWindow() {
           menuBarVisible: false,
           backgroundColor: '#000000',
           title: 'Datasetto - Video',
-          icon: resolveResourcePath('icon.png'),
+          icon: windowIconPath(),
         }
       };
     }

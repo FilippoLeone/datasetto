@@ -153,11 +153,6 @@ async function prepareRenderer() {
   await runCommand('node', ['./scripts/copy-dist.mjs']);
 }
 
-async function generateIcons() {
-  console.log('\n🎨 Generating icons...\n');
-  await runCommand('node', ['./scripts/generate-icon.mjs']);
-}
-
 async function cleanRelease() {
   console.log('\n🧹 Cleaning release directory...\n');
   await runCommand('node', ['./scripts/clean-release.mjs']);
@@ -282,19 +277,16 @@ async function main() {
     // Step 2: Prepare renderer
     await prepareRenderer();
     
-    // Step 3: Generate icons
-    await generateIcons();
-    
-    // Step 4: Clean release directory
+    // Step 3: Clean release directory (the icons in resources/ are committed, see brand/README.md)
     await cleanRelease();
-    
-    // Step 5: Build Electron for each target
+
+    // Step 4: Build Electron for each target
     const platformArgs = getPlatformTargets(args.platform);
     const archArgs = getArchTargets(args.arch);
     
     await buildElectron(platformArgs, archArgs);
     
-    // Step 6: Generate build manifest
+    // Step 5: Generate build manifest
     await generateBuildManifest();
     
     console.log('\n✅ Build completed successfully!');

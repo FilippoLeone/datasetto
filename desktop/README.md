@@ -79,7 +79,7 @@ The packaged app keeps itself current through [electron-updater](https://www.ele
 
 The feed is the public GitHub provider: electron-updater reads the repository's releases feed, downloads `latest.yml` (or `latest-mac.yml` / `latest-linux.yml`) from the newest release and then the installer named in it. Draft releases are not visible to it and pre-releases are skipped. A release without the metadata files is reported as an error in the log and ignored.
 
-To tweak the icon artwork, edit `scripts/generate-icon.mjs` (it uses `pngjs` to draw a gradient monogram) and rerun `npm run generate:icon`.
+The icons in `resources/` are committed and used as they are; the build does not redraw them. To change the artwork, see [brand/README.md](../brand/README.md).
 
 If you’re on Windows and had the app running from a previous build, the cleanup step will try to close `Datasetto.exe` automatically before packaging. If the build still fails with an “access is denied” error, ensure no Datasetto processes are running and retry `npm run build`.
 
@@ -121,10 +121,9 @@ desktop/
 ├─ picker/              # Screen/window picker window (HTML + preload)
 ├─ overlay/             # Always-on-top voice overlay window (HTML + preload)
 ├─ renderer/            # Copied Vite build output (generated, git-ignored)
-├─ resources/           # App and tray icons (generated) and the bundled runtime-config.json
+├─ resources/           # App and tray icons (drawn by brand/generate.mjs) and the bundled runtime-config.json
 ├─ scripts/
 │  ├─ copy-dist.mjs     # Copies client/dist into renderer/
-│  ├─ generate-icon.mjs # Draws the app and tray icons
 │  ├─ clean-release.mjs # Clears release/ before packaging
 │  └─ build-release.mjs # Multi-platform packaging helper
 └─ package.json         # Desktop-specific dependencies, scripts and the electron-builder config
@@ -149,7 +148,7 @@ The client uses these helpers from `client/src/services/native/desktop.ts` and `
 - `F12` / `Ctrl+Shift+I` toggles DevTools in any build; `Ctrl+Shift+L` reveals the log file (`datasetto.log` next to a portable executable, otherwise in the user-data folder).
 - `renderer/`, `release/` and a local `desktop/runtime-config.json` are git-ignored.
 - `DATASETTO_UPDATE_REPO` (`owner/repo`) changes where the packaged app looks for updates; see [Automatic updates](#automatic-updates).
-- The icons in `resources/` (`icon.png`, `icon.ico`, `icon-speaking.*`, `tray-*.*`) are all drawn by `scripts/generate-icon.mjs`; change the artwork there rather than editing the files.
+- The icons in `resources/` (`icon.png` for Linux and the window, `icon.ico` for Windows, `icon.icns` for macOS, `icon-speaking.*`, `tray-*.*`) are all drawn by `brand/generate.mjs`; change the artwork there rather than editing the files.
 - Adjust the `build` section in `package.json` if you need different packaging targets or signing options.
 - Packaging tweaks already enabled:
   - Relative asset paths when `VITE_BUILD_TARGET=desktop`, so the portable build resolves bundled files correctly.
