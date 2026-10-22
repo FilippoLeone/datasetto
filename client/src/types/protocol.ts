@@ -787,7 +787,8 @@ export type EventMap = {
   };
   'video:camera:started': { stream: MediaStream };
   'video:camera:stopped': void;
-  'video:screen:started': { stream: MediaStream; hasAudio: boolean };
+  /** `audioNotice`: the host's toast about the share's sound (none, or Datasetto's own sound in it), null when all is well. */
+  'video:screen:started': { stream: MediaStream; hasAudio: boolean; audioNotice: string | null };
   'video:screen:stopped': void;
   'video:remote:track': { peerId: string; streamType: 'camera' | 'screen'; stream: MediaStream; track: MediaStreamTrack };
   'video:remote:track:removed': { peerId: string; streamType: 'camera' | 'screen' };
