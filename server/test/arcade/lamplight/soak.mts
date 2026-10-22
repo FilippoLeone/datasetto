@@ -80,7 +80,12 @@ if (!isMainThread) {
     parentPort?.postMessage(run());
   });
   parentPort?.postMessage(run());
-} else {
+}
+
+/** The soak, for the platform runner (`npm run test:soak -- lamplight`) or run directly. Throws on failure. */
+export default async function soak(o: { deadlineMs?: number; log?(line: string): void } = {}): Promise<void> {
+  const say = o.log ?? ((line: string) => console.log(line));
+  const wallMs = Math.min(WALL_MS, Math.max(1000, (o.deadlineMs ?? Date.now() + WALL_MS) - Date.now() - 500));
   const started = Date.now();
   let hands = 0;
   let sum = 0;
@@ -103,7 +108,7 @@ if (!isMainThread) {
     const wall = setTimeout(() => {
       finish('timeout', 'hard stop at 60 s');
       resolve();
-    }, WALL_MS);
+    }, wallMs);
     let alive = THREADS;
     for (let i = 0; i < THREADS; i++) {
       // Workers do not inherit the tsx loader: a tiny bootstrap registers it, then loads this file.
@@ -147,8 +152,18 @@ if (!isMainThread) {
     }
   });
   const { mean, se } = stats();
-  console.log(
+  say(
     JSON.stringify({ verdict, reason, hands, sharpBbPerHand: Number(mean.toFixed(3)), se: Number(se.toFixed(3)), lowerBound95: Number((mean - 1.645 * se).toFixed(3)), seconds: (Date.now() - started) / 1000 }),
   );
-  process.exit(verdict === 'pass' ? 0 : 1);
+  if (verdict !== 'pass') throw new Error(reason);
+}
+
+if (isMainThread && process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  soak().then(
+    () => process.exit(0),
+    (e: unknown) => {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(1);
+    },
+  );
 }

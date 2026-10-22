@@ -71,6 +71,7 @@ export const makeFakeApi = (o: { settings?: Partial<ArcadeSettings>; botCap?: nu
   const rooms = new Map<string, Set<string>>();
   const lobbies = new Map<string, LobbyRecord>();
   const closed: { id: string; reason: string }[] = [];
+  const updates: { id: string; seats?: unknown; watchers?: readonly string[]; state?: string }[] = [];
   let policy: QueuePolicy | null = null;
   let bots = 0;
   const botCap = o.botCap ?? 6;
@@ -124,6 +125,12 @@ export const makeFakeApi = (o: { settings?: Partial<ArcadeSettings>; botCap?: nu
         closed.push({ id, reason });
         lobbies.delete(id);
       },
+      update(id, patch) {
+        const l = lobbies.get(id);
+        if (!l) return;
+        updates.push({ id, ...patch });
+        lobbies.set(id, { ...l, ...(patch.seats ? { seats: patch.seats } : {}), ...(patch.watchers ? { watchers: patch.watchers } : {}), ...(patch.state ? { state: patch.state } : {}) });
+      },
       bots: {
         take(n) {
           if (bots + n > botCap) return false;
@@ -146,6 +153,7 @@ export const makeFakeApi = (o: { settings?: Partial<ArcadeSettings>; botCap?: nu
     clock,
     log: { warn: () => undefined, info: () => undefined, debug: () => undefined, error: () => undefined } as unknown as TableApi['log'],
     settings: () => settings,
+    pending: { get: () => null, put: () => undefined, remove: () => undefined, olderThan: () => [] } as unknown as TableApi['pending'],
   };
 
   let socketSeq = 0;
@@ -156,6 +164,7 @@ export const makeFakeApi = (o: { settings?: Partial<ArcadeSettings>; botCap?: nu
     wallet,
     lobbies,
     closed,
+    updates,
     get bots() {
       return bots;
     },

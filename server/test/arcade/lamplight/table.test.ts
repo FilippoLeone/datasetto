@@ -222,7 +222,9 @@ describe('online rules', () => {
     const c = { accountId: host.accountId, socketId: host.id, voiceChannelId: 'ch1' };
     expect(game.lobby!.onCreate(c, { mode: 'open', tier: 'boulder', bots: 'regular' })).toEqual({ ok: false, code: 'bots' });
     expect(game.lobby!.onCreate(c, { mode: 'open', tier: 'summit', bots: 'sharp' })).toEqual({ ok: false, code: 'bots' });
-    expect(game.lobby!.onCreate(c, { mode: 'trio', buyIn: 1000, bots: 'regular' })).toEqual({ ok: false, code: 'bots' });
+    // The Trio's refusal needs the mode: the hub's onCreated closes such a lobby.
+    game.lobby!.onCreated!(c, h.lobby('trioX', 'trio', { buyIn: 1000, bots: 'regular' }));
+    expect(h.closed).toContainEqual({ id: 'trioX', reason: 'bots' });
     expect(game.lobby!.onCreate(c, { mode: 'open', tier: 'cobble', bots: 'regular' })).toEqual({ ok: true });
     h.setSettings({ serverBots: false });
     expect(game.lobby!.onCreate(c, { mode: 'open', tier: 'pebble', bots: 'regular' })).toEqual({ ok: false, code: 'bots' });

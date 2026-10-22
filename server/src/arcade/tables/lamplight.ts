@@ -231,6 +231,8 @@ const cfgSchema = z
     players: z.coerce.number().int().min(2).max(9).optional(),
     seats: z.coerce.number().int().min(2).max(9).optional(),
     bots: z.union([z.enum(BOT_LEVELS as unknown as [BotLevel, ...BotLevel[]]), z.literal('off'), z.null()]).optional(),
+    /** The lobby form's "Bots at an online table" switch (off by default). */
+    onlineBots: z.boolean().optional(),
     buyIn: z.coerce.number().int().optional(),
   })
   .passthrough();
@@ -247,19 +249,19 @@ export const parseCfg = (mode: string, raw: unknown): LamplightCfg | null => {
   const p = cfgSchema.safeParse(raw ?? {});
   if (!p.success) return null;
   const c = p.data;
-  const bots = c.bots && c.bots !== 'off' ? c.bots : null;
+  const level = c.bots && c.bots !== 'off' ? c.bots : null;
+  // The form always sends the switch; without it (the API, tests) a bot level alone asks for bots.
+  const bots = c.onlineBots === undefined ? level : c.onlineBots ? (level ?? 'regular') : null;
   if (mode === 'open') {
     const tier = c.tier ?? 'pebble';
     return { tier, seats: c.seats ?? c.players ?? 6, bots, buyIn: 0 };
   }
   if (mode === 'cup') {
-    const buyIn = c.buyIn ?? 2000;
-    if (!(CUP_BUY_INS as readonly number[]).includes(buyIn)) return null;
+    const buyIn = (CUP_BUY_INS as readonly number[]).includes(c.buyIn ?? 0) ? (c.buyIn as number) : 2000;
     return { tier: 'pebble', seats: c.seats ?? c.players ?? 6, bots, buyIn };
   }
   if (mode === 'trio') {
-    const buyIn = c.buyIn ?? 1000;
-    if (!(TRIO_BUY_INS as readonly number[]).includes(buyIn)) return null;
+    const buyIn = (TRIO_BUY_INS as readonly number[]).includes(c.buyIn ?? 0) ? (c.buyIn as number) : 1000;
     return { tier: 'pebble', seats: 3, bots, buyIn };
   }
   return null;
@@ -393,7 +395,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
   const clock = api.clock;
   const rand = deps.randInt ?? ((n: number) => randomInt(n));
   const newSecret = deps.secret ?? (() => new Uint8Array(randomBytes(32)));
-  const store = createHandStore(deps.db ?? (api as unknown as { db?: DB }).db ?? null);
+  const store = createHandStore(deps.db === undefined ? (api.db ?? null) : deps.db);
   const tables = new Map<string, Table>();
   /** Which table each socket watches (one per socket). */
   const watching = new Map<string, string>();
@@ -452,11 +454,13 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       tb.ring.push({ q: e.q, out, hand: e.ev === 'hand' ? e.no : null });
       if (tb.ring.length > RING_SIZE) tb.ring.shift();
       const turnKey = (e.ev === 'hand' || e.ev === 'act' || e.ev === 'street') && e.n >= 0 ? tb.state.hand?.handNo + ':' + e.q : null;
-      api.emitRoom(ROOM(tb.id), out.name, () => out.data, {
-        queue: 'lamplight',
-        stamp: (data, sentAt) => stampMs(data as Record<string, unknown>, out.dl, sentAt),
-        onSent: turnKey ? (waited) => queueCredit(tb, turnKey, waited) : undefined,
-      });
+      const actor = turnKey && (e.ev === 'hand' || e.ev === 'act' || e.ev === 'street') ? (tb.state.seats[e.n]?.player?.accountId ?? null) : null;
+      const stamp = (data: unknown, sentAt: number) => stampMs(data as Record<string, unknown>, out.dl, sentAt);
+      for (const sid of recipients(tb)) {
+        const credit = actor !== null && accountOfSocket.get(sid) === actor;
+        api.emit(sid, out.name, out.data, { queue: 'lamplight', stamp, onSent: credit && turnKey ? (waited) => queueCredit(tb, turnKey, waited) : undefined });
+      }
+      if (e.ev === 'seat') lobbyDirty(tb);
       if (e.ev === 'hand') {
         for (const s of tb.state.seats) {
           if (!s.inHand || !s.player?.accountId) continue;
@@ -526,6 +530,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       dealt: [],
     };
     tables.set(lobby.id, tb);
+    lobbyDirty(tb);
     if (mode === 'open' && cfg.bots) seatBots(tb);
     // Arms the idle close, so a table nobody sits at never holds bots or memory for long.
     arm(tb);
@@ -535,7 +540,8 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
   /** Online cash bots: Pebble and Cobble only, house-backed, within the server-wide cap. */
   const seatBots = (tb: Table): void => {
     if (!tb.cfg.bots || !botsAllowed(tb)) return;
-    const want = Math.min(tb.state.seats.length - 1, 3);
+    // Bots leave at least two seats for people.
+    const want = Math.max(0, Math.min(tb.state.seats.length - 2, 4));
     for (let n = tb.state.seats.length - 1, placed = 0; n >= 0 && placed < want; n--) {
       if (tb.state.seats[n].player) continue;
       if (!api.hub.bots.take(1)) break;
@@ -560,7 +566,8 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     }
   };
 
-  const botsAllowed = (tb: Table): boolean => api.settings().serverBots && (tb.mode === 'cup' || tb.cfg.tier === 'pebble' || tb.cfg.tier === 'cobble');
+  const botsAllowedAt = (tier: Tier): boolean => tier === 'pebble' || tier === 'cobble';
+  const botsAllowed = (tb: Table): boolean => api.settings().serverBots && (tb.mode === 'cup' || botsAllowedAt(tb.cfg.tier));
 
   /** Cash a bot out (or re-buy it, at most three buy-ins per table session). */
   const botCashout = (tb: Table, n: number): void => {
@@ -618,6 +625,9 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     for (const a of tb.registered) if (seatOf.get(a)?.t === tb.id) seatOf.delete(a);
     for (const s of tb.state.seats) if (s.player?.accountId && seatOf.get(s.player.accountId)?.t === tb.id) seatOf.delete(s.player.accountId);
     tb.closed = true;
+    const pendingSync = lobbySync.get(tb.id);
+    if (pendingSync !== undefined) clock.clearTimeout(pendingSync);
+    lobbySync.delete(tb.id);
     for (const sid of tb.watchers) {
       api.rooms.leave(sid, ROOM(tb.id));
       if (watching.get(sid) === tb.id) watching.delete(sid);
@@ -1026,6 +1036,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       }
     }
     tb.started = true;
+    lobbyDirty(tb);
     tb.state.prizePool = tb.tournament.pool;
     if (trio) {
       tb.state.multiplier = trio.mult;
@@ -1094,6 +1105,35 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     arm(tb);
   };
 
+  /** Sockets that get the table's events: in the room and not away. */
+  const recipients = (tb: Table): string[] => [...tb.watchers].filter((sid) => !tb.away.has(sid));
+
+  const lobbySync = new Map<string, unknown>();
+  const syncLobby = (tb: Table): void => {
+    lobbySync.delete(tb.id);
+    if (tb.closed) return;
+    const seated = new Set<string>();
+    const seats = tb.state.seats.map((x) => {
+      if (x.player?.accountId) seated.add(x.player.accountId);
+      return { accountId: x.player?.accountId ?? null, bot: !!x.player?.botId, state: 0 };
+    });
+    const watchers = new Set<string>();
+    for (const sid of tb.watchers) {
+      const a = accountOfSocket.get(sid);
+      if (a && !seated.has(a)) watchers.add(a);
+    }
+    try {
+      api.hub.update(tb.id, { seats, watchers: [...watchers], state: tb.mode === 'open' || tb.started ? 'live' : 'open' });
+    } catch (error) {
+      api.log.warn({ err: error, table: tb.id }, 'lamplight: lobby update failed');
+    }
+  };
+  /** After the current call (the hub fills its own seat after onJoin returns). */
+  const lobbyDirty = (tb: Table): void => {
+    if (lobbySync.has(tb.id) || tb.closed) return;
+    lobbySync.set(tb.id, clock.setTimeout(() => syncLobby(tb), 0));
+  };
+
   const join = (socketId: string, tb: Table): void => {
     const prev = watching.get(socketId);
     if (prev && prev !== tb.id) {
@@ -1104,6 +1144,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     tb.watchers.add(socketId);
     tb.away.delete(socketId);
     api.rooms.join(socketId, ROOM(tb.id));
+    lobbyDirty(tb);
   };
 
   const spectators = (tb: Table): number => {
@@ -1155,6 +1196,36 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     }
     api.hub.publish(tb.id);
     api.hub.activityChanged(tb.channelId);
+  };
+
+  /** Register for a Cup or Trio: the buy-in goes into escrow in the same transaction. */
+  const register = (tb: Table, c: { accountId: string; socketId: string }): { ok: true } | { ok: false; code: string } => {
+    if (tb.started) return no('started');
+    if (api.prefs.hidden(c.accountId, 'lamplight')) return no('hidden');
+    const held = seatOf.get(c.accountId);
+    if (held) return held.t === tb.id ? ok : no('seated');
+    const free = tb.state.seats.findIndex((x) => !x.player);
+    if (free < 0) return no('full');
+    // A wallet that was never read gets its starting chips now.
+    api.wallet.view(c.accountId);
+    const r = api.wallet.transfer('buyin', tb.ref, c.accountId, 'reg:' + nonce(tb), [
+      { account: walletAccount(c.accountId), delta: -tb.cfg.buyIn },
+      { account: escrowAccount(tb.ref, c.accountId), delta: tb.cfg.buyIn },
+    ]);
+    if (!r.ok) return no(r.code === 'funds' ? 'funds' : 'busy');
+    const stack = tb.mode === 'cup' ? 1500 : 500;
+    emitEvents(tb, seatPlayer(tb.state, free, { accountId: c.accountId, botId: null, avatarSeed: 0 }, stack));
+    tb.info[free] = freshInfo();
+    tb.registered.push(c.accountId);
+    seatOf.set(c.accountId, { t: tb.id, seat: free });
+    join(c.socketId, tb);
+    api.hub.activityChanged(tb.channelId);
+    // The Trio starts with its third human; a Cup when every seat is taken.
+    if (tb.mode === 'trio' && tb.registered.length === 3) startTournament(tb);
+    else if (tb.mode === 'cup' && tb.registered.length === tb.state.seats.length) startTournament(tb);
+    else for (const sid of tb.watchers) sendSnap(tb, sid, accountOfSocket.get(sid) ?? null);
+    arm(tb);
+    return ok;
   };
 
   const tableOf = (t: string): Table | null => {
@@ -1254,6 +1325,8 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       const back = leftWith.get(c.accountId);
       const floor = back && back.t === tb.id && clock.now() - back.at < RETURN_STACK_MS ? Math.min(cfg.buyInMax, Math.max(cfg.buyInMin, back.stack)) : cfg.buyInMin;
       if (p.buyIn < floor || p.buyIn > Math.max(cfg.buyInMax, floor)) return no('amount');
+      // A wallet that was never read gets its starting chips now.
+      api.wallet.view(c.accountId);
       const r = api.wallet.transfer('buyin', tb.ref, c.accountId, p.id, [
         { account: walletAccount(c.accountId), delta: -p.buyIn },
         { account: escrowAccount(tb.ref, c.accountId), delta: p.buyIn },
@@ -1318,6 +1391,8 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     if (tb.state.hand && tb.state.hand.street !== 'done' && s.inHand) return no('busy');
     const want = Math.min(p.amount, tb.state.config.buyInMax - s.stack);
     if (want <= 0 || (s.stack === 0 && want < tb.state.config.buyInMin)) return no('amount');
+    // A wallet that was never read gets its starting chips now.
+    api.wallet.view(c.accountId);
     const r = api.wallet.transfer('buyin', tb.ref, c.accountId, p.id, [
       { account: walletAccount(c.accountId), delta: -want },
       { account: escrowAccount(tb.ref, c.accountId), delta: want },
@@ -1347,7 +1422,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     const now = clock.now();
     if (now - tb.info[n].emoteAt < EMOTE_GAP_MS) return no('busy');
     tb.info[n].emoteAt = now;
-    api.emitRoom(ROOM(tb.id), 'lamplight:emote', () => ({ t: tb.id, s: n, id: p.id }), { queue: 'lamplight', coalesce: 'emote:' + tb.id + ':' + n });
+    for (const sid of recipients(tb)) api.emit(sid, 'lamplight:emote', { t: tb.id, s: n, id: p.id }, { queue: 'lamplight', coalesce: 'emote:' + tb.id + ':' + n });
     return ok;
   });
 
@@ -1389,71 +1464,73 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     tables,
     lobby: {
       onCreate(c, cfg) {
+        // The mode is not known here (the hub passes it to onCreated); checks that need it happen there.
         const limits = api.hub.limits();
         if (countIn(c.voiceChannelId) >= limits.tablesPerChannel || countIn(null) >= limits.tables) return no('limit');
         if (api.prefs.hidden(c.accountId, 'lamplight')) return no('hidden');
-        const raw = (cfg ?? {}) as { mode?: string };
-        const mode = typeof raw.mode === 'string' ? raw.mode : 'open';
-        const parsed = parseCfg(mode, cfg);
-        if (!parsed) return no('invalid');
-        if (parsed.bots) {
-          if (mode === 'trio') return no('bots');
+        const raw = (cfg ?? {}) as { tier?: unknown };
+        const parsed = parseCfg('open', cfg);
+        if (parsed?.bots) {
           if (!api.settings().serverBots) return no('bots');
-          if (mode === 'open' && parsed.tier !== 'pebble' && parsed.tier !== 'cobble') return no('bots');
+          if (raw.tier === 'boulder' || raw.tier === 'summit') return no('bots');
         }
         return ok;
+      },
+      onCreated(c, lobby) {
+        // Mode-specific checks; refusing closes the lobby (the creator gets an error).
+        const cfg = parseCfg(lobby.mode, lobby.cfg);
+        const refuse = (why: string): void => api.hub.close(lobby.id, why);
+        if (!cfg) return refuse('invalid');
+        if (cfg.bots && (lobby.mode === 'trio' || (lobby.mode === 'open' && !botsAllowedAt(cfg.tier)) || !api.settings().serverBots)) return refuse('bots');
+        const tb = ensureTable(lobby);
+        if (!tb) return refuse('invalid');
+        tb.host = c.accountId;
+        accountOfSocket.set(c.socketId, c.accountId);
+        if (tb.mode === 'open') {
+          // A cash table exists at once; the creator sits down from the table.
+          join(c.socketId, tb);
+          return;
+        }
+        const r = register(tb, c);
+        if (!r.ok) closeTable(tb, r.code);
       },
       onJoin(c, lobby, as) {
         const tb = ensureTable(lobby);
         if (!tb) return no('gone');
         accountOfSocket.set(c.socketId, c.accountId);
-        if (as === 'spectator' || tb.mode === 'open') {
+        if (as === 'spectator' || tb.mode === 'open' || (tb.started && seatIndexOf(tb, c.accountId) >= 0)) {
           if (seatIndexOf(tb, c.accountId) < 0 && spectators(tb) >= SPECTATORS && !tb.watchers.has(c.socketId)) return no('full');
           join(c.socketId, tb);
           sendSnap(tb, c.socketId, c.accountId);
           return ok;
         }
-        // Register for a Cup or Trio: the buy-in goes into escrow in the same transaction.
-        if (tb.started) return no('started');
-        if (api.prefs.hidden(c.accountId, 'lamplight')) return no('hidden');
-        const held = seatOf.get(c.accountId);
-        if (held) return held.t === tb.id ? ok : no('seated');
-        const free = tb.state.seats.findIndex((s) => !s.player);
-        if (free < 0) return no('full');
-        const r = api.wallet.transfer('buyin', tb.ref, c.accountId, 'reg:' + nonce(tb), [
-          { account: walletAccount(c.accountId), delta: -tb.cfg.buyIn },
-          { account: escrowAccount(tb.ref, c.accountId), delta: tb.cfg.buyIn },
-        ]);
-        if (!r.ok) return no(r.code === 'funds' ? 'funds' : 'busy');
-        const stack = tb.mode === 'cup' ? 1500 : 500;
-        emitEvents(tb, seatPlayer(tb.state, free, { accountId: c.accountId, botId: null, avatarSeed: 0 }, stack));
-        tb.registered.push(c.accountId);
-        seatOf.set(c.accountId, { t: tb.id, seat: free });
-        join(c.socketId, tb);
-        api.hub.publish(tb.id);
-        api.hub.activityChanged(tb.channelId);
-        // The Trio starts with its third human; a Cup when every seat is taken.
-        if (tb.mode === 'trio' && tb.registered.length === 3) startTournament(tb);
-        else if (tb.mode === 'cup' && tb.registered.length === tb.state.seats.length) startTournament(tb);
-        else for (const sid of tb.watchers) sendSnap(tb, sid, accountOfSocket.get(sid) ?? null);
-        arm(tb);
-        return ok;
+        return register(tb, c);
       },
       onLeave(c, lobby) {
         const tb = tables.get(lobby.id);
         if (!tb) return;
-        if (tb.watchers.has(c.socketId)) {
-          tb.watchers.delete(c.socketId);
-          api.rooms.leave(c.socketId, ROOM(tb.id));
-          watching.delete(c.socketId);
-        }
         // Unregistering refunds the buy-in, but only before the start (and never after the Firefly draw).
         if (tb.mode !== 'open' && !tb.started && tb.registered.includes(c.accountId)) unregister(tb, c.accountId);
+        // Leaving a cash table's lobby is "leave after this hand".
+        const n = seatIndexOf(tb, c.accountId);
+        if (tb.mode === 'open' && n >= 0) {
+          const s = tb.state.seats[n];
+          if (tb.state.hand && tb.state.hand.street !== 'done' && s.inHand) tb.info[n].leaveAfter = true;
+          else cashout(tb, n, 'leave');
+          arm(tb);
+        }
+        for (const sid of api.presence.socketsOf(c.accountId)) {
+          if (!tb.watchers.has(sid)) continue;
+          tb.watchers.delete(sid);
+          tb.away.delete(sid);
+          api.rooms.leave(sid, ROOM(tb.id));
+          if (watching.get(sid) === tb.id) watching.delete(sid);
+        }
+        lobbyDirty(tb);
       },
       onStart(lobby) {
         const tb = tables.get(lobby.id);
-        if (!tb || tb.mode === 'open') return no('illegal');
-        if (tb.mode === 'trio') return no('illegal');
+        if (!tb || tb.mode !== 'cup') return no('illegal');
         if (tb.registered.length < 2) return no('players');
         startTournament(tb);
         arm(tb);

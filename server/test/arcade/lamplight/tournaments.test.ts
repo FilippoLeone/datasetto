@@ -111,6 +111,8 @@ describe('the Firefly Trio online', () => {
   it('refuses online bots in the Trio', () => {
     const { h, game } = setup('trio', { buyIn: 200 });
     const s = h.account('a');
-    expect(game.lobby!.onCreate(ctx(s), { mode: 'trio', buyIn: 200, bots: 'greenhorn' })).toEqual({ ok: false, code: 'bots' });
+    game.lobby!.onCreated!(ctx(s), h.lobby('trioB', 'trio', { buyIn: 200, bots: 'greenhorn' }));
+    expect(h.closed).toContainEqual({ id: 'trioB', reason: 'bots' });
+    expect(game.tables.has('trioB')).toBe(false);
   });
 });

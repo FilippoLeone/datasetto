@@ -26,6 +26,9 @@ import { createArt, drawEmote, type Art } from './render/art';
 import { createScene, type Scene } from './render/draw';
 import { createRing } from './render/ring';
 import { createTableModel, EVENT_NAMES, type Effect } from './table';
+import { VERSION } from '@arcade/core/lamplight/version';
+import { effect } from '@preact/signals';
+import { arcadeConfig, arcadeWallet } from '@/features/arcade/state';
 
 const CODES: Record<string, string> = {
   not_your_turn: 'Not your turn',
@@ -75,6 +78,8 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
     timers.add(h);
   };
 
+  const config = host.mode === 'remote' ? arcadeConfig.peek() : null;
+  const blocked = config && config.proto.lamplight !== VERSION.proto ? 'Update the app to play online.' : null;
   const bar = createBarState();
   bar.fast.value = prefs.fast;
   bar.twoColour.value = prefs.twoColour;
@@ -168,7 +173,7 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
       folded: !!s?.folded,
       format: view.config.format,
       local: host.mode === 'local',
-      balance: host.mode === 'local' ? opts.shell.practice.balance() : model.balance,
+      balance: host.mode === 'local' ? opts.shell.practice.balance() : (arcadeWallet.peek()?.bal ?? model.balance),
       minBuyIn: view.config.buyInMin,
       maxBuyIn: view.config.buyInMax,
       bb: view.level.bb,
@@ -178,7 +183,7 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
       result: model.result,
       buyIn: model.buyIn,
       sitOutNext: s?.status === 'sittingOut',
-      blocked: null,
+      blocked,
       joinable: view.config.format === 'open' ? view.seats.some((x) => !x.player) : model.registering,
       running: view.handsPlayed > 0,
     };
@@ -250,6 +255,28 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
     });
   }
   offs.push(opts.shell.practice.onChange(() => writeSeat()));
+  // Online: the chips balance comes from the platform's wallet pushes.
+  if (host.mode === 'remote') offs.push(effect(() => {
+    void arcadeWallet.value;
+    writeSeat();
+  }));
+  // A reconnect asks for what was missed (the seat was never released).
+  let wasUp = host.connected();
+  offs.push(
+    host.onConnection((up) => {
+      if (up && !wasUp && !blocked) sync(model.lastQ);
+      wasUp = up;
+    }),
+  );
+  /** Spectators stop the event stream while hidden; seated players keep it (their turn must reach them). */
+  const spectating = (): boolean => host.mode === 'remote' && (model.me === null || !model.view?.seats[model.me]?.player);
+  let away = false;
+  const goAway = (on: boolean): void => {
+    if (on === away || host.mode !== 'remote' || !opts.lobby) return;
+    if (on && !spectating()) return;
+    away = on;
+    void host.request(on ? 'arcade:away' : 'arcade:back', on ? { id: t } : { id: t, since: Math.max(0, model.lastQ) }).catch(() => undefined);
+  };
 
   // ---------------------------------------------------------------- clocks, ring, expiry
   const ring = createRing(root);
@@ -492,7 +519,8 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
 
   // ---------------------------------------------------------------- start
   opts.shell.status('live');
-  void request<{ ok: boolean }>('lamplight:sync', { since: -1 })
+  if (blocked) writeSeat();
+  else void request<{ ok: boolean }>('lamplight:sync', { since: -1 })
     .then(() => {
       if (host.mode === 'local') {
         void request('lamplight:fast', { on: prefs.fast });
@@ -504,6 +532,7 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
 
   return {
     pause() {
+      goAway(true);
       if (!visible) return;
       visible = false;
       loop.setVisible(false);
@@ -512,6 +541,7 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
       updateWake();
     },
     resume() {
+      goAway(false);
       if (visible) {
         markDirty();
         return;
@@ -536,6 +566,8 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
     },
     unmount() {
       if (disposed) return;
+      // A spectator closing the game stops its stream (the server keeps the slot a minute).
+      if (spectating() && !away) goAway(true);
       disposed = true;
       for (const off of offs) off();
       offs.length = 0;
