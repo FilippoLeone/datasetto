@@ -135,7 +135,7 @@ export const CameraSection = ({ draft, patch }: CameraSectionProps) => {
       {previewing && previewStream && (
         <VideoTile
           stream={previewStream}
-          label="What friends see"
+          label="Preview (mirrored)"
           mirror
           className="aspect-video w-full"
         />

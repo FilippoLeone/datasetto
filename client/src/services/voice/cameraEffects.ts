@@ -84,10 +84,11 @@ export const blurAssets = (): BlurAssets => ({
   wasmBinaryUrl: absolute(wasmBinaryUrl),
   landscapeModelUrl: absolute(landscapeModelUrl),
   squareModelUrl: absolute(squareModelUrl),
-  delegate: (globalThis.localStorage?.getItem('datasetto.blurDelegate') as 'CPU' | 'GPU' | null) ?? undefined,
 });
 
 const START_TIMEOUT_MS = 10_000;
+/** Canvas path: camera frames on their way to the worker and back at once. */
+const MAX_CANVAS_FRAMES_OUT = 2;
 
 const trackSize = (track: MediaStreamTrack): { width: number; height: number } => {
   const settings = track.getSettings?.() ?? {};
@@ -233,8 +234,9 @@ class BlurSession extends EventEmitter<SessionEvents> implements BlurSessionLike
 
   /**
    * Canvas path: the page plays the camera in a hidden <video>, sends each new frame to the
-   * worker as an ImageBitmap (one at a time; frames that arrive meanwhile are skipped and
-   * counted) and draws what comes back into the canvas whose capture stream is the track.
+   * worker as an ImageBitmap (at most two on their way, so the round trip does not cap the
+   * frame rate; frames that arrive while two are out are skipped and counted) and draws what
+   * comes back into the canvas whose capture stream is the track.
    */
   private pumpCanvas(source: MediaStreamTrack): void {
     this.pumpStop?.();
@@ -246,10 +248,9 @@ class BlurSession extends EventEmitter<SessionEvents> implements BlurSessionLike
     const canvas = this.outputCanvas!;
     const context = canvas.getContext('2d');
     const meter = new WindowMeter();
-    let busy = false;
+    const sentAt = new Map<number, number>();
     let stopped = false;
     let nextId = 0;
-    let sentAt = 0;
     let skipped = 0;
     let handle: number | null = null;
     type FrameVideo = HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number; cancelVideoFrameCallback?: (id: number) => void };
@@ -257,17 +258,14 @@ class BlurSession extends EventEmitter<SessionEvents> implements BlurSessionLike
 
     const grab = () => {
       if (stopped) return;
-      if (busy) {
+      if (sentAt.size >= MAX_CANVAS_FRAMES_OUT) {
         skipped += 1;
       } else if (video.readyState >= 2 && video.videoWidth > 0) {
-        busy = true;
-        sentAt = performance.now();
         const id = ++nextId;
+        sentAt.set(id, performance.now());
         createImageBitmap(video)
           .then((bitmap) => this.post({ type: 'frame', id, bitmap }, [bitmap]))
-          .catch(() => {
-            busy = false;
-          });
+          .catch(() => sentAt.delete(id));
       }
       schedule();
     };
@@ -283,7 +281,8 @@ class BlurSession extends EventEmitter<SessionEvents> implements BlurSessionLike
     };
     this.tickHandler = () => grab();
     this.frameHandler = (message) => {
-      busy = false;
+      const started = sentAt.get(message.id) ?? performance.now();
+      sentAt.delete(message.id);
       if (stopped || !context) {
         message.bitmap.close();
         return;
@@ -296,7 +295,7 @@ class BlurSession extends EventEmitter<SessionEvents> implements BlurSessionLike
       message.bitmap.close();
       meter.skipped(skipped);
       skipped = 0;
-      const window = meter.frame({ timestampUs: null, startedMs: sentAt, doneMs: performance.now(), costMs: message.costMs });
+      const window = meter.frame({ timestampUs: null, startedMs: started, doneMs: performance.now(), costMs: message.costMs });
       if (window) this.emit('stats', { window, segmentMs: 0, composeMs: 0 });
     };
     document.addEventListener('visibilitychange', onVisibility);

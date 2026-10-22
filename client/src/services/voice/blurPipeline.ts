@@ -16,8 +16,6 @@ export interface BlurAssets {
   wasmBinaryUrl: string;
   landscapeModelUrl: string;
   squareModelUrl: string;
-  /** Where the segmenter runs: XNNPACK on the CPU, or WebGL on the GPU. */
-  delegate?: 'CPU' | 'GPU';
 }
 
 type ModelKey = 'landscape' | 'square';
@@ -74,7 +72,7 @@ export class BlurPipeline {
         const model = await fetchModel(key === 'landscape' ? this.assets.landscapeModelUrl : this.assets.squareModelUrl);
         return ImageSegmenter.createFromOptions(
           { wasmLoaderPath: this.assets.wasmLoaderUrl, wasmBinaryPath: this.assets.wasmBinaryUrl },
-          { baseOptions: { modelAssetBuffer: model, delegate: this.assets.delegate ?? 'CPU' }, runningMode: 'VIDEO', outputConfidenceMasks: true, outputCategoryMask: false },
+          { baseOptions: { modelAssetBuffer: model, delegate: 'CPU' }, runningMode: 'VIDEO', outputConfidenceMasks: true, outputCategoryMask: false },
         );
       })();
       this.segmenters.set(key, pending);
