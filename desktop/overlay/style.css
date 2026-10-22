@@ -44,7 +44,8 @@ body {
 }
 
 body {
-  /* Room for the shadow around the card; main.js adds the same 16 px to the window height. */
+  /* Transparent space around the card, so it keeps its place and the enter animation is not
+     clipped; renderer.js adds the same 16 px to the height it reports. */
   padding: 8px;
   color: var(--color-text);
   font-family: var(--font-sans);
@@ -59,6 +60,8 @@ body {
   display: none !important;
 }
 
+/* No shadow: the window is a transparent rectangle that cuts a shadow off at its edges.
+   The 1 px border keeps the card apart from dark desktops. */
 .card {
   display: flex;
   flex-direction: column;
@@ -67,7 +70,6 @@ body {
   background: rgba(30, 31, 34, 0.92);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
   animation: card-in var(--duration-slow) var(--ease-out) both;
 }
