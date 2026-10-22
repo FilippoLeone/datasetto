@@ -682,8 +682,16 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
   api.on('glimmer:spin', { schema: spinSchema, limiter: 'spin', acked: true }, spin);
   api.on('glimmer:pick', { schema: z.object({ door: z.union([z.literal(0), z.literal(1), z.literal(2)]), id: idSchema }), limiter: 'spin', acked: true }, pick);
   api.on('glimmer:resume', { schema: z.object({ id: idSchema }), limiter: 'arcade', acked: true }, resume);
-  api.on('glimmer:away', { schema: z.object({}).passthrough(), limiter: 'arcade', acked: false }, (c) => away(c));
-  api.on('glimmer:react', { schema: z.object({ to: z.number().int().min(0).max(63), e: z.number().int().min(0).max(EMOTES.length - 1) }), limiter: 'arcade', acked: false }, react);
+  // Away and reactions are acknowledged with a bare {ok: true}: the client's TableHost only has
+  // request(), and an unanswered request would time out and count in the app's ack round-trip ring.
+  api.on('glimmer:away', { schema: z.object({}).passthrough(), limiter: 'arcade', acked: true }, (c) => {
+    away(c);
+    return { ok: true };
+  });
+  api.on('glimmer:react', { schema: z.object({ to: z.number().int().min(0).max(63), e: z.number().int().min(0).max(EMOTES.length - 1) }), limiter: 'arcade', acked: true }, (c, p) => {
+    react(c, p);
+    return { ok: true };
+  });
   api.on('glimmer:dash:create', { schema: z.object({ m: machineSchema, len: z.number().int(), buy: z.number().int() }), limiter: 'arcade', acked: true }, (c, p) => dashes.create(c, p));
   api.on('glimmer:dash:join', { schema: z.object({ id: z.string().min(1).max(16) }), limiter: 'arcade', acked: true }, (c, p) => dashes.join(c, p.id));
   api.on('glimmer:dash:leave', { schema: z.object({ id: z.string().min(1).max(16) }), limiter: 'arcade', acked: true }, (c, p) => dashes.leave(c, p.id));

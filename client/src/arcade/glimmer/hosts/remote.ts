@@ -56,9 +56,9 @@ export const createGlimmerHost = (t: TableHost): GlimmerHost => {
       (ack) => (ack && typeof ack === 'object' ? ack : ({ ok: false, code: 'invalid' } as Refused)),
       () => ({ ok: false, code: 'lost' }) as Refused,
     );
-  /** Events the server does not acknowledge: sent and forgotten. */
+  /** Events whose answer does not matter (the server answers {ok: true}): sent and forgotten. */
   const tell = (ev: string, data: unknown): void => {
-    void t.request(ev, data, { timeoutMs: 1 }).catch(() => undefined);
+    void t.request(ev, data).catch(() => undefined);
   };
   const listen = <T>(ev: string, cb: (data: T) => void): (() => void) => t.on(ev, (data) => cb(data as T));
 

@@ -1038,6 +1038,7 @@ Where the implementation fills in or differs from the sections above. The machin
 | 12 | Admin setting | `slotsMaxBet` (5–500) in Glimmerhall's `TableGameDef.settings`. | §19 item 14. |
 | 13 | Dev rig | Dev builds expose the offline hall's debug hooks as `window.__glimmerLocal` (`rig` queues the next draws, for the browser checks). Production builds never set it, and it only reaches the offline Practice hall. | Features can be forced in a real browser. |
 | 14 | Offline Dash | Every bot neighbour joins at once; the host leaving the lobby calls it off. A Dash still open when the hall closes is void and the buy-in goes back. | No humans to wait for offline. |
+| 15 | `glimmer:away`, `glimmer:react` | Acknowledged with a bare `{ok: true}` (a reaction refused by the 3 s rule is still `{ok: true}`, and dropped). | The `TableHost` only has `request()`; an unanswered request would time out and count in the app's ack round-trip ring, which the chat-first guard reads. |
 
 <!--
 Notes for the orchestrator (not part of the spec):
