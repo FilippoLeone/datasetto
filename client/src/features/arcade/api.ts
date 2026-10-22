@@ -144,6 +144,8 @@ const REFUSALS: Record<string, string> = {
   'not-host': 'Only the host can do that.',
   running: 'The game has already started.',
   empty: 'Nobody is seated yet.',
+  players: 'At least two players are needed to start.',
+  bots: "Bots can't join this table (only Pebble and Cobble cash tables and Cups, when the server allows bots).",
   auth: 'Sign in first.',
   'not-found': 'No such account.',
 };
