@@ -53,6 +53,14 @@ interface DesktopScreenshareSource {
   display_id?: string;
 }
 
+/** The desktop window's own title bar, drawn by the page (app/TitleBar.tsx). */
+interface DesktopTitleBar {
+  /** Height in pixels, the same as the system's caption buttons drawn over it. */
+  height: number;
+  /** Node's `process.platform` of the shell: `win32`, `darwin`, `linux`. */
+  platform: string;
+}
+
 /** Bridge exposed by desktop/preload.js through contextBridge. */
 interface DesktopAPI {
   getInfo: () => Promise<{ version?: string; platform?: string }>;
@@ -74,6 +82,10 @@ interface DesktopAPI {
   getLogPath: () => Promise<string>;
   openLogFile: () => Promise<unknown>;
   log: (level: string, ...args: unknown[]) => void;
+  /** Set when the shell hid the native title bar and the page draws its own; absent or null with a native frame. */
+  titleBar?: DesktopTitleBar | null;
+  /** The bar's colours (`#rrggbb`), for the caption buttons drawn over it (Windows, Linux; macOS ignores them). */
+  setTitleBarColors?: (colors: { color: string; symbolColor: string }) => void;
   /** Updater bridge; absent in desktop shells older than the updater. */
   getUpdateState?: () => Promise<DesktopUpdateState>;
   setAutoUpdate?: (enabled: boolean) => Promise<DesktopUpdateState>;

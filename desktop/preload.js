@@ -26,6 +26,11 @@ function defineGlobals() {
     openLogFile: () => ipcRenderer.invoke('app:open-log-file'),
     log: (level, ...args) => ipcRenderer.send('renderer:log', { level, args }),
 
+    // The page draws the window's title bar (main.js "Title bar"); null with a native frame.
+    titleBar: readTitleBar(),
+    setTitleBarColors: (colors) =>
+      ipcRenderer.send('titlebar:colors', { color: String(colors?.color ?? ''), symbolColor: String(colors?.symbolColor ?? '') }),
+
     // System-wide push to talk and the voice overlay (client feature-detects these).
     setPushToTalkShortcut: (accelerator) => ipcRenderer.invoke('ptt:set', { accelerator }),
     checkPushToTalkShortcut: (accelerator) => ipcRenderer.invoke('ptt:check', { accelerator }),
@@ -162,4 +167,11 @@ function hostnameOf(url) {
   } catch {
     return 'localhost';
   }
+}
+
+/** Height of the page-drawn title bar, from main.js (`--datasetto-title-bar=<px>`), or null. */
+function readTitleBar() {
+  const arg = process.argv.find((value) => value.startsWith('--datasetto-title-bar='));
+  const height = arg ? Number(arg.slice('--datasetto-title-bar='.length)) : NaN;
+  return Number.isFinite(height) && height > 0 ? { height, platform: process.platform } : null;
 }
