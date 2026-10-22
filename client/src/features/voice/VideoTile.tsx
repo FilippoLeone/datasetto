@@ -243,7 +243,7 @@ const TileClipBar = ({ clip }: { clip: TileClipControls }) => {
           data-clips-on={clip.on ? 'true' : undefined}
           data-clips-recording={clip.recording ? 'true' : undefined}
         >
-          {clip.on ? <CircleDot size={18} className={clip.recording ? 'animate-pulse' : undefined} /> : <Scissors size={18} />}
+          {clip.on ? <CircleDot size={18} className={clip.recording ? 'clip-pulse' : undefined} /> : <Scissors size={18} />}
         </span>
       </Menu>
     );
@@ -269,7 +269,7 @@ const TileClipBar = ({ clip }: { clip: TileClipControls }) => {
         className={cn('flex items-center gap-1 rounded-sm p-1 text-[11px] font-semibold transition-colors duration-150 hover:bg-white/15', clip.on && 'text-live')}
         data-tile-clips-toggle
       >
-        <CircleDot size={14} className={clip.recording ? 'animate-pulse' : undefined} />
+        <CircleDot size={14} className={clip.recording ? 'clip-pulse' : undefined} />
         {clip.on && <span className="hidden pr-0.5 @min-[200px]:inline">{clip.recording ? 'Clips on' : 'Clips…'}</span>}
       </button>
       <button

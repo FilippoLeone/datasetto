@@ -187,18 +187,63 @@
     padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
   }
 
-  /* Green ring around whoever is talking; the pulse is non-essential motion. */
+  /* Green ring around whoever is talking (on Avatar's wrapper). It pulses between a 2px solid
+     ring (::before) and a 4px soft one (::after) by cross-fading their opacity, which the
+     compositor runs without repainting. An animated box-shadow repaints on every frame (240 times
+     a second on a 240 Hz screen). Both sit under the picture and the status dot. The pulse is
+     non-essential motion: with reduced motion only the solid ring stays. */
   .speaking-ring {
-    box-shadow: 0 0 0 2px var(--color-online);
+    isolation: isolate;
+  }
+
+  .speaking-ring::before,
+  .speaking-ring::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 9999px;
+    pointer-events: none;
     animation: speaking-pulse 1.2s ease-in-out infinite;
   }
 
-  /* Placeholder block while content loads. */
+  .speaking-ring::before {
+    box-shadow: 0 0 0 2px var(--color-online);
+  }
+
+  .speaking-ring::after {
+    box-shadow: 0 0 0 4px rgba(35, 165, 89, 0.55);
+    opacity: 0;
+    animation-name: speaking-pulse-wide;
+  }
+
+  /* Placeholder block while content loads. The shimmer is a strip on ::after that slides with
+     transform (compositor only; animating background-position repaints every frame): the same
+     gradient, tiling and timing as before. It gives up after 20 passes (28 s): a skeleton still on
+     screen by then is stuck, and it stays still instead of animating forever. */
   .skeleton {
+    position: relative;
+    overflow: hidden;
     border-radius: var(--radius-sm);
+    background: var(--color-hover);
+  }
+
+  .skeleton::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -400%;
+    width: 600%;
     background: linear-gradient(90deg, var(--color-hover) 25%, var(--color-active) 50%, var(--color-hover) 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.4s ease-in-out infinite;
+    background-size: calc(100% / 3) 100%;
+    pointer-events: none;
+    animation: shimmer 1.4s ease-in-out 20;
+  }
+
+  /* Clips recording indicator: one pulse when recording starts, then a steady dot. */
+  .clip-pulse {
+    animation: clip-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 1;
   }
 
   .live-dot::before {
@@ -209,7 +254,9 @@
     border-radius: 9999px;
     background: var(--color-live);
     margin-right: 6px;
-    animation: pulse-dot 1.4s ease-in-out infinite;
+    /* Three pulses when a stream goes live, then a steady dot: an endless pulse in the sidebar
+       kept the page drawing every frame for as long as anyone streamed. */
+    animation: pulse-dot 1.4s ease-in-out 3;
   }
 
 }
@@ -418,10 +465,26 @@
 @keyframes speaking-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 2px var(--color-online);
+    opacity: 1;
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(35, 165, 89, 0.55);
+    opacity: 0;
+  }
+}
+
+@keyframes speaking-pulse-wide {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes clip-pulse {
+  50% {
+    opacity: 0.5;
   }
 }
 
@@ -437,12 +500,13 @@
   }
 }
 
+/* Moves the .skeleton strip by two of its 2x-wide gradient tiles, left to right. */
 @keyframes shimmer {
-  0% {
-    background-position: 200% 0;
+  from {
+    transform: translateX(0);
   }
-  100% {
-    background-position: -200% 0;
+  to {
+    transform: translateX(66.6667%);
   }
 }
 

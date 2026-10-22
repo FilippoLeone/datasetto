@@ -18,13 +18,14 @@ export const Avatar = ({ seed, name, src, size = 32, status = null, speaking, cl
   const fallback = useMemo(() => generateIdenticonDataUri(seed || name), [seed, name]);
   const dot = Math.max(8, Math.round(size * 0.3));
   return (
-    <span className={cn('relative inline-block shrink-0', className)} style={{ width: `${size}px`, height: `${size}px` }}>
+    // The speaking ring sits on the wrapper: its pulse is a ::before layer the compositor animates (an <img> has no pseudo-elements).
+    <span className={cn('relative inline-block shrink-0', speaking && 'speaking-ring', className)} style={{ width: `${size}px`, height: `${size}px` }}>
       <img
         src={resolveAvatarUrl(src) || fallback}
         alt=""
         width={size}
         height={size}
-        className={cn('block rounded-full object-cover transition-shadow', speaking && 'speaking-ring')}
+        className="block rounded-full object-cover transition-shadow"
         style={{ width: `${size}px`, height: `${size}px` }}
         draggable={false}
       />
