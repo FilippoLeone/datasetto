@@ -1,8 +1,9 @@
-import { Film, Settings, Shield, Wifi, WifiOff } from 'lucide-preact';
+import { Film, Gamepad2, Settings, Shield, Wifi, WifiOff } from 'lucide-preact';
 import { Avatar, IconButton, RoleBadge } from '@/components';
 import { ChannelList } from '@/features/channels/ChannelList';
 import { InstallHint } from '@/features/settings/InstallHint';
 import { VoiceDock } from '@/features/voice/VoiceDock';
+import { arcadeHidden, openArcade } from '@/features/arcade/state';
 import { supportsClipStorage } from '@/services/clips/clipStore';
 import { account, canManage, connectionStatus } from '@/state/session';
 import { openModal } from '@/state/ui';
@@ -40,6 +41,12 @@ const UserBar = () => {
       {supportsClipStorage() && (
         <IconButton label="Clips" size="sm" onClick={() => openModal({ type: 'clips' })}>
           <Film size={18} />
+        </IconButton>
+      )}
+      {!arcadeHidden.value?.hidden && (
+        // Solo play on this device, also while online: it costs the server nothing and results don't count.
+        <IconButton label="Arcade" size="sm" onClick={() => openArcade({ mode: 'local' })}>
+          <Gamepad2 size={18} />
         </IconButton>
       )}
       <IconButton label="Settings" size="sm" onClick={() => openModal({ type: 'audioSettings' })}>

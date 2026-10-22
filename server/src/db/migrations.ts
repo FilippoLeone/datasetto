@@ -325,6 +325,158 @@ export const migrations: Migration[] = [
       UPDATE messages SET text = '' WHERE deleted_at IS NOT NULL AND text <> '';
     `,
   },
+  {
+    // The Arcade (docs/arcade/platform.md §11.1). The old voice-channel game scores go with their engine.
+    // One chips wallet as a double-entry ledger: every arcade_txns row's arcade_ledger legs sum to zero;
+    // wallet, escrow and pot balances never go negative; 'house' mints and burns. System transfers use
+    // actor 'system' (SQLite's UNIQUE treats NULLs as distinct, so NULL would not deduplicate).
+    // Ledger rows fold into arcade_ledger_months after 7 days (spin, feature) or 90 days (other kinds).
+    // arcade_prefs is the account-level "Hide Arcade" switch with per-game toggles; turning it off
+    // again only takes effect at reenable_at (24 h later), which makes it a self-exclusion for slots.
+    // usage_months gains the lane traffic as "Arcade egress".
+    version: 14,
+    name: 'arcade',
+    up: `
+      DROP TABLE IF EXISTS leaderboard;
+
+      CREATE TABLE arcade_wallets (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        balance    INTEGER NOT NULL CHECK (balance >= 0),
+        claim_day  TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE arcade_txns (
+        id         INTEGER PRIMARY KEY,
+        kind       TEXT NOT NULL,
+        ref        TEXT,
+        actor      TEXT,
+        idem       TEXT,
+        result     TEXT,
+        created_at INTEGER NOT NULL,
+        UNIQUE (actor, idem)
+      );
+      CREATE INDEX arcade_txns_time ON arcade_txns(created_at);
+
+      CREATE TABLE arcade_ledger (
+        txn_id        INTEGER NOT NULL REFERENCES arcade_txns(id),
+        account       TEXT NOT NULL,
+        delta         INTEGER NOT NULL,
+        balance_after INTEGER NOT NULL,
+        kind          TEXT NOT NULL,
+        created_at    INTEGER NOT NULL,
+        PRIMARY KEY (txn_id, account)
+      );
+      CREATE INDEX arcade_ledger_account_time ON arcade_ledger(account, created_at);
+      CREATE INDEX arcade_ledger_time ON arcade_ledger(created_at);
+
+      CREATE TABLE arcade_ledger_months (
+        account TEXT NOT NULL,
+        month   TEXT NOT NULL,
+        kind    TEXT NOT NULL,
+        delta   INTEGER NOT NULL,
+        rows    INTEGER NOT NULL,
+        PRIMARY KEY (account, month, kind)
+      );
+
+      CREATE TABLE arcade_escrow (
+        ref        TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        amount     INTEGER NOT NULL CHECK (amount >= 0),
+        kind       TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (ref, account_id)
+      );
+
+      CREATE TABLE arcade_jackpots (
+        scope       TEXT PRIMARY KEY,
+        pool        INTEGER NOT NULL CHECK (pool >= 0),
+        carry_e4    INTEGER NOT NULL DEFAULT 0 CHECK (carry_e4 BETWEEN 0 AND 9999),
+        last_winner TEXT,
+        last_amount INTEGER,
+        last_won_at INTEGER,
+        updated_at  INTEGER NOT NULL
+      );
+
+      CREATE TABLE arcade_pending (
+        account_id TEXT NOT NULL,
+        game       TEXT NOT NULL,
+        kind       TEXT NOT NULL,
+        txn_id     INTEGER NOT NULL REFERENCES arcade_txns(id),
+        data       TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (account_id, game)
+      );
+
+      CREATE TABLE arcade_stats (
+        account_id TEXT NOT NULL,
+        game       TEXT NOT NULL,
+        stat       TEXT NOT NULL,
+        value      INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (account_id, game, stat)
+      );
+      CREATE INDEX arcade_stats_board ON arcade_stats(game, stat, value);
+
+      CREATE TABLE arcade_results (
+        id         INTEGER PRIMARY KEY,
+        game       TEXT NOT NULL,
+        mode       TEXT NOT NULL,
+        channel_id TEXT,
+        humans     INTEGER NOT NULL,
+        started_at INTEGER NOT NULL,
+        ended_at   INTEGER NOT NULL,
+        summary    TEXT NOT NULL
+      );
+      CREATE INDEX arcade_results_game_time ON arcade_results(game, ended_at);
+      CREATE TABLE arcade_result_players (
+        result_id   INTEGER NOT NULL REFERENCES arcade_results(id) ON DELETE CASCADE,
+        account_id  TEXT NOT NULL,
+        place       INTEGER,
+        score       INTEGER,
+        chips_delta INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (result_id, account_id)
+      );
+      CREATE INDEX arcade_result_players_account ON arcade_result_players(account_id, result_id);
+
+      CREATE TABLE arcade_poker_hands (
+        id          INTEGER PRIMARY KEY,
+        table_ref   TEXT NOT NULL,
+        hand_no     INTEGER NOT NULL,
+        format      TEXT NOT NULL,
+        seats       TEXT NOT NULL,
+        commit_root BLOB NOT NULL,
+        hand_secret BLOB NOT NULL,
+        deck        BLOB NOT NULL,
+        record      TEXT NOT NULL,
+        created_at  INTEGER NOT NULL
+      );
+      CREATE INDEX arcade_poker_hands_table ON arcade_poker_hands(table_ref, id);
+      CREATE INDEX arcade_poker_hands_time ON arcade_poker_hands(created_at);
+
+      CREATE TABLE arcade_saves (
+        owner_id   TEXT NOT NULL,
+        game       TEXT NOT NULL,
+        slot       INTEGER NOT NULL CHECK (slot BETWEEN 0 AND 2),
+        version    INTEGER NOT NULL,
+        data       BLOB NOT NULL CHECK (length(data) <= 4096),
+        members    TEXT NOT NULL DEFAULT '[]',
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (owner_id, game, slot)
+      );
+
+      CREATE TABLE arcade_prefs (
+        account_id  TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        hidden      INTEGER NOT NULL DEFAULT 0,
+        games       TEXT NOT NULL DEFAULT '{}',
+        reenable_at INTEGER,
+        updated_at  INTEGER NOT NULL
+      );
+
+      ALTER TABLE usage_months ADD COLUMN arcade_egress_bytes INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 export const runMigrations = (db: Database.Database): number => {

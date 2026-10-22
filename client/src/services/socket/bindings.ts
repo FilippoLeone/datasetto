@@ -53,7 +53,6 @@ import {
   channelMembers,
   lastCreatedInvite,
   channelPermissions,
-  minigameState,
   setScreenshareSession,
   streamKeys,
   upsertAdminAccount,
@@ -83,7 +82,6 @@ import type {
   SessionInfo,
   StreamKeyResponse,
   User,
-  VoiceMinigameState,
 } from '@/types/protocol';
 
 interface AuthSuccess {
@@ -526,21 +524,4 @@ export const installSocketBindings = (): void => {
     channelMembers.value = { ...channelMembers.value, [payload.channelId]: payload.members };
   });
   socketClient.on<ServerError>('admin:error', (payload) => toast.error(payload.message));
-
-  // ------------------------------------------------------------ minigames
-
-  socketClient.on<VoiceMinigameState>('voice:game:state', (state) => {
-    minigameState.value = state;
-  });
-  socketClient.on<VoiceMinigameState>('voice:game:update', (state) => {
-    minigameState.value = state;
-  });
-  socketClient.on<VoiceMinigameState>('voice:game:started', (state) => {
-    minigameState.value = state;
-    toast.info(state.hostName + ' started ' + state.type);
-  });
-  socketClient.on<{ reason: string }>('voice:game:ended', () => {
-    minigameState.value = null;
-  });
-  socketClient.on<ServerError>('voice:game:error', (payload) => toast.error(payload.message));
 };

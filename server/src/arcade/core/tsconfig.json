@@ -1,0 +1,24 @@
+{
+  // Purity check for the shared Arcade core (docs/arcade/platform.md §3.1). The core runs on the
+  // server and, through the @arcade/core alias, in the client: no DOM, no Node, no enums.
+  // `npm run typecheck` runs this next to the server's own tsconfig.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "types": [],
+    "strict": true,
+    "noEmit": true,
+    "erasableSyntaxOnly": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["./**/*.ts"]
+}

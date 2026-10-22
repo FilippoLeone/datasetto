@@ -7,7 +7,7 @@ import { SessionService } from '../../services/sessions.js';
 import type { PublicAccount } from '../../types.js';
 import { handle, requireUser, type SocketContext } from '../context.js';
 import { teardownSocket } from '../lifecycle.js';
-import type { Minigames } from './minigame.js';
+import type { Arcade } from '../../arcade/index.js';
 import { channelsPayload } from '../payloads.js';
 
 // Shared across sockets: brute-force protection is per IP, not per connection.
@@ -43,7 +43,7 @@ const accountUpdateSchema = z.object({
   newPassword: z.string().max(128).optional(),
 });
 
-const authSuccessPayload = (sctx: SocketContext, account: PublicAccount, isNewAccount: boolean, expiresAt: number) => ({
+const authSuccessPayload = (sctx: SocketContext, arcade: Arcade, account: PublicAccount, isNewAccount: boolean, expiresAt: number) => ({
   user: sctx.app.presence.exportUser(sctx.socket.id),
   account,
   session: { token: sctx.sessionToken, expiresAt },
@@ -52,10 +52,12 @@ const authSuccessPayload = (sctx: SocketContext, account: PublicAccount, isNewAc
   // Signed viewer ticket for pictures in chat (appended to /api/uploads/* URLs as ?t=).
   media: sctx.app.uploads.issueTicket(account.id),
   ...channelsPayload(sctx.app, requireUser(sctx)),
+  // Arcade switches and table-lane versions (the same object as GET /api/config's `arcade`).
+  arcade: arcade.publicConfig(),
   isNewAccount,
 });
 
-export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames): void => {
+export const registerAuthHandlers = (sctx: SocketContext, arcade: Arcade): void => {
   const { app, socket } = sctx;
 
   const assertNotBanned = (accountId: string) => {
@@ -105,7 +107,8 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
     sctx.user = app.presence.addUser(socket.id, account);
     app.accounts.touchLastSeen(account.id);
 
-    socket.emit('auth:success', authSuccessPayload(sctx, account, isNewAccount, expiresAt));
+    socket.emit('auth:success', authSuccessPayload(sctx, arcade, account, isNewAccount, expiresAt));
+    arcade.onAuthenticated(sctx);
     app.broadcast.users();
     app.broadcast.channels();
     app.runtime.bursts.record('authenticated', { socketId: socket.id, accountId: account.id, roles: account.roles, isNewAccount }, account.id);
@@ -172,7 +175,8 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
         // Same account re-sending its token after a reconnect: confirm without side effects.
         sctx.sessionToken = payload.token;
         sctx.sessionTokenHash = SessionService.hashToken(payload.token);
-        socket.emit('auth:success', authSuccessPayload(sctx, account, false, session.expiresAt));
+        socket.emit('auth:success', authSuccessPayload(sctx, arcade, account, false, session.expiresAt));
+        arcade.onAuthenticated(sctx);
         return;
       }
       finalize(account, payload.token, session.expiresAt, false);
@@ -185,7 +189,7 @@ export const registerAuthHandlers = (sctx: SocketContext, minigames: Minigames):
 
   handle(sctx, 'auth:logout', { errorEvent: 'auth:error', code: 'LOGOUT_FAILED', requireAuth: false }, () => {
     if (sctx.sessionToken) app.sessions.revoke(sctx.sessionToken);
-    teardownSocket(sctx, minigames);
+    teardownSocket(sctx, arcade);
     socket.emit('auth:loggedOut');
   });
 

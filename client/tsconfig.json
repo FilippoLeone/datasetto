@@ -19,7 +19,8 @@
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@arcade/core/*": ["../server/src/arcade/core/*"]
     }
   },
   "include": ["src"]

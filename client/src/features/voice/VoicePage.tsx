@@ -13,7 +13,6 @@ import { tileClipControls } from '@/features/clips/tileClip';
 import { account, can, socketId } from '@/state/session';
 import { audioSettings } from '@/state/settings';
 import { isLandscapePhone, isMobile, openModal } from '@/state/ui';
-import { minigameState } from '@/state/misc';
 import {
   anyVideoActive,
   localCameraStream,
@@ -38,7 +37,7 @@ import { VideoTile, type TileAudioControls } from './VideoTile';
 import { VIDEO_GRID_GAP, videoGridLayout } from './videoGrid';
 import { useVoiceTimer } from './VoiceDock';
 import { voiceManager } from './voiceManager';
-import { MinigamePanel } from '@/features/minigames/MinigamePanel';
+import { ArcadeButton } from '@/features/arcade/ArcadeButton';
 import type { Channel } from '@/types/protocol';
 
 const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state?: PresenceState }) => {
@@ -289,9 +288,6 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
   const members = usersInVoice(channel.id);
   const me = account.value;
   const elapsed = useVoiceTimer();
-  const [showGame, setShowGame] = useState(false);
-  const game = minigameState.value;
-  const gameOpen = connectedHere && (showGame || (game !== null && game.channelId === channel.id));
   const peers = peerList.value;
   // Friends scale in when they join and out when they leave (lib/motion.ts).
   const peerTiles = useListPresence(peers, (peer) => peer.id, MOTION.base);
@@ -325,7 +321,7 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
   }
 
   // A phone held sideways while video is on: the picture takes the whole page, the controls float over it.
-  const immersive = isLandscapePhone.value && anyVideoActive.value && !gameOpen;
+  const immersive = isLandscapePhone.value && anyVideoActive.value;
 
   return (
     <div className={cn('relative flex min-h-0 flex-1 flex-col', immersive ? 'bg-black' : 'bg-base/40')}>
@@ -334,18 +330,10 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
           <span>
             {voiceStatus.value === 'connected' ? 'Connected' : voiceStatus.value === 'reconnecting' ? 'Reconnecting (your call stays up)' : 'Connecting'} · {elapsed}
           </span>
-          <button
-            type="button"
-            className={cn('flex items-center gap-1 rounded-sm px-2 py-1 hover:bg-hover hover:text-text-bright pointer-coarse:py-2.5', gameOpen && 'text-warning')}
-            onClick={() => setShowGame((value) => !value)}
-          >
-            <Gamepad2 size={14} /> Minigames
-          </button>
+          <ArcadeButton channelId={channel.id} />
         </div>
       )}
-      {gameOpen ? (
-        <MinigamePanel channel={channel} onClose={() => setShowGame(false)} />
-      ) : anyVideoActive.value ? (
+      {anyVideoActive.value ? (
         <VideoGrid edge={immersive} />
       ) : (
         <div className="scrollbar-thin flex flex-1 flex-wrap content-start justify-center gap-3 overflow-y-auto p-4">

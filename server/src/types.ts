@@ -322,16 +322,6 @@ export interface ActiveStream {
   startedAt: number;
 }
 
-export interface MinigameSummary {
-  gameId: string;
-  type: string;
-  status: string;
-  startedAt?: number | null;
-  hostId?: string | null;
-  hostName?: string | null;
-  updatedAt?: number;
-}
-
 /** Channel as broadcast to clients (persistent data + live counters). */
 export interface ChannelView {
   id: string;
@@ -353,7 +343,6 @@ export interface ChannelView {
   liveDisplayName: string | null;
   voiceStartedAt: number | null;
   voiceSessionId: string | null;
-  currentMinigame: MinigameSummary | null;
   screenshareStartedAt?: number | null;
   screenshareHostName?: string | null;
   screenshareHostId?: string | null;

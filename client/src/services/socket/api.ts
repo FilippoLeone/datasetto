@@ -7,8 +7,6 @@ import type {
   HeldPeerConnection,
   CreateChannelInput,
   CreateInviteInput,
-  LeaderboardEntry,
-  MinigameType,
   OlderHistoryResponse,
   SearchParams,
   SearchResponse,
@@ -164,15 +162,4 @@ export const api = {
   reportVisibility: (visible: boolean) => emit('presence:visibility', { visible }),
   /** "Playing <title>" for everyone's member list (desktop app); null when no listed game runs. One per 10 s. */
   setActivity: (title: string | null) => emit('presence:activity', { title }),
-
-  // minigames
-  startGame: (type: MinigameType) => emit('voice:game:start', { type }),
-  joinGame: () => emit('voice:game:join'),
-  leaveGame: () => emit('voice:game:leave'),
-  endGame: () => emit('voice:game:end'),
-  sendGameInput: (payload: unknown) => emit('voice:game:input', payload),
-  leaderboard: (type: MinigameType) =>
-    socketClient.request<{ success: boolean; leaderboard?: LeaderboardEntry[]; error?: string }>('voice:game:leaderboard', {
-      type,
-    }),
 };

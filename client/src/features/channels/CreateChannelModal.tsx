@@ -8,7 +8,7 @@ import type { ChannelVisibility, CreatableChannelType } from '@/types/protocol';
 
 const TYPES: Array<{ value: CreatableChannelType; label: string; hint: string; icon: typeof Hash }> = [
   { value: 'text', label: 'Text channel', hint: 'Messages, links and emoji. Everyone can read back.', icon: Hash },
-  { value: 'voice', label: 'Voice channel', hint: 'Talk, show your camera or your screen, play minigames.', icon: Volume2 },
+  { value: 'voice', label: 'Voice channel', hint: 'Talk, show your camera or your screen, play Arcade games together.', icon: Volume2 },
   { value: 'stream', label: 'Live stream', hint: 'Broadcast from OBS with a stream key; friends watch in the app.', icon: Radio },
   { value: 'screenshare', label: 'Screenshare room', hint: 'One presenter shares a screen, the others watch and chat.', icon: MonitorUp },
 ];

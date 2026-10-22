@@ -15,7 +15,7 @@ const main = async (): Promise<void> => {
 
   const app = createHttpApp(ctx);
   const server = http.createServer(app);
-  const { io, minigames } = createSocketServer(server, ctx);
+  const { io, arcade } = createSocketServer(server, ctx);
   const watchdog = new StreamWatchdog(ctx, {
     statUrl: config.streaming.statUrl,
     maxBitrateKbps: config.streaming.maxBitrateKbps,
@@ -70,7 +70,7 @@ const main = async (): Promise<void> => {
     'datasetto server ready',
   );
 
-  const shutdown = createShutdown({ ctx, io, server, stoppables: [watchdog, minigames], timers });
+  const shutdown = createShutdown({ ctx, io, server, stoppables: [watchdog, arcade], arcade, timers });
 
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));

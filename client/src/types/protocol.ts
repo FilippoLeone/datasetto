@@ -91,16 +91,6 @@ export interface ChannelPermissionEntry {
 
 export type ChannelPermissions = Record<ChannelPermissionAction, ChannelPermissionEntry>;
 
-export interface MinigameSummary {
-  gameId: string;
-  type: string;
-  status: string;
-  startedAt?: number | null;
-  hostId?: string | null;
-  hostName?: string | null;
-  updatedAt?: number;
-}
-
 export type ChannelVisibility = 'public' | 'private';
 
 export interface Channel {
@@ -126,7 +116,6 @@ export interface Channel {
   liveDisplayName?: string | null;
   voiceStartedAt?: number | null;
   voiceSessionId?: string | null;
-  currentMinigame?: MinigameSummary | null;
   screenshareStartedAt?: number | null;
   screenshareHostName?: string | null;
   screenshareHostId?: string | null;
@@ -642,107 +631,6 @@ export interface CreateInviteInput {
   maxUses?: number;
   expiresAt?: number | null;
   note?: string | null;
-}
-
-// ---------------------------------------------------------------- minigames
-
-export type VoiceMinigameStatus = 'running' | 'ended';
-export type MinigameType = 'slither' | 'pacman' | 'fighter';
-
-export interface VoiceMinigamePlayerState {
-  id: string;
-  name: string;
-  color: string;
-  score: number;
-  alive: boolean;
-  length?: number;
-  thickness?: number;
-  speed?: number;
-  head?: { x: number; y: number };
-  segments?: Array<{ x: number; y: number }>;
-  x?: number;
-  y?: number;
-  direction?: 'up' | 'down' | 'left' | 'right';
-  powerupExpiresAt?: number;
-  vx?: number;
-  vy?: number;
-  facing?: 'left' | 'right';
-  health?: number;
-  isGrounded?: boolean;
-  isAttacking?: boolean;
-  attackType?: 'punch' | 'kick';
-  isBlocking?: boolean;
-  isStunned?: boolean;
-  respawning: boolean;
-  respawnInMs: number;
-  lastInputAt?: number;
-  joinedAt?: number;
-}
-
-export interface VoiceMinigamePellet {
-  id: string;
-  x: number;
-  y: number;
-  value: number;
-  color: string;
-  radius?: number;
-  isPowerup?: boolean;
-}
-
-export interface PacmanState {
-  phase: 'setup' | 'live' | 'overtime' | 'reset';
-  phaseStartedAt: number;
-  phaseEndsAt: number | null;
-  speedMultiplier: number;
-  round: number;
-  initialPellets: number;
-  pelletsRemaining: number;
-}
-
-export interface FighterState {
-  phase: 'waiting' | 'fighting' | 'round_over' | 'game_over';
-  round: number;
-  roundEndsAt: number;
-}
-
-export interface VoiceMinigameState {
-  gameId: string;
-  channelId: string;
-  type: MinigameType;
-  status: VoiceMinigameStatus;
-  hostId: string;
-  hostName: string;
-  startedAt: number;
-  updatedAt: number;
-  sequence: number;
-  world: {
-    width: number;
-    height: number;
-    map?: number[][];
-    mapId?: string;
-    mapName?: string;
-    tileSize?: number;
-    wrapRows?: number[];
-  };
-  pelletData?: {
-    full: boolean;
-    pellets?: VoiceMinigamePellet[];
-    added?: VoiceMinigamePellet[];
-    removed?: string[];
-    count?: number;
-  };
-  pellets: VoiceMinigamePellet[];
-  players: VoiceMinigamePlayerState[];
-  leaderboard: Array<{ id: string; name: string; score: number; length?: number }>;
-  spectators: string[];
-  tickIntervalMs: number;
-  pacmanState?: PacmanState | null;
-  fighterState?: FighterState | null;
-}
-
-export interface LeaderboardEntry {
-  name: string;
-  score: number;
 }
 
 // ----------------------------------------------------- service event maps

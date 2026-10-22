@@ -16,6 +16,7 @@ import { AuthScreen } from '@/features/auth/AuthScreen';
 import { PasswordChangeScreen } from '@/features/auth/PasswordChangeScreen';
 import { openedOnAdminPath } from '@/features/admin/AdminModal';
 import { useGlobalShortcuts } from './useGlobalShortcuts';
+import { ArcadeHost } from '@/features/arcade/ArcadeHost';
 import { useDrawerSwipe } from './useDrawerSwipe';
 
 /** A closed drawer is off screen: keep its controls out of the tab order and the accessibility tree. */
@@ -61,6 +62,7 @@ export const App = () => {
       <>
         <AuthScreen resuming={authStatus.value === 'resuming'} />
         <ConnectionBanner />
+        <ArcadeHost />
         <ToastHost />
         <UpdateNotice />
       </>
@@ -72,6 +74,7 @@ export const App = () => {
       <>
         <PasswordChangeScreen />
         <ConnectionBanner />
+        <ArcadeHost />
         <ToastHost />
         <UpdateNotice />
       </>
@@ -127,6 +130,7 @@ export const App = () => {
       <ModalHost />
       <LightboxHost />
       <ConnectionBanner />
+      <ArcadeHost />
       <ToastHost />
       <UpdateNotice />
     </div>

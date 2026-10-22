@@ -74,11 +74,14 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(import.meta.dirname, './src'),
+      // The shared Arcade core (docs/arcade/platform.md §3.1) lives in the server tree.
+      '@arcade/core': resolve(import.meta.dirname, '../server/src/arcade/core'),
     },
   },
   server: {
     port: 5173,
     host: true,
+    fs: { allow: [import.meta.dirname, resolve(import.meta.dirname, '../server/src/arcade/core')] },
     // During development the API, socket and HLS come from the local Docker stack
     // (docker compose -f ops/docker-compose.yml -f ops/docker-compose.local.yml up).
     proxy: {
@@ -86,6 +89,8 @@ export default defineConfig({
       '/health': { target: devProxyTarget, changeOrigin: true },
       '/hls': { target: devProxyTarget, changeOrigin: true },
       '/socket.io': { target: devProxyTarget, changeOrigin: true, ws: true },
+      // The Arcade's action lane: a raw WebSocket next to the app socket.
+      '/arcade/ws': { target: devProxyTarget, changeOrigin: true, ws: true },
     },
   },
   build: {
@@ -99,6 +104,11 @@ export default defineConfig({
             { name: 'hls', test: /[\/]node_modules[\/]hls\.js[\/]/ },
             { name: 'socket', test: /[\/]node_modules[\/](socket\.io-client|socket\.io-parser|engine\.io-client|engine\.io-parser|@socket\.io)[\/]/ },
             { name: 'preact', test: /[\/]node_modules[\/](preact|@preact)[\/]/ },
+            // The Arcade runtime and the shared core's transport pieces, loaded with the first game. The main
+            // bundle may import these for types only (client/scripts/check-bundle.mjs checks it never loads them).
+            // includeDependenciesRecursively: false keeps the app's own modules (session, presence, settings)
+            // that the runtime imports in the main bundle; otherwise the main bundle would import this chunk.
+            { name: 'arcade-runtime', test: /[\/](src[\/]arcade[\/]runtime[\/]|arcade[\/]core[\/](net[\/]|bytes\.|rng\.|hash\.))/, includeDependenciesRecursively: false },
           ],
         },
       },

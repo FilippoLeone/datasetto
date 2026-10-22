@@ -4,7 +4,6 @@ import { logger, type Logger } from './logger.js';
 import { AccountService } from './services/accounts.js';
 import { AvatarService } from './services/avatars.js';
 import { ChannelService } from './services/channels.js';
-import { LeaderboardService } from './services/leaderboard.js';
 import { MessageService } from './services/messages.js';
 import { ModerationService } from './services/moderation.js';
 import { PresenceService } from './services/presence.js';
@@ -69,7 +68,6 @@ export interface AppContext {
   presence: PresenceService;
   push: PushService;
   turn: TurnService;
-  leaderboard: LeaderboardService;
   hlsTickets: HlsTicketService;
   usage: UsageService;
   broadcast: Broadcaster;
@@ -123,7 +121,6 @@ export const createContext = (config: AppConfig, db: DB, options: ContextOptions
     presence: new PresenceService(),
     push: new PushService(db, config.push, logger, options.push),
     turn: new TurnService(config.turn),
-    leaderboard: new LeaderboardService(db),
     hlsTickets: new HlsTicketService(config.streaming.ticketSecret),
     usage: new UsageService(db),
     broadcast: noopBroadcaster,

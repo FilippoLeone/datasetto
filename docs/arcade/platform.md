@@ -1372,3 +1372,34 @@ The spec owners apply these when the specs move to `docs/arcade/`.
 6. **Old desktop shells** without the visibility IPC keep drawing while minimized, until they are updated.
 7. **The web build cannot start offline**, only the desktop and Android shells can.
 8. **Scope is large.** The phases are ordered so that each one proves one platform piece before the next game depends on it.
+
+---
+
+## 20. As built (platform package)
+
+Notes on where the implementation fills in or differs from plan.md §2.6. Each line is part of the interface frozen at tag `arcade-p-m1`; later changes are added here, one line each.
+
+### 20.1 Interface notes (frozen at `arcade-p-m1`)
+
+| # | Where | Note |
+|---|---|---|
+| 1 | `CoreMatch.onUp`, `MatchHost.sendUp` | `onUp(slot, payload, upSeq)` and `sendUp(payload, upSeq?)`. A game that numbers its own inputs (Fuseyard: one seq per tick) passes `upSeq`; it travels in the UP envelope and comes back as FRAME `ackUp` through `CoreMatch.ackUp`. Without it the host numbers messages. The platform drops UPs whose upSeq is not newer than the last one. |
+| 2 | FRAME envelope | The snapshot body is prefixed with its length as a varint (1 byte below 128 B), so a FRAME can carry a snapshot and an event block. A 22 B snapshot without events is 31 B. |
+| 3 | WELCOME | 48 B + cfg; flags b0 = queued. |
+| 4 | Phase 0 shim | `frames`, `appVisibility`, `onAppStateChange`, `linkConstrained` and the desktop bridge's `onWindowVisibility` / `requestAttention` come from `client/src/arcade/runtime/p0.ts`, with exactly the §2.6.1 signatures. Until the phase 0 PRs are on main it holds thin local versions; afterwards it re-exports `@/lib/frames`, `@/services/native/*` and `@/services/voice/linkConstraint`. Games import `frames` from `@/arcade/runtime/p0`. |
+| 5 | `ACT` | Adds `map: 256` (M, gamepad Back) for games with a map screen. |
+| 6 | Reserved keys | `MountOpts.reserved` lists other app shortcuts (the clip key, which Settings may make a bare key); pass it to `createInput({…, reserved})`. `isReservedKey(e, ptt, reserved?)`. |
+| 7 | `ShellBridge.idleAway(ms \| null)` | The table games' rule that a visible stage without input for `ms` counts as hidden (Glimmerhall: 10 minutes), until the next input. |
+| 8 | Pause and resume | The platform calls `handle.pause()` / `resume()` and `host.setVisible()` from its merged visibility (app, minimized, on screen, idle); games do not need their own visibility watcher. `resume()` may come once right after mount. |
+| 9 | `GameMeta`, `OptionField` | Defined in `client/src/arcade/catalog.ts`. `load` is `() => import('./index').then((m) => m.default)`. |
+| 10 | Client types | `LobbyView` (the `arcade:lobby` payload: `id, game, ch, mode, st, host, seats[{a, bot, st}], spec, cfg, v`), `ArcadePrefs` (`volume, music, vibrate, stick, buttonPx, batterySaver`), `KeyBinding` (= the push-to-talk `Shortcut`) and `KeyMap` (`code → ACT bits`) are in `runtime/types.ts`. |
+| 11 | Sprites | `PIXEL_CHARS = '0123456789abcdefghijklmnopqrstuvwxyz'`: char i is palette index i and every index is opaque; `.` and space are transparent (`CLEAR = 255` from `parsePixelRows`). Every sheet is baked once per palette; `bakeAtlas` also bakes the 5 × 7 font in each colour of `palettes[0]`, and `drawText`'s `color` indexes that palette. |
+| 12 | Audio | `SoundRecipe = {layers: ToneLayer[], gain?}`, `ToneLayer = {wave, freq, freqEnd?, delay?, attack?, decay, gain?, filter?, q?, filterEnd?, fm?: {ratio, depth}}`, `MusicSeq = {bpm, stepsPerBeat, loop, tracks[{wave, gain, decay?, notes: (midi \| null)[]}]}`. Music is rendered offline once and played as a loop, so it needs no timers. `GameAudio.setVolume(master)` added. |
+| 13 | Runtime extras | `runtime/prefs.ts` (`loadPrefs`, `readGamePref`, `writeGamePref` under `datasetto.arcade.prefs.v1`), `runtime/store.ts` (`removeLocal`, `storageAvailable`), `runtime/testing.ts` (test helpers). |
+| 14 | Local hosts | `createLocalMatchHost` sends WELCOME (game 0, codec 0) and a join KEYFRAME on the first frame, then one FRAME per tick with `divisor: 1`. Applied seat changes arrive as SeatState events, a rekey for the player as a KEYFRAME, and `end` as `onClosed(1000, reason)`. The host drains `takeHostEvents()`; a chunk that needs `persist` offline wraps it. |
+| 15 | Server types | `Clock` in `arcade/clock.ts`; `ArcadeSettings` (with `gameSettings` holding each table game's parsed admin settings) and `SettingsField` in `arcade/settings.ts`; the wallet types in `arcade/wallet.ts`, stats and boards in `arcade/stats.ts`, saves in `arcade/saves.ts`. `tables/types.ts` re-exports the wallet and stats types. |
+| 16 | `Arcade` | Gains `register(sctx)`, which socket/index.ts calls on each connection. `publicConfig()` is also sent in `auth:success` as `arcade`. |
+| 17 | Table-lane refusals | `handle(…, {refusal: 'arcade'})`: a limiter refusal acks `{ok: false, code: 'busy'}`, a failure acks `{ok: false, code}` with lower-case codes (`invalid`, `auth`, …) and nothing is emitted on `error`. |
+| 18 | Limiters | `arcade` 20 / 10 s, `arcadeAct` 4 / s, `spin` 2 / s, `arcadeProbe` 1 / 2 s; the old `game` kind is gone. |
+| 19 | Migration 14 | As §11.1 plus `arcade_prefs`, plus `usage_months.arcade_egress_bytes` for the "Arcade egress" counter, plus indexes `arcade_txns_time`, `arcade_ledger_time` and `arcade_stats_board` for the retention job and boards. |
+| 20 | Bundle | `arcade-runtime` is a code-splitting group with `includeDependenciesRecursively: false`, so the app modules the runtime imports stay in the main bundle and the main bundle never loads Arcade code at startup. The overlay, sheet and catalogue form a lazy `shell` chunk. `client/scripts/check-bundle.mjs` runs in `npm run build`. |

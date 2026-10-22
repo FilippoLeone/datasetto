@@ -32,7 +32,6 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
-COPY assets ./assets
 RUN npm run build && npm prune --omit=dev
 
 # ---- runtime ---------------------------------------------------------------
@@ -50,7 +49,6 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
-COPY --from=build --chown=node:node /app/assets ./assets
 COPY --chown=node:node package.json ./
 USER node
 VOLUME ["/data"]

@@ -22,6 +22,8 @@ import {
 import { audioSettings } from '@/state/settings';
 import { selectChannel } from '@/features/channels/channelActions';
 import { voiceManager } from './voiceManager';
+import { ArcadeButton } from '@/features/arcade/ArcadeButton';
+import { isPhone } from '@/state/ui';
 
 const QUALITY_COLOR = {
   excellent: 'text-success',
@@ -103,6 +105,7 @@ export const VoiceDock = () => {
         <IconButton label={screenOn ? 'Stop sharing screen' : 'Share screen'} size="sm" active={screenOn} onClick={() => void voiceManager.toggleScreenShare()}>
           <MonitorUp size={18} />
         </IconButton>
+        {isPhone.value && <ArcadeButton channelId={voiceChannelId.value} compact className="h-7 w-7 justify-center px-0 pointer-coarse:h-10 pointer-coarse:w-10" />}
         <IconButton label="Leave voice" size="sm" tone="danger" onClick={() => void voiceManager.leave()}>
           <PhoneOff size={18} />
         </IconButton>
