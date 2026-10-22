@@ -509,7 +509,7 @@ const Bar = ({ s, api }: { s: BarState; api: BarApi }) => {
   } else if (seat.handRunning && seat.inHand && !seat.folded) {
     body = (
       <>
-        {pre('checkFold', 'Check/Fold')}
+        {pre('checkFold', 'Check / Fold')}
         {seat.owe > 0 ? pre('call', 'Call ' + chips(seat.owe)) : pre('check', 'Check')}
         {pre('callAny', 'Call any')}
       </>
