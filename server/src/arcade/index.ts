@@ -385,7 +385,11 @@ export const createArcade = (ctx: AppContext, http: HttpServer, io: Server, opts
         if (hub.saveInUse(c.accountId, input.game, input.slot)) return { ok: false, code: 'in-use' };
         const bytes = fromB64url(input.data);
         if (!bytes || bytes.length > SAVE_MAX_BYTES) return { ok: false, code: 'invalid' };
-        saves.put(c.accountId, input.game, input.slot, input.version, bytes, [c.accountId]);
+        // The game decides what an imported file may claim (platform.md §20.2 note 51).
+        const def = isActionGame(input.game) ? matchGame(input.game, matchDefs) : null;
+        const stored = def?.importSave ? def.importSave(bytes, input.version) : null;
+        if (!stored || stored.length > SAVE_MAX_BYTES) return { ok: false, code: 'invalid' };
+        saves.put(c.accountId, input.game, input.slot, input.version, stored, [c.accountId]);
         return { ok: true };
       },
     },

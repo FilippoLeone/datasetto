@@ -9,7 +9,7 @@ import { io as connect, type Socket } from 'socket.io-client';
 import WebSocket from 'ws';
 import { b64url } from '../../../src/arcade/core/bytes.js';
 import { readServer, S2C, writeAck, writeEvt, writePing, writeUp, writeVis, type ServerMsg } from '../../../src/arcade/core/net/lane.js';
-import { CODEC, PROTO } from '../../../src/arcade/core/version.js';
+import { CODEC, PROTO, type ActionGameId } from '../../../src/arcade/core/version.js';
 import type { ArcadeOptions } from '../../../src/arcade/index.js';
 import { normalizeSettings, saveSettings, type ArcadeSettings } from '../../../src/arcade/settings.js';
 import type { AppContext } from '../../../src/context.js';
@@ -48,7 +48,8 @@ export interface TestAccount {
   name: string;
   socket(): Promise<TestSocket>;
   joinVoice(channelId: string, socket?: TestSocket): Promise<void>;
-  lane(ticketOrResume: string, o?: { resume?: boolean; origin?: string; codec?: number }): Promise<TestLane>;
+  /** `game` picks the codec the HELLO announces (default Fuseyard); `codec` overrides its version. */
+  lane(ticketOrResume: string, o?: { resume?: boolean; origin?: string; codec?: number; game?: ActionGameId }): Promise<TestLane>;
 }
 
 export interface ArcadeTestServer {
@@ -129,7 +130,7 @@ export const startArcadeServer = async (
     return test;
   };
 
-  const makeLane = (claim: string, opts: { resume?: boolean; origin?: string; codec?: number } = {}): Promise<TestLane> =>
+  const makeLane = (claim: string, opts: { resume?: boolean; origin?: string; codec?: number; game?: ActionGameId } = {}): Promise<TestLane> =>
     new Promise((resolve, reject) => {
       const ws = new WebSocket(url.replace('http', 'ws') + '/arcade/ws', opts.origin ? { headers: { origin: opts.origin } } : {});
       ws.binaryType = 'nodebuffer';
@@ -203,7 +204,7 @@ export const startArcadeServer = async (
       const consumed = new Set<ServerMsg>();
       open.push({ close: () => ws.terminate() });
       ws.once('open', () => {
-        const hello = { t: 'hello', proto: PROTO, codec: { fuseyard: opts.codec ?? CODEC.fuseyard }, ...(opts.resume ? { resume: claim } : { ticket: claim }) };
+        const hello = { t: 'hello', proto: PROTO, codec: { [opts.game ?? 'fuseyard']: opts.codec ?? CODEC[opts.game ?? 'fuseyard'] }, ...(opts.resume ? { resume: claim } : { ticket: claim }) };
         ws.send(JSON.stringify(hello));
         resolve(lane);
       });

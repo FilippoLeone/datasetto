@@ -88,5 +88,11 @@ export interface MatchGameDef {
   persist(e: Extract<HostEvent, { t: 'persist' | 'end' }>, api: PersistApi): void;
   /** ≤ 400 B list rows. */
   summarizeSave?(data: Uint8Array): SaveSummary;
+  /**
+   * A save a player imports (`arcade:saves:import`) is the client's bytes: the game returns what to
+   * store (e.g. marked imported, with any online-only claim cleared) or null to refuse it. A game with
+   * saves and no hook gets its imports refused, so a forged file can never pass as a server save.
+   */
+  importSave?(data: Uint8Array, version: number): Uint8Array | null;
   readonly boards?: readonly BoardDef[];
 }

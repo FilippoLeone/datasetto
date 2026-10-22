@@ -51,7 +51,7 @@ Every test file must finish well under 60 s; use seeded randomness and injected 
 Server side, `server/test/arcade/harness/index.ts` is one import for everything:
 
 - **Virtual time.** `lossyLink(profile)` is one client's bottleneck link stepped 1 ms at a time (rate, delay, jitter, loss with head-of-line stalls, voice and chat sharing the queue). `runScenario(scenario)` drives the real sender and a runtime over that link against a modelled client and returns frames, chat latency, bytes and ladder changes per window. `deltaFuzz(o)` checks the delta-base rule over seeded schedules. `probeRuntime(o)` is a pure runtime shaped like an action game, and `withWallCap(ms, fn)` fails a run that takes too long.
-- **Live server.** `startArcadeServer({clock, settings, arcade})` boots the real HTTP app, Socket.IO and the action lane on a free port with a fake clock. Pass your def as `arcade: {matchGames: [yourDef, null]}` (or `tableGames`); `account()`, `socket()`, `joinVoice()` and `lane(ticket)` drive it. `probeGame()` and `probeControl` are the platform's scriptable match game.
+- **Live server.** `startArcadeServer({clock, settings, arcade})` boots the real HTTP app, Socket.IO and the action lane on a free port with a fake clock. Pass your def as `arcade: {matchGames: [yourDef, null]}` (or `tableGames`); `account()`, `socket()`, `joinVoice()` and `lane(ticket, { game })` drive it (`game` picks the codec the HELLO announces). `probeGame()` and `probeControl` are the platform's scriptable match game.
 
 ## The shaped bench
 
