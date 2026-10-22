@@ -15,24 +15,25 @@ import {
   type ClientSend,
   type ClientWorld,
 } from '@arcade/core/bellwick/client';
-import { DESPAWN, EV, PF, REFUSE, writeBuy, writeRespawn, writeUseBrew, type EvView, type SaveV1 } from '@arcade/core/bellwick/codec';
+import { DESPAWN, EV, parseSave, PF, REFUSE, writeBuy, writeGoToAlly, writeRespawn, writeUseBrew, type EvView, type SaveV1 } from '@arcade/core/bellwick/codec';
+import type { PartyHandover } from '@arcade/core/bellwick/runtime';
 import { UI } from '@arcade/core/bellwick/content/art';
 import { T } from '@arcade/core/bellwick/content/legend';
 import { screen } from '@arcade/core/bellwick/content/parse';
 import { SCREEN_NAME, TEXT, wrap } from '@arcade/core/bellwick/content/text';
 import { CUE } from '@arcade/core/bellwick/sim/hero';
 import { Item, ItemBit, Kind, Proj, Status } from '@arcade/core/bellwick/types';
-import { ByteWriter } from '@arcade/core/bytes';
+import { ByteWriter, utf8Decode } from '@arcade/core/bytes';
 import { createStageCanvas } from '@/arcade/runtime/canvas';
 import { textWidth } from '@/arcade/runtime/font';
 import { ACT, createInput } from '@/arcade/runtime/input';
 import { createLoop } from '@/arcade/runtime/loop';
 import { readGamePref, writeGamePref } from '@/arcade/runtime/prefs';
-import type { GameHandle, MatchHost, MountOpts } from '@/arcade/runtime/types';
+import type { GameHandle, MatchHost, MountOpts, SeatInfo } from '@/arcade/runtime/types';
 import { createBwAudio, type TrackId } from './audio';
 import { KEYS, layout, touchLayout } from './controls';
 import { centred, COLOR, drawHud, drawMap, panel, text } from './hud';
-import { eraseTale, loadTales, PARTY_COPY, savesAvailable, type TaleSlot } from './localSaves';
+import { eraseTale, loadTales, PARTY_COPY, savesAvailable, writeTale, type TaleSlot } from './localSaves';
 import { takeLocalTale } from './offline';
 import { bakeArt, createEffects, createRoomBake, disposeArt, drawWorld, FX, H, HUD_H, setGotItem, W, type Art, type RoomBake, type View } from './render';
 
@@ -83,7 +84,8 @@ const fmtTime = (sec: number): string => {
 export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts): GameHandle => {
   const local = host.mode === 'local';
   const tale = local ? takeLocalTale() : null;
-  const slot = opts.me.slot ?? 0;
+  // The seat; online WELCOME says for sure.
+  let slot = opts.me.slot ?? 0;
   let disposed = false;
   let visible = true;
 
@@ -138,7 +140,11 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   let lastTickSeen = 0;
   let downedPrompted = false;
   let introPending = false;
-  let status: 'connecting' | 'live' = 'connecting';
+  let introShown = false;
+  let status: 'connecting' | 'live' | 'lagging' = 'connecting';
+  let seats: readonly SeatInfo[] = [];
+  let downedAt = 0;
+  let ended = false;
   const w = new ByteWriter(32);
   const send: ClientSend = { up: (p) => host.sendUp(p), evt: (p) => host.sendEvent(p) };
 
@@ -270,6 +276,9 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
       case EV.Saved:
         audio.jingle('save');
         break;
+      case EV.Roster:
+        for (let i = 0; i < c.roster.n; i += 1) if (c.roster.rows[i]!.slot === slot) c.me.tunic = c.roster.rows[i]!.tunic;
+        break;
       case EV.Victory:
         audio.play('bells');
         audio.jingle('victory');
@@ -320,10 +329,18 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
         else dialogue(TEXT.locked_boss ?? []);
         return;
       case T.LANTERN:
-      case T.LANTERN_LIT:
+      case T.LANTERN_LIT: {
         sendInteract(send, tile);
-        dialogue(TEXT.lantern ?? []);
+        // Online, a lantern can take you to a friend.
+        const allies = local ? [] : allyRows();
+        dialogue(TEXT.lantern ?? [], allies.length === 0 ? null : () =>
+          ask('Go to a friend?', ['Stay', ...allies.map((r) => r.name)], (i) => {
+            const target = allies[i - 1];
+            if (target) host.sendEvent(writeGoToAlly(w.reset(), target.slot).copy());
+          }),
+        );
         return;
+      }
       case T.COUNTER: {
         const s = def.shop.find((x) => x.tile === tile);
         if (!s) {
@@ -342,6 +359,18 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
       }
       default:
     }
+  };
+
+  /** Other heroes in the session (from the roster), with their names. */
+  const allyRows = (): { slot: number; name: string }[] => {
+    const out: { slot: number; name: string }[] = [];
+    for (let i = 0; i < cw.roster.n; i += 1) {
+      const r = cw.roster.rows[i]!;
+      if (r.slot === slot || r.status === Status.Resting) continue;
+      const name = seats.find((s) => s.slot === r.slot)?.name || 'Friend ' + (r.slot + 1);
+      out.push({ slot: r.slot, name: name.length > 14 ? name.slice(0, 13) + '.' : name });
+    }
+    return out;
   };
 
   const cw: ClientWorld = createClientWorld(slot, {
@@ -384,8 +413,10 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
       }
       const name = SCREEN_NAME[def.key];
       if (name) showBanner(name);
-      if (introPending) {
+      if (introPending || (!local && !introShown && !hasFlagC(cw, 0))) {
+        // A new tale (online: nobody has the Rootsword yet), told once per mount.
         introPending = false;
+        introShown = true;
         dialogue(['Kettlebrook. The bells are silent. Elder Hesper is waiting in her house, west of the square.']);
       }
       loop.markDirty();
@@ -393,7 +424,13 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   });
 
   // ---------------------------------------------------------------- the host
-  host.onWelcome((wl) => applyWelcome(cw, wl.cfg));
+  host.onWelcome((wl) => {
+    if (!local && wl.slot < 4) {
+      slot = wl.slot;
+      cw.slot = wl.slot;
+    }
+    applyWelcome(cw, wl.cfg);
+  });
   host.onKeyframe((k) => {
     applyKeyframe(cw, k.body, k.tick);
     meX0 = cw.me.x;
@@ -411,7 +448,29 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   });
   host.onPhase(() => loop.markDirty());
   host.onClosed(() => {
+    ended = true;
     if (!disposed) opts.shell.status('ended');
+    loop.markDirty();
+  });
+  const offSeats = local ? () => undefined : host.onSeats((s) => (seats = s));
+  // A restarting server hands the tale over: keep a Party copy on this device (bellwick.md §5.3).
+  host.onHandover((body) => {
+    if (disposed) return;
+    let copied = false;
+    try {
+      const h = JSON.parse(utf8Decode(body)) as PartyHandover;
+      const mine = h.hs.find((x) => x.s === slot);
+      const save = parseSave({ ...h.save, heroes: mine ? { solo: { tunic: mine.t, brew: mine.b, downs: mine.d, defeats: mine.f } } : {} });
+      copied = save !== null && writeTale(PARTY_COPY, save);
+    } catch {
+      copied = false;
+    }
+    dialogue(
+      copied
+        ? ['The server is restarting. A Party copy of the tale is kept on this device: Solo Tale can carry on from it, and the party can rejoin once the server is back.']
+        : ['The server is restarting. The party can rejoin once it is back; the tale was saved.'],
+      () => opts.shell.leave(),
+    );
   });
 
   const heroButtons = (): number => {
@@ -424,9 +483,13 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
     meX0 = cw.me.x;
     meY0 = cw.me.y;
     stepOwn(cw, heroButtons(), tick, seen, send, local ? 1 : host.linkConstrained() ? 3 : 2);
-    if (cw.me.status === Status.Downed && !downedPrompted && local) {
+    if (cw.me.status !== Status.Downed) downedAt = 0;
+    else if (downedAt === 0) downedAt = tick;
+    if (cw.me.status === Status.Downed && !downedPrompted && mode === 'play' && (local || tick - downedAt > 45)) {
+      // Offline nobody can revive you; online a friend may, so waiting is offered too.
       downedPrompted = true;
-      ask(TEXT.rest?.[0] ?? 'Rest at the lantern?', ['Rest'], () => host.sendEvent(writeRespawn(w.reset()).copy()));
+      if (local) ask(TEXT.rest?.[0] ?? 'Rest at the lantern?', ['Rest'], () => host.sendEvent(writeRespawn(w.reset()).copy()));
+      else ask('Wait for a friend, or rest?', ['Wait', 'Rest at the lantern'], (i) => i === 1 && host.sendEvent(writeRespawn(w.reset()).copy()));
     }
   };
 
@@ -438,7 +501,8 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
     if (heroClock < 0 || target - heroClock > 30) heroClock = target - 1;
     for (let i = 0; i < 4 && heroClock < target; i += 1) {
       heroClock += 1;
-      stepHero(heroClock, Math.max(0, Math.floor(host.estServerTick(now) - 3)));
+      // Claims carry the tick of the snapshot whose positions the hero acted on.
+      stepHero(heroClock, cw.snapTick);
     }
   };
 
@@ -595,7 +659,14 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
     if (mode !== 'play') pending = 0;
     if (s.pressed) audio.unlock();
     navigate(s.pressed);
-    if (!local && mode !== 'title' && mode !== 'loading') stepRemote(now);
+    if (!local && mode !== 'title' && mode !== 'loading') {
+      stepRemote(now);
+      const lag = host.rttMs() > 500 ? 'lagging' : 'live';
+      if (status !== 'connecting' && status !== lag && !ended) {
+        status = lag;
+        opts.shell.status(lag);
+      }
+    }
     drawTick += 1;
     ctx.fillStyle = COLOR.black;
     ctx.fillRect(0, 0, W, H);
@@ -815,6 +886,7 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
       disposed = true;
       opts.shell.wakeLock(false);
       tale?.flush();
+      offSeats();
       loop.dispose();
       input.dispose();
       observer?.disconnect();

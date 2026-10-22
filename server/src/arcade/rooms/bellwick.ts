@@ -25,10 +25,23 @@ import { wrapCore } from './wrap.js';
 
 const GAME = 'bellwick' as const;
 
-export const bellwickCfgSchema = z.object({
-  tale: z.enum(['new', 'slot']).default('new'),
-  slot: z.union([z.literal(0), z.literal(1), z.literal(2)]).default(0),
-});
+/**
+ * The lobby options. The sheet sends `{slot: 'new' | 0–2, into: 0–2}` (an existing slot to continue, or
+ * a new tale saved into `into`); the hub and the room work with `{tale, slot}`.
+ */
+const slotOf = (v: unknown): 0 | 1 | 2 | null => (v === 0 || v === 1 || v === 2 ? v : null);
+export const bellwickCfgSchema = z.preprocess(
+  (raw) => {
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    if (o.tale === 'new' || o.tale === 'slot') return { tale: o.tale, slot: slotOf(o.slot) ?? 0 };
+    const existing = slotOf(o.slot);
+    return existing !== null ? { tale: 'slot', slot: existing } : { tale: 'new', slot: slotOf(o.into) ?? 0 };
+  },
+  z.object({
+    tale: z.enum(['new', 'slot']),
+    slot: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  }),
+);
 
 interface Counted {
   d: number;
