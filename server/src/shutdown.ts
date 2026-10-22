@@ -22,6 +22,8 @@ export interface ShutdownDeps {
   io: SocketServer;
   server: HttpServer;
   stoppables?: Array<{ stop?: () => void; shutdown?: () => void } | null | undefined>;
+  /** Told first, while every socket is still open: Arcade matches hand over, escrow is refunded, saves are written. */
+  arcade?: { onRestarting(): Promise<void> } | null;
   timers?: NodeJS.Timeout[];
   exit?: (code: number) => void;
   deadlineMs?: number;
@@ -41,7 +43,8 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * Graceful stop on SIGTERM (a deploy recreating the container) or SIGINT:
  *
  * 1. mark the process as shutting down: new sockets are refused and `/health` answers 503;
- * 2. stop timers and the stream watchdog;
+ * 2. let the Arcade end its matches (PHASE 4, HANDOVER, close 1012), refund escrow and save;
+ *    then stop timers, the stream watchdog and the Arcade;
  * 3. tell every connected client `server:restarting {expectedWaitMs}` so it waits
  *    that long before reconnecting instead of hammering the next container;
  * 4. close the sockets and the HTTP server;
@@ -53,6 +56,7 @@ export const createShutdown = ({
   io,
   server,
   stoppables = [],
+  arcade = null,
   timers = [],
   exit = (code) => process.exit(code),
   deadlineMs = SHUTDOWN_DEADLINE_MS,
@@ -85,6 +89,13 @@ export const createShutdown = ({
     }, deadlineMs);
     deadline.unref?.();
 
+    if (arcade) {
+      try {
+        await arcade.onRestarting();
+      } catch (error) {
+        ctx.log.warn({ err: error }, 'arcade failed to hand over');
+      }
+    }
     for (const timer of timers) clearInterval(timer);
     for (const item of stoppables) {
       try {

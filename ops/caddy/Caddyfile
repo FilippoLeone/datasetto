@@ -25,8 +25,8 @@
 	@https protocol https
 	header @https Strict-Transport-Security "max-age=31536000"
 
-	# API, realtime socket and health live in the Node.js container.
-	@backend path /api/* /socket.io/* /health
+	# API, realtime socket, the Arcade's action lane (a WebSocket) and health live in the Node.js container.
+	@backend path /api/* /socket.io/* /health /arcade/ws
 	handle @backend {
 		reverse_proxy app:4000
 	}

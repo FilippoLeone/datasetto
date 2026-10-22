@@ -12,6 +12,7 @@ import { localSpeaking, voiceChannelId, voicePeers } from '@/state/voice';
 import { account } from '@/state/session';
 import { openModal } from '@/state/ui';
 import { closeConversation, selectChannel } from './channelActions';
+import { arcadeBadge } from '@/features/arcade/state';
 import { PeerVolumePanel } from '@/features/voice/PeerVolumePanel';
 import { voiceManager } from '@/features/voice/voiceManager';
 import type { Channel, ChannelType, CreatableChannelType } from '@/types/protocol';
@@ -136,7 +137,7 @@ const ChannelRow = ({ channel }: { channel: Channel }) => {
           <span className={cn('truncate', unreadCount > 0 && 'font-semibold')}>{channel.name}</span>
           {channel.visibility === 'private' && <Lock size={12} className="shrink-0 text-text-faint" aria-label="Private channel" />}
           {channel.type === 'stream' && channel.isLive && <span className="live-dot ml-1 text-[10px] font-bold text-live uppercase">Live</span>}
-          {channel.type === 'voice' && channel.currentMinigame && <Gamepad2 size={14} className="ml-1 shrink-0 text-warning" />}
+          {channel.type === 'voice' && arcadeBadge(channel.id) && <Gamepad2 size={14} className="ml-1 shrink-0 text-warning" aria-label="Arcade game here" />}
           {channel.type === 'screenshare' && channel.screenshareHostName && <span className="ml-1 text-[10px] font-bold text-success uppercase">Sharing</span>}
         </button>
         {!active && <UnreadBadge unreadCount={unreadCount} mentionCount={mentionCount} />}

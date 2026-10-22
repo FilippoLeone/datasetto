@@ -6,8 +6,17 @@ import { deleteAvatar, uploadAvatar } from '@/services/avatarUpload';
 import { account, updateAccount } from '@/state/session';
 import { closeModal, toast } from '@/state/ui';
 import { voiceManager } from '@/features/voice/voiceManager';
+import { useLazy } from '@/features/arcade/lazy';
 import { AvatarCropper } from './AvatarCropper';
 import { avatarFormState, effectiveAvatarUrl } from './avatarForm';
+
+const loadArcade = () => import('@/features/arcade/AccountArcade');
+
+/** "Hide Arcade" and the per-game switches (a lazy chunk; they save at once, not with the form). */
+const ArcadeAccountSection = () => {
+  const arcade = useLazy(loadArcade);
+  return arcade ? <arcade.AccountArcade /> : null;
+};
 
 export const ProfileModal = () => {
   const me = account.value;
@@ -170,6 +179,7 @@ export const ProfileModal = () => {
           <TextInput type="password" autoComplete="new-password" value={confirm} onInput={(e) => setConfirm((e.target as HTMLInputElement).value)} />
         </Field>
       </form>
+      <ArcadeAccountSection />
     </Modal>
   );
 };

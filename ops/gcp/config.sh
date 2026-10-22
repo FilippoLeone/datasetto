@@ -6,7 +6,7 @@ ZONE="${ZONE:-${REGION}-b}"
 INSTANCE="${INSTANCE:-datasetto}"
 INSTANCE_TAG="${INSTANCE_TAG:-datasetto}"
 # e2-micro (0.25-2 vCPU burst, 1 GB) is enough for a handful of friends.
-# e2-small (2 GB) if you host large voice rooms or long game sessions.
+# e2-small (2 GB) if you host large voice rooms or several Arcade matches at once.
 MACHINE_TYPE="${MACHINE_TYPE:-e2-micro}"
 DISK_SIZE_GB="${DISK_SIZE_GB:-10}"
 # STANDARD tier egress is cheaper than PREMIUM; latency difference is negligible for this use.

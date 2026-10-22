@@ -11,7 +11,6 @@ import type {
   ServerInfo,
   ServerSettings,
   StreamKeyResponse,
-  VoiceMinigameState,
 } from '@/types/protocol';
 
 /** Stream keys fetched for channels the user may stream to, keyed by channel id. */
@@ -23,9 +22,6 @@ export const screenshareSessions = signal<Record<string, ScreenshareSessionEvent
 export const setScreenshareSession = (session: ScreenshareSessionEvent): void => {
   screenshareSessions.value = { ...screenshareSessions.value, [session.channelId]: session };
 };
-
-/** Current minigame in the voice channel the user is in. */
-export const minigameState = signal<VoiceMinigameState | null>(null);
 
 // Admin data --------------------------------------------------------------------
 

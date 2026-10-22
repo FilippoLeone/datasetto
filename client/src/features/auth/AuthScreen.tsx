@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
+import { Gamepad2 } from 'lucide-preact';
 import { Spinner } from '@/components';
+import { openArcade } from '@/features/arcade/state';
 import { AuthModal } from './AuthModal';
 
 const RESUME_GRACE_MS = 8000;
@@ -25,6 +27,15 @@ export const AuthScreen = ({ resuming }: { resuming: boolean }) => {
       ) : (
         <AuthModal initialMode="login" dismissable={false} />
       )}
+      {/* The Arcade plays against bots on this device: no account, no server (docs/arcade/platform.md §12). */}
+      <button
+        type="button"
+        onClick={() => openArcade({ mode: 'local' })}
+        className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+1rem)] left-1/2 z-[51] flex min-h-11 -translate-x-1/2 items-center gap-2 rounded-full bg-sidebar px-4 text-sm font-semibold text-text-muted shadow-pop hover:bg-hover hover:text-text-bright"
+        data-play-offline
+      >
+        <Gamepad2 size={16} /> Play offline
+      </button>
     </div>
   );
 };

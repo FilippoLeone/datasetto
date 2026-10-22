@@ -31,6 +31,8 @@ COPY client/ ./
 # client/src/features/activity/catalogue.test.ts type-checks the desktop shell game matcher
 # from ../../../../desktop/games; the tsc gate in `npm run build` needs it at that path.
 COPY desktop/games /desktop/games
+# The Arcade's shared core lives in the server tree; the client imports it as @arcade/core from ../server/src/arcade/core.
+COPY server/src/arcade/core /server/src/arcade/core
 RUN npm run build
 
 FROM caddy:2.11-alpine

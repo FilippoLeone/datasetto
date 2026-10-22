@@ -1,5 +1,5 @@
 # Build context of the web image (ops/caddy/Dockerfile, context = repository root).
-# It copies client/ and ops/caddy/Caddyfile only; the app and rtmp images build
+# It copies client/, ops/caddy/Caddyfile and the Arcade core only; the app and rtmp images build
 # from server/ and ops/rtmp/ with their own rules.
 **/node_modules
 **/.git
@@ -23,4 +23,6 @@ desktop
 !desktop/games
 mobile
 server
+# The client imports the Arcade's shared core from the server tree (@arcade/core).
+!server/src/arcade/core
 ops/data

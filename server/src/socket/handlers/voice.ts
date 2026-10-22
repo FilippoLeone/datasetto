@@ -5,7 +5,7 @@ import { AppError, forbidden, notFound } from '../../errors.js';
 import type { ConnectedUser } from '../../types.js';
 import { handle, requirePermission, requireUser, type SocketContext } from '../context.js';
 import { leaveVoiceRoom } from '../lifecycle.js';
-import type { Minigames } from './minigame.js';
+import type { Arcade } from '../../arcade/index.js';
 
 /**
  * `voice:join` takes the channel id, or an object with the client's media session
@@ -40,7 +40,7 @@ export const canModerateTarget = (actor: ConnectedUser, target: ConnectedUser): 
   return highestRoleLevel(actor.roles) > highestRoleLevel(target.roles);
 };
 
-export const registerVoiceHandlers = (sctx: SocketContext, minigames: Minigames): void => {
+export const registerVoiceHandlers = (sctx: SocketContext, arcade: Arcade): void => {
   const { app, socket, io } = sctx;
 
   const requireSameVoiceTarget = (targetSocketId: string): ConnectedUser => {
@@ -58,7 +58,8 @@ export const registerVoiceHandlers = (sctx: SocketContext, minigames: Minigames)
     const accountId = app.presence.getUser(targetSocketId)?.accountId ?? null;
     app.presence.leaveVoice(targetSocketId);
     io.to(channelId).emit('voice:peer-leave', { id: targetSocketId, accountId, reason });
-    minigames.handleVoiceMemberLeft(channelId, targetSocketId);
+    // A seat taken over by the same account's newer socket is not a departure.
+    if (accountId && reason === 'left') arcade.onVoiceLeft(accountId, channelId);
     if (targetSocket) {
       const targetUser = app.presence.getUser(targetSocketId);
       if (targetUser?.currentChannel !== channelId) void targetSocket.leave(channelId);
@@ -84,7 +85,7 @@ export const registerVoiceHandlers = (sctx: SocketContext, minigames: Minigames)
     app.channels.requireAccess(channel, user, 'voice', 'No permission to join this voice channel');
 
     if (sctx.voiceChannel && sctx.voiceChannel !== channel.id) {
-      leaveVoiceRoom(sctx, minigames);
+      leaveVoiceRoom(sctx, arcade);
     }
 
     // A reconnect's previous socket (not yet timed out) or a second tab of the same login
@@ -121,16 +122,13 @@ export const registerVoiceHandlers = (sctx: SocketContext, minigames: Minigames)
       sessionId: room?.sessionId ?? null,
     });
 
-    const gameState = minigames.getState(channel.id);
-    if (gameState) socket.emit('voice:game:state', gameState);
-
     app.broadcast.users();
     app.broadcast.channels();
   });
 
   handle(sctx, 'voice:leave', { code: 'VOICE_LEAVE_FAILED' }, () => {
     if (!sctx.voiceChannel) return;
-    leaveVoiceRoom(sctx, minigames);
+    leaveVoiceRoom(sctx, arcade);
     app.broadcast.users();
     app.broadcast.channels();
   });

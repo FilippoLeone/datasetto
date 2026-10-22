@@ -1,7 +1,7 @@
 # Datasetto AI Coding Instructions
 
 ## Project Context
-Datasetto is a self-hosted voice, video, streaming and chat server for a small friend group: text chat, WebRTC voice/camera/screenshare, OBS streaming via RTMP or RTMPS to HLS, voice-channel minigames.
+Datasetto is a self-hosted voice, video, streaming and chat server for a small friend group: text chat, WebRTC voice/camera/screenshare, OBS streaming via RTMP or RTMPS to HLS, and the Arcade (games with the voice channel, or offline against bots; design in `docs/arcade/`).
 - **Monorepo**: `client` (web app, also packaged by `desktop/` and `mobile/`), `server` (Node.js API), `ops` (Docker Compose, the VPS installer, Google Cloud scripts), `.github/workflows` (container images, release installers).
 - **Deployment target**: one small VPS set up by `ops/vps/install.sh` (how datasetto.com runs) or, as the alternative, a GCP e2-micro; both run `ops/docker-compose.yml`. Keep resource use and egress low; this is a hobby project with a monthly budget under 15 EUR.
 
@@ -12,7 +12,7 @@ Datasetto is a self-hosted voice, video, streaming and chat server for a small f
 - Every socket handler goes through `handle()` in `socket/context.ts`: zod schema, auth requirement, rate-limit bucket, error event. Throw `AppError(message, code, status)` for user-facing failures.
 - Keep the wire protocol compatible with the client (`client/src/types/protocol.ts`, documented in `server/README.md`). Add events; do not rename existing ones.
 - Never put stream keys in channel broadcasts; never log passwords, tokens or stream keys (pino redaction is configured for the common field names).
-- The minigame engine (`src/minigames/MinigameManager.js`) is plain JavaScript on purpose; adapt its dependencies through the small adapter in `socket/index.ts`.
+- The Arcade lives in `src/arcade/`. Its shared core (`src/arcade/core/`) runs on the server and, as `@arcade/core`, in the client: keep it pure (no time, randomness, Node or DOM APIs, no enums, only relative `.js` imports; `test/arcade/core.purity.test.ts` enforces it). Action games use the raw WebSocket lane at `/arcade/ws`; table games use `arcade:*` events through `handle()` with `refusal: 'arcade'` (acks are `{ok, …}` / `{ok: false, code}`).
 
 ## Client (`client/`)
 - **Preact + TypeScript (TSX)** with `@preact/signals` for state and Tailwind v4 for styling. Lucide icons. No React, no router: a single page driven by signals. Built with Vite 8 (Rolldown: chunk groups live under `build.rolldownOptions.output.codeSplitting`), tested with Vitest 5 + jsdom.

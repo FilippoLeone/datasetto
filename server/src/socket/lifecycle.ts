@@ -1,11 +1,11 @@
 import type { SocketContext } from './context.js';
-import type { Minigames } from './handlers/minigame.js';
+import type { Arcade } from '../arcade/index.js';
 
 /**
- * Remove a socket from its voice room, notifying peers and the minigame
- * engine. Shared by voice:leave, voice:join (room switch), kicks and disconnect.
+ * Remove a socket from its voice room, notifying peers and the Arcade (which starts that
+ * account's seat grace rules). Shared by voice:leave, voice:join (room switch), kicks and disconnect.
  */
-export const leaveVoiceRoom = (sctx: SocketContext, minigames: Minigames): string | null => {
+export const leaveVoiceRoom = (sctx: SocketContext, arcade: Arcade): string | null => {
   const { app, socket } = sctx;
   const channelId = app.presence.leaveVoice(socket.id) ?? sctx.voiceChannel;
   sctx.voiceChannel = null;
@@ -19,7 +19,7 @@ export const leaveVoiceRoom = (sctx: SocketContext, minigames: Minigames): strin
   if (sctx.currentChannel !== channelId) {
     void socket.leave(channelId);
   }
-  minigames.handleVoiceMemberLeft(channelId, socket.id);
+  if (sctx.user) arcade.onVoiceLeft(sctx.user.accountId, channelId);
   return channelId;
 };
 
@@ -47,7 +47,7 @@ export const leaveScreenshares = (sctx: SocketContext): void => {
  * Forget everything about the authenticated user behind this socket. Used on
  * disconnect, logout and when a socket re-authenticates as another account.
  */
-export const teardownSocket = (sctx: SocketContext, minigames: Minigames): void => {
+export const teardownSocket = (sctx: SocketContext, arcade: Arcade): void => {
   const { app, socket } = sctx;
   if (!sctx.user) return;
 
@@ -55,8 +55,9 @@ export const teardownSocket = (sctx: SocketContext, minigames: Minigames): void 
     app.presence.leaveChannel(socket.id, sctx.currentChannel);
     sctx.currentChannel = null;
   }
-  leaveVoiceRoom(sctx, minigames);
+  leaveVoiceRoom(sctx, arcade);
   leaveScreenshares(sctx);
+  arcade.onSocketGone(sctx);
 
   app.presence.removeUser(socket.id);
   app.accounts.touchLastSeen(sctx.user.accountId);

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'preact/hooks';
-import { RefreshCw, WifiOff } from 'lucide-preact';
+import { Gamepad2, RefreshCw, WifiOff } from 'lucide-preact';
 import { cn } from '@/lib/cn';
 import { socketClient } from '@/services/socket/client';
 import { connectionStatus, reconnectAttempt, reconnectNextAt, reconnectWaitingFor, serverRestarting } from '@/state/session';
 import { voiceStatus } from '@/state/voice';
+import { arcadeView, openArcade } from '@/features/arcade/state';
 
 /** Seconds until `at`, never below zero. */
 const secondsUntil = (at: number | null, now: number): number | null => (at === null ? null : Math.max(0, Math.ceil((at - now) / 1000)));
@@ -59,6 +60,16 @@ export const ConnectionBanner = () => {
             data-retry-now
           >
             Retry now
+          </button>
+        )}
+        {status === 'offline' && !arcadeView.value && (
+          <button
+            type="button"
+            className="flex items-center gap-1 rounded-full bg-black/15 px-2 py-0.5 font-semibold hover:bg-black/25"
+            onClick={() => openArcade({ mode: 'local' })}
+            data-play-offline
+          >
+            <Gamepad2 size={12} /> Play offline
           </button>
         )}
       </div>

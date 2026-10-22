@@ -8,6 +8,7 @@
  * when the API is briefly unavailable.
  */
 import { config as buildConfig } from '@/config';
+import type { ArcadePublicConfig } from '@/features/arcade/state';
 
 export interface ServerIceConfig {
   servers: RTCIceServer[];
@@ -27,6 +28,8 @@ export interface ServerConfig {
   /** Pictures in chat: size per file, files per message, accepted MIME types; videos (posted clips) have their own cap and types. */
   uploads: { maxBytes: number; maxFilesPerMessage: number; acceptedTypes: string[]; videoMaxBytes: number; videoTypes: string[] };
   linkPreviews: { enabled: boolean };
+  /** The Arcade's public switches (also in auth:success); null when the server sends none. */
+  arcade: ArcadePublicConfig | null;
 }
 
 export const DEFAULT_UPLOAD_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
@@ -206,6 +209,7 @@ class ServerConfigService {
         videoTypes: Array.isArray(data.uploads?.videoTypes) && data.uploads.videoTypes.length > 0 ? data.uploads.videoTypes.filter((t): t is string => typeof t === 'string') : DEFAULT_VIDEO_TYPES,
       },
       linkPreviews: { enabled: data.linkPreviews?.enabled !== false },
+      arcade: data.arcade && typeof data.arcade === 'object' && typeof data.arcade.enabled === 'boolean' ? data.arcade : null,
     };
   }
 

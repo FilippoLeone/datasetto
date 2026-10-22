@@ -370,8 +370,9 @@ describe('search (socket)', () => {
     const limited = await request<SearchResponse>(bob.socket, 'search', { query: 'hello' });
     expect(limited).toMatchObject({ success: false, code: 'RATE_LIMITED' });
     // Other requests are not affected by the search bucket.
-    const stillFine = await request<{ success: boolean }>(bob.socket, 'voice:game:leaderboard', { type: 'slither' });
-    expect(stillFine.success).toBe(true);
+    const stillFine = await request<{ ok: boolean; code?: string }>(bob.socket, 'arcade:board', { game: 'fuseyard', board: 'wins' });
+    expect(stillFine).toHaveProperty('ok');
+    expect(stillFine.code).not.toBe('RATE_LIMITED');
   });
 
   it('pages older history before a message the client already has', async () => {

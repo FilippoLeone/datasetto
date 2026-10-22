@@ -2,13 +2,12 @@ import type { Server as HttpServer } from 'node:http';
 import { Server, type Socket } from 'socket.io';
 import type { AppContext, Broadcaster } from '../context.js';
 import { createOriginChecker } from '../http/origins.js';
-import { MinigameManager } from '../minigames/MinigameManager.js';
+import { createArcade, type Arcade, type ArcadeOptions } from '../arcade/index.js';
 import { createSocketContext, disposeSocketContext, type SocketContext } from './context.js';
 import { registerAdminHandlers } from './handlers/admin.js';
 import { registerAuthHandlers } from './handlers/auth.js';
 import { registerChannelHandlers } from './handlers/channels.js';
 import { registerChatHandlers } from './handlers/chat.js';
-import { registerMinigameHandlers, type Minigames } from './handlers/minigame.js';
 import { registerPresenceHandlers } from './handlers/presence.js';
 import { registerPushHandlers } from './handlers/push.js';
 import { registerScreenshareHandlers } from './handlers/screenshare.js';
@@ -19,9 +18,8 @@ import { channelsPayload } from './payloads.js';
 
 export interface SocketServer {
   io: Server;
-  minigames: Minigames;
+  arcade: Arcade;
 }
-
 
 /** Run `fn` at most once per event-loop turn, however often it is requested. */
 const coalesce = (fn: () => void): (() => void) => {
@@ -47,7 +45,12 @@ const resolveClientIp = (socket: Socket, trustProxy: boolean): string => {
   return socket.handshake.address || 'unknown';
 };
 
-export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): SocketServer => {
+export interface SocketServerOptions {
+  /** Tests: a fake clock and test game definitions for the Arcade. */
+  arcade?: ArcadeOptions;
+}
+
+export const createSocketServer = (httpServer: HttpServer, ctx: AppContext, options: SocketServerOptions = {}): SocketServer => {
   const isAllowedOrigin = createOriginChecker(ctx.config.cors);
 
   const io = new Server(httpServer, {
@@ -65,6 +68,9 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
     pingTimeout: 20_000,
     connectTimeout: 20_000,
     maxHttpBufferSize: 256_000,
+    // The Arcade's upgrade router (arcade/lane.ts) owns every non-Socket.IO upgrade: /arcade/ws goes to
+    // the action lane, anything else is destroyed there at once.
+    destroyUpgrade: false,
   });
 
   const broadcaster: Broadcaster = {
@@ -127,17 +133,8 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
   };
   ctx.broadcast = broadcaster;
 
-  const minigames = new MinigameManager({
-    io,
-    channelManager: {
-      setChannelMinigame: (channelId: string, meta: Record<string, unknown> | null) =>
-        ctx.presence.setMinigame(channelId, meta as never),
-      clearChannelMinigame: (channelId: string) => ctx.presence.setMinigame(channelId, null),
-      getChannel: (channelId: string) => ctx.channels.get(channelId),
-    },
-    leaderboard: ctx.leaderboard,
-    onChannelUpdate: () => broadcaster.channels(),
-  }) as unknown as Minigames;
+  const arcade = createArcade(ctx, httpServer, io, options.arcade);
+  ctx.runtime.arcade = arcade;
 
   ctx.runtime.connectedSockets = () => io.engine.clientsCount;
 
@@ -168,16 +165,16 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
     // One line per reconnect wave (after a deploy every client comes back within a second or two).
     ctx.runtime.bursts.record('socket connected', { socketId: socket.id, ip, transport: socket.conn.transport.name }, ip);
 
-    registerAuthHandlers(sctx, minigames);
+    registerAuthHandlers(sctx, arcade);
     registerChannelHandlers(sctx);
     registerChatHandlers(sctx);
     registerSearchHandlers(sctx);
-    registerVoiceHandlers(sctx, minigames);
+    registerVoiceHandlers(sctx, arcade);
     registerScreenshareHandlers(sctx);
     registerAdminHandlers(sctx);
     registerPushHandlers(sctx);
     registerPresenceHandlers(sctx);
-    registerMinigameHandlers(sctx, minigames);
+    arcade.register(sctx);
 
     socket.on('disconnect', (reason) => {
       const remaining = (connectionsPerIp.get(ip) ?? 1) - 1;
@@ -185,7 +182,7 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
       else connectionsPerIp.set(ip, remaining);
 
       try {
-        teardownSocket(sctx, minigames);
+        teardownSocket(sctx, arcade);
       } catch (error) {
         ctx.log.error({ err: error, socketId: socket.id }, 'disconnect cleanup failed');
       } finally {
@@ -195,5 +192,5 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
     });
   });
 
-  return { io, minigames };
+  return { io, arcade };
 };

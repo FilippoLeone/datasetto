@@ -13,7 +13,6 @@ import { tileClipControls } from '@/features/clips/tileClip';
 import { account, can, socketId } from '@/state/session';
 import { audioSettings } from '@/state/settings';
 import { isLandscapePhone, isMobile, openModal } from '@/state/ui';
-import { minigameState } from '@/state/misc';
 import {
   anyVideoActive,
   localCameraStream,
@@ -38,7 +37,10 @@ import { VideoTile, type TileAudioControls } from './VideoTile';
 import { VIDEO_GRID_GAP, videoGridLayout } from './videoGrid';
 import { useVoiceTimer } from './VoiceDock';
 import { voiceManager } from './voiceManager';
-import { MinigamePanel } from '@/features/minigames/MinigamePanel';
+import { ArcadeButton } from '@/features/arcade/ArcadeButton';
+import { ArcadeChips } from '@/features/arcade/LobbyChip';
+import { StageSlot } from '@/features/arcade/lazy';
+import { arcadeStageChannel } from '@/features/arcade/state';
 import type { Channel } from '@/types/protocol';
 
 const PeerTile = ({ peer, isMe, state }: { peer: VoicePeer; isMe: boolean; state?: PresenceState }) => {
@@ -284,14 +286,20 @@ const VideoGrid = ({ edge = false }: { edge?: boolean }) => {
   );
 };
 
+/** "Connected · 12:34", on its own so the once-a-second timer re-renders only this line. */
+const CallStatus = () => {
+  const elapsed = useVoiceTimer();
+  return (
+    <span>
+      {voiceStatus.value === 'connected' ? 'Connected' : voiceStatus.value === 'reconnecting' ? 'Reconnecting (your call stays up)' : 'Connecting'} · {elapsed}
+    </span>
+  );
+};
+
 export const VoicePage = ({ channel }: { channel: Channel }) => {
   const connectedHere = voiceStatus.value !== 'idle' && voiceChannelId.value === channel.id;
   const members = usersInVoice(channel.id);
   const me = account.value;
-  const elapsed = useVoiceTimer();
-  const [showGame, setShowGame] = useState(false);
-  const game = minigameState.value;
-  const gameOpen = connectedHere && (showGame || (game !== null && game.channelId === channel.id));
   const peers = peerList.value;
   // Friends scale in when they join and out when they leave (lib/motion.ts).
   const peerTiles = useListPresence(peers, (peer) => peer.id, MOTION.base);
@@ -324,27 +332,25 @@ export const VoicePage = ({ channel }: { channel: Channel }) => {
     );
   }
 
+  // Your own online game replaces the video grid on this screen only; the call collapses to a strip
+  // (both drawn by the stage, from the Arcade's lazy chunk).
+  const stage = arcadeStageChannel.value === channel.id;
   // A phone held sideways while video is on: the picture takes the whole page, the controls float over it.
-  const immersive = isLandscapePhone.value && anyVideoActive.value && !gameOpen;
+  const immersive = !stage && isLandscapePhone.value && anyVideoActive.value;
 
   return (
     <div className={cn('relative flex min-h-0 flex-1 flex-col', immersive ? 'bg-black' : 'bg-base/40')}>
       {!immersive && (
-        <div className="flex items-center justify-between px-4 pt-3 text-xs text-text-muted">
-          <span>
-            {voiceStatus.value === 'connected' ? 'Connected' : voiceStatus.value === 'reconnecting' ? 'Reconnecting (your call stays up)' : 'Connecting'} · {elapsed}
-          </span>
-          <button
-            type="button"
-            className={cn('flex items-center gap-1 rounded-sm px-2 py-1 hover:bg-hover hover:text-text-bright pointer-coarse:py-2.5', gameOpen && 'text-warning')}
-            onClick={() => setShowGame((value) => !value)}
-          >
-            <Gamepad2 size={14} /> Minigames
-          </button>
-        </div>
+        <>
+          <div className="flex items-center justify-between px-4 pt-3 text-xs text-text-muted">
+            <CallStatus />
+            <ArcadeButton channelId={channel.id} />
+          </div>
+          <ArcadeChips channelId={channel.id} />
+        </>
       )}
-      {gameOpen ? (
-        <MinigamePanel channel={channel} onClose={() => setShowGame(false)} />
+      {stage ? (
+        <StageSlot />
       ) : anyVideoActive.value ? (
         <VideoGrid edge={immersive} />
       ) : (

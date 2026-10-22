@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Activity, Ban, Copy, Hash, KeyRound, Link2, Server, Ticket, Trash2, Users, X, XCircle } from 'lucide-preact';
+import { Activity, Ban, Copy, Gamepad2, Hash, KeyRound, Link2, Server, Ticket, Trash2, Users, X, XCircle } from 'lucide-preact';
+import { useLazy } from '@/features/arcade/lazy';
 import { Button, Field, IconButton, Select, TextInput } from '@/components';
 import { cn } from '@/lib/cn';
 import { useBackClose } from '@/lib/backStack';
@@ -301,6 +302,14 @@ const BansTab = () => {
   );
 };
 
+const loadArcadeSection = () => import('./ArcadeSection');
+
+/** Admin › Arcade, a lazy chunk of its own (the main bundle carries only this loader). */
+const ArcadeTab = () => {
+  const section = useLazy(loadArcadeSection);
+  return section ? <section.ArcadeSection /> : <p className="text-sm text-text-muted">Loading…</p>;
+};
+
 /** Where the panel lives in the address bar: /app/admin on the deployed site, /admin in dev. */
 const adminPath = (): string => (window.location.pathname.startsWith('/app') ? '/app/admin' : '/admin');
 const appPath = (): string => (window.location.pathname.startsWith('/app') ? '/app' : '/');
@@ -351,6 +360,7 @@ export const AdminModal = ({ initialTab }: { initialTab: AdminSection }) => {
     { id: 'channels', label: 'Channels', hint: 'Permissions and defaults for new channels', icon: Hash, show: can('canManageChannelPermissions') || can('canDeleteChannels') },
     { id: 'bans', label: 'Bans', hint: 'Banned accounts', icon: Ban, show: can('canBanUsers') },
     { id: 'usage', label: 'Usage', hint: 'Streaming traffic, live streams, viewers', icon: Activity, show: can('canManageUsers') },
+    { id: 'arcade', label: 'Arcade', hint: 'Games, play chips, limits, wallets', icon: Gamepad2, show: can('canManageChannelPermissions') },
     { id: 'server', label: 'Server', hint: 'Version, registration, limits (superusers)', icon: Server, show: isSuperuser.value },
     ] satisfies SectionInfo[]
   ).filter((entry) => entry.show);
@@ -401,6 +411,7 @@ export const AdminModal = ({ initialTab }: { initialTab: AdminSection }) => {
             {current?.id === 'channels' && <ChannelsTab />}
             {current?.id === 'bans' && <BansTab />}
             {current?.id === 'usage' && <UsageSection />}
+            {current?.id === 'arcade' && <ArcadeTab />}
             {current?.id === 'server' && <ServerSection />}
           </div>
         </main>

@@ -2,6 +2,8 @@ import { batch, effect } from '@preact/signals';
 import { socketClient } from './client';
 import { api } from './api';
 import { resyncGameActivity } from '@/features/activity/desktopActivity';
+import { installArcadeBindings, setArcadeConfig } from '@/features/arcade/bindings';
+import type { ArcadePublicConfig } from '@/features/arcade/state';
 import { selectChannel } from '@/features/channels/channelActions';
 import { outbox } from '@/features/chat/outboxService';
 import { sounds } from '@/services/sounds';
@@ -54,7 +56,6 @@ import {
   channelMembers,
   lastCreatedInvite,
   channelPermissions,
-  minigameState,
   setScreenshareSession,
   streamKeys,
   upsertAdminAccount,
@@ -84,7 +85,6 @@ import type {
   SessionInfo,
   StreamKeyResponse,
   User,
-  VoiceMinigameState,
 } from '@/types/protocol';
 
 interface AuthSuccess {
@@ -96,6 +96,8 @@ interface AuthSuccess {
   channels: Channel[];
   groups?: ChannelGroup[];
   isNewAccount?: boolean;
+  /** The Arcade's public switches (the same object as GET /api/config's `arcade`). */
+  arcade?: ArcadePublicConfig | null;
 }
 
 let ticketTimer: number | null = null;
@@ -145,6 +147,9 @@ const heartbeat = createVisibilityHeartbeat({
 export const installSocketBindings = (): void => {
   if (installed) return;
   installed = true;
+  // The Arcade's table-lane pushes (lobbies, activity, wallet, invites, prefs), and its switches from /api/config.
+  installArcadeBindings();
+  setArcadeConfig(serverConfig.get()?.arcade ?? null);
 
   effect(() => {
     if (isAuthenticated.value) heartbeat.start();
@@ -213,6 +218,7 @@ export const installSocketBindings = (): void => {
       setAuthenticated(payload.account, payload.session.token);
       setChannels(payload.channels, payload.groups);
       serverConfig.applyIce(payload.ice);
+      if (payload.arcade !== undefined) setArcadeConfig(payload.arcade);
       if (payload.media) setMediaTicket(payload.media);
       if (modal.value?.type === 'auth') closeModal();
     });
@@ -534,21 +540,4 @@ export const installSocketBindings = (): void => {
     channelMembers.value = { ...channelMembers.value, [payload.channelId]: payload.members };
   });
   socketClient.on<ServerError>('admin:error', (payload) => toast.error(payload.message));
-
-  // ------------------------------------------------------------ minigames
-
-  socketClient.on<VoiceMinigameState>('voice:game:state', (state) => {
-    minigameState.value = state;
-  });
-  socketClient.on<VoiceMinigameState>('voice:game:update', (state) => {
-    minigameState.value = state;
-  });
-  socketClient.on<VoiceMinigameState>('voice:game:started', (state) => {
-    minigameState.value = state;
-    toast.info(state.hostName + ' started ' + state.type);
-  });
-  socketClient.on<{ reason: string }>('voice:game:ended', () => {
-    minigameState.value = null;
-  });
-  socketClient.on<ServerError>('voice:game:error', (payload) => toast.error(payload.message));
 };

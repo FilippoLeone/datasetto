@@ -40,6 +40,9 @@ src/
     ServerConfigService    GET /api/config: registration mode, ICE servers with ephemeral TURN credentials, public URLs, push
     updates                update notices: the desktop updater's state, or a daily GET /api/releases on the web and Android
     sounds, AudioNotificationService   synthesised UI sounds
+  arcade/                  the Arcade's game side (docs/arcade): catalog (names, modes, lobby options), runtime/ (stage canvas, frame loop,
+                           input, audio, sprites, local and remote hosts, the action-lane client, chat first, practice wallet), one
+                           folder per game (meta + lazy entry); shared code from server/src/arcade/core comes in as @arcade/core
   audio/worklets/          AudioWorklet processors (noise gate, DeepFilterNet3 and RNNoise suppressors, mic capture; parts/ are the sources the generated ones are built from)
   audio/neural/            WebAssembly builds of DeepFilterNet3 and RNNoise, the model, licences
   video/segmentation/      MediaPipe selfie segmentation models for the camera's background blur, licences
@@ -56,7 +59,8 @@ src/
                            audio settings, voiceRejoin (rejoin state machine), peerReconcile (keep / rekey / rebuild peer connections),
                            desktopVoice (system-wide push to talk + voice overlay through the Electron bridge), pushToTalkHold, voiceOverlayState
     screenshare/           presenter/viewer rooms over direct WebRTC, screenshareRejoin (room rejoin state machine)
-    minigames/             canvas engine (slither, pacman, fighter) + panel
+    arcade/                the Arcade shell: button, chips and bindings in the main bundle; the overlay, sheet, stage, wallet, boards,
+                           profile switches and requests in lazy chunks (the bundle check holds the Arcade's main-bundle part to 4 KB gzip)
     admin/                 members, channel permissions, bans
     activity/              "Playing <game>": own entries and report pacing (gameActivity), the Electron bridge wiring (desktopActivity), catalogue tests
     settings/              the Notifications, Desktop app (automatic updates), Game activity and Clips sections of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)

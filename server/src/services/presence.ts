@@ -4,7 +4,6 @@ import type {
   ChannelRecord,
   ChannelView,
   ConnectedUser,
-  MinigameSummary,
   PublicAccount,
   ScreenshareSession,
   ScreenshareViewer,
@@ -79,7 +78,7 @@ export interface StartStreamInput {
 
 /**
  * All runtime (non-persistent) state: who is connected, which room they are
- * in, live streams, screenshares and minigame summaries. Lives in memory and
+ * in, live streams and screenshares. Lives in memory and
  * is rebuilt naturally as clients reconnect after a restart.
  */
 export class PresenceService {
@@ -89,7 +88,6 @@ export class PresenceService {
   private readonly voiceRooms = new Map<string, VoiceRoom>();
   private readonly screenshares = new Map<string, ScreenshareSession>();
   private readonly liveStreams = new Map<string, ActiveStream>();
-  private readonly minigames = new Map<string, MinigameSummary>();
 
   // ---------------------------------------------------------------- users
 
@@ -276,7 +274,6 @@ export class PresenceService {
     this.voiceRooms.delete(channelId);
     this.screenshares.delete(channelId);
     this.liveStreams.delete(channelId);
-    this.minigames.delete(channelId);
     for (const user of this.users.values()) {
       if (user.currentChannel === channelId) user.currentChannel = null;
       if (user.voiceChannel === channelId) user.voiceChannel = null;
@@ -512,24 +509,12 @@ export class PresenceService {
     return Array.from(this.liveStreams.values());
   }
 
-  // ------------------------------------------------------------ minigames
-
-  setMinigame(channelId: string, summary: MinigameSummary | null): void {
-    if (summary) this.minigames.set(channelId, { ...summary });
-    else this.minigames.delete(channelId);
-  }
-
-  getMinigame(channelId: string): MinigameSummary | null {
-    return this.minigames.get(channelId) ?? null;
-  }
-
   // ----------------------------------------------------------------- view
 
   channelView(channel: ChannelRecord, memberCount = 0): ChannelView {
     const stream = this.liveStreams.get(channel.id);
     const room = this.voiceRooms.get(channel.id);
     const share = this.screenshares.get(channel.id);
-    const minigame = this.minigames.get(channel.id);
 
     return {
       id: channel.id,
@@ -548,7 +533,6 @@ export class PresenceService {
       liveDisplayName: stream?.displayName ?? null,
       voiceStartedAt: channel.type === 'voice' ? (room?.startedAt ?? null) : null,
       voiceSessionId: channel.type === 'voice' ? (room?.sessionId ?? null) : null,
-      currentMinigame: channel.type === 'voice' && minigame ? { ...minigame } : null,
       ...(channel.type === 'screenshare' && share
         ? {
             screenshareStartedAt: share.startedAt,
