@@ -1055,6 +1055,13 @@ function createWindow() {
     resetActivity();
   });
 
+  // Tell the client when the window stops or starts being seen (see "Window visibility").
+  for (const eventName of ['minimize', 'restore', 'hide', 'show']) {
+    mainWindow.on(eventName, sendWindowVisibility);
+  }
+  mainWindow.webContents.on('did-finish-load', sendWindowVisibility);
+  mainWindow.on('focus', () => setAttention(false));
+
   mainWindow.on('closed', () => {
     mainWindow = null;
     unregisterPushToTalk();
@@ -1186,6 +1193,74 @@ function showAlreadyRunningWarning() {
     }, 2000);
   }
 }
+
+// ============================================
+// Window visibility and attention
+// ============================================
+// Background throttling is off on the main window (push to talk and mic levels keep
+// running), so the page's own Page Visibility API keeps saying "visible" while the
+// window is minimized or hidden in the tray. The shell tells the client instead.
+let lastWindowVisible = null;
+
+function sendWindowVisibility() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  const visible = mainWindow.isVisible() && !mainWindow.isMinimized();
+  if (visible !== lastWindowVisible) {
+    lastWindowVisible = visible;
+    console.log('[Desktop] Window visibility:', visible ? 'visible' : 'hidden');
+  }
+  // Sent even when unchanged: a page that just loaded needs the current state.
+  mainWindow.webContents.send('window:visibility', { visible });
+}
+
+// "Your turn" and similar: flash the taskbar button (Windows, Linux) or bounce the dock
+// (macOS) until the window gets focus. A window already in front needs nothing.
+let attentionRequested = false;
+let dockBounceId = null;
+
+function setAttention(on) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  if (on) {
+    if (mainWindow.isFocused() && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+      return;
+    }
+    attentionRequested = true;
+    if (process.platform === 'darwin') {
+      if (app.dock && dockBounceId === null) {
+        dockBounceId = app.dock.bounce('informational');
+      }
+      console.log('[Desktop] Attention requested: dock bounce');
+    } else {
+      mainWindow.flashFrame(true);
+      console.log('[Desktop] Attention requested: flashFrame(true)');
+    }
+    return;
+  }
+  if (!attentionRequested) {
+    return;
+  }
+  attentionRequested = false;
+  if (process.platform === 'darwin') {
+    if (app.dock && dockBounceId !== null) {
+      app.dock.cancelBounce(dockBounceId);
+    }
+    dockBounceId = null;
+  } else {
+    mainWindow.flashFrame(false);
+  }
+  console.log('[Desktop] Attention cleared');
+}
+
+ipcMain.on('window:attention', (event, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    return;
+  }
+  setAttention(Boolean(payload?.on));
+});
 
 app.whenReady().then(() => {
   // Initialize logging first (needs app to be ready for getPath)

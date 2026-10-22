@@ -7,6 +7,22 @@ const DEFAULT_SERVER_URL = 'https://datasetto.com';
 
 const runtimeConfig = Object.freeze(resolveRuntimeConfig());
 
+// Main window visibility (main.js sends it on minimize, restore, hide, show and every
+// page load). One IPC listener fans out to the page's subscribers; the last state is
+// replayed to a subscriber that arrives after it was sent.
+let windowVisible = null;
+const windowVisibilityHandlers = new Set();
+ipcRenderer.on('window:visibility', (_event, payload) => {
+  windowVisible = Boolean(payload?.visible);
+  for (const handler of [...windowVisibilityHandlers]) {
+    try {
+      handler(windowVisible);
+    } catch (error) {
+      console.warn('[desktop][preload] Window visibility handler failed:', error);
+    }
+  }
+});
+
 defineGlobals();
 
 /**
@@ -57,7 +73,22 @@ function defineGlobals() {
       const listener = (_event, payload) => handler(payload);
       ipcRenderer.on('activity:detected', listener);
       return () => ipcRenderer.removeListener('activity:detected', listener);
-    }
+    },
+
+    // Window visibility and attention (client feature-detects these as well).
+    onWindowVisibility: (handler) => {
+      if (typeof handler !== 'function') {
+        return () => {};
+      }
+      windowVisibilityHandlers.add(handler);
+      if (windowVisible !== null) {
+        handler(windowVisible);
+      }
+      return () => {
+        windowVisibilityHandlers.delete(handler);
+      };
+    },
+    requestAttention: (on) => ipcRenderer.send('window:attention', { on: Boolean(on) })
   });
 
   contextBridge.exposeInMainWorld('datasettoDesktopConfig', runtimeConfig);
