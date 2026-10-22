@@ -357,6 +357,21 @@ const bellwick: MatchGameDef = {
     persistBody(body, api);
   },
 
+  /**
+   * A Solo Tale imported into an account slot (arcade:saves:import). The bytes come from the device, so
+   * only the tale itself is kept: it is marked imported (never on the fastest-clear board), any claim of
+   * having started online is dropped, and its device hero record (`solo`, no account) is left out.
+   */
+  importSave(data, version) {
+    if (version !== 1) return null;
+    const save = readSave(data);
+    if (!save) return null;
+    const out: SaveV1 = { ...save, heroes: {}, imported: true };
+    delete out.online;
+    const bytes = utf8Encode(JSON.stringify(out));
+    return bytes.length <= SAVE_MAX_BYTES ? bytes : null;
+  },
+
   summarizeSave(data): SaveSummary {
     const save = readSave(data);
     if (!save) return { broken: true };

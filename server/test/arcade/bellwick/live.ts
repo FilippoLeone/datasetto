@@ -1,8 +1,7 @@
 /**
- * A Bellwick lane client for the live test server: the harness's lane speaks HELLO with Fuseyard's
- * codec only, so this one says `{ bellwick: CODEC.bellwick }`. It keeps a client mirror (the core's
- * `ClientWorld`) up to date from WELCOME, KEYFRAME and FRAME, ACKs every frame, and can step its hero
- * with buttons the way the device does.
+ * A Bellwick lane client for the live test server. Next to the harness's lane (which can announce
+ * Bellwick's codec too), this one keeps a client mirror (the core's `ClientWorld`) up to date from
+ * WELCOME, KEYFRAME and FRAME, ACKs every frame, and can step its hero with buttons the way the device does.
  */
 import WebSocket from 'ws';
 import { ByteReader } from '../../../src/arcade/core/bytes.js';

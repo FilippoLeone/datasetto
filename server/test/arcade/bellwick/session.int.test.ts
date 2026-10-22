@@ -7,7 +7,7 @@
  */
 import { inflateRawSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { b64url, utf8Decode } from '../../../src/arcade/core/bytes.js';
+import { b64url, utf8Decode, utf8Encode } from '../../../src/arcade/core/bytes.js';
 import { fromBase64, parseSave } from '../../../src/arcade/core/bellwick/codec.js';
 import { content } from '../../../src/arcade/core/bellwick/content/parse.js';
 import { createBellwick, type BellwickMatch, type PartyHandover } from '../../../src/arcade/core/bellwick/runtime.js';
@@ -228,6 +228,23 @@ describe('Bellwick Party Tale on the platform', () => {
       expect(await m.lane.closed()).toBe(CLOSE.restart);
     }
     expect(savedTale(members[0]!.account.id)?.save?.purse).toBe(9);
+  });
+});
+
+describe('Bellwick save import', () => {
+  it('keeps an imported Solo Tale as a tale marked imported, never online, and refuses anything else', async () => {
+    const { account, socket } = await member();
+    const tale = { ...dungeonSave(9), online: true, heroes: { solo: { tunic: 1, brew: true, downs: 2, defeats: 30 } } };
+    const imp = (data: string, version = 1) => socket.request<{ ok: boolean; code?: string }>('arcade:saves:import', { game: 'bellwick', slot: 1, version, data });
+    expect(await imp(b64url(utf8Encode(JSON.stringify(tale))))).toEqual({ ok: true });
+    const row = server.ctx.db.prepare("SELECT data FROM arcade_saves WHERE owner_id = ? AND game = 'bellwick' AND slot = 1").get(account.id) as { data: Buffer };
+    const stored = parseSave(JSON.parse(utf8Decode(new Uint8Array(row.data))));
+    expect(stored?.imported).toBe(true);
+    expect(stored?.online).toBeUndefined();
+    expect(stored?.heroes).toEqual({});
+    expect(stored?.shards).toBe(tale.shards);
+    expect(await imp(b64url(utf8Encode('{"v":1,"not":"a tale"}')))).toEqual({ ok: false, code: 'invalid' });
+    expect(await imp(b64url(utf8Encode(JSON.stringify(tale))), 2)).toEqual({ ok: false, code: 'invalid' });
   });
 });
 
