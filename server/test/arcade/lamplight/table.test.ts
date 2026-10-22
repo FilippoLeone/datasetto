@@ -75,7 +75,8 @@ describe('a cash table online', () => {
     }
     expect(game.lobby!.onJoin({ accountId: watcher.accountId, socketId: watcher.id, voiceChannelId: 'ch1' }, h.lobbies.get('tblA')!, 'spectator')).toEqual({ ok: true });
     const tb = table(game);
-    expect(tb.state.seats.filter((s) => s.player?.botId).length).toBe(3);
+    // Bots leave two seats for people.
+    expect(tb.state.seats.filter((s) => s.player?.botId).length).toBe(4);
     const sockets = [...humans, watcher];
     const marks = new Map<string, number>(sockets.map((s) => [s.id, 0]));
     let checked = 0;
@@ -194,8 +195,9 @@ describe('a cash table online', () => {
     const lastQ = (a.received.filter((m) => typeof m.data.q === 'number').at(-1)?.data.q as number) ?? 0;
     const handQ = a.received.find((m) => m.name === 'lamplight:hand')!.data.q as number;
     // The socket drops; the seat stays and is marked disconnected after the coalescing window.
-    h.drop(a);
+    // The platform calls the hook while presence still lists the closing socket.
     game.onSocketGone(a.accountId, a.id);
+    h.drop(a);
     h.clock.run(2500);
     const n = tb.state.seats.findIndex((s) => s.player?.accountId === a.accountId);
     expect(tb.state.seats[n].connected).toBe(false);
@@ -229,19 +231,46 @@ describe('online rules', () => {
     h.setSettings({ serverBots: false });
     expect(game.lobby!.onCreate(c, { mode: 'open', tier: 'pebble', bots: 'regular' })).toEqual({ ok: false, code: 'bots' });
     h.setSettings({ serverBots: true });
-    // Two tables of three bots each against a cap of 4: the second table gets one.
-    h.lobby('tblB', 'open', { tier: 'pebble', seats: 6, bots: 'regular' });
+    // Five-seat tables want three bots each (two seats stay for people); against a cap of 4 the second gets one.
+    h.lobby('tblB', 'open', { tier: 'pebble', seats: 5, bots: 'regular' });
     game.lobby!.onJoin(c, h.lobbies.get('tblA')!, 'spectator');
     expect(h.bots).toBe(0);
     game.lobby!.onJoin(c, h.lobbies.get('tblB')!, 'spectator');
     expect(h.bots).toBe(3);
-    h.lobby('tblC', 'open', { tier: 'pebble', seats: 6, bots: 'regular' });
-    h.lobby('tblD', 'open', { tier: 'pebble', seats: 6, bots: 'regular' });
+    h.lobby('tblC', 'open', { tier: 'pebble', seats: 5, bots: 'regular' });
+    h.lobby('tblD', 'open', { tier: 'pebble', seats: 5, bots: 'regular' });
     game.lobby!.onJoin(c, h.lobbies.get('tblC')!, 'spectator');
     game.lobby!.onJoin(c, h.lobbies.get('tblD')!, 'spectator');
     expect(h.bots).toBe(4);
     const botsAt = (id: string) => game.tables.get(id)!.state.seats.filter((s) => s.player?.botId).length;
     expect([botsAt('tblB'), botsAt('tblC'), botsAt('tblD')]).toEqual([3, 1, 0]);
+  });
+
+  it('a bot gives its seat to a person at a full table: after the hand it is in, or at once', async () => {
+    const { h, game, humans, r } = setup({ cfg: { tier: 'pebble', players: 4, bots: 'greenhorn' }, humans: 4, botCap: 6 });
+    for (const s of humans.slice(0, 2)) expect(await h.call(s, 'lamplight:sit', { t: 'tblA', buyIn: 1000, post: 'now', id: 'sit-' + s.id })).toEqual({ ok: true });
+    const tb = table(game);
+    const bots = () => tb.state.seats.filter((s) => s.player?.botId).length;
+    expect(bots()).toBe(2);
+    for (let i = 0; i < 40 && !(tb.state.hand && tb.state.hand.street !== 'done'); i++) h.clock.run(250);
+    expect(tb.state.hand?.street).not.toBe('done');
+    // Mid-hand with both bots dealt in: one promises its seat and leaves when the hand ends.
+    const [, , third, fourth] = humans;
+    expect(await h.call(third, 'lamplight:sit', { t: 'tblA', buyIn: 1000, post: 'wait', id: 'sit-3a' })).toEqual({ ok: false, code: 'soon' });
+    expect(tb.info.filter((x) => x.leaveAfter).length).toBe(1);
+    const played = tb.state.handsPlayed;
+    await playUntil(h, game, humans.slice(0, 2), r, played + 1);
+    for (let i = 0; i < 40 && bots() === 2; i++) h.clock.run(250);
+    expect(bots()).toBe(1);
+    expect(await h.call(third, 'lamplight:sit', { t: 'tblA', buyIn: 1000, post: 'wait', id: 'sit-3b' })).toEqual({ ok: true });
+    // Between hands the last bot stands up at once.
+    for (let i = 0; i < 400 && tb.state.hand && tb.state.hand.street !== 'done'; i++) await playUntil(h, game, humans.slice(0, 3), r, tb.state.handsPlayed + 1);
+    expect(await h.call(fourth, 'lamplight:sit', { t: 'tblA', buyIn: 1000, post: 'wait', id: 'sit-4' })).toEqual({ ok: true });
+    expect(bots()).toBe(0);
+    expect(tb.state.seats.filter((s) => s.player?.accountId).length).toBe(4);
+    expect(await h.call(h.account('late'), 'lamplight:sit', { t: 'tblA', buyIn: 1000, post: 'wait', id: 'sit-5' })).toEqual({ ok: false, code: 'full' });
+    expect(h.bots).toBe(0);
+    expect(checkInvariant(h.db)).toEqual([]);
   });
 
   it('closes an empty table after 2 minutes and arms no timer between hands when nobody can play', async () => {

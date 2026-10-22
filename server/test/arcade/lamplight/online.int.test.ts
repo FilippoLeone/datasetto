@@ -179,6 +179,17 @@ describe('Lamplight online', () => {
     for (const x of bobsFirst) if (!shownFirst.has(x)) expect(proof.rv.map((r) => r.c)).not.toContain(x);
     expect(await c.request('lamplight:proof', { t, h: firstHand.no })).toEqual({ ok: false, code: 'forbidden' });
 
+    // Bob's connection drops: through the platform's real disconnect path his seat shows as away.
+    const bobSeat = cb.seat!;
+    expect(ca.view!.seats[bobSeat].connected).toBe(true);
+    b.raw.disconnect();
+    for (let i = 0; i < 50 && ca.view!.seats[bobSeat].connected; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await s.clock.run(200, 10);
+      ca.drain();
+    }
+    expect(ca.view!.seats[bobSeat].connected).toBe(false);
+
     // Leaving cashes out; the ledger balances.
     await a.request('lamplight:leave', { t, now: true, id: 'a-out' });
     await s.clock.run(20_000, 200);

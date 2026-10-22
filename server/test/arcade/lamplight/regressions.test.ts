@@ -124,8 +124,8 @@ describe('review regressions', () => {
     h.clock.run(150_000);
     const tb = game.tables.get('tblR')!;
     expect(tb.closed).toBe(false);
-    h.drop(b);
     game.onSocketGone('b', b.id);
+    h.drop(b);
     h.clock.run(REGISTRANT_HOLD_MS + 3000);
     expect(h.wallet.view('b')).toMatchObject({ bal: 20_000, esc: 0 });
     expect(tb.registered).toEqual(['a']);
@@ -139,7 +139,7 @@ describe('review regressions', () => {
     const { h, game } = setup('open', { tier: 'pebble', seats: 6, bots: 'regular' });
     const w = h.account('w');
     game.lobby!.onJoin(ctx(w), h.lobbies.get('tblR')!, 'spectator');
-    expect(h.bots).toBe(3);
+    expect(h.bots).toBe(4);
     h.clock.run(IDLE_EMPTY_MS + 1000);
     expect(game.tables.get('tblR')).toBeUndefined();
     expect(h.bots).toBe(0);
@@ -171,5 +171,37 @@ describe('review regressions', () => {
     await h.call(a, 'lamplight:sitOut', { t: 'tblR', on: true });
     await h.call(a, 'lamplight:sitOut', { t: 'tblR', on: false });
     expect(game.tables.get('tblR')!.state.seats.find((s) => s.player?.accountId === 'a')!.status).toBe('waiting');
+  });
+
+  it('refuses a new table, with a code the sheet explains, while you hold a registration elsewhere', () => {
+    const { h, game } = setup('cup', { buyIn: 500, seats: 3 });
+    const a = h.account('a');
+    expect(game.lobby!.onJoin(ctx(a), h.lobbies.get('tblR')!, 'player')).toEqual({ ok: true });
+    expect(game.lobby!.onCreate(ctx(a), { tier: 'pebble' })).toEqual({ ok: false, code: 'already' });
+    h.lobby('tblT', 'trio', { buyIn: 200 });
+    expect(game.lobby!.onJoin(ctx(a), h.lobbies.get('tblT')!, 'player')).toEqual({ ok: false, code: 'already' });
+    // Unregistered (refunded), the only refusal left is the channel's table limit (two tables here).
+    game.lobby!.onLeave(ctx(a), h.lobbies.get('tblR')!);
+    expect(game.lobby!.onCreate(ctx(a), { tier: 'pebble' })).toEqual({ ok: false, code: 'channel-limit' });
+    expect(h.wallet.view('a').esc).toBe(0);
+  });
+
+  it('lists a table in the channel activity only once its lobby is live (the hub lists forming lobbies itself)', () => {
+    const { h, game } = setup('trio', { buyIn: 200 });
+    const lobby = h.lobbies.get('tblR')!;
+    const [a, b, c] = ['a', 'b', 'c'].map((id) => h.account(id));
+    game.lobby!.onCreated!(ctx(a), lobby);
+    game.lobby!.onJoin(ctx(b), lobby, 'player');
+    h.clock.run(10);
+    expect(game.activity('ch1')).toEqual([]);
+    game.lobby!.onJoin(ctx(c), lobby, 'player');
+    h.clock.run(10);
+    expect(game.activity('ch1').map((e) => e.id)).toEqual(['tblR']);
+    // A cash table is live at once.
+    h.lobby('tblO', 'open', { tier: 'pebble', seats: 3 });
+    game.lobby!.onCreated!(ctx(h.account('d')), h.lobbies.get('tblO')!);
+    expect(game.activity('ch1').map((e) => e.id)).toEqual(['tblR']);
+    h.clock.run(10);
+    expect(game.activity('ch1').map((e) => e.id).sort()).toEqual(['tblO', 'tblR']);
   });
 });

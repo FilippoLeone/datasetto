@@ -37,6 +37,9 @@ const CODES: Record<string, string> = {
   amount: 'That amount is not allowed',
   busy: 'One moment…',
   funds: 'Not enough chips',
+  soon: 'A bot gives you its seat after this hand',
+  full: 'The table is full',
+  seated: 'You are seated at another table',
 };
 
 interface Prefs {
@@ -129,6 +132,25 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
       .catch(() => hint('busy'));
   };
 
+  // A sit that waits for a bot to give up its seat is sent again once a seat is free.
+  let pendingSit: { buyIn: number; post: 'now' | 'wait' } | null = null;
+  const sitDown = (buyIn: number, post: 'now' | 'wait'): void => {
+    pendingSit = null;
+    void request<{ ok: boolean; code?: string }>(model.view?.config.format === 'open' ? 'lamplight:sit' : 'lamplight:join', { buyIn, post, id: requestId() })
+      .then((r) => {
+        if (r.ok) return;
+        if (r.code === 'soon') pendingSit = { buyIn, post };
+        hint(r.code);
+      })
+      .catch(() => hint('busy'));
+  };
+  const retrySit = (): void => {
+    if (!pendingSit) return;
+    const view = model.view;
+    if (!view || (model.me !== null && view.seats[model.me]?.player)) pendingSit = null;
+    else if (view.seats.some((x) => !x.player)) sitDown(pendingSit.buyIn, pendingSit.post);
+  };
+
   let syncing = false;
   const sync = (since: number): void => {
     if (syncing) return;
@@ -184,7 +206,8 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
       buyIn: model.buyIn,
       sitOutNext: s?.status === 'sittingOut',
       blocked,
-      joinable: view.config.format === 'open' ? view.seats.some((x) => !x.player) : model.registering,
+      // Online, a bot gives its seat to a person who sits down.
+      joinable: view.config.format === 'open' ? view.seats.some((x) => !x.player || (host.mode === 'remote' && !!x.player.botId)) : model.registering,
       running: view.handsPlayed > 0,
     };
   };
@@ -232,6 +255,7 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
     onChange(what) {
       if (what === 'turn') onTurn();
       else {
+        retrySit();
         writeSeat();
         updateWake();
         if (what === 'view') startRing();
@@ -421,9 +445,15 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
     },
     join(buyIn, post) {
       unlock();
-      void request<{ ok: boolean; code?: string }>(model.view?.config.format === 'open' ? 'lamplight:sit' : 'lamplight:join', { buyIn, post, id: requestId() }).then(
-        (r) => !r.ok && hint(r.code),
-      );
+      // Online, Cup and Trio registration is the platform's lobby join (it escrows the buy-in).
+      if (host.mode === 'remote' && model.view?.config.format !== 'open') {
+        void host
+          .request<{ ok: boolean; code?: string }>('arcade:lobby:join', { id: t, as: 'player' })
+          .then((r) => !r.ok && hint(r.code))
+          .catch(() => hint('busy'));
+        return;
+      }
+      sitDown(buyIn, post);
     },
     leave() {
       void request('lamplight:leave', { now: true, id: requestId() })

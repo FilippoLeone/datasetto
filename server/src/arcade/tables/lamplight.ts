@@ -373,6 +373,8 @@ interface Table {
   seq: number;
   /** Seats in deal order for the current hand (the deck proof's positions), fixed at the deal. */
   dealt: number[];
+  /** The hub's lobby is live: from then on the table reports its own activity (the hub lists forming lobbies). */
+  listed: boolean;
 }
 
 export interface LamplightDeps {
@@ -528,6 +530,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       slow: 0,
       seq: 0,
       dealt: [],
+      listed: false,
     };
     tables.set(lobby.id, tb);
     lobbyDirty(tb);
@@ -582,6 +585,13 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     tb.info[n] = freshInfo();
     api.hub.bots.give(1);
     botsInUse--;
+  };
+
+  /** The bot seat that makes room for a person: one out of the hand first, else the one leaving soonest. */
+  const botSeatFor = (tb: Table): number => {
+    const bots = tb.state.seats.filter((s) => s.player?.botId);
+    const pick = bots.find((s) => !s.inHand) ?? bots.find((s) => tb.info[s.seat].leaveAfter) ?? bots.find((s) => s.folded) ?? bots[0];
+    return pick ? pick.seat : -1;
   };
 
   const cashout = (tb: Table, n: number, reason: string): boolean => {
@@ -940,6 +950,11 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     for (const s of tb.state.seats) {
       const info = tb.info[s.seat];
       if (s.player?.botId) {
+        // A bot that promised its seat to a person leaves now.
+        if (info.leaveAfter && tb.mode === 'open') {
+          botCashout(tb, s.seat);
+          continue;
+        }
         if (s.stack === 0 && tb.mode === 'open') {
           if (info.buyIns >= BOT_MAX_BUYINS) botCashout(tb, s.seat);
           else {
@@ -1123,7 +1138,12 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       if (a && !seated.has(a)) watchers.add(a);
     }
     try {
-      api.hub.update(tb.id, { seats, watchers: [...watchers], state: tb.mode === 'open' || tb.started ? 'live' : 'open' });
+      const live = tb.mode === 'open' || tb.started;
+      api.hub.update(tb.id, { seats, watchers: [...watchers], state: live ? 'live' : 'open' });
+      if (live && !tb.listed) {
+        tb.listed = true;
+        api.hub.activityChanged(tb.channelId);
+      }
     } catch (error) {
       api.log.warn({ err: error, table: tb.id }, 'lamplight: lobby update failed');
     }
@@ -1203,7 +1223,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     if (tb.started) return no('started');
     if (api.prefs.hidden(c.accountId, 'lamplight')) return no('hidden');
     const held = seatOf.get(c.accountId);
-    if (held) return held.t === tb.id ? ok : no('seated');
+    if (held) return held.t === tb.id ? ok : no('already');
     const free = tb.state.seats.findIndex((x) => !x.player);
     if (free < 0) return no('full');
     // A wallet that was never read gets its starting chips now.
@@ -1319,20 +1339,36 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       const held = seatOf.get(c.accountId);
       if (held && held.t !== tb.id) return no('seated');
       if (held) return ok;
-      const free = p.seat !== undefined && !tb.state.seats[p.seat]?.player ? p.seat : tb.state.seats.findIndex((s) => !s.player);
-      if (free < 0 || free >= tb.state.seats.length) return no('full');
+      let free = p.seat !== undefined && !tb.state.seats[p.seat]?.player ? p.seat : tb.state.seats.findIndex((s) => !s.player);
+      if (free >= tb.state.seats.length) return no('full');
       const cfg = tb.state.config;
       const back = leftWith.get(c.accountId);
       const floor = back && back.t === tb.id && clock.now() - back.at < RETURN_STACK_MS ? Math.min(cfg.buyInMax, Math.max(cfg.buyInMin, back.stack)) : cfg.buyInMin;
       if (p.buyIn < floor || p.buyIn > Math.max(cfg.buyInMax, floor)) return no('amount');
       // A wallet that was never read gets its starting chips now.
-      api.wallet.view(c.accountId);
+      if (api.wallet.view(c.accountId).bal < p.buyIn) return no('funds');
+      // A full table: a bot gives its seat to a person, at once if it is not in the hand, else after it.
+      let botOut = -1;
+      if (free < 0) {
+        const room = botSeatFor(tb);
+        if (room < 0) return no('full');
+        const running = !!tb.state.hand && tb.state.hand.street !== 'done';
+        if (running && tb.state.seats[room].inHand) {
+          tb.info[room].leaveAfter = true;
+          return no('soon');
+        }
+        botOut = room;
+      }
       const r = api.wallet.transfer('buyin', tb.ref, c.accountId, p.id, [
         { account: walletAccount(c.accountId), delta: -p.buyIn },
         { account: escrowAccount(tb.ref, c.accountId), delta: p.buyIn },
       ]);
       if (!r.ok) return no(r.code === 'funds' ? 'funds' : 'busy');
       if (r.dup) return ok;
+      if (botOut >= 0) {
+        botCashout(tb, botOut);
+        free = botOut;
+      }
       seatOf.set(c.accountId, { t: tb.id, seat: free });
       accountOfSocket.set(c.socketId, c.accountId);
       emitEvents(tb, seatPlayer(tb.state, free, { accountId: c.accountId, botId: null, avatarSeed: 0 }, p.buyIn, (p.post ?? 'wait') as PostChoice));
@@ -1466,8 +1502,12 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       onCreate(c, cfg) {
         // The mode is not known here (the hub passes it to onCreated); checks that need it happen there.
         const limits = api.hub.limits();
-        if (countIn(c.voiceChannelId) >= limits.tablesPerChannel || countIn(null) >= limits.tables) return no('limit');
+        // Codes the Arcade sheet explains in words.
+        if (countIn(c.voiceChannelId) >= limits.tablesPerChannel) return no('channel-limit');
+        if (countIn(null) >= limits.tables) return no('server-limit');
         if (api.prefs.hidden(c.accountId, 'lamplight')) return no('hidden');
+        // A seat or a registration at another Lamplight table first has to be given up.
+        if (seatOf.has(c.accountId)) return no('already');
         const raw = (cfg ?? {}) as { tier?: unknown };
         const parsed = parseCfg('open', cfg);
         if (parsed?.bots) {
@@ -1568,7 +1608,8 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
         tb?.watchers.delete(socketId);
         tb?.away.delete(socketId);
       }
-      if (api.presence.socketsOf(accountId).length > 0) return;
+      // The platform calls this while presence still lists the closing socket.
+      if (api.presence.socketsOf(accountId).some((id) => id !== socketId)) return;
       const held = seatOf.get(accountId);
       const tb = held ? tables.get(held.t) : null;
       if (!tb) return;
@@ -1610,7 +1651,8 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     activity(channelId) {
       const out: ActivityEntry[] = [];
       for (const tb of tables.values()) {
-        if (tb.channelId !== channelId || tb.closed) continue;
+        // Until its lobby is live the hub lists it (forming); listing it here too would show it twice.
+        if (tb.channelId !== channelId || tb.closed || !tb.listed) continue;
         const players = tb.state.seats.filter((s) => s.player).length;
         out.push({
           g: 'lamplight',

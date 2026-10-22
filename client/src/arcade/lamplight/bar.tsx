@@ -123,7 +123,8 @@ const danger = btn + ' bg-[#3a2326] text-[#ffd9d9] hover:bg-[#4a2b2f]';
 
 const clampTo = (v: number, t: Turn): number => Math.max(t.minTo, Math.min(t.maxTo, Math.round(v)));
 
-const RaiseSheet = ({ s, api, t }: { s: BarState; api: BarApi; t: Turn }) => {
+/** The raise sheet: above the bar, or beside the button column in landscape (a short stage has no room above). */
+const RaiseSheet = ({ s, api, t, column }: { s: BarState; api: BarApi; t: Turn; column: boolean }) => {
   const amount = s.amount.value || t.minTo;
   const set = (v: number) => {
     s.amount.value = clampTo(Math.round(v / Math.max(1, t.sb)) * Math.max(1, t.sb), t);
@@ -146,7 +147,10 @@ const RaiseSheet = ({ s, api, t }: { s: BarState; api: BarApi; t: Turn }) => {
     }
   };
   return (
-    <div class="pointer-events-auto absolute inset-x-2 bottom-[calc(100%+6px)] rounded-lg bg-[#121c1b]/95 p-3 shadow-modal" data-ll-sheet>
+    <div
+      class={'pointer-events-auto absolute rounded-lg bg-[#121c1b]/95 p-3 shadow-modal ' + (column ? 'right-[calc(100%+6px)] bottom-2 w-[420px] max-w-[calc(100vw-8rem)]' : 'inset-x-2 bottom-[calc(100%+6px)]')}
+      data-ll-sheet
+    >
       <div class="mb-2 flex flex-wrap gap-2">
         {[
           ['Min', t.minTo],
@@ -385,7 +389,7 @@ const Bar = ({ s, api }: { s: BarState; api: BarApi }) => {
   }, [hint, s]);
   const column = mode === 'landscape';
   const wrap = column
-    ? 'pointer-events-auto absolute inset-y-0 right-0 flex w-24 flex-col justify-end gap-2 p-2'
+    ? 'pointer-events-auto absolute top-14 right-0 bottom-0 flex w-24 flex-col justify-end gap-2 p-2'
     : mode === 'desktop'
       ? 'pointer-events-auto absolute right-2 bottom-2 flex w-[372px] flex-wrap justify-end gap-2 rounded-lg bg-[#0d1716]/80 p-2'
       : 'pointer-events-auto absolute inset-x-0 bottom-0 flex h-16 items-center gap-2 bg-[#0d1716]/92 px-2';
@@ -555,8 +559,12 @@ const Bar = ({ s, api }: { s: BarState; api: BarApi }) => {
       {s.menu.value && <Menu s={s} api={api} seat={seat} />}
       {s.drawer.value && <Drawer s={s} api={api} />}
       <div class={wrap} data-ll-bar>
-        {s.hint.value && <p class="absolute -top-7 left-2 rounded bg-black/70 px-2 py-0.5 text-xs text-[#f4ead5]">{s.hint.value}</p>}
-        {t && s.sheet.value && <RaiseSheet s={s} api={api} t={t} />}
+        {s.hint.value && (
+          <p class={(column ? 'top-0 right-2 whitespace-nowrap' : '-top-7 left-2') + ' absolute rounded bg-black/70 px-2 py-0.5 text-xs text-[#f4ead5]'} data-ll-hint>
+            {s.hint.value}
+          </p>
+        )}
+        {t && s.sheet.value && <RaiseSheet s={s} api={api} t={t} column={column} />}
         {body}
       </div>
     </div>

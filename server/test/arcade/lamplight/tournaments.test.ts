@@ -74,8 +74,9 @@ describe('the Lamplight Cup online', () => {
     expect(tb.started).toBe(true);
     h.clock.run(2000);
     for (const s of socks) {
-      h.drop(s);
+      // The platform calls the hook while presence still lists the closing socket, then drops it.
       game.onSocketGone(s.accountId, s.id);
+      h.drop(s);
     }
     h.clock.run(ABANDON_MS + 60_000);
     expect(tb.closed).toBe(true);

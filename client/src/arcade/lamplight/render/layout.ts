@@ -82,7 +82,7 @@ export const layoutTable = (w: number, h: number, seats: number, me: number | nu
     bottom = area.y + area.h - ownH - 28;
   } else if (mode === 'landscape') {
     top = area.y + 50;
-    bottom = area.y + area.h - 56;
+    bottom = area.y + area.h - 72;
   } else {
     top = area.y + 70;
     bottom = area.y + area.h - 120;
@@ -105,7 +105,7 @@ export const layoutTable = (w: number, h: number, seats: number, me: number | nu
     if (slot === 0) {
       // You sit beside your cards.
       x = own.x - 30;
-      y = own.y + ownH / 2;
+      y = own.y + ownH / 2 - (mode === 'portrait' ? 8 : 0);
     }
     const len = Math.hypot(cx - x, cy - y) || 1;
     const dx = (cx - x) / len;
@@ -122,8 +122,41 @@ export const layoutTable = (w: number, h: number, seats: number, me: number | nu
       dy,
     });
   }
-  const boardScale = mode === 'desktop' ? 3 : mode === 'landscape' && area.h < 400 ? 1.5 : 2;
+  const nameChars = seats >= 8 && mode !== 'desktop' ? 6 : 8;
+  // A side seat's name plate or cards must not cover the board (short stages, e.g. the online stage
+  // under the voice strip): the board moves up or down a little, then shrinks a step. Plate: below
+  // the avatar, 2 lines of 5 × 7 text. The pot label sits under the board, clear of your cards.
+  const r = (mode === 'desktop' ? 48 : 40) / 2;
+  const half = (nameChars * 6 * 2 + 8) / 2;
+  const covers = (scale: number, shift: number): boolean => {
+    const bw = 5 * CARD_W * scale + 8 * scale;
+    const bh = CARD_H * scale;
+    const bx = cx - bw / 2;
+    const by = cy - bh / 2 + shift;
+    if (by < area.y + 8 || (by + bh + 24 > own.y && bx < own.x + ownW && bx + bw > own.x)) return true;
+    const hit = (x0: number, x1: number, y0: number, y1: number) => x1 > bx && x0 < bx + bw && y1 > by && y0 < by + bh;
+    return spots.some((sp, s) => {
+      if ((s - base + seats) % seats === 0) return false;
+      const cw = CARD_W * (mode === 'desktop' ? 1.5 : 1) + 10;
+      const ch = CARD_H * (mode === 'desktop' ? 1.5 : 1);
+      const cardsX = sp.dx > 0.3 ? sp.x + r + 2 : sp.x - r - cw;
+      return hit(sp.x - half, sp.x + half, sp.y + r + 2, sp.y + r + 38) || (Math.abs(sp.dx) > 0.3 && hit(cardsX, cardsX + cw, sp.y - ch / 2, sp.y + ch / 2));
+    });
+  };
+  const steps = mode === 'desktop' ? [3] : mode === 'landscape' && area.h < 400 ? [1.5, 1.25] : [2, 1.5, 1.25];
+  const shifts = mode === 'desktop' ? [0] : [0, 6, -6, 12, -12, 18, -18, 24, -24, 30, -30];
+  let boardScale = steps[steps.length - 1];
+  let boardShift = 0;
+  search: for (const sc of steps) {
+    for (const d of shifts) {
+      if (covers(sc, d)) continue;
+      boardScale = sc;
+      boardShift = d;
+      break search;
+    }
+  }
   const gap = boardScale * 2;
+  const boardY = cy - (CARD_H * boardScale) / 2 + boardShift;
   const boardW = 5 * CARD_W * boardScale + 4 * gap;
   return {
     mode,
@@ -135,14 +168,14 @@ export const layoutTable = (w: number, h: number, seats: number, me: number | nu
     rx,
     ry,
     seats: spots,
-    board: { x: cx - boardW / 2, y: cy - (CARD_H * boardScale) / 2, scale: boardScale, gap },
+    board: { x: cx - boardW / 2, y: boardY, scale: boardScale, gap },
     // Below the board: the side seats' plates crowd the space above it on narrow phones.
-    pot: { x: cx, y: cy + (CARD_H * boardScale) / 2 + 8 },
+    pot: { x: cx, y: boardY + CARD_H * boardScale + 8 },
     own,
     seatScale: mode === 'desktop' ? 1.5 : 1,
     avatar: mode === 'desktop' ? 48 : 40,
     text: 2,
-    nameChars: seats >= 8 && mode !== 'desktop' ? 6 : 8,
+    nameChars,
     bar,
   };
 };
