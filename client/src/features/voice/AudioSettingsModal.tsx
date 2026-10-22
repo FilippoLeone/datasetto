@@ -172,6 +172,7 @@ export const AudioSettingsModal = () => {
           </div>
           <Slider label="Mic gain" value={draft.micGain} min={0} max={2} step={0.05} format={(v) => Math.round(v * 100) + '%'} onChange={(value) => patch({ micGain: value })} />
           <Slider label="Output volume" value={draft.outputVol} min={0} max={1} step={0.05} format={(v) => Math.round(v * 100) + '%'} onChange={(value) => patch({ outputVol: value })} />
+          <CameraSection draft={draft} patch={patch} />
         </section>
 
         <section>
@@ -245,7 +246,6 @@ export const AudioSettingsModal = () => {
           )}
         </section>
 
-        <CameraSection draft={draft} patch={patch} />
         <ClipsSection draft={draft} patch={patch} />
         {supportsGameActivity() && <GameActivitySection />}
         <NotificationsSection />
