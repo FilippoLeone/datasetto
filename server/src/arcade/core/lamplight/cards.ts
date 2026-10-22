@@ -52,7 +52,7 @@ export const newDeck = (): Card[] => {
 };
 
 /** Fisher–Yates in place with an injected uniform `randInt(n)` in [0, n). Returns the deck. */
-export const shuffle = (deck: Card[], randInt: RandInt): Card[] => {
+export const shuffle = <T>(deck: T[], randInt: RandInt): T[] => {
   for (let i = deck.length - 1; i > 0; i--) {
     const j = randInt(i + 1);
     const t = deck[i];

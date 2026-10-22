@@ -1,5 +1,7 @@
-/** Lamplight Hold'em's catalogue entry (main bundle, ≤ 300 B gzip). Handover stub from the platform; owned by Lamplight from arcade-p-m1. */
+/** Lamplight Hold'em's catalogue entry (main bundle, ≤ 300 B gzip): tile, modes and the lobby form fields. */
 import type { GameMeta } from '../catalog';
+
+const n = (v: number) => ({ value: v, label: String(v) });
 
 export const meta: GameMeta = {
   id: 'lamplight',
@@ -7,7 +9,7 @@ export const meta: GameMeta = {
   tagline: 'Hold’em with play chips at the Open Tables, the Cup and the Firefly Trio',
   icon: 'cards',
   lane: 'table',
-  ready: { offline: false, online: false },
+  ready: { offline: true, online: false },
   modes: [
     { id: 'open', label: 'Open Tables', online: true, offline: true },
     { id: 'cup', label: 'Lamplight Cup', online: true, offline: true },
@@ -15,6 +17,34 @@ export const meta: GameMeta = {
   ],
   seats: [2, 9],
   watch: true,
-  options: [],
+  options: [
+    {
+      key: 'tier',
+      label: 'Stakes',
+      when: { mode: ['open'] },
+      kind: 'choice',
+      default: 'pebble',
+      choices: [
+        { value: 'pebble', label: 'Pebble 5/10' },
+        { value: 'cobble', label: 'Cobble 25/50' },
+        { value: 'boulder', label: 'Boulder 100/200' },
+        { value: 'summit', label: 'Summit 500/1000' },
+      ],
+    },
+    { key: 'buyIn', label: 'Buy-in', when: { mode: ['cup'] }, kind: 'choice', default: 2000, choices: [n(500), n(2000), n(10000)] },
+    { key: 'buyIn', label: 'Buy-in', when: { mode: ['trio'] }, kind: 'choice', default: 1000, choices: [n(200), n(1000), n(5000)] },
+    { key: 'players', label: 'Players', when: { mode: ['open', 'cup'] }, kind: 'choice', default: 6, choices: [2, 3, 4, 5, 6, 7, 8, 9].map(n) },
+    {
+      key: 'bots',
+      label: 'Bots',
+      kind: 'choice',
+      default: 'regular',
+      choices: [
+        { value: 'greenhorn', label: 'Greenhorn' },
+        { value: 'regular', label: 'Regular' },
+        { value: 'sharp', label: 'Sharp' },
+      ],
+    },
+  ],
   load: () => import('./index').then((m) => m.default),
 };
