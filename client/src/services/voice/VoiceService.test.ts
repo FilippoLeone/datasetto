@@ -189,9 +189,14 @@ const OPUS_SDP = ['v=0', 'm=audio 9 UDP/TLS/RTP/SAVPF 111', 'a=rtpmap:111 opus/4
 
 class FakeSender {
   params: { encodings: Array<Record<string, unknown>> } = { encodings: [{}] };
-  constructor(public track: { kind: string; contentHint?: string } | null) {}
+  constructor(
+    public track: { kind: string; contentHint?: string } | null,
+    private owner?: FakePeerConnection,
+  ) {}
   getParameters = vi.fn(() => JSON.parse(JSON.stringify(this.params)) as RTCRtpSendParameters);
   setParameters = vi.fn(async (parameters: { encodings: Array<Record<string, unknown>> }) => {
+    // Like Chrome on the answering side: before the answer is applied, the call does not stick.
+    if (this.owner?.remoteDescription && !this.owner.localDescription) return;
     this.params = parameters;
   });
   replaceTrack = vi.fn(async (track: { kind: string } | null) => {
@@ -220,7 +225,7 @@ class FakePeerConnection {
     this.remoteDescription = description;
   });
   addTrack = vi.fn((track: { kind: string }) => {
-    const sender = new FakeSender(track);
+    const sender = new FakeSender(track, this);
     this.senders.push(sender);
     return sender;
   });
@@ -236,6 +241,7 @@ describe('VoiceService data-saver voice', () => {
   let service: VoiceService;
   const offers: Array<{ peerId: string; sdp: string }> = [];
   const original = (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection;
+  const originalDescription = (globalThis as { RTCSessionDescription?: unknown }).RTCSessionDescription;
 
   const micStream = () => {
     const track = { kind: 'audio', contentHint: '' };
@@ -251,6 +257,11 @@ describe('VoiceService data-saver voice', () => {
     FakePeerConnection.all = [];
     offers.length = 0;
     (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection = FakePeerConnection;
+    (globalThis as { RTCSessionDescription?: unknown }).RTCSessionDescription = class {
+      constructor(init: RTCSessionDescriptionInit) {
+        Object.assign(this, init);
+      }
+    };
     service = new VoiceService(128000, true);
     service.on('voice:offer', ({ peerId, offer }) => offers.push({ peerId, sdp: offer.sdp ?? '' }));
     service.setLocalStream(micStream());
@@ -261,6 +272,7 @@ describe('VoiceService data-saver voice', () => {
   afterEach(() => {
     service.dispose();
     (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection = original;
+    (globalThis as { RTCSessionDescription?: unknown }).RTCSessionDescription = originalDescription;
     document.body.innerHTML = '';
     localStorage.clear();
   });
@@ -293,6 +305,14 @@ describe('VoiceService data-saver voice', () => {
     expect(voiceSenderOf(0).maxBitrate).toBe(128000);
     await service.createOffer('sock-bob');
     expect(maxAverage(offers.at(-1)!.sdp)).toBe('128000');
+  });
+
+  it('applies the cap on the answering side too, once the answer is set', async () => {
+    service.setLinkConstrained(true);
+    await service.handleOffer('sock-erin', { type: 'offer', sdp: OPUS_SDP });
+    const erin = FakePeerConnection.all.at(-1)!;
+    expect(erin.senders[0].maxBitrate).toBe(24000);
+    expect(maxAverage(erin.localDescription?.sdp ?? '')).toBe('24000');
   });
 
   it('never goes above the bitrate chosen in the settings', () => {

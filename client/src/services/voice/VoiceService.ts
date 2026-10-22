@@ -903,6 +903,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       const enhancedAnswer = this.enhanceOpusSdp(answer);
       await pc.setLocalDescription(enhancedAnswer);
       this.applyScreenSenderEncoding(peerId);
+      this.reapplyVoiceSender(peerId, pc);
 
       const local = pc.localDescription ?? enhancedAnswer;
       this.emit('voice:answer', {
@@ -936,6 +937,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
       this.resetIceRecovery(peerId);
       this.applyScreenSenderEncoding(peerId);
+      this.reapplyVoiceSender(peerId, pc);
     } catch (error) {
       console.error(`Error handling answer from ${peerId}:`, error);
       throw error;
@@ -1134,8 +1136,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     if (constrained) this.peerLinkConstrained.set(id, true);
     else this.peerLinkConstrained.delete(id);
     const pc = this.peers.get(id);
-    const sender = pc ? this.voiceSender(id, pc) : undefined;
-    if (sender) this.applySenderQualityHints(sender, id);
+    if (pc) this.reapplyVoiceSender(id, pc);
   }
 
   /** The peer left the room: drop what it said about its link. */
@@ -1156,10 +1157,17 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   private applyVoiceSenderHints(): void {
-    for (const [peerId, pc] of this.peers.entries()) {
-      const sender = this.voiceSender(peerId, pc);
-      if (sender) this.applySenderQualityHints(sender, peerId);
-    }
+    for (const [peerId, pc] of this.peers.entries()) this.reapplyVoiceSender(peerId, pc);
+  }
+
+  /**
+   * The voice sender's limits again, once a negotiation completed: on the answering side the
+   * sender only gets its encoding during the answer, and setParameters before that does not
+   * stick, so a cap set then would be lost.
+   */
+  private reapplyVoiceSender(peerId: string, pc: RTCPeerConnection): void {
+    const sender = this.voiceSender(peerId, pc);
+    if (sender) this.applySenderQualityHints(sender, peerId);
   }
 
   /**

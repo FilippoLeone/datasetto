@@ -40,8 +40,11 @@ describe('link constraint: the connection', () => {
     [{ effectiveType: '3g', downlink: 10 }, 'slow-network'],
     [{ effectiveType: '4g', downlink: 10 }, null],
     [{ effectiveType: '4g', saveData: true, downlink: 10 }, 'save-data'],
-    [{ effectiveType: '4g', downlink: 1.9 }, 'low-downlink'],
-    [{ effectiveType: '4g', downlink: 2 }, null],
+    [{ effectiveType: '4g', downlink: 0.9 }, 'low-downlink'],
+    // Chrome's typical 4G value (about 1.6 Mbps plus noise), reported on fast links too.
+    [{ effectiveType: '4g', downlink: 1.5 }, null],
+    [{ effectiveType: '4g', downlink: 1.75 }, null],
+    [{ effectiveType: '4g', downlink: 1 }, null],
     [{ effectiveType: '4g', downlink: 0 }, null],
     [{}, null],
   ];

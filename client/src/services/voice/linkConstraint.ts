@@ -11,7 +11,8 @@ import { audioSettings, type DataSaverVoice } from '@/state/settings';
  * - the connection is mobile data (`navigator.connection.type === 'cellular'`, Android);
  * - its effective type is `slow-2g`, `2g` or `3g`;
  * - the browser's data saver is on (`saveData`);
- * - the measured downlink is under 2 Mbps;
+ * - the measured downlink is under 1 Mbps (not 2: until Chrome has measured a transfer it
+ *   reports its typical 4G value, about 1.6 Mbps, on any fast link);
  * - in a call, the outgoing bandwidth estimate stays below what the call's voice needs
  *   for 5 s (see `reportCallBandwidth`).
  * "On" and "Off" override the detection.
@@ -37,7 +38,7 @@ export interface CallBandwidthSample {
 }
 
 const SLOW_TYPES = new Set(['slow-2g', '2g', '3g']);
-const LOW_DOWNLINK_MBPS = 2;
+export const LOW_DOWNLINK_MBPS = 1;
 /** How long the estimate must stay below the need before the call counts as constrained. */
 export const CALL_BANDWIDTH_HOLD_MS = 5000;
 /**
