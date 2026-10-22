@@ -39,7 +39,7 @@ const setupFor = (meta: GameMeta): Step => ({ kind: 'setup', meta, ...resolveSet
 
 /**
  * Local play over the whole window (platform.md §10.6, §12): "Play solo" in the Arcade sheet,
- * "Arcade" in the user menu, and "Play offline" on the sign-in screen and the offline banner. It
+ * the Arcade row in the channel list, and "Play offline" on the sign-in screen and the offline banner. It
  * needs no socket, no /api/config and no account. Results and chips stay on this device. A game
  * card plays the remembered setup in one tap; its Options button opens the setup first.
  */

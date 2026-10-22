@@ -579,7 +579,7 @@ export interface TableHost {
 
 ## 11. Offline mode
 
-- **Where it starts.** "Play offline" on the login screen and on the ConnectionBanner, or "Arcade" in the user menu (solo, even while online; results do not count). It mounts with defaults and needs no socket, no `/api/config` and no account.
+- **Where it starts.** "Play offline" on the login screen and on the ConnectionBanner, or the Arcade row in the channel list (solo, even while online; results do not count). It mounts with defaults and needs no socket, no `/api/config` and no account.
 - **Formats.** All three, against bots, in practice chips:
   - Cup levels advance every 10 hands and Trio levels every 5;
   - the Trio multiplier uses the default table;

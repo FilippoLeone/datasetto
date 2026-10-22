@@ -132,7 +132,8 @@ export const App = () => {
       <ConnectionBanner />
       <ArcadeHost />
       <ToastHost />
-      <UpdateNotice />
+      {/* With a static sidebar the notice sits in the sidebar instead (Sidebar.tsx). */}
+      {phone && <UpdateNotice />}
     </div>
   );
 };

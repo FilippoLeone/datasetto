@@ -546,7 +546,7 @@ All of these sit inside the platform's action-lane ceilings: 32 kbit/s average d
 - **Rules.** No ghosts, no grace, dodge grace 0. The client has authority, with no prediction and no reconciliation, and that path has its own tests.
 - **Seed** from `crypto.getRandomValues`.
 - **Lobby.** The same options form, with bots only.
-- **Entry points** (platform §10.6, §12): "Play solo" in the Arcade sheet, "Arcade" in the user menu (LocalHost even while online, at no server cost), and "Play offline" on the login screen, the offline ConnectionBanner and the shells' server-unreachable screens.
+- **Entry points** (platform §10.6, §12): "Play solo" in the Arcade sheet, the Arcade row in the channel list (LocalHost even while online, at no server cost), and "Play offline" on the login screen, the offline ConnectionBanner and the shells' server-unreachable screens.
   - Fuseyard needs no socket, no `/api/config` and no account to start; it mounts with defaults.
   - It works with no network in the desktop and Android shells, and on the web when the chunk is already loaded.
 - **Offline stats** (matches, wins, round wins, best streak) live in `localStorage` under `datasetto.arcade.fuseyard.stats.v1`. Every access is wrapped in try/catch with an in-memory fallback, and nothing is ever uploaded.

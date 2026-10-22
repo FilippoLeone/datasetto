@@ -689,7 +689,7 @@ Projectiles and slam rings follow deterministic paths, so the client draws them 
 - **LocalHost** (P§12) runs `stepHero` and `stepRoom` for the hero's room (plus a room frozen within the last 5 s) on the main thread, inside the frame loop. It runs at most 4 steps per frame, and a backlog is dropped after a stall. Hidden therefore means paused.
 - **No server needed**:
   - It starts from "Play offline" on the login screen, the ConnectionBanner, and the desktop and Android server-unreachable screens.
-  - It also starts from "Arcade" in the user menu while online, which costs the server nothing.
+  - It also starts from the Arcade row in the channel list while online, which costs the server nothing.
   - It mounts with defaults: no socket, no `/api/config`, no account.
   - It works in the desktop shell (`file://`), the Android shell, and a warm web page. A cold web start does not work offline (P§12).
 - **Pip (M7)**: an optional helper hero, driven by `core/bellwick/bots/hero.ts` through plain `Buttons`, the same code path as a player.

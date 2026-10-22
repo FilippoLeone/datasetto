@@ -820,7 +820,7 @@ Every change calls `host.setVisible`. Remote, that sends VIS. Local, it pauses t
   - **Starting or joining** replaces the video grid *on your own screen only*. The voice tiles collapse to a strip (the existing immersive layout), and the header gets "Back to call", which minimizes.
   - A minimized running game shows as a chip, "Fuseyard running · Return".
 - **Channel list.** `ChannelList.tsx:138` keeps its Gamepad2 badge, now driven by `arcadeActivity` instead of `currentMinigame`.
-- **Global entry.** "Arcade" in the user menu opens solo play (LocalHost) even while online. It costs the server nothing, and results don't count. The solo catalogue is the same game cards (one tap plays; Options first where there is something to choose); during play the header's left button is "Game menu" (the game's own pause menu), and the PRACTICE badge shows only for chip games.
+- **Global entry.** The Arcade row in the channel list opens solo play (LocalHost) even while online. It costs the server nothing, and results don't count. The solo catalogue is the same game cards (one tap plays; Options first where there is something to choose); during play the header's left button is "Game menu" (the game's own pause menu), and the PRACTICE badge shows only for chip games.
 - **Offline entry.** "Play offline" on the login screen, on the ConnectionBanner while offline, and on the desktop and Android server-unreachable screens (§12).
 - **Phone.**
   - Action games prefer landscape and use the existing immersive mode (Capacitor SystemBars on Android).
