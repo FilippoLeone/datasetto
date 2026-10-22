@@ -98,6 +98,10 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
   let lastWalletWrite = -1e9;
   let audioUnlocked = false;
   let dash: DashView | null = null;
+  /** When the current Dash view arrived (its `t` counts from then), and when the hall was hidden. */
+  let dashAt = 0;
+  let hiddenAt = 0;
+  let dashTimer: ReturnType<typeof setTimeout> | null = null;
   let doorsState: DoorsState | null = null;
   let skip = false;
   let sheetKind: 'dash' | 'other' | null = null;
@@ -254,7 +258,8 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
     }
   };
 
-  const bubble = (slot: number, emote: number): void => {
+  /** A reaction from one member to another: the emote over the receiver's chip. */
+  const bubble = (from: number, slot: number, emote: number): void => {
     const el = members.get(slot)?.el;
     const id = EMOTES[emote];
     if (!el || !id) return;
@@ -263,7 +268,7 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
     img.src = uiSpriteUrl(id, 2);
     img.addEventListener('animationend', () => img.remove(), { once: true });
     el.append(img);
-    hall.say(nameOf(slot) + ': ' + id);
+    hall.say(nameOf(from) + ' reacted to ' + (slot === me ? 'you' : nameOf(slot)) + ': ' + id);
   };
 
   const openReact = (slot: number): void => {
@@ -278,7 +283,7 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
       b.append(img);
       b.addEventListener('click', () => {
         gh.react(slot, e);
-        if (mode === 'remote') bubble(slot, e);
+        if (mode === 'remote') bubble(me, slot, e);
         hall.closeSheet();
       });
       body.append(b);
@@ -772,6 +777,7 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
     setMembers(ack.mem);
     hall.friends.hidden = ack.me < 0;
     dash = ack.dash ?? null;
+    dashAt = Date.now();
     pending = ack.pend ?? null;
     showBalance();
     showBet();
@@ -867,10 +873,11 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
         }
       }
     }
-    if (f.r) for (const [, to, e] of f.r) bubble(to, e);
+    if (f.r) for (const [from, to, e] of f.r) bubble(from, to, e);
     if (f.d) {
       const was = inDash();
       dash = f.d;
+      dashAt = Date.now();
       // Joining a running Dash brings its machine up (when nothing else is going on).
       if (!was && inDash() && f.d.m !== machine && phase === 'idle' && !pending) void showMachine(f.d.m);
       if (was !== inDash() || f.d.st === DASH_ST.done) {
@@ -1041,8 +1048,14 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
     showSpinState();
   };
 
+  /** The Dash as it stands now: its clock runs down between views. */
+  const dashNow = (): DashView | null => {
+    if (!dash || (dash.st !== DASH_ST.lobby && dash.st !== DASH_ST.running)) return dash;
+    return { ...dash, t: Math.max(0, dash.t - Math.floor((Date.now() - dashAt) / 1000)) };
+  };
+
   const dashDeps = () => ({
-    dash,
+    dash: dashNow(),
     me,
     inHall: me >= 0,
     mode,
@@ -1053,6 +1066,7 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
         if (disposed) return;
         if (ack.ok) {
           dash = ack.dash;
+          dashAt = Date.now();
           if (typeof ack.bal === 'number') bal = ack.bal;
           showBalance();
         } else hall.setSub((ack as Refused).code === 'funds' ? 'Not enough chips for that buy-in' : 'Could not open a Dash');
@@ -1080,6 +1094,21 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
     if (sheetKind !== 'dash') return;
     const host = hall.root.querySelector('.gh-dash-body');
     if (host) host.replaceChildren(dashPanel(dashDeps()));
+    armDashTick();
+  };
+
+  /** Once a second while the Dash sheet is open on a live Dash and the hall is visible; never otherwise. */
+  const armDashTick = (): void => {
+    if (dashTimer || disposed || !visible || sheetKind !== 'dash' || !dash || (dash.st !== DASH_ST.lobby && dash.st !== DASH_ST.running)) return;
+    dashTimer = setTimeout(() => {
+      dashTimer = null;
+      refreshDashSheet();
+    }, 1000);
+  };
+
+  const stopDashTick = (): void => {
+    if (dashTimer) clearTimeout(dashTimer);
+    dashTimer = null;
   };
 
   const showDash = (): void => {
@@ -1087,7 +1116,11 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
     body.className = 'gh-dash-body';
     body.append(dashPanel(dashDeps()));
     sheetKind = 'dash';
-    hall.sheet(el, () => (sheetKind = null));
+    hall.sheet(el, () => {
+      sheetKind = null;
+      stopDashTick();
+    });
+    armDashTick();
   };
 
   const showNotice = (): void => {
@@ -1289,6 +1322,8 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
     pause() {
       if (!visible) return;
       visible = false;
+      hiddenAt = Date.now();
+      stopDashTick();
       reels?.setVisible(false);
       clearLines();
       audio.suspend();
@@ -1301,7 +1336,10 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
     resume() {
       if (visible) return;
       visible = true;
+      // Offline the Dash clock stood still while hidden; online the server's did not (refresh brings it).
+      if (mode === 'local') dashAt += Date.now() - hiddenAt;
       hall.cover(null);
+      armDashTick();
       reels?.setVisible(true);
       audio.resume();
       syncPad();
@@ -1313,6 +1351,7 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
       if (disposed) return;
       disposed = true;
       stopAuto('user');
+      stopDashTick();
       clearLines();
       if (waitTimer) clearTimeout(waitTimer);
       if (walletTimer) clearTimeout(walletTimer);

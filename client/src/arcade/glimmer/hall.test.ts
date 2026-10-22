@@ -82,13 +82,14 @@ const shell = (practice: PracticeWallet, log: string[] = []) => ({
   practice,
 });
 
-const mountWith = (o: { mode: 'local' | 'remote'; ptt?: KeyBinding | null; reduced?: boolean }) => {
+const mountWith = (o: { mode: 'local' | 'remote'; ptt?: KeyBinding | null; reduced?: boolean; table?: TableHost }) => {
   const key = 'test.gh.' + Math.random();
   const wallet = createPracticeWallet(key);
   const local: LocalHall = createLocalHall({ wallet, rng: seededRng(5), storeKey: key + '.g' });
   const calls: string[] = [];
   let table: TableHost;
-  if (o.mode === 'local') {
+  if (o.table) table = o.table;
+  else if (o.mode === 'local') {
     const inner = createLocalTableHost(local);
     table = { ...inner, request: (ev, data, opts) => (calls.push(ev), inner.request(ev, data, opts)) };
   } else {
@@ -277,6 +278,48 @@ describe('Glimmerhall in jsdom', () => {
     expect(r.calls.filter((c) => c === 'glimmer:enter').length).toBe(2);
     r.handle.unmount();
     r.table.close();
+  });
+
+  it('counts the open Dash sheet down once a second (online nothing else refreshes a waiting lobby), and stops while hidden', async () => {
+    // A server that answers and never pushes: a Dash lobby nobody else joins.
+    const quiet: TableHost = {
+      mode: 'remote',
+      request: <T,>(ev: string) =>
+        Promise.resolve(
+          (ev === 'glimmer:enter'
+            ? { ok: true, bal: 20_000, pot: 7500, me: 0, maxBet: 500, mem: [[0, 'acct-01', 1, 0, 0, 0]] }
+            : ev === 'glimmer:dash:create'
+              ? { ok: true, bal: 20_000, dash: { id: 'D1', st: 0, m: 1, len: 3, buy: 0, host: 0, t: 60, s: [0, 0, 100] } }
+              : { ok: true }) as T,
+        ),
+      on: () => () => undefined,
+      connected: () => true,
+      onConnection: () => () => undefined,
+      ackRttMs: () => 0,
+      setVisible: () => undefined,
+      close: () => undefined,
+    };
+    const h = mountWith({ mode: 'remote', reduced: true, table: quiet });
+    await step(400);
+    h.tap(h.q('.gh-pill'));
+    ([...h.el.querySelectorAll('.gh-dash-body .gh-go')].find((b) => b.textContent === 'Open a Dash') as HTMLButtonElement).click();
+    await step(200);
+    const left = (): number => {
+      const m = /Starting in (\d+):(\d\d)/.exec(h.q('.gh-dash-body')?.textContent ?? '');
+      return m ? Number(m[1]) * 60 + Number(m[2]) : -1;
+    };
+    const first = left();
+    expect(first).toBe(60);
+    await step(3000);
+    expect(left()).toBe(57);
+    // Hidden: no tick (the view is refreshed on return).
+    h.handle.pause();
+    const before = vi.getTimerCount();
+    await step(5000);
+    expect(left()).toBe(57);
+    expect(vi.getTimerCount()).toBeLessThanOrEqual(before);
+    h.handle.unmount();
+    h.table.close();
   });
 
   it('skips Space when it is the push-to-talk key; Enter still spins', async () => {
