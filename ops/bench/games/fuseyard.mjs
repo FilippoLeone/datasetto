@@ -1,21 +1,23 @@
 /**
  * Bench plugin for Fuseyard (fuseyard.md §12 "Shaped bench", platform §15.2): the real game
  * definition from the server's registry, a 4-fighter Brawl on Brickyard with 5 wins needed (so the
- * match outlasts the three scenarios).
+ * match outlasts the four scenarios).
  *
  * Seats: the shaped client, one Node player (the lobby host) and two of the server's own Fuseyard
  * bots (the lobby's bot fill). Fuseyard skips a FRAME when nothing changed, so the bench needs a board
  * that keeps moving: the server bots hunt, bomb, pick up and fight like real players, which also gives
- * a real event mix. Scripted Node players would stand against walls or blow themselves up.
+ * a real event mix, and the two humans pace along their spawn rows. A round boundary (result card and
+ * countdown, about 7.5 s with nothing moving) still drops the rate to the 2 header-only FRAMEs a second
+ * the sender keeps up; check the report's keyframe reasons (3 = round start) before blaming the link.
  *
  * - `serverOptions`: none; the bench server keeps its own registry, which has Fuseyard.
  * - `startBots(server, n)`: n Node players sign in and join the seeded voice channel; the first
  *   creates the lobby. `start()` waits until every human is seated, starts the match, and each opens
- *   its lane and plays: an UP every 2 ticks carrying 2 real Fuseyard inputs (a wandering direction,
+ *   its lane and plays: an UP every 2 ticks carrying 2 real Fuseyard inputs (pacing east and west,
  *   no bombs), ACKs per §5.2, a PING every 2 s. Real inputs matter: Fuseyard ends a match after 120 s
  *   of play without any.
  * - `enter(page, lobby)`: the shaped client joins voice and the lobby, waits for the start, takes its
- *   ticket and plays through the app's own remote host (its fighter stands at its spawn).
+ *   ticket and plays through the app's own remote host, pacing like the Node player.
  */
 import { connectMain, openLane } from '../lib/clients.mjs';
 
@@ -38,30 +40,21 @@ const waitFor = async (fn, timeoutMs, label) => {
   }
 };
 
+/** East and west in turns, 0.7 s each (about 2.6 tiles at base speed): along a spawn row this keeps a fighter moving. */
+const PACE_MS = 700;
+const legDir = (t0) => (Math.floor((Date.now() - t0) / PACE_MS) % 2 === 0 ? 4 : 2);
+
 /**
- * A wandering player's UP payload: `u8 n = 2` and two inputs (rules.ts: direction in bits 0–2, 1 N,
- * 2 E, 3 S, 4 W). The same array is sent on every UP, so changing its bytes steers the player: a new
- * direction every 0.6–1.5 s.
+ * A pacing player's UP payload: `u8 n = 2` and two inputs (rules.ts: direction in bits 0–2, 2 E, 4 W).
+ * The same array is sent on every UP, so changing its bytes steers the player.
  */
-const wanderer = (seed) => {
-  const payload = Uint8Array.of(2, 2, 2);
-  let s = seed >>> 0 || 1;
-  const rnd = (n) => {
-    s ^= s << 13;
-    s >>>= 0;
-    s ^= s >>> 17;
-    s ^= s << 5;
-    s >>>= 0;
-    return s % n;
-  };
-  let nextTurn = 0;
+const pacer = () => {
+  const payload = Uint8Array.of(2, 4, 4);
+  const t0 = Date.now();
   const timer = setInterval(() => {
-    const t = Date.now();
-    if (t < nextTurn) return;
-    const dir = 1 + rnd(4);
-    payload[1] = dir;
-    payload[2] = dir;
-    nextTurn = t + 600 + rnd(900);
+    const d = legDir(t0);
+    payload[1] = d;
+    payload[2] = d;
   }, 66);
   return { payload, stop: () => clearInterval(timer) };
 };
@@ -72,7 +65,7 @@ export async function startBots(server, n) {
     const account = await server.account('Bench bot ' + (i + 1));
     const main = await connectMain(server.url, account.token);
     await main.joinVoice(server.voiceChannel);
-    bots.push({ account, main, lane: null, walk: wanderer(0x9e3779b9 ^ (i + 1) * 2654435761) });
+    bots.push({ account, main, lane: null, walk: pacer() });
   }
   const host = bots[0];
   let latest = null;
@@ -126,9 +119,28 @@ export async function startBots(server, n) {
   };
 }
 
-/** Drive the shaped client (the Chrome page client, or the Node stand-in) into the match. */
+/**
+ * Drive the shaped client (the Chrome page client, or the Node stand-in) into the match. In Chrome its
+ * fighter paces along its spawn row with real inputs: the platform's page client sends a 1-byte probe
+ * payload, which Fuseyard drops as malformed, and a still fighter lets FRAMEs be skipped.
+ */
 export async function enter(page, lobby) {
   await page.join(lobby.ch, lobby.id);
   await lobby.started;
   await page.play(lobby.id, { game, upEveryMs: 66, moveMs: 4000, cycleMs: 5000, probeEveryMs: 2100 });
+  if (page.kind === 'chrome') {
+    await page.page.eval(`(() => {
+      const B = window.__bench;
+      clearInterval(B.upTimer);
+      const t0 = Date.now();
+      let seq = 0;
+      B.upTimer = setInterval(() => {
+        const d = Math.floor((Date.now() - t0) / ${PACE_MS}) % 2 === 0 ? 4 : 2;
+        seq = (seq + 2) & 0xffff;
+        B.host.sendUp(Uint8Array.of(2, d, d), seq);
+        B.ups += 1;
+      }, 66);
+      return true;
+    })()`);
+  }
 }
