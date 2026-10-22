@@ -108,6 +108,32 @@ Off by default. Settings > Game activity > "Show what I'm playing" turns it on; 
 
 The matcher and the parsers are plain CommonJS in `games/match.js`, with no Electron in them, so the client's unit tests (`client/src/features/activity/catalogue.test.ts`) exercise them and the catalogue as shipped.
 
+## Test builds next to the installed app (Windows)
+
+Every Windows build is a `Datasetto.exe` with the product name Datasetto, so on their own Windows and Electron cannot tell the installed app from a test build. Two things used to leak from a test build into the installed app:
+
+- **Taskbar.** Windows groups windows by their AppUserModelID. With the installed app's ID (`com.datasetto.desktop`), a test window joined the installed app's pinned taskbar button.
+- **Start Menu shortcut.** The first time a process touches notifications (`Notification.isSupported()` at startup is enough), Electron points `Start Menu\Programs\<product name>.lnk` at the running exe and registers that exe as the handler for notification clicks (`HKCU\Software\Classes\CLSID\{…}\LocalServer32`). This happens in `EnsureShortcut` in Electron's `shell/browser/notifications/win/windows_toast_activator.cc`. A test build that ran for three seconds took over the installed app's `Datasetto.lnk` this way, and a dev run left an `Electron` entry in the Start Menu. The installed app took the shortcut back the next time it started.
+
+`app-identity.js` decides which copy is running, and only the installed one uses the app's ID and native notifications:
+
+| Build | Recognised by | App ID | Native notifications | Window title |
+| --- | --- | --- | --- | --- |
+| Installed | `Uninstall Datasetto.exe` next to the exe | `com.datasetto.desktop` | on | `Datasetto` |
+| Portable exe | `PORTABLE_EXECUTABLE_DIR` is set | `com.datasetto.desktop.portable` | only while no other copy owns `Datasetto.lnk` | `Datasetto` |
+| Unpacked (`win-unpacked`, any scratch build) | any other packaged build | `com.datasetto.desktop.dev` | off, written to the log instead | `… (test build)` |
+| Dev (`npm start`, `npm run dev`) | not packaged | `com.datasetto.desktop.dev` | off on Windows | `… (dev)` |
+
+The installed app's ID is the same in every version, so its pin, shortcut and notifications carry over through updates. macOS and Linux packaged builds count as installed; Electron writes no shortcut there.
+
+A packaged test run on a PC that has the installed app:
+
+1. Build outside the repository, never into `desktop/release/` (Windows also repairs a broken shortcut to a same-named exe nearby): `npm run build:renderer && npm run prepare:renderer`, then `npx electron-builder --publish never --win --dir --config.directories.output=<scratch>/desktop-out`.
+2. Give it its own profile with updates off: write `<scratch>/profile/desktop-settings.json` as `{"autoUpdate":false}` and start `<scratch>/desktop-out/win-unpacked/Datasetto.exe --user-data-dir=<scratch>/profile --mute-audio`. Without `--user-data-dir` it shares the installed app's settings, single-instance lock and sign-in.
+3. Its title ends in "(test build)", it has its own taskbar button, and notifications only show up in its log as `Notification not shown`.
+4. Quit it from its tray menu, or stop it by path (`Get-Process Datasetto | Where-Object Path -like '*desktop-out*' | Stop-Process`), never by name alone: the installed app is a `Datasetto` process too.
+5. Builds made before this change still take the shortcut over. Afterwards, read where it points (read-only): `(New-Object -ComObject WScript.Shell).CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Datasetto.lnk").TargetPath` should be `%LOCALAPPDATA%\Programs\datasetto-desktop\Datasetto.exe`. If it is not, restarting the installed app repairs it.
+
 ## Project structure
 
 ```
@@ -115,6 +141,7 @@ desktop/
 ├─ main.js              # Electron main process: window, tray, notifications, screen picker, global push to talk, voice overlay, game activity, IPC
 ├─ preload.js           # contextBridge: window.desktopAPI + window.datasettoDesktopConfig
 ├─ updater.js           # electron-updater wiring: GitHub feed, background download, notices, the on/off setting
+├─ app-identity.js      # Installed app or test build: taskbar ID, native notifications, title label (pure, unit-tested from client/)
 ├─ games/
 │  ├─ catalogue.json    # Executable name -> game title, plus launchers that never count
 │  └─ match.js          # Process-list parsing and matching (pure, unit-tested from client/)
