@@ -93,7 +93,8 @@ const accountNames = (): Map<string, string> => new Map(users.value.map((user) =
 /** One of this channel's games you are not in: Join seat / Watch / Open. */
 const EntryRow = ({ entry, onAct }: { entry: ActivityEntry; onAct(id: string, as: JoinAs): void }) => {
   const meta = metaOf(entry.g);
-  const join = entry.st !== 'dash' && entry.n < entry.max;
+  // A Glimmerhall hall stays open while a Glimmer Dash runs inside it: only the Dash can't be joined.
+  const join = entry.n < entry.max;
   return (
     <div className="flex min-h-12 items-center gap-2 rounded-md px-3" data-arcade-row={'activity-' + entry.id}>
       <span className="flex w-5 shrink-0 justify-center text-text-muted">{meta && <GameIcon icon={meta.icon} size={16} />}</span>
@@ -103,7 +104,7 @@ const EntryRow = ({ entry, onAct }: { entry: ActivityEntry; onAct(id: string, as
       </span>
       {join && (
         <button type="button" className={cn(SHEET_BUTTON, 'bg-brand text-white hover:bg-brand-hover')} onClick={() => onAct(entry.id, 'player')} data-arcade-join={entry.id}>
-          {entry.st === 'open' ? 'Open' : 'Join seat'}
+          {entry.st === 'open' || entry.st === 'dash' ? 'Open' : 'Join seat'}
         </button>
       )}
       {meta?.watch && (

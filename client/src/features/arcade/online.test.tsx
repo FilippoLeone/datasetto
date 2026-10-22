@@ -174,6 +174,7 @@ describe('the voice header chips', () => {
         [
           entry({ id: 'A', n: 2, max: 4 }),
           entry({ g: 'glimmer', id: 'G', st: 'open', n: 3, max: 16, x: 'Cobble 25/50', j: { amt: 12000 } }),
+          entry({ g: 'glimmer', id: 'D', st: 'dash', n: 2, max: 16 }),
         ],
       ],
       ['c2', [entry({ id: 'B' })]],
@@ -187,6 +188,8 @@ describe('the voice header chips', () => {
     expect(hall.textContent).toContain('Glimmerhall · Cobble 25/50 · 3 playing');
     expect(hall.textContent).toContain('Pot 12,000');
     expect(buttonByText(hall, 'Open')).toBeTruthy();
+    // A hall with a Glimmer Dash running stays open: only the Dash itself can't be joined.
+    expect(buttonByText(host.querySelector('[data-arcade-chip="D"]') as HTMLElement, 'Open')).toBeTruthy();
     expect(host.querySelector('[data-arcade-chip="B"]')).toBeNull();
 
     // Join from a chip.

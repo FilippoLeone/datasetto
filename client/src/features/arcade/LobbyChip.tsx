@@ -34,8 +34,8 @@ export const LobbyChip = ({ entry }: { entry: ActivityEntry }) => {
   else
     actions = (
       <>
-        {entry.st !== 'dash' && entry.n < entry.max && (
-          <ChipAction label={entry.st === 'open' ? 'Open' : 'Join seat'} onClick={() => withShell((shell) => shell.joinFromChip(entry.id, 'player'))} />
+        {entry.n < entry.max && (
+          <ChipAction label={entry.st === 'open' || entry.st === 'dash' ? 'Open' : 'Join seat'} onClick={() => withShell((shell) => shell.joinFromChip(entry.id, 'player'))} />
         )}
         {meta?.watch && <ChipAction label="Watch" onClick={() => withShell((shell) => shell.joinFromChip(entry.id, 'spectator'))} />}
       </>
