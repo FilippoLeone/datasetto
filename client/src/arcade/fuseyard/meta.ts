@@ -7,7 +7,7 @@ export const meta: GameMeta = {
   tagline: 'Fuse bombs, burst blocks, be the last Wick standing',
   icon: 'bomb',
   lane: 'action',
-  ready: { offline: true, online: false },
+  ready: { offline: true, online: true },
   modes: [
     { id: 'brawl', label: 'Brawl', online: true, offline: true },
     { id: 'quickfire', label: 'Quickfire', online: true, offline: true },

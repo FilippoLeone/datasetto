@@ -837,6 +837,13 @@ const mount = (el: HTMLElement, firstHost: MatchHost, opts: MountOpts): GameHand
       tickAcc = 0;
       if (local && menus.pauseOpen) host.setVisible(false);
       else if (ownHost) host.setVisible(true);
+      // Coming back from "Back to call" the stage was out of the page and focus fell to the body:
+      // take it back so the keys work again, unless something else (the chat box) has it.
+      const active = document.activeElement;
+      if (!active || active === document.body) {
+        if (menus.pauseOpen || menus.endOpen) menus.focus();
+        else root.focus({ preventScroll: true });
+      }
       loop.markDirty();
       padPoll();
       syncWake();
