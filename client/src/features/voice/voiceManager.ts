@@ -10,7 +10,6 @@ import { ensureForegroundServiceForVoice, stopForegroundServiceForVoice } from '
 import { isCancelError, missingAudioHint } from '@/services/screenCapture';
 import { clipManager } from '@/services/clips/clipManager';
 import { CameraError } from '@/services/voice/cameraCapture';
-import { isPolitePeer } from '@/services/voice/negotiation';
 import { isDesktopApp } from '@/services/native/desktop';
 import { parseShortcut, shortcutMatchesEvent } from '@/lib/shortcut';
 import { channelsById } from '@/state/channels';
@@ -44,6 +43,7 @@ import {
 import type { AudioSettings, DeviceInfo, HeldPeerConnection, ServerError, StreamMetadata, VoiceJoinedEvent, VoicePeerEvent, VoicePeerLeaveEvent, VoiceSignalEvent } from '@/types/protocol';
 import { reconcilePeers, type KnownPeer, type RoomPeer, type SelfIdentity } from './peerReconcile';
 import { initialRejoinState, isRejoinPending, PERMANENT_JOIN_ERRORS, reduceRejoin, type RejoinEffect, type RejoinEvent, type RejoinState } from './voiceRejoin';
+import { isPolitePeer } from '@/services/voice/negotiation';
 
 const JOIN_TIMEOUT_MS = 15_000;
 const SPEAKING_HOLD_MS = 350;
@@ -848,8 +848,8 @@ class VoiceManager {
 
   private async onSignal(data: VoiceSignalEvent): Promise<void> {
     if (!this.inCall() || !voicePeers.value[data.from]) return;
-    const offerId = typeof data.data.offerId === 'number' ? data.data.offerId : undefined;
     try {
+      const offerId = typeof data.data.offerId === 'number' ? data.data.offerId : undefined;
       if (data.data.sdp?.type === 'offer') await this.voice.handleOffer(data.from, data.data.sdp, offerId);
       else if (data.data.sdp?.type === 'answer') await this.voice.handleAnswer(data.from, data.data.sdp, offerId);
       else if (data.data.candidate) await this.voice.handleIceCandidate(data.from, data.data.candidate);

@@ -202,11 +202,6 @@ export class VoiceService extends EventEmitter<EventMap> {
   private statsPollingHandle: number | null = null;
   private peerStatsHistory: Map<string, PeerConnectionStats[]> = new Map();
   private lastStatsTimestamp: Map<string, number> = new Map();
-  /**
-   * Old socket id -> the id the same connection lives under now (see rekeyPeer).
-   * Callbacks created with the old id look the current one up when they fire.
-   */
-  private aliases: Map<string, string> = new Map();
   /** Our unanswered offer to each peer (negotiation.ts): its id, when it went out, whether it was probably lost. */
   private pendingOffers: Map<string, PendingOffer> = new Map();
   private offerSeq = 0;
@@ -214,6 +209,11 @@ export class VoiceService extends EventEmitter<EventMap> {
   private signallingUp = true;
   /** Who yields when both sides offer at once; the voice manager decides from the account ids. */
   private politeFor: (peerId: string) => boolean = () => true;
+  /**
+   * Old socket id -> the id the same connection lives under now (see rekeyPeer).
+   * Callbacks created with the old id look the current one up when they fire.
+   */
+  private aliases: Map<string, string> = new Map();
 
   constructor(
     voiceBitrate = OPUS_TARGET_BITRATE,
@@ -416,6 +416,10 @@ export class VoiceService extends EventEmitter<EventMap> {
     move(this.peerManagers);
     move(this.iceRestartTimers);
     move(this.iceRestartAttempts);
+    move(this.pendingOffers);
+    // An offer still waiting for its answer went to the old socket, which is gone.
+    const pending = this.pendingOffers.get(to);
+    if (pending) pending.lost = true;
     move(this.remoteVideoElements);
     move(this.videoSenders);
     move(this.remoteVideoTracks);
@@ -425,10 +429,6 @@ export class VoiceService extends EventEmitter<EventMap> {
     move(this.peerStatsHistory);
     move(this.lastStatsTimestamp);
     move(this.peerAudioPreferences);
-    move(this.pendingOffers);
-    // An offer still waiting for its answer went to the old socket, which is gone.
-    const pending = this.pendingOffers.get(to);
-    if (pending) pending.lost = true;
     this.peerManagers.get(to)?.rename(to);
     this.aliases.delete(to);
     this.aliases.set(from, to);
@@ -1457,6 +1457,8 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.stopStatsMonitoring();
     this.peerStatsHistory.clear();
     this.lastStatsTimestamp.clear();
+    this.pendingOffers.clear();
+    this.signallingUp = true;
 
     // Stop video streams
     this.stopCamera();
@@ -1482,8 +1484,6 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.videoSenders.clear();
     this.remoteVideoTracks.clear();
     this.aliases.clear();
-    this.pendingOffers.clear();
-    this.signallingUp = true;
   }
 
   // ==================== VIDEO METHODS ====================
