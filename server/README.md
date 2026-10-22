@@ -40,14 +40,16 @@ src/
     turn.ts           ephemeral TURN credentials (coturn use-auth-secret)
     hlsTickets.ts     signed, short-lived viewer tickets for HLS (Caddy asks /internal/hls/auth)
     streamWatchdog.ts polls nginx-rtmp /stat: bitrate cap, monthly egress budget, re-registers streams after a restart
-    usage.ts          per-month HLS egress accounting in SQLite
-    leaderboard.ts    minigame high scores
+    usage.ts          per-month HLS and Arcade egress accounting in SQLite
   http/               Express app, origin checker, routes (health, config, stream callbacks, HLS tickets, avatars, uploads, releases)
   socket/             Socket.IO server, per-connection context, handlers per domain, burstLog.ts (one log line per reconnect wave)
-  minigames/          game engine (plain JS, unchanged protocol)
+  arcade/             the Arcade (docs/arcade): core/ (the pure shared core, also imported by the client as
+                      @arcade/core), the action lane (lane.ts, tickets.ts, sender.ts, scheduler.ts, watchdog.ts,
+                      match.ts), lobbies and activity (hub.ts), table-lane events and pacing (handlers.ts), chips
+                      (wallet.ts), stats, saves, prefs, settings, the daily job, games.ts (the registry of the
+                      four games: rooms/, tables/, halls/) and legacy.ts (the old-shell stub)
   scripts/            backup.ts, restore.ts, import-legacy.ts
-test/                 vitest suites
-assets/pacman-maps/   level presets
+test/                 vitest suites (test/arcade: the Arcade, with a harness for lanes, links and fake clocks)
 ```
 
 ## Configuration
@@ -111,8 +113,10 @@ Authentication is event based. Clients emit `auth:register`, `auth:login` or
 channels, groups}` or `auth:error {message, code}`. Everything else requires an
 authenticated socket. Failures are reported on the domain's error event
 (`auth:error`, `account:error`, `admin:error`, `screenshare:error`,
-`stream:key:error`, `voice:game:error`) or the generic `error` event, always as
-`{message, code}`. Every payload is validated with zod; per-socket and per-IP
+`stream:key:error`) or the generic `error` event, always as
+`{message, code}`. The Arcade's events answer through the acknowledgement instead:
+`{ok: true, …}` or `{ok: false, code}` (a rate-limit refusal is `code: "busy"`), and never
+emit `error`. Every payload is validated with zod; per-socket and per-IP
 rate limits apply.
 
 | Client emits | Server emits |
@@ -132,8 +136,25 @@ rate limits apply.
 | `admin:accounts:update {accountId, displayName}`, `admin:accounts:resetPassword {accountId, temporaryPassword}`, `admin:accounts:delete {accountId}`, `admin:accounts:sessions:list {accountId}`, `admin:accounts:sessions:revoke {accountId, sessionId?}` | `admin:accounts:updated/passwordReset/deleted {account}`, `admin:accounts:sessions {accountId, sessions[]}` |
 | `admin:usage:get` (admins), `admin:server:info` (superusers) | `admin:usage {currentMonth, months[], budgetBytes, online, liveStreams[]}`, `admin:server:info {version, registration, sessions, limits, streaming, turn, push, storage, counts, …}` (no secrets) |
 | `push:subscribe {endpoint, keys: {p256dh, auth}, userAgent?, preferences?: {mentions?, dms?}}`, `push:unsubscribe {endpoint}`, `push:list`, `push:test` (all answered through the acknowledgement: `{success, subscription?, subscriptions[], removed?, sent?}`; each subscription carries its `preferences`), `presence:visibility {visible}` | `push:subscriptions` / `push:tested` when no acknowledgement was passed; errors on `push:error` (`PUSH_DISABLED`, `PUSH_INVALID`, `PUSH_NO_SUBSCRIPTIONS`) |
-| `voice:game:start/join/leave/input/end/leaderboard` | `voice:game:state/update/started/ended/leaderboard` |
+| `arcade:lobby:create {ch, game, mode, cfg}`, `arcade:lobby:join {id, as: "player" or "spectator"}`, `arcade:lobby:leave/start {id}`, `arcade:lobby:bots {id, count, level}`, `arcade:lobby:config {id, cfg}`, `arcade:ticket {id}`, `arcade:invite {id, to}` (all acknowledged: `{ok, lobby?, ticket?, exp?}` or `{ok: false, code}`; voice members of the channel only, except watching) | `arcade:lobby {id, game, ch, mode, st, host, seats: [{a, bot, st}], spec, cfg, v}` (to the lobby's members, at most 2 per second, and again after `auth:success` for the lobbies you are in), `arcade:activity {ch, a: [{g, id, st, n, max, w, x?, j?}]}` (to everyone who can see the voice channel, at most one per 2 s per channel), `arcade:activity:all {chs}` (after `auth:success`), `arcade:invited {id, from, game, ch}` (one per minute per pair). An account that hid the Arcade or the game gets none of these and `code: "hidden"` |
+| `arcade:wallet`, `arcade:wallet:claim`, `arcade:board {game, board}`, `arcade:boards {game}`, `arcade:saves {game}`, `arcade:saves:delete {game, slot}` (`in-use` while a session plays from it), `arcade:saves:import {game, slot, version, data}`, `arcade:prefs`, `arcade:prefs:set {hidden?, games?}` (un-hiding waits 24 h), `arcade:probe` (the client's chat-first probe), `arcade:away/back {id, since?}` (all acknowledged) | `arcade:wallet {bal, esc, claim}` (to the account, coalesced to one per 2 s), `arcade:prefs {hidden, games, reenableAt}` (after `auth:success`), `arcade:config {enabled, games, proto, defs}` (when an admin changes it; also in `auth:success` and `GET /api/config` as `arcade`) |
+| `lamplight:*`, `glimmer:*` (each table game's own events, registered by the game; acknowledged like the other Arcade events) | the game's pushes, paced per socket (3 KB/s, 6 KB depth) and held back while the socket has chat or signalling queued |
+| `admin:arcade:get`, `admin:arcade:update {settings}`, `admin:arcade:wallet:reset {accountId}`, `admin:arcade:ledger {accountId}`, `admin:arcade:void {id}` (server-settings permission; acknowledged) | — |
+| `voice:game:start/join` (old desktop and Android builds only) | `voice:game:error {message: "Games moved to the Arcade. Update the app to play."}`; the other old game events are ignored. Kept for 3 releases |
 | `presence:activity {title}` (a game title of up to 64 characters, or `null`; one per socket per 10 s) | `user:update` with the user's `activity`; refusals on `presence:error` (`VALIDATION_FAILED`, `RATE_LIMITED`) |
+
+### Arcade action lane
+
+Action games (Fuseyard, Bellwick) use a second WebSocket, `/arcade/ws` on the same HTTP server,
+only while the client is in a match. The first message is a text HELLO
+(`{"t":"hello","proto":1,"codec":{"<game>":n},"ticket":"…"}` or `"resume":"<token>"`; tickets come
+from `arcade:ticket`, are single-use and expire after 30 s), within 5 s; everything after it is a
+binary envelope (UP, ACK, EVT, PING, VIS, RESYNC up; WELCOME, FRAME, KEYFRAME, BEAT, PONG, PHASE,
+HANDOVER, BYE down; layouts in docs/arcade/platform.md §5.2 and server/src/arcade/core/net/lane.ts).
+At most 12 lanes per IP, 4 KB per message and 40 messages per second per lane; close codes 4000
+(away too long), 4400 (malformed), 4401 (ticket), 4403, 4404 (match gone), 4408 (no hello), 4409
+(another tab took the seat), 4426 (update required), 4429 (rate) and 1012 (server restarting). Frames
+are paced per recipient so a slow phone link never delays chat; see docs/arcade/platform.md §6.
 
 Presence is broadcast as `user:update users[]` to everyone whenever it changes;
 each entry carries `voiceChannel` and `activity` (the "Playing …" title, see

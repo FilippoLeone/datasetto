@@ -6,10 +6,11 @@
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as Catalog from '@/arcade/catalog';
 import { fakeLog, fakeMeta, installFakeAudio } from './fakeGame.test-util';
 
 vi.mock('@/arcade/catalog', async (original) => {
-  const real = await original<typeof import('@/arcade/catalog')>();
+  const real = await original<typeof Catalog>();
   return { ...real, CATALOG: [fakeMeta], metaOf: (id: string) => (id === fakeMeta.id ? fakeMeta : null) };
 });
 

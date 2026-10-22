@@ -77,7 +77,7 @@ def social_card():
     d.text((302, 272), "and chat for your friends", font=sub, fill=MUTED)
 
     x = 300
-    for label, color in (("Voice", BRAND), ("Live streams", (237, 66, 69)), ("Screen share", TEAL), ("Minigames", (240, 178, 50))):
+    for label, color in (("Voice", BRAND), ("Live streams", (237, 66, 69)), ("Screen share", TEAL), ("Arcade", (240, 178, 50))):
         w = d.textlength(label, font=chip_font) + 44
         d.rounded_rectangle((x, 352, x + w, 400), radius=24, fill=tuple(int(c * 0.35 + b * 0.65) for c, b in zip(color, BASE)), outline=color, width=2)
         d.text((x + 22, 362), label, font=chip_font, fill=BRIGHT)

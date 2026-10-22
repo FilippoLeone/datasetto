@@ -8,14 +8,16 @@ import type { CoreMatch } from '@arcade/core/net/match';
 import type { GameMeta } from '@/arcade/catalog';
 import { arcadeSession, type ArcadeSessionState } from '@/features/arcade/state';
 import { parseShortcut } from '@/lib/shortcut';
+import { socketClient } from '@/services/socket/client';
 import { users } from '@/state/presence';
 import { account } from '@/state/session';
 import { audioSettings } from '@/state/settings';
 import { createAttention } from './attention';
 import { createLocalMatchHost, createLocalTableHost } from './net/localHost';
+import { createRemoteMatchHost, createRemoteTableHost } from './net/remoteHost';
 import { practiceWallet } from './practiceWallet';
 import { loadPrefs } from './prefs';
-import type { AnyHost, GameHandle, LocalTableServer, MountOpts, SeatInfo, SessionStatus, ShellBridge } from './types';
+import type { ActionGameId, AnyHost, GameChunk, GameHandle, LobbyView, LocalTableServer, MountOpts, SeatInfo, SessionStatus, ShellBridge, TableGameId } from './types';
 import { watchStageVisibility } from './visibility';
 import { createWakeLock } from './wakeLock';
 
@@ -157,6 +159,134 @@ export const createShellBridge = (o: { onMinimize(): void; onLeave(): void; idle
   };
 };
 
+const mountOpts = (o: { mode: 'local' | 'remote'; lobby: LobbyView | null; slot: number | null; shell: ShellBridge }): MountOpts => ({
+  mode: o.mode,
+  lobby: o.lobby,
+  me: { accountId: account.peek()?.id ?? null, slot: o.slot },
+  prefs: loadPrefs(),
+  ptt: parseShortcut(audioSettings.peek().pttKey),
+  reserved: [parseShortcut(audioSettings.peek().clipShortcut)].filter((key): key is NonNullable<typeof key> => key !== null),
+  reducedMotion: media('(prefers-reduced-motion: reduce)'),
+  coarse: media('(pointer: coarse)'),
+  shell: o.shell,
+});
+
+/** A single-use action-lane ticket for this lobby's match (`arcade:ticket`). */
+type TicketAck = { ok?: boolean; ticket?: unknown; code?: string } | null;
+
+const ticketFor = async (lobbyId: string): Promise<string> => {
+  const answer = await socketClient.request<TicketAck>('arcade:ticket', { id: lobbyId }).catch(() => {
+    throw new Error('Not connected to the server right now.');
+  });
+  if (answer?.ok && typeof answer.ticket === 'string') return answer.ticket;
+  throw new Error(answer?.code === 'gone' ? 'That game has ended.' : 'The server did not let this device into the game.');
+};
+
+/**
+ * Join a lobby's running game online: an action game over the action lane (a ticket from the join
+ * ack or `arcade:ticket`), a table game over the app socket. Same shape as `startLocalSession`;
+ * `arcadeSession` is the lobby's, in mode 'remote'. While the "chat first" guard holds an action
+ * game back, the status reads 'paused' and `yielding` is set (the stage shows why).
+ */
+export const startRemoteSession = async (o: {
+  meta: GameMeta;
+  lobby: LobbyView;
+  role: 'player' | 'spectator';
+  ticket?: string;
+  el: HTMLElement;
+  onLeave(): void;
+  onMinimize(): void;
+}): Promise<SessionHandle> => {
+  const { meta, lobby } = o;
+  arcadeSession.value = { game: meta.id, id: lobby.id, role: o.role, mode: 'remote', status: 'connecting', attention: false, minimized: false, yielding: false };
+  const fail = (error: unknown): never => {
+    if (arcadeSession.peek()?.id === lobby.id) arcadeSession.value = null;
+    throw error;
+  };
+
+  let chunk: GameChunk;
+  let host: AnyHost;
+  let offYield: () => void = () => undefined;
+  let gameStatus: SessionStatus = 'connecting';
+  let yielding = false;
+  let disposed = false;
+  const showStatus = (): void => {
+    if (!disposed) patchSession(yielding ? { status: 'paused', yielding: true } : { status: gameStatus, yielding: false });
+  };
+  try {
+    chunk = await o.meta.load();
+    if (meta.lane === 'action') {
+      const remote = createRemoteMatchHost({ lobbyId: lobby.id, ticket: o.ticket ?? (await ticketFor(lobby.id)), game: meta.id as ActionGameId });
+      offYield = remote.onYield((on) => {
+        yielding = on;
+        showStatus();
+      });
+      host = remote;
+    } else {
+      host = createRemoteTableHost(meta.id as TableGameId);
+    }
+  } catch (error) {
+    return fail(error);
+  }
+
+  let handle: GameHandle | null = null;
+  const gate = createStageGate(o.el, (visible) => {
+    host.setVisible(visible);
+    if (!handle) return;
+    if (visible) handle.resume();
+    else handle.pause();
+  });
+  const bridge = createShellBridge({ onLeave: o.onLeave, onMinimize: o.onMinimize, idleAway: (ms) => gate.idleAway(ms) });
+  // The game's own status, shown unless the chat-first guard is holding the game back.
+  const shell: ShellBridge = {
+    ...bridge,
+    status(s) {
+      gameStatus = s;
+      showStatus();
+    },
+  };
+  const me = account.peek()?.id ?? null;
+  const seat = o.role === 'player' && me ? lobby.seats.findIndex((s) => s.a === me) : -1;
+  const release = (): void => {
+    disposed = true;
+    offYield();
+    host.close();
+    bridge.dispose();
+  };
+
+  let mounted: GameHandle;
+  try {
+    mounted = chunk.module.mount(o.el, host, mountOpts({ mode: 'remote', lobby, slot: seat >= 0 ? seat : null, shell }));
+  } catch (error) {
+    gate.dispose();
+    release();
+    return fail(error);
+  }
+  handle = mounted;
+  if (!gate.visible) mounted.pause();
+
+  let stopped = false;
+  return {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      gate.dispose();
+      try {
+        mounted.unmount();
+      } finally {
+        release();
+        if (arcadeSession.peek()?.id === lobby.id) arcadeSession.value = null;
+      }
+    },
+    back() {
+      if (stopped) return false;
+      if (mounted.back?.()) return true;
+      bridge.minimize();
+      return true;
+    },
+  };
+};
+
 /** Mount a game offline against bots (practice chips; results stay on this device). */
 export const startLocalSession = async (o: {
   meta: GameMeta;
@@ -183,17 +313,7 @@ export const startLocalSession = async (o: {
     else handle.pause();
   });
   const bridge = createShellBridge({ onLeave: o.onLeave, onMinimize: o.onMinimize, idleAway: (ms) => gate.idleAway(ms) });
-  const opts: MountOpts = {
-    mode: 'local',
-    lobby: null,
-    me: { accountId: me?.id ?? null, slot: 0 },
-    prefs: loadPrefs(),
-    ptt: parseShortcut(audioSettings.peek().pttKey),
-    reserved: [parseShortcut(audioSettings.peek().clipShortcut)].filter((key): key is NonNullable<typeof key> => key !== null),
-    reducedMotion: media('(prefers-reduced-motion: reduce)'),
-    coarse: media('(pointer: coarse)'),
-    shell: bridge,
-  };
+  const opts = mountOpts({ mode: 'local', lobby: null, slot: 0, shell: bridge });
 
   let mounted: GameHandle;
   try {

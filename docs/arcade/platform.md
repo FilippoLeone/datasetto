@@ -429,7 +429,7 @@ Snapshots, events and keyframes go only to heroes in that room (§8.3).
 | `arcade:activity` | S→C, channel viewers, on change, ≤ 1 per 2 s per channel | `{ch, a:[{g, id, st, n, max, w}]}` | 60–150 |
 | `arcade:activity:all` | S→C, once after `auth:success` | `{chs:[…]}` | ≤ 1 KB |
 | `arcade:ticket` | C→S | `{id}` → `{ok, ticket, exp}` | 30 / 120 |
-| `arcade:invite` | C→S | `{id, to}` → `{ok}`; the recipient gets `arcade:invited {id, from, game}` | 50 |
+| `arcade:invite` | C→S | `{id, to}` → `{ok}`; the recipient gets `arcade:invited {id, from, game, ch}` | 50 |
 | `arcade:wallet` | S→C, `acct:` room, on change | `{bal, esc, claim}` | 40 |
 | `arcade:wallet:claim` | C→S | `{}` → `{ok, bal, got}` | 40 |
 | `arcade:board` | C→S | `{game, board}` → `{rows:[…]}` (60 s cache) | ≤ 1.5 KB |
@@ -470,7 +470,7 @@ If any condition fails, the slot is skipped. The snapshot is dropped (the next o
 
 **Ladder**
 - **Down one level** (d 2→3→4→6): when `rtt − minRtt > 150 ms` for 1 s, or 3 consecutive slots are skipped by the in-flight cap.
-- **Up one level:** after 3 s with `rtt − minRtt < 60 ms` and no skips.
+- **Back up:** after 3 s with `rtt − minRtt < 60 ms` and no skips, straight to the default divisor (a link still too slow steps down again within 1 s). The smoothed RTT rises with gain 0.125 and falls with 0.5, so calm is seen soon after a squeeze.
 - The divisor index rides in FRAME flags. The client's interpolation delay follows the observed interval (§8).
 
 ### 6.2 Recipient state machine (the delta-base rule)
@@ -520,7 +520,7 @@ The server-side half is the writeBuffer rule in §4.2.
   2. players' default d to 3;
   3. new spectators refused;
   4. new matches refused.
-- **CPU.** `perf_hooks.monitorEventLoopDelay({resolution: 20})` is sampled every 10 s. A p99 above 30 ms triggers the same ladder, and new matches are refused until p99 stays under 20 ms for 30 s.
+- **CPU.** `perf_hooks.monitorEventLoopDelay({resolution: 20})` is sampled every 10 s. A p99 above 30 ms (after taking off the 20 ms resolution, which the histogram includes) triggers the same ladder, and new matches are refused until p99 stays under 20 ms for 30 s.
 - **Usage.** Arcade lane bytes are added to the admin Usage section as "Arcade egress" (one counter, persisted with the existing usage months).
 
 ---
@@ -1193,7 +1193,7 @@ Work through every item below. The list consolidates the reader findings.
   - Bellwick: 200 bot runs through the dungeon script.
 - **Delta-base fuzz.** A random schedule of skipped slots, parks (all four reasons), unparks and reconnects, applied through the real sender to a decoding client. After every keyframe-plus-events sequence, the client's world must equal the server's public view for that recipient.
 - **Pacer** with synthetic ack traces:
-  - the ladder steps down within 1 s of +150 ms queueing and up after 3 s calm;
+  - the ladder steps down within 1 s of +150 ms queueing and back to the default after 3 s calm;
   - an idle player sending only ACKs is never `stalled`;
   - after a 10 s silence, recovery costs one keyframe.
 - **Poker.**
@@ -1403,3 +1403,35 @@ Notes on where the implementation fills in or differs from plan.md §2.6. Each l
 | 18 | Limiters | `arcade` 20 / 10 s, `arcadeAct` 4 / s, `spin` 2 / s, `arcadeProbe` 1 / 2 s; the old `game` kind is gone. |
 | 19 | Migration 14 | As §11.1 plus `arcade_prefs`, plus `usage_months.arcade_egress_bytes` for the "Arcade egress" counter, plus indexes `arcade_txns_time`, `arcade_ledger_time` and `arcade_stats_board` for the retention job and boards. |
 | 20 | Bundle | `arcade-runtime` is a code-splitting group with `includeDependenciesRecursively: false`, so the app modules the runtime imports stay in the main bundle and the main bundle never loads Arcade code at startup. The overlay, sheet and catalogue form a lazy `shell` chunk. `client/scripts/check-bundle.mjs` runs in `npm run build`. |
+
+### 20.2 Online platform notes (`arcade-p-m2`)
+
+| # | Where | Note |
+|---|---|---|
+| 21 | Event decoding | A game must consume a FRAME's whole event block (`forEachEvent` to the end) and a KEYFRAME's whole body. The remote host checks the reader after the callback and sends RESYNC 1 when it is not `ok` or has bytes left. |
+| 22 | `MatchHost.onClosed` | Fires only on a final close (left, restart, away too long, gone, taken over, update required, no ticket); transient drops reconnect inside the host. Remote hosts add `onYield(cb)` (chat first) and table hosts a readonly `visible`. |
+| 23 | Seats | Close 1000 releases the seat at once (`after: 'bot'` gives it to a bot, `'leave'` frees it). Any other drop, a stall, VIS 1 and VIS 2 start the grace (`setSeat('ghost')`); `awayLimitMs` closes the lane with 4000. Human seats start as ghosts until their lane connects. UPs whose upSeq is not newer than the last one are dropped. |
+| 24 | Server chat first | A main socket whose engine.io writeBuffer stays non-empty for over 1 s parks that player's lane as `yield` (checked every 8 ticks); 2 s without a backlog unparks it with a keyframe. |
+| 25 | Scheduler | 30 Hz while a match is not idle; 4 Hz while every match is idle but a recipient is owed traffic (a BEAT for a live or yielding client, a keyframe after VIS 0); stopped otherwise. Step time is measured in real CPU time. |
+| 26 | Restart and overload | PHASE 4 (reason 1 restart, 2 overload, 3 admin) and HANDOVER (deflate-raw of `handover()`, skipped above 8 KB), then close 1012. Every human seat then gets `setSeat('left')`; the runtime's remaining `persist` events are saved and an `end` is saved with `result: null` (void). Boot and restart refund all escrow (`restart-refund`). |
+| 27 | Lobbies | After a match ends the lobby opens again (rematch through the lobby); humans no longer in voice leave it. An unstarted lobby holds a disconnected member's seat for 30 s and closes after `lobbyIdleMs`. Tickets go to seat owners, accounts that joined while the match runs, and registered watchers; a ticket is a bearer token for its seat. |
+| 28 | Activity | Lobbies of action games while forming and live; lobbies of table games only while forming (running tables and halls come from `TableGame.activity`). Labels are cut to 24 characters; a Glimmerhall pot win adds `j` to the hall's entry for 60 s. |
+| 29 | `TableApi` | `ackRttMs(socketId)` is the account's lane RTT when one is open, else 0 (the server has no per-socket ack timing). `presence.dnd()` is always false: the app has no Do Not Disturb status yet. `emitAccount`'s `except` skips one socket. |
+| 30 | Wallet pushes | `arcade:wallet` goes to the account at most once per 2 s (first change at once, then trailing), for every kind of change. |
+| 31 | Admin | `admin:arcade:get/update/wallet:reset/ledger/void`, acknowledged like the other Arcade events, behind the server-settings permission. Switching a game off ends its lobbies and matches (PHASE 4 reason admin), calls `TableGame.onDisable()` and refunds its escrow prefixes (`lamplight:`, `cup:`, `trio:`; `dash:`), then broadcasts `arcade:config`. |
+| 32 | Voice cap | The phase 0 data-saver voice (PR #31) uses a bandwidth rule (the summed `availableOutgoingBitrate` below the summed need for 5 s) and a downlink threshold of 1 Mbit/s instead of §2.1's 400 kbit/s and 2 Mbit/s. |
+| 33 | `CLOSE_FINAL` | 1000, 1012, 4000, 4403, 4404, 4409 and 4426; 4401 is final only after one fresh ticket failed. |
+| 34 | Table games and lobbies | `TableApi.db` is the database handle for a game's own Arcade rows (Lamplight's `arcade_poker_hands`); write only inside `wallet.tx(...)`. The hub does not call `onJoin` for the creator: after `onCreate` accepts, it calls the optional `lobby.onCreated(c, record)` with the new id, the creator as host and seat 0. `HubApi.update(id, {seats, state, watchers})` lets a table game keep the record in step with seats it fills through its own events and mark it live; members get the coalesced `arcade:lobby`. |
+| 35 | Loop-delay check | `monitorEventLoopDelay` records the whole interval between its samples, so the watchdog takes the 20 ms resolution off the p99 before comparing it with 30 ms and 20 ms. Uncorrected, an idle loop read about 31 ms on Windows (15.6 ms timer tick) and the level climbed to 4 within 40 s. |
+| 36 | Reloads and invites | After `auth:success` the server sends `arcade:lobby` again for every lobby the account is in, so a reloaded page finds its game. `arcade:invited` carries `ch`; the invite chip shows only on that channel's voice page. |
+| 37 | Client additions | `startRemoteSession` (`runtime/session.ts`); `ArcadeSessionState.yielding?`; the `arcadeInvites`, `arcadeStage` and `arcadeStageChannel` signals (`features/arcade/state.ts`); `MonthlyUsage.arcadeEgressBytes?`; `AdminSection` gains `'arcade'`. The game element belongs to `features/arcade/remote.ts`; `GameStage` borrows it while shown, and leaving the voice page or Back to call minimizes the game behind a "<game> running · Return" chip. |
+| 38 | Shell limits | The stage opens when your lobby turns `live` (or at once when you join a running one), so a table game that should open on join marks its lobby live with `HubApi.update`. Bots are asked for at level 1; the bot stepper is local to the sheet. Chips and Watch show only on the voice page, so only people in the call see them. `MatchHost.onClosed` has one listener, the game's; the shell learns of the end from the game's 'ended' status. |
+| 39 | Collapse test | 120 kbit/s left after voice never squeezes a lane that needs about 18 kbit/s, so the simulator and the bench also run a squeezed collapse with 12 kbit/s after voice: the ladder steps down 1.0 s after queueing settles in, frames stay at 9.6/s (d reached 6), 15 Hz is back in 3.97 s, no chat ack over 694 ms. |
+| 40 | Sender buffers and overflow | The sender copies event chunks and the last snapshot, since a runtime may reuse its buffers on the next `step()`. The `overflow` park lives in the sender: the pacer keeps counting in-flight bytes (so a dead link still stalls at 2.5 s), and the park ends only once in-flight is under cap/2 and the pacer admits the keyframe. |
+| 41 | Fuseyard frame size | The FRAME as built carries a snapshot length byte, an event count byte and At marks that the plan's 37 B frame left out. A player who never stops moving uses 2193–2201 B/s of Fuseyard's 2200 B/s `downAvg`; typical play 2114–2147 B/s. |
+| 42 | Lost chat after a tunnel | A chat request that times out during an outage makes the client guard yield once the link is back, which costs a second keyframe and about 8 s of pause. Known; the guard could ignore timeouts of requests sent while the lane was dead. |
+| 43 | `TableApi.pending` | `get(accountId, game)`, `put(accountId, game, kind, txnId, data)` (insert or replace), `remove(accountId, game)` and `olderThan(game, ms)` over `arcade_pending` (`pending.ts`). They work inside `wallet.tx(...)`, so a pick's transfer and the row's removal commit together; the row's txn id keeps the daily receipt cleanup off that transfer. |
+| 44 | Round keyframes | On the host event `roundStart` every recipient (seats and watchers) gets a KEYFRAME with reason 3, before queued joiners and reclaims take their seats. A game whose rounds change the world (Fuseyard's new block layout) needs no `rekey` events of its own. |
+| 45 | `MatchCreateCtx.mode` | `create()` receives the lobby's mode next to `cfg` (which is the lobby options after the game's `cfgSchema`). |
+| 46 | Event bursts | A FRAME carries at most 255 events, and the sender splits only between ticks: one tick's chunk is opaque to it. A tick with 255 or more events for one recipient becomes a KEYFRAME with reason 5 instead, and those events are dropped; games should keep a tick well under that. A game that finds a bad event mid-block makes sure the decode check fires with one read past the end (`r.skip(r.remaining + 1)`), so the remote host sends RESYNC 1 even when the bad event was the last one. |
+| 47 | Shaped bench (probe game) | One shaped Chrome and 3 Node bots, 129.6 s with setup: 3G 15 frames/s and chat p95 169 ms; 3G + 1 % loss median 10 frames/s (on the limit: each 600 ms retransmission stall reads as queueing and costs 3 s at d = 3); the 120 kbit/s collapse never queues (n/a). At 12 kbit/s the first step down left the server 1,069 ms after the bottleneck started queueing: the 1 s in §6.1 counts from the server's view (RTT samples arrive one round trip after the queue builds). Up messages stay at 15/s whatever the divisor, so their TCP acks keep about 65 % of a 12 kbit/s down link busy. |

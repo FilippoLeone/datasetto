@@ -46,6 +46,9 @@ export const UsageSection = () => {
             : `${gigabytes(used)} served, no monthly budget`}{' '}
           · {formatDuration(usage.currentMonth.streamSeconds * 1000)} streamed
         </p>
+        <p className="mt-1 text-xs text-text tabular-nums" data-arcade-egress>
+          Arcade egress: {formatBytes(usage.currentMonth.arcadeEgressBytes ?? 0)} this month (game traffic, not counted against the streaming budget)
+        </p>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2">
@@ -90,6 +93,7 @@ export const UsageSection = () => {
               <th className="py-1 font-medium">Month</th>
               <th className="py-1 text-right font-medium">Egress</th>
               <th className="py-1 text-right font-medium">Streamed</th>
+              <th className="py-1 text-right font-medium">Arcade</th>
               <th className="py-1 text-right font-medium">Updated</th>
             </tr>
           </thead>
@@ -99,12 +103,13 @@ export const UsageSection = () => {
                 <td className="py-1 text-text-bright">{month.month}</td>
                 <td className="py-1 text-right tabular-nums">{formatBytes(month.hlsEgressBytes)}</td>
                 <td className="py-1 text-right tabular-nums">{formatDuration(month.streamSeconds * 1000)}</td>
+                <td className="py-1 text-right tabular-nums">{formatBytes(month.arcadeEgressBytes ?? 0)}</td>
                 <td className="py-1 text-right text-xs text-text-faint">{month.updatedAt ? formatFullDate(month.updatedAt) : '—'}</td>
               </tr>
             ))}
             {usage.months.length === 0 && (
               <tr>
-                <td colSpan={4} className="py-2 text-text-muted">
+                <td colSpan={5} className="py-2 text-text-muted">
                   No streaming yet.
                 </td>
               </tr>

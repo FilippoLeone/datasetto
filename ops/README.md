@@ -21,7 +21,7 @@ ops/
 
 ```
 Internet
-  |-- 80/443 ----> web (Caddy) --/api,/socket.io,/health--> app (Node, SQLite in volume app_data)
+  |-- 80/443 ----> web (Caddy) --/api,/socket.io,/arcade/ws,/health--> app (Node, SQLite in volume app_data)
   |                          \--/hls/*------------------> rtmp (nginx-rtmp, HLS in RAM)
   |-- 1935 ------> rtmp  (OBS publish, plain RTMP; key checked by app via /internal/stream/publish)
   |-- 1936 ------> rtmp  (OBS publish over TLS: nginx stream module with Caddy's certificate -> 1935)
@@ -579,8 +579,10 @@ Everything that can cost money is gated or capped. The knobs live in
   and `TURN_BPS_CAPACITY=0` in `ops/.env`; the quotas stay.
 - **HTTP and sockets.** Helmet headers, strict CORS, 256 KB JSON bodies, 256 KB
   socket messages, 20 sockets per IP, 300 API requests per IP per minute, and
-  per-event buckets for chat, signalling, games and auth. Registration is
-  invite-only by default.
+  per-event buckets for chat, signalling, the Arcade (lobbies 20 per 10 s, poker
+  actions 4 per second, slot spins 2 per second) and auth. The Arcade's action
+  lane (`/arcade/ws`) takes at most 12 sockets per IP and 40 messages per second
+  per socket. Registration is invite-only by default.
 - **VM.** Standard network tier, no public SSH: port 22 is only open to the
   Identity-Aware Proxy range (`gcloud compute ssh --tunnel-through-iap`),
   unattended security upgrades, a billing budget with alerts, and only ports
@@ -595,7 +597,9 @@ in front of ports 80/443; RTMP and TURN would stay direct.
 ## Operations notes
 
 - **Data**: a single SQLite file at `/data/datasetto.db` in the `app_data`
-  volume (accounts, sessions, channels, messages, bans, leaderboards). Backups:
+  volume (accounts, sessions, channels, messages, bans, and the Arcade's
+  `arcade_*` tables: chips wallets and ledger, escrow, jackpot, stats, results,
+  poker hand history, saves, prefs). Backups:
   `/etc/cron.daily/datasetto-backup` (GCP) or the `datasetto-backup.timer`
   systemd timer (VPS) writes a consistent copy to `/var/backups/datasetto`
   and, when configured, to the GCS bucket or the rclone remote.

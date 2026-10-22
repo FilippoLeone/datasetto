@@ -41,6 +41,9 @@ export interface SeatInit {
 export interface MatchCreateCtx {
   id: string;
   channelId: string;
+  /** The lobby's mode (one of the game's catalogue modes, e.g. 'brawl'). */
+  mode: string;
+  /** The lobby options, after the game's cfgSchema. */
   cfg: unknown;
   seed: number;
   seats: readonly SeatInit[];

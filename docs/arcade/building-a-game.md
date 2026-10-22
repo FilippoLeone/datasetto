@@ -47,3 +47,14 @@ The core's purity test (`server/test/arcade/core.purity.test.ts`) covers your `c
 `client/src/arcade/runtime/testing.ts` (import from tests only): `installFakeFrames()` (virtual rAF and `performance.now`), `stubCanvas()` (a recording 2D context for jsdom), `createProbeCore()` (a scriptable `CoreMatch`) and `trackResources()` (live timers, sockets and listeners). `client/src/features/arcade/fakeGame.test-util.ts` shows a fake game that uses every runtime piece and `installFakeAudio()`.
 
 Every test file must finish well under 60 s; use seeded randomness and injected clocks.
+
+Server side, `server/test/arcade/harness/index.ts` is one import for everything:
+
+- **Virtual time.** `lossyLink(profile)` is one client's bottleneck link stepped 1 ms at a time (rate, delay, jitter, loss with head-of-line stalls, voice and chat sharing the queue). `runScenario(scenario)` drives the real sender and a runtime over that link against a modelled client and returns frames, chat latency, bytes and ladder changes per window. `deltaFuzz(o)` checks the delta-base rule over seeded schedules. `probeRuntime(o)` is a pure runtime shaped like an action game, and `withWallCap(ms, fn)` fails a run that takes too long.
+- **Live server.** `startArcadeServer({clock, settings, arcade})` boots the real HTTP app, Socket.IO and the action lane on a free port with a fake clock. Pass your def as `arcade: {matchGames: [yourDef, null]}` (or `tableGames`); `account()`, `socket()`, `joinVoice()` and `lane(ticket)` drive it. `probeGame()` and `probeControl` are the platform's scriptable match game.
+
+## The shaped bench
+
+`node ops/bench/arcade-netbench.mjs --game <id> [--max-wall 600] [--out <dir>]` runs one headless Chrome through a userland TCP shaper (the non-voice share of 3G: 600/100 kbit/s, 300 ms RTT, 64 KB buffers) next to unshaped Node bots, with a chat prober on the main socket. Each scenario is capped at 60 s and stops early once a check has failed. The report gives frames per second, chat one-way delay, probe RTT, lane bytes per second, what the server actually sent (FRAME divisors, keyframe reasons) and the watchdog level.
+
+A game takes part by adding `ops/bench/games/<id>.mjs`, found by file name. `ops/bench/games/probe.mjs` is the example: it exports `scenarios`, `game`, `humans`, `serverOptions({loadServer})` (the server's game registry), `startBots(server, n)` (returns `{lobby, start(), stats(), stop()}`) and `enter(page, lobby)` (the shaped page joins the lobby and plays through the app's own remote host).

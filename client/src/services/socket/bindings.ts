@@ -2,6 +2,8 @@ import { batch, effect } from '@preact/signals';
 import { socketClient } from './client';
 import { api } from './api';
 import { resyncGameActivity } from '@/features/activity/desktopActivity';
+import { installArcadeBindings, setArcadeConfig } from '@/features/arcade/bindings';
+import type { ArcadePublicConfig } from '@/features/arcade/state';
 import { selectChannel } from '@/features/channels/channelActions';
 import { outbox } from '@/features/chat/outboxService';
 import { sounds } from '@/services/sounds';
@@ -93,6 +95,8 @@ interface AuthSuccess {
   channels: Channel[];
   groups?: ChannelGroup[];
   isNewAccount?: boolean;
+  /** The Arcade's public switches (the same object as GET /api/config's `arcade`). */
+  arcade?: ArcadePublicConfig | null;
 }
 
 let ticketTimer: number | null = null;
@@ -142,6 +146,9 @@ const heartbeat = createVisibilityHeartbeat({
 export const installSocketBindings = (): void => {
   if (installed) return;
   installed = true;
+  // The Arcade's table-lane pushes (lobbies, activity, wallet, invites, prefs), and its switches from /api/config.
+  installArcadeBindings();
+  setArcadeConfig(serverConfig.get()?.arcade ?? null);
 
   effect(() => {
     if (isAuthenticated.value) heartbeat.start();
@@ -210,6 +217,7 @@ export const installSocketBindings = (): void => {
       setAuthenticated(payload.account, payload.session.token);
       setChannels(payload.channels, payload.groups);
       serverConfig.applyIce(payload.ice);
+      if (payload.arcade !== undefined) setArcadeConfig(payload.arcade);
       if (payload.media) setMediaTicket(payload.media);
       if (modal.value?.type === 'auth') closeModal();
     });

@@ -8,14 +8,17 @@
  * emit, a debug log line.
  */
 import type { ZodType } from 'zod';
+import type { DB } from '../../db/index.js';
 import type { Logger } from '../../logger.js';
 import type { Clock } from '../clock.js';
+import type { PendingStore } from '../pending.js';
 import type { GameId } from '../core/version.js';
 import type { ArcadeLimits, ArcadeSettings, SettingsField } from '../settings.js';
 import type { BoardDef, Results, Stats } from '../stats.js';
 import type { Wallet } from '../wallet.js';
 
 export type { BoardDef, Results, Stats } from '../stats.js';
+export type { PendingGame, PendingRow, PendingStore } from '../pending.js';
 export type { Leg, LedgerAccount, Transfer, TransferOpts, TxnKind, Wallet } from '../wallet.js';
 
 export interface CallerCtx {
@@ -73,6 +76,13 @@ export interface TableApi {
   clock: Clock;
   log: Logger;
   settings(): ArcadeSettings;
+  /**
+   * The database, for a game's own rows in the Arcade tables (Lamplight's `arcade_poker_hands`). Write
+   * only inside `wallet.tx(...)`, together with the transfers they belong to.
+   */
+  db: DB;
+  /** `arcade_pending`: outcomes held until the player's next move (Glimmerhall's vault doors). */
+  pending: PendingStore;
 }
 
 export interface TableGameDef {
@@ -93,6 +103,8 @@ export type Refusal = { ok: false; code: string };
 export interface TableGame {
   lobby?: {
     onCreate(c: CallerCtx, cfg: unknown): { ok: true } | Refusal;
+    /** The lobby now exists (its id, the creator as host and first seat): e.g. open a cash table bound to it. */
+    onCreated?(c: CallerCtx, lobby: LobbyRecord): void;
     /** May escrow a buy-in. */
     onJoin(c: CallerCtx, lobby: LobbyRecord, as: 'player' | 'spectator'): { ok: true } | Refusal;
     onLeave(c: CallerCtx, lobby: LobbyRecord): void;
@@ -148,6 +160,11 @@ export interface HubApi {
   /** Coalesced arcade:activity, ≤ 1 per 2 s per channel. */
   activityChanged(channelId: string): void;
   close(lobbyId: string, reason: string): void;
+  /**
+   * Keep a table game's lobby record in step with its own seats (a cash table seats people through its
+   * own events, not arcade:lobby:join) or mark it live; members then get a coalesced arcade:lobby.
+   */
+  update(lobbyId: string, patch: { seats?: LobbyRecord['seats']; state?: 'open' | 'live'; watchers?: readonly string[] }): void;
   /** Server-wide poker bot cap (6). */
   bots: { take(n: number): boolean; give(n: number): void };
   limits(): ArcadeLimits;

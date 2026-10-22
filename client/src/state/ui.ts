@@ -1,7 +1,7 @@
 import { signal } from '@preact/signals';
 import type { CreatableChannelType, NotificationType } from '@/types/protocol';
 
-export type AdminSection = 'users' | 'invites' | 'channels' | 'bans' | 'usage' | 'server';
+export type AdminSection = 'users' | 'invites' | 'channels' | 'bans' | 'usage' | 'arcade' | 'server';
 
 export type Modal =
   | { type: 'auth'; mode: 'login' | 'register' }

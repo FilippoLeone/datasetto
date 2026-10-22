@@ -7,10 +7,11 @@
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as Catalog from '@/arcade/catalog';
 import { fakeMeta, installFakeAudio } from './fakeGame.test-util';
 
 vi.mock('@/arcade/catalog', async (original) => {
-  const real = await original<typeof import('@/arcade/catalog')>();
+  const real = await original<typeof Catalog>();
   return { ...real, CATALOG: [...real.CATALOG.filter((m) => m.id !== 'fuseyard'), fakeMeta], realCatalog: real.CATALOG };
 });
 
@@ -125,8 +126,8 @@ describe('the Arcade costs nothing when closed', () => {
   it('mounts and unmounts every stub chunk cleanly', async () => {
     const real = (catalog as unknown as { realCatalog: readonly catalog.GameMeta[] }).realCatalog;
     expect(real.map((m) => m.id)).toEqual(['lamplight', 'glimmer', 'fuseyard', 'bellwick']);
-    for (const meta of real) {
-      expect(meta.ready).toEqual({ offline: false, online: false });
+    // Games that have landed prove their own zero cost in their folder; this covers the stubs left.
+    for (const meta of real.filter((m) => !m.ready.offline && !m.ready.online)) {
       const chunk = await meta.load();
       const el = document.createElement('div');
       const resources = trackResources();

@@ -567,6 +567,8 @@ export interface MonthlyUsage {
   month: string;
   hlsEgressBytes: number;
   streamSeconds: number;
+  /** Bytes the Arcade's game connections sent this month (counted apart from the streaming budget). */
+  arcadeEgressBytes?: number;
   updatedAt: number;
 }
 

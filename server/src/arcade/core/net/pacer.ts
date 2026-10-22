@@ -11,10 +11,14 @@
  *   - the socket's own backlog (`bufferedAmount`) is under 2 KB.
  *
  * Ladder: one step down (2 → 3 → 4 → 6) after `rtt − minRtt > 150 ms` for 1 s, or 3 consecutive slots
- * skipped by the in-flight cap; one step up after 3 s with `rtt − minRtt < 60 ms` and no skips.
+ * skipped by the in-flight cap; after 3 s with `rtt − minRtt < 60 ms` and no skips, straight back to the
+ * default divisor. One level per 3 s would take 9 s from d = 6 after a collapse; a link that is still
+ * short steps down again within 1 s.
  * The step down reads each RTT sample: it fires 1 s after the first sample over 150 ms when every
  * sample since agrees (a smoothed RTT would cross 150 ms seconds later at 4 Hz ACKs, or never for a
- * +160 ms queue). The step up reads the smoothed RTT, so jitter does not keep resetting the 3 s.
+ * +160 ms queue). The step up reads the smoothed RTT, so jitter does not keep resetting the 3 s. The
+ * smoothing falls faster than it rises (gain 1/2 down, 1/8 up): a rise is smoothed as before, but once
+ * a queue drains the calm shows within about 5 samples, not about 20 (4 s at d = 6 after a collapse).
  * Stall: no ACK or UP progress for `stallMs` while frames are outstanding.
  */
 import { seqDelta } from '../bytes.js';
@@ -60,6 +64,9 @@ export const PACE = {
   queueHighForMs: 1000,
   queueCalmMs: 60,
   calmForMs: 3000,
+  /** Smoothed-RTT gains for a sample above and below the current value. */
+  rttGainUp: 0.125,
+  rttGainDown: 0.5,
   skipsToStepDown: 3,
   minRttWindowMs: 10_000,
   rateWindowMs: 1000,
@@ -222,7 +229,7 @@ export const createPacer = (cfg: PacerConfig, nowMs: number): Pacer => {
       lastProgress = now;
       rollWindows(now);
       if (sample !== null) {
-        rtt = haveRtt ? 0.875 * rtt + 0.125 * sample : sample;
+        rtt = haveRtt ? rtt + (sample > rtt ? PACE.rttGainUp : PACE.rttGainDown) * (sample - rtt) : sample;
         haveRtt = true;
         if (sample < minCur) minCur = sample;
         if (sample - minRtt() > PACE.queueHighMs) {
@@ -271,7 +278,7 @@ export const createPacer = (cfg: PacerConfig, nowMs: number): Pacer => {
       if (queueing < PACE.queueCalmMs && !skippedSinceCalm) {
         if (calmSince === null) calmSince = now;
         if (now - calmSince >= PACE.calmForMs && index > minIndex) {
-          index -= 1;
+          index = minIndex;
           calmSince = now;
           return 'stepUp';
         }

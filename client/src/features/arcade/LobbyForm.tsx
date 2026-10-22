@@ -18,7 +18,7 @@ export interface LobbyFormProps {
   slots?: readonly { slot: number; label: string }[];
 }
 
-const Pills = ({ label, choices, value, onPick }: { label: string; choices: readonly { value: string | number; label: string }[]; value: unknown; onPick(v: string | number): void }) => (
+export const Pills = ({ label, choices, value, onPick }: { label: string; choices: readonly { value: string | number; label: string }[]; value: unknown; onPick(v: string | number): void }) => (
   <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2">
     {choices.map((choice) => (
       <button

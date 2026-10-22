@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as Device from '@/lib/device';
 
 // A Capacitor shell: the shared app-state listener comes from @capacitor/app.
 let appState: ((state: { isActive: boolean }) => void) | null = null;
 let appStateRemoved = 0;
-vi.mock('@/lib/device', async (original) => ({ ...(await original<typeof import('@/lib/device')>()), isCapacitor: () => true }));
+vi.mock('@/lib/device', async (original) => ({ ...(await original<typeof Device>()), isCapacitor: () => true }));
 vi.mock('@capacitor/app', () => ({
   App: {
     addListener: async (_event: string, cb: (state: { isActive: boolean }) => void) => {

@@ -21,6 +21,10 @@ class SocketClient {
   private pending: Array<{ event: string; handler: Handler }> = [];
   private scheduler: ReconnectScheduler | null = null;
   private reconnectListeners = new Set<(state: ReconnectState) => void>();
+  /** The last 16 ack round trips in ms (the Arcade's "chat first" guard, docs/arcade/platform.md §6.4). */
+  private acks: number[] = [];
+  private requestAt = 0;
+  private ackListeners = new Set<(rttMs: number) => void>();
 
   connect(url: string): void {
     if (this.socket) return;
@@ -103,11 +107,38 @@ class SocketClient {
         reject(new Error('Not connected'));
         return;
       }
+      const sentAt = performance.now();
+      this.requestAt = sentAt;
       this.socket.timeout(timeoutMs).emit(event, payload, (error: Error | null, response: T) => {
+        // The only error here is the timeout: count it as a round trip of timeoutMs.
+        this.recordAck(error ? timeoutMs : performance.now() - sentAt);
         if (error) reject(error);
         else resolve(response);
       });
     });
+  }
+
+  private recordAck(ms: number): void {
+    this.acks.push(ms);
+    if (this.acks.length > 16) this.acks.shift();
+    this.ackListeners.forEach((listener) => listener(ms));
+  }
+
+  /** Median ack round trip of the last 16 requests in ms; 0 before the first. */
+  ackRtt(): number {
+    const sorted = [...this.acks].sort((a, b) => a - b);
+    return sorted.length ? (sorted[sorted.length >> 1] as number) : 0;
+  }
+
+  /** performance.now() of the last request(); 0 before the first. */
+  lastRequestAt(): number {
+    return this.requestAt;
+  }
+
+  /** Every ack's round trip in ms (a timed-out request reports its timeout). */
+  onAck(listener: (rttMs: number) => void): () => void {
+    this.ackListeners.add(listener);
+    return () => this.ackListeners.delete(listener);
   }
 
   on<T = unknown>(event: string, handler: (payload: T) => void): () => void {

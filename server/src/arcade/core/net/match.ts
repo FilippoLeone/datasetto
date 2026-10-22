@@ -39,7 +39,7 @@ export type HostEvent =
   | { t: 'seat'; slot: number; state: 'live' | 'ghost' | 'bot' | 'left' }
   /** Drop the recipient's pending events and send it a KEYFRAME for `view`. */
   | { t: 'rekey'; slot: number; reason: 4 | 5; view: number }
-  /** Queued joiners and reclaims may take seats now. */
+  /** A new round: every recipient gets a KEYFRAME (reason 3), and queued joiners and reclaims take seats. */
   | { t: 'roundStart' }
   /** Bellwick autosave (SaveV1). */
   | { t: 'persist'; data: Uint8Array }

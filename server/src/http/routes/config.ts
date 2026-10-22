@@ -45,6 +45,8 @@ export const configRouter = (ctx: AppContext): Router => {
       linkPreviews: { enabled: ctx.config.linkPreviews.enabled },
       // Web Push: off without VAPID keys; the public key is what browsers subscribe with.
       push: { enabled: ctx.push.isEnabled(), publicKey: ctx.push.publicKey() },
+      // Arcade switches and table-lane versions (the same object as auth:success's `arcade`); null before the socket layer exists.
+      arcade: ctx.runtime.arcade?.publicConfig() ?? null,
     });
   });
 

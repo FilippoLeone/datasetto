@@ -2,7 +2,7 @@ import type { Server as HttpServer } from 'node:http';
 import { Server, type Socket } from 'socket.io';
 import type { AppContext, Broadcaster } from '../context.js';
 import { createOriginChecker } from '../http/origins.js';
-import { createArcade, type Arcade } from '../arcade/index.js';
+import { createArcade, type Arcade, type ArcadeOptions } from '../arcade/index.js';
 import { createSocketContext, disposeSocketContext, type SocketContext } from './context.js';
 import { registerAdminHandlers } from './handlers/admin.js';
 import { registerAuthHandlers } from './handlers/auth.js';
@@ -45,7 +45,12 @@ const resolveClientIp = (socket: Socket, trustProxy: boolean): string => {
   return socket.handshake.address || 'unknown';
 };
 
-export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): SocketServer => {
+export interface SocketServerOptions {
+  /** Tests: a fake clock and test game definitions for the Arcade. */
+  arcade?: ArcadeOptions;
+}
+
+export const createSocketServer = (httpServer: HttpServer, ctx: AppContext, options: SocketServerOptions = {}): SocketServer => {
   const isAllowedOrigin = createOriginChecker(ctx.config.cors);
 
   const io = new Server(httpServer, {
@@ -63,6 +68,9 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
     pingTimeout: 20_000,
     connectTimeout: 20_000,
     maxHttpBufferSize: 256_000,
+    // The Arcade's upgrade router (arcade/lane.ts) owns every non-Socket.IO upgrade: /arcade/ws goes to
+    // the action lane, anything else is destroyed there at once.
+    destroyUpgrade: false,
   });
 
   const broadcaster: Broadcaster = {
@@ -119,7 +127,8 @@ export const createSocketServer = (httpServer: HttpServer, ctx: AppContext): Soc
   };
   ctx.broadcast = broadcaster;
 
-  const arcade = createArcade(ctx, httpServer, io);
+  const arcade = createArcade(ctx, httpServer, io, options.arcade);
+  ctx.runtime.arcade = arcade;
 
   ctx.runtime.connectedSockets = () => io.engine.clientsCount;
 

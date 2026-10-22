@@ -6,8 +6,9 @@
  *
  * This module is in the main bundle and imports types only from the runtime.
  */
-import { signal, type Signal } from '@preact/signals';
+import { computed, signal, type Signal } from '@preact/signals';
 import type { GameId, LobbyView, SessionStatus } from '@/arcade/runtime/types';
+import { selectChannel } from '@/features/channels/channelActions';
 
 /** One running or forming game in a voice channel (`arcade:activity`). */
 export interface ActivityEntry {
@@ -31,6 +32,8 @@ export interface ArcadeSessionState {
   status: SessionStatus;
   attention: boolean;
   minimized: boolean;
+  /** Online: the "chat first" guard holds the game back so chat and voice can catch up (status is 'paused'). */
+  yielding?: boolean;
 }
 
 export interface ArcadeWalletView {
@@ -66,6 +69,40 @@ export const arcadeWallet: Signal<ArcadeWalletView | null> = signal(null);
 export const arcadeConfig: Signal<ArcadePublicConfig | null> = signal(null);
 export const arcadeHidden: Signal<ArcadeHidden | null> = signal(null);
 
+/** A pending `arcade:invited` (an InviteChip until dismissed, joined, or 60 s old). */
+export interface ArcadeInvite {
+  /** Lobby id. */
+  id: string;
+  /** Account id of whoever invited you. */
+  from: string;
+  game: GameId;
+  /** The voice channel the lobby is in (older servers leave it out). */
+  ch?: string;
+  at: number;
+}
+export const arcadeInvites: Signal<readonly ArcadeInvite[]> = signal([]);
+
+/**
+ * The online stage: the lobby whose game runs on this screen, in the voice page of channel `ch`.
+ * Set when you start or join a live game, cleared when you leave it. `error` is a start that failed.
+ */
+export interface ArcadeStageState {
+  lobbyId: string;
+  ch: string;
+  game: GameId;
+  role: 'player' | 'spectator';
+  error: string | null;
+}
+export const arcadeStage: Signal<ArcadeStageState | null> = signal(null);
+
+/** The voice channel whose page shows the stage right now (null: no stage, or minimized to a chip). */
+export const arcadeStageChannel = computed((): string | null => {
+  const stage = arcadeStage.value;
+  if (!stage) return null;
+  const session = arcadeSession.value;
+  return session?.mode === 'remote' && session.id === stage.lobbyId && session.minimized ? null : stage.ch;
+});
+
 /**
  * What the shell shows: the full-screen overlay for local play (from anywhere, signed in or not),
  * or the stage in the voice page for an online match. `game` null shows the catalogue.
@@ -81,6 +118,9 @@ export const arcadeView: Signal<ArcadeView | null> = signal(null);
 export const openArcade = (o: { game?: GameId; mode: 'local' | 'remote'; channelId?: string }): void => {
   const session = arcadeSession.peek();
   if (session?.minimized) {
+    // An online game shows on its call's voice page: every Arcade button goes back there.
+    const stage = arcadeStage.peek();
+    if (session.mode === 'remote' && stage?.lobbyId === session.id) selectChannel(stage.ch);
     arcadeSession.value = { ...session, minimized: false };
     return;
   }
@@ -121,6 +161,10 @@ if (import.meta.env.DEV) {
     arcadeLobby,
     arcadeSession,
     arcadeWallet,
+    arcadeConfig,
+    arcadeHidden,
+    arcadeInvites,
+    arcadeStage,
   } as Record<string, Signal<unknown>>;
   for (const [name, sig] of Object.entries(watched)) {
     let first = true;

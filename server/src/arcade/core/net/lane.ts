@@ -34,8 +34,13 @@ export const CLOSE = {
   update: 4426,
   rate: 4429,
 } as const;
-/** Close codes after which the client must not retry. */
-export const CLOSE_FINAL: readonly number[] = [CLOSE.ticket, CLOSE.forbidden, CLOSE.gone, CLOSE.takenOver, CLOSE.update];
+/**
+ * Close codes after which the client does not reconnect by itself: it left (1000), the server is
+ * restarting (1012, the stage offers continue offline or wait), away too long (4000), not allowed,
+ * gone, taken over by another tab, update required. 4401 (bad ticket or resume token) is final only
+ * after one fresh ticket was tried.
+ */
+export const CLOSE_FINAL: readonly number[] = [CLOSE.left, CLOSE.restart, CLOSE.away, CLOSE.forbidden, CLOSE.gone, CLOSE.takenOver, CLOSE.update];
 
 export const DIVISORS = [2, 3, 4, 6] as const;
 export type Divisor = (typeof DIVISORS)[number];

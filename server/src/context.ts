@@ -32,6 +32,8 @@ export interface RuntimeState {
   /** Set by the socket server; 0 before it exists. */
   connectedSockets: () => number;
   bursts: BurstLogger;
+  /** The Arcade once the socket layer created it (its public config goes out with GET /api/config). */
+  arcade: { publicConfig(): unknown } | null;
 }
 
 /** Fan-out helpers implemented by the socket layer once it exists. */
@@ -124,7 +126,7 @@ export const createContext = (config: AppConfig, db: DB, options: ContextOptions
     hlsTickets: new HlsTicketService(config.streaming.ticketSecret),
     usage: new UsageService(db),
     broadcast: noopBroadcaster,
-    runtime: { shuttingDown: false, watchdog: null, connectedSockets: () => 0, bursts: createBurstLogger({ log: logger }) },
+    runtime: { shuttingDown: false, watchdog: null, connectedSockets: () => 0, bursts: createBurstLogger({ log: logger }), arcade: null },
     startedAt: Date.now(),
   };
 };

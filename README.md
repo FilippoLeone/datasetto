@@ -8,7 +8,8 @@ This software is being built with the sole purpose of me using it with my friend
 
 A self-hosted voice, video, streaming and chat server for a small group of friends: text
 channels, peer-to-peer voice with camera and screenshare, OBS streaming with HLS
-playback, a few voice-channel minigames, and admin tooling. Runs on one small
+playback, the Arcade (games to play with the people in your voice channel, or alone
+against bots, even offline), and admin tooling. Runs on one small
 VM for about the price of a coffee a week.
 
 ## Features
@@ -17,7 +18,7 @@ VM for about the price of a coffee a week.
 - **Voice channels** over WebRTC mesh: echo cancellation, noise suppression (with an optional neural level that removes keyboard typing and chewing on the device), push to talk, camera, screenshare
 - **Live streams**: OBS publishes over RTMPS (or plain RTMP on the LAN), viewers watch low-latency HLS in a theater layout with chat
 - **Screenshare rooms** for one presenter and many viewers
-- **Minigames** inside voice channels (Slither, Pacman, Fighter) with a persistent leaderboard
+- **The Arcade**: original games for the people in a voice channel who choose to join, built so they never slow down chat or voice on a phone link: poker and slot machines with virtual chips (nothing can be bought, sold or cashed out), a bomb arena and a top-down adventure. Every game also plays offline against bots. Design: [docs/arcade](docs/arcade/README.md)
 - **Accounts and roles**: superuser, admin, moderator, streamer, user; per-channel permissions; invite-only registration
 - **Notifications**: Web Push for direct messages and @mentions while the app is hidden (browsers and the installed PWA, opt-in per device); native notifications in the desktop app
 - **Clients**: web app, Electron desktop app (`desktop/`), Capacitor Android/iOS app (`mobile/`)
@@ -36,7 +37,7 @@ mobile/    Capacitor shell around the web client (the Android and iOS projects a
 
 Each folder has a README with its own commands and layout. The server is the
 source of truth. State that must survive restarts (accounts, sessions,
-channels, permissions, messages, bans, leaderboards) lives in one SQLite file;
+channels, permissions, messages, bans, Arcade chips and saves) lives in one SQLite file;
 live state (who is online, voice rooms, active streams) is in memory and
 rebuilt as clients reconnect. Media never touches the server except RTMP
 ingest and the optional TURN relay.
