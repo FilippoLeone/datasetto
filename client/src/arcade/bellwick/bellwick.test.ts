@@ -6,14 +6,17 @@
  * - Party Tale through a stand-in remote host wired to a server-mode runtime: the hero moves on the
  *   server, and a restart's HANDOVER leaves a Party copy on the device;
  * - the A button and dialogues, in both tales: the press that closes a sign never opens it again, a
- *   quick second tap does nothing, a later tap reads it again (J, Space, Z and a gamepad's A), and
- *   mashing A at the shop counter never buys (the question starts on No).
+ *   quick second tap does nothing, a later tap reads it again (J, Space, Z and a gamepad's A); Party
+ *   Tale: the J that closes a dialogue in front of the sign, held past the re-talk cooldown, never
+ *   reaches the hero; the J let go and pressed again inside one frame is a new press; mashing A at the
+ *   shop counter never buys (the question starts on No, and says so to screen readers);
+ * - Solo Tale: a Rootsword charged before the pause or the map keeps charging while J stays down.
  */
 import { act } from 'preact/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { goldenButtons, GOLDEN, runLog } from '@arcade/core/bellwick/golden';
 import { createBellwick, type BellwickMatch } from '@arcade/core/bellwick/runtime';
-import { Act, DIR, ItemBit } from '@arcade/core/bellwick/types';
+import { Act, Btn, DIR, ItemBit } from '@arcade/core/bellwick/types';
 import { ByteReader } from '@arcade/core/bytes';
 import { createLocalMatchHost } from '@/arcade/runtime/net/localHost';
 import { frames } from '@/arcade/runtime/p0';
@@ -91,7 +94,9 @@ const press = async (el: HTMLElement, code: string): Promise<void> => {
   await run(50);
 };
 
-type Dev = { cw: { hasRoom: boolean; room: number; items: number; me: { x: number; y: number; facing: number; act: number }; tick: number }; mode: string } | undefined;
+type Dev =
+  | { cw: { hasRoom: boolean; room: number; items: number; me: { x: number; y: number; facing: number; act: number; charged: boolean; btn: number }; tick: number }; mode: string }
+  | undefined;
 const dev = (): Dev => (window as unknown as { __bellwick?: Dev }).__bellwick;
 
 /** A stand-in remote host in front of a server-mode runtime; `tick()` steps the server once. */
@@ -260,13 +265,18 @@ describe('Bellwick Party Tale client', () => {
 });
 
 describe('Bellwick dialogues and the A button', () => {
-  /** One letter per frame for the mode the game is in; S is play with the hero swinging the sword. */
+  /** One letter per frame for the mode the game is in; in play S, H, X, B, V: the hero swings, charges, spins, raises the Buckler, throws the Vinehook. */
   const LETTER: Readonly<Record<string, string>> = { loading: 'L', title: 'T', play: 'P', dialogue: 'D', choice: 'C', menu: 'M', map: 'A' };
+  const HERO_ACT: Readonly<Record<number, string>> = { [Act.Slash]: 'S', [Act.Charge]: 'H', [Act.Spin]: 'X', [Act.Shield]: 'B', [Act.Hook]: 'V' };
   /** Kettlebrook Square (the start room) and Pell's Sundries. */
   const SQUARE = 17;
   const SHOP = 21;
+  /** Frames past the re-talk cooldown (12 hero ticks, 24 frames here) with room to spare. */
+  const PAST_COOLDOWN = 40;
   /** About a second each here; room for a busy machine. */
   const SLOW = 20_000;
+
+  type Gift = 'sword' | 'buckler' | 'hook';
 
   interface Rig {
     el: HTMLElement;
@@ -274,8 +284,10 @@ describe('Bellwick dialogues and the A button', () => {
     frames(n: number): Promise<string>;
     /** Puts the own hero in the middle of tile (tx, ty) of its room, facing `facing` (online on the server too). */
     place(tx: number, ty: number, facing: number): Promise<void>;
-    /** The party has the Rootsword (on both sides). */
-    giveSword(): void;
+    /** The party has the Rootsword, the Bark Buckler or the Vinehook (on both sides). */
+    give(item: Gift): void;
+    /** The party's purse and Buckler on the side that runs the tale. */
+    party(): { purse: number; buckler: boolean };
     end(): void;
   }
 
@@ -297,7 +309,7 @@ describe('Bellwick dialogues and the A button', () => {
         // Modes change inside the frame callbacks; promises only need to settle now and then.
         if (frame % 8 === 0) await flush();
         const d = dev();
-        seen += d?.mode === 'play' && d.cw.me.act === Act.Slash ? 'S' : (LETTER[d?.mode ?? ''] ?? '?');
+        seen += d?.mode === 'play' ? (HERO_ACT[d.cw.me.act] ?? 'P') : (LETTER[d?.mode ?? ''] ?? '?');
       }
       return seen;
     };
@@ -360,10 +372,11 @@ describe('Bellwick dialogues and the A button', () => {
         me.facing = facing;
         await frames(6);
       },
-      giveSword() {
-        tale.match!.world.party.sword = true;
-        dev()!.cw.items |= ItemBit.sword;
+      give(item) {
+        tale.match!.world.party[item] = true;
+        dev()!.cw.items |= ItemBit[item];
       },
+      party: () => tale.match!.world.party,
       end,
     };
   };
@@ -401,10 +414,11 @@ describe('Bellwick dialogues and the A button', () => {
         me.facing = h.facing = facing;
         await frames(6);
       },
-      giveSword() {
-        core.world.party.sword = true;
-        dev()!.cw.items |= ItemBit.sword;
+      give(item) {
+        core.world.party[item] = true;
+        dev()!.cw.items |= ItemBit[item];
       },
+      party: () => core.world.party,
       end,
     };
   };
@@ -506,12 +520,54 @@ describe('Bellwick dialogues and the A button', () => {
   }, SLOW);
 
   /**
+   * Party Tale, the hero facing the sign. The J that closes the intro (the sign was never talked to, so
+   * no cooldown covers it) and then the J that closes the sign are each held past the re-talk cooldown
+   * before they are let go: the hero never sees A, and the sign stays closed. Only the swallow holds it.
+   */
+  it('Party Tale: the J that closes a dialogue in front of the sign, held past the re-talk cooldown, never reads it', async () => {
+    const rig = await partyRig(true);
+    try {
+      await rig.place(9, 5, DIR.down);
+      const j = keyButton(rig.el, 'KeyJ');
+      const closeAndHold = async (what: string): Promise<void> => {
+        let closing = '';
+        for (let i = 0; i < 12; i += 1) {
+          j.down();
+          closing = await rig.frames(4);
+          if (/[^D]/.test(closing)) break;
+          j.up();
+          await rig.frames(4);
+        }
+        expect(closing, `${what}: a press closes it`).toMatch(/[^D]/);
+        let after = closing.slice(closing.search(/[^D]/));
+        let saw = 0;
+        for (let i = 0; i < PAST_COOLDOWN; i += 1) {
+          after += await rig.frames(1);
+          saw |= dev()!.cw.me.btn;
+        }
+        j.up();
+        after += await rig.frames(10);
+        expect(saw & Btn.a, `${what}: the hero never sees the J that closed it`).toBe(0);
+        expect(after, `${what}: that J, held past the cooldown and let go, does not read the sign`).toMatch(/^P+$/);
+      };
+      await closeAndHold('the intro');
+      await rig.frames(30);
+      expect(await tapKey(rig, 'KeyJ'), 'a tap reads the sign').toContain('D');
+      await closeAndHold('the sign');
+      await rig.frames(30);
+      expect(await tapKey(rig, 'KeyJ'), 'a later tap reads it again').toContain('D');
+    } finally {
+      rig.end();
+    }
+  }, SLOW);
+
+  /**
    * The hero has the Rootsword. The J that closes the intro, or that picks "Back to the tale" in the
    * pause menu, is held a while and let go: the hero does not swing. A J of its own does.
    */
   const noStraySwing = async (rig: Rig): Promise<void> => {
     const j = keyButton(rig.el, 'KeyJ');
-    rig.giveSword();
+    rig.give('sword');
     let closing = '';
     for (let i = 0; i < 12; i += 1) {
       j.down();
@@ -557,40 +613,145 @@ describe('Bellwick dialogues and the A button', () => {
     }
   }, SLOW);
 
+  /**
+   * The hero has the Rootsword. The J that picks "Back to the tale" is held, so the hero ignores it; let
+   * go and pressed again inside one frame, it is a new press: the hero swings and, J held, charges.
+   */
+  const rePress = async (rig: Rig): Promise<void> => {
+    const j = keyButton(rig.el, 'KeyJ');
+    rig.give('sword');
+    await rig.place(5, 4, DIR.down);
+    expect(await tapKey(rig, 'Escape'), 'Escape pauses').toMatch(/M$/);
+    j.down();
+    expect(await rig.frames(10), 'the J that picked "Back to the tale" does not swing').toMatch(/^M*P+$/);
+    j.up();
+    j.down();
+    const seen = await rig.frames(70);
+    j.up();
+    await rig.frames(20);
+    expect(seen, 'let go and pressed again between two samples: a swing, then the charge').toMatch(/^P*S+H+$/);
+  };
+
+  it('Solo Tale: a held J let go and pressed again between two samples is a new press', async () => {
+    const rig = await soloRig();
+    try {
+      await rePress(rig);
+    } finally {
+      rig.end();
+    }
+  }, SLOW);
+
+  it('Party Tale: a held J let go and pressed again between two samples is a new press', async () => {
+    const rig = await partyRig();
+    try {
+      await rePress(rig);
+    } finally {
+      rig.end();
+    }
+  }, SLOW);
+
+  it('Solo Tale: a Rootsword charged before the pause or the map keeps charging while J stays down', async () => {
+    const rig = await soloRig();
+    try {
+      rig.give('sword');
+      await rig.place(5, 4, DIR.down);
+      const j = keyButton(rig.el, 'KeyJ');
+      j.down();
+      // A swing, then the charge: 10 + 18 hero ticks at 30 Hz, about 56 frames.
+      expect(await rig.frames(70), 'J held swings, then charges').toMatch(/^P*S+H+$/);
+      expect(dev()!.cw.me.charged, 'the charge is full').toBe(true);
+      let seen = await tapKey(rig, 'Escape');
+      seen += await tapKey(rig, 'Escape');
+      seen += await rig.frames(10);
+      seen += await tapKey(rig, 'KeyM');
+      seen += await tapKey(rig, 'KeyM');
+      seen += await rig.frames(10);
+      expect(seen, 'paused and back, the map and back, J down all along: no Spin, still charging').toMatch(/^M+H+A+H+$/);
+      expect(dev()!.cw.me.charged, 'still charged').toBe(true);
+      j.up();
+      expect(await rig.frames(10), 'letting go of J lets the Spin go').toContain('X');
+    } finally {
+      rig.end();
+    }
+  }, SLOW);
+
+  it('Solo Tale: the K that closes the pause menu raises the Buckler while held, and never throws the Vinehook', async () => {
+    const rig = await soloRig();
+    try {
+      const k = keyButton(rig.el, 'KeyK');
+      const closeWithK = async (): Promise<string> => {
+        expect(await tapKey(rig, 'Escape'), 'Escape pauses').toMatch(/M$/);
+        k.down();
+        const seen = await rig.frames(14);
+        k.up();
+        return seen + (await rig.frames(10));
+      };
+      rig.give('buckler');
+      await rig.place(5, 4, DIR.down);
+      expect(await closeWithK(), 'B raises the Buckler while held, so the K held after the menu raises it').toMatch(/^M*P*B+P+$/);
+      rig.give('hook');
+      expect(await tapKey(rig, 'KeyL'), 'swap picks the Vinehook').toMatch(/^P+$/);
+      await rig.frames(10);
+      expect(await closeWithK(), 'the Vinehook is thrown on a press, so the K that closed the menu throws nothing').toMatch(/^M*P+$/);
+      expect(await tapKey(rig, 'KeyK'), 'a K of its own throws it').toContain('V');
+    } finally {
+      rig.end();
+    }
+  }, SLOW);
+
+  /**
+   * Into Pell's Sundries and up to the counter, in front of the Bark Buckler, with glints to spare.
+   * Mashing J never buys; the question starts on No and says so; Up selects Yes and says so; J buys.
+   */
+  const shopCycle = async (rig: Rig): Promise<void> => {
+    const party = rig.party();
+    // Walk up through its door from (9,3) of the square.
+    await rig.place(9, 3, DIR.up);
+    key(rig.el, 'KeyW', 'keydown');
+    for (let i = 0; i < 90 && dev()?.cw.room !== SHOP; i += 1) await rig.frames(1);
+    key(rig.el, 'KeyW', 'keyup');
+    expect(dev()?.cw.room).toBe(SHOP);
+    await rig.frames(60);
+    await rig.place(3, 3, DIR.up);
+    party.purse = 100;
+    const j = keyButton(rig.el, 'KeyJ');
+    let seen = '';
+    for (let i = 0; i < 40; i += 1) {
+      j.down();
+      seen += await rig.frames(3);
+      j.up();
+      seen += await rig.frames(3);
+    }
+    expect(seen, 'the question came up').toContain('C');
+    expect({ purse: party.purse, buckler: party.buckler }, 'mashing J bought nothing').toEqual({ purse: 100, buckler: false });
+    // Escape leaves whatever is open; then ask again, pick Yes and buy.
+    for (let i = 0; i < 12 && dev()?.mode !== 'play'; i += 1) await tapKey(rig, 'Escape');
+    expect(dev()?.mode).toBe('play');
+    await rig.frames(30);
+    for (let i = 0; i < 12 && dev()?.mode !== 'choice'; i += 1) await tapKey(rig, 'KeyJ');
+    expect(dev()?.mode).toBe('choice');
+    const live = rig.el.querySelector('[aria-live]');
+    expect(live?.textContent, 'the question says which answer is selected').toBe('Buy it for 30 glints? Yes, No. No selected.');
+    await tapKey(rig, 'KeyW');
+    expect(live?.textContent, 'and which one the selection moves to').toBe('Yes selected.');
+    await tapKey(rig, 'KeyJ');
+    await rig.frames(30);
+    expect({ purse: party.purse, buckler: party.buckler }, 'Yes buys').toEqual({ purse: 70, buckler: true });
+  };
+
   it('Solo Tale: mashing A at the shop counter never buys, and picking Yes still does', async () => {
     const rig = await soloRig();
     try {
-      const party = rig.tale.match!.world.party;
-      // Into Pell's Sundries: walk up through its door from (9,3) of the square.
-      await rig.place(9, 3, DIR.up);
-      key(rig.el, 'KeyW', 'keydown');
-      for (let i = 0; i < 90 && dev()?.cw.room !== SHOP; i += 1) await rig.frames(1);
-      key(rig.el, 'KeyW', 'keyup');
-      expect(dev()?.cw.room).toBe(SHOP);
-      await rig.frames(60);
-      // At the counter, in front of the Bark Buckler, with glints to spare.
-      await rig.place(3, 3, DIR.up);
-      party.purse = 100;
-      const j = keyButton(rig.el, 'KeyJ');
-      let seen = '';
-      for (let i = 0; i < 40; i += 1) {
-        j.down();
-        seen += await rig.frames(3);
-        j.up();
-        seen += await rig.frames(3);
-      }
-      expect(seen, 'the question came up').toContain('C');
-      expect({ purse: party.purse, buckler: party.buckler }).toEqual({ purse: 100, buckler: false });
-      // Escape leaves whatever is open; then ask again, pick Yes and buy.
-      for (let i = 0; i < 12 && dev()?.mode !== 'play'; i += 1) await press(rig.el, 'Escape');
-      expect(dev()?.mode).toBe('play');
-      await rig.frames(30);
-      for (let i = 0; i < 12 && dev()?.mode !== 'choice'; i += 1) await press(rig.el, 'KeyJ');
-      expect(dev()?.mode).toBe('choice');
-      await press(rig.el, 'KeyW');
-      await press(rig.el, 'KeyJ');
-      await rig.frames(30);
-      expect({ purse: party.purse, buckler: party.buckler }).toEqual({ purse: 70, buckler: true });
+      await shopCycle(rig);
+    } finally {
+      rig.end();
+    }
+  }, SLOW);
+
+  it('Party Tale: mashing A at the shop counter never buys, and picking Yes still does', async () => {
+    const rig = await partyRig();
+    try {
+      await shopCycle(rig);
     } finally {
       rig.end();
     }

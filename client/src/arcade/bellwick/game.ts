@@ -75,8 +75,11 @@ const ITEM_ICON: Readonly<Record<number, number>> = {
 };
 const SHOP_TEXT: Readonly<Record<number, string>> = { [Item.Buckler]: 'buy_buckler', [Item.Brew]: 'buy_brew', [Item.Shard]: 'buy_shard' };
 
-/** The buttons whose press the hero acts on (A talks or swings, B throws the Vinehook, swap); arrows walk while held. */
-const EDGE_BUTTONS = ACT.a | ACT.b | ACT.swap;
+/**
+ * The buttons whose press the hero acts on: A talks or swings, swap swaps, and B while it throws the
+ * Vinehook (mountBellwick's edgeButtons). Arrows walk and B raises the Buckler while held.
+ */
+const EDGE_BUTTONS = ACT.a | ACT.swap;
 /** Hero ticks (30 Hz, about 400 ms) after a dialogue or a question closes in which A on the same spot does nothing. */
 const RETALK_TICKS = 12;
 
@@ -128,9 +131,13 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   let held = 0;
   let pending = 0;
   // Edge buttons still down when a dialogue, a question, the menu, the map or the title handed the world
-  // back: the hero ignores each until it is let go. Online the hero saw no buttons while the dialogue was
-  // open, so the J that closed a sign would look like a new press to it and open the sign again.
+  // back: the hero ignores each until it is let go (or let go and pressed again). Online the hero saw no
+  // buttons while the dialogue was open, so the J that closed a sign would look like a new press to it
+  // and open the sign again.
   let swallow = 0;
+  // Buttons that went down while the UI was open. Offline the world waits under the UI with the hero's
+  // buttons as they were, so only these are new to it.
+  let uiDown = 0;
   // The spot (room × 128 + tile) last talked to or used, and the hero tick before which A on it does
   // nothing: mashing J through a sign reads it once, not over and over.
   let talkSpot = -1;
@@ -170,9 +177,18 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
     if (local) host.setVisible(visible && mode === 'play');
   };
 
+  /** The edge buttons now: B is one only while it throws the Vinehook (the hero sim's pick of B item). */
+  const edgeButtons = (): number => {
+    const hook = (cw.items & ItemBit.hook) !== 0 && (cw.me.item === 1 || (cw.items & ItemBit.buckler) === 0);
+    return hook ? EDGE_BUTTONS | ACT.b : EDGE_BUTTONS;
+  };
+
   const setMode = (m: Mode): void => {
     if (m === 'play' && mode !== 'play') {
-      swallow = held & EDGE_BUTTONS;
+      // Online every edge button still down. Offline only those pressed in the UI: a Rootsword charged
+      // before the pause or the map keeps charging while J stays down, and lets the Spin go on release.
+      swallow = held & edgeButtons() & (local ? uiDown : ~0);
+      uiDown = 0;
       if (mode === 'dialogue' || mode === 'choice') talkUntil = cw.me.heroTick + RETALK_TICKS;
     }
     mode = m;
@@ -203,10 +219,10 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
     setMode('dialogue');
   };
 
-  /** A question; `sel` is the option it starts on. */
+  /** A question; `sel` is the option it starts on. Read out with the options and the one selected. */
   const ask = (q: string, options: string[], then: (i: number) => void, sel = 0): void => {
     choice = { q, options, sel, then };
-    say(q + ' ' + options.join(', '));
+    say(q + ' ' + options.join(', ') + '. ' + (options[sel] ?? '') + ' selected.');
     setMode('choice');
   };
 
@@ -503,7 +519,6 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   const heroButtons = (): number => {
     // Online the world runs on under a dialogue or the pause menu; the hero stands still there. A new
     // press after the UI closed still counts through `pending`, even one let go between two samples.
-    swallow &= held;
     const b = mode === 'play' ? ((held & ~swallow) | pending) & 0x7f : 0;
     pending = 0;
     return b;
@@ -559,7 +574,10 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
     if (mode === 'choice' && choice) {
       if (pressed & (ACT.up | ACT.left)) choice.sel = (choice.sel + choice.options.length - 1) % choice.options.length;
       if (pressed & (ACT.down | ACT.right)) choice.sel = (choice.sel + 1) % choice.options.length;
-      if (pressed & (ACT.up | ACT.down | ACT.left | ACT.right)) audio.play('menuMove', 0.3);
+      if (pressed & (ACT.up | ACT.down | ACT.left | ACT.right)) {
+        audio.play('menuMove', 0.3);
+        say((choice.options[choice.sel] ?? '') + ' selected.');
+      }
       if (pressed & ACT.a) {
         const c = choice;
         choice = null;
@@ -685,8 +703,14 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   const draw = (now: number): void => {
     const s = input.sample();
     held = s.held;
-    pending |= s.pressed;
-    if (mode !== 'play') pending = 0;
+    // On every sample, not only on hero steps: a swallowed button let go and pressed again between two
+    // hero ticks is a new press, and stays held for the hero.
+    swallow &= held & ~s.pressed;
+    if (mode === 'play') pending |= s.pressed;
+    else {
+      pending = 0;
+      uiDown |= s.pressed;
+    }
     if (s.pressed) audio.unlock();
     navigate(s.pressed);
     if (!local && mode !== 'title' && mode !== 'loading') {
