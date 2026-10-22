@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFS } from '../../../src/arcade/core/version.js';
 import { DASH_ST, POT_SEED, SIZE, type DashView, type EnterOk, type FeedView, type PickOk, type SpinOk } from '../../../src/arcade/core/glimmer/wire.js';
 import { checkInvariant, clearReceipts } from '../../../src/arcade/wallet.js';
-import glimmer, { DASH_ACTIVITY } from '../../../src/arcade/halls/glimmer.js';
+import glimmer from '../../../src/arcade/halls/glimmer.js';
 import { createHarness, scripted, sid, type Harness } from './harness.js';
 
 const CH = 'chan_voice_1';
@@ -434,8 +434,7 @@ describe('Glimmerhall on the server', () => {
     expect(h.call(h.ctx('c'), 'glimmer:dash:join', { id: d.id })).toMatchObject({ ok: true });
     expect(h.call(h.ctx('b'), 'glimmer:dash:start', { id: d.id })).toEqual({ ok: false, code: 'host' });
     expect(h.call(h.ctx('a'), 'glimmer:dash:start', { id: d.id })).toEqual({ ok: true });
-    // Still 'open' while the platform's sheet would hide Open for 'dash' (DASH_ACTIVITY).
-    expect(h.game.activity(CH)[0]?.st).toBe(DASH_ACTIVITY ? 'dash' : 'open');
+    expect(h.game.activity(CH)[0]?.st).toBe('dash');
     const spinsBefore = count(h, "SELECT COUNT(*) FROM arcade_txns WHERE kind = 'spin'");
     const potBefore = h.wallet.pot('glimmer');
     // An immediate vault for a: keys on reels 1, 3 and 5, doors shuffled, door drawn.

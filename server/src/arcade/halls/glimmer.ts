@@ -62,8 +62,6 @@ export const POT_SCOPE = 'glimmer';
 export const VAULT_AUTO_PICK_MS = 24 * 60 * 60_000;
 /** The LobbyChip shows "Glimmer Pot won" this long. */
 export const POT_CHIP_MS = 60_000;
-/** Report st 'dash' in the channel activity while a Dash forms or runs (see `activity`). */
-export const DASH_ACTIVITY = false;
 
 // ------------------------------------------------------------------ pending vaults
 
@@ -847,11 +845,8 @@ export const startGlimmer = (api: TableApi, o: GlimmerOptions = {}): GlimmerGame
     activity(channelId): readonly ActivityEntry[] {
       const hall = halls.get(channelId);
       if (!hall || hall.members.size === 0) return [];
-      // The design reports st 'dash' while a Dash forms or runs, but the platform's sheet and chip show
-      // no Open button for 'dash' (asked to change), which locks newcomers out of the hall for up to
-      // 10 minutes. Until that lands the hall says 'open' (DASH_ACTIVITY flips it back).
-      const st = DASH_ACTIVITY && dashes.live(channelId) ? 'dash' : 'open';
-      const e: ActivityEntry = { g: GAME, id: liveLobby(channelId)?.id ?? 'hall:' + channelId, st, n: hall.members.size, max: maxMembers(), w: 0 };
+      // 'dash' while a Dash forms or runs; the sheet and chip still offer Open, since the hall stays open.
+      const e: ActivityEntry = { g: GAME, id: liveLobby(channelId)?.id ?? 'hall:' + channelId, st: dashes.live(channelId) ? 'dash' : 'open', n: hall.members.size, max: maxMembers(), w: 0 };
       if (hall.potWon && clock.now() - hall.potWon.at < POT_CHIP_MS) e.j = { amt: hall.potWon.amt };
       return [e];
     },
