@@ -54,6 +54,24 @@ describe('frames (phase 0 shim)', () => {
     expect(fake.pending).toBe(0);
   });
 
+  it('holds 60 fps on a 240 Hz display when timers fire late (a throttled main thread)', async () => {
+    // Every scheduler timer fires 3 ms after it was asked to.
+    const { frameTimers } = await import('./p0');
+    const set = frameTimers.set;
+    frameTimers.set = (fn, ms) => set(fn, ms + 3);
+    try {
+      const requests = countRequests();
+      let calls = 0;
+      const off = frames.add(() => (calls += 1), { maxFps: 60 });
+      fake.advance(1000, 240);
+      expect(calls).toBeGreaterThanOrEqual(57);
+      expect(requests.n).toBeLessThan(100);
+      off();
+    } finally {
+      frameTimers.set = set;
+    }
+  });
+
   it('keeps one request per refresh when the cap is the display rate, or a subscriber is uncapped', () => {
     const requests = countRequests();
     let capped = 0;

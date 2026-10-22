@@ -40,9 +40,14 @@ export const frameTimers: { set(fn: () => void, ms: number): unknown; clear(hand
 };
 
 const LOW_RATE_FPS = 15;
-/** Timer wake-up ahead of the soonest due subscriber: 8 ms in low-rate mode, 1 ms when pacing a capped rate. */
+/**
+ * Timer wake-up ahead of the soonest due subscriber: 8 ms in low-rate mode. When pacing a capped
+ * rate it is just under one display frame, so the one frame requested on waking is the one the
+ * subscriber is due at even when the timer fires late (a busy or throttled main thread): it may be
+ * up to a frame late and still lands on the right refresh.
+ */
 const LOW_RATE_LEAD_MS = 8;
-const PACED_LEAD_MS = 1;
+const pacedLeadMs = (vsyncMs: number): number => Math.max(1, vsyncMs - 1.25);
 /** Pace a capped subscriber only when its period is at least this many display frames. */
 const PACE_MIN_FRAMES = 1.5;
 
@@ -122,11 +127,19 @@ const createFrames = () => {
       const now = performance.now();
       // Due at last + period − 1 ms (the tick's tolerance); a new subscriber (last 0) is due at once.
       for (const sub of subs) soonest = Math.min(soonest, sub.last + 1000 / sub.maxFps - 1 - now);
-      const lead = m === 'low' ? LOW_RATE_LEAD_MS : PACED_LEAD_MS;
+      const lead = m === 'low' ? LOW_RATE_LEAD_MS : pacedLeadMs(vsyncMs);
+      const delay = Math.min(1000, soonest - lead);
+      // Already inside the last frame before it is due: ask for that frame now, not via a timer that
+      // could itself fire late and miss it.
+      if (delay <= 0) {
+        backToBack = false;
+        raf = requestAnimationFrame(tick);
+        return;
+      }
       timer = frameTimers.set(() => {
         timer = null;
         if (raf === null) raf = requestAnimationFrame(tick);
-      }, Math.max(0, Math.min(1000, soonest - lead)));
+      }, delay);
       return;
     }
     backToBack = fromTick && !inTick;
