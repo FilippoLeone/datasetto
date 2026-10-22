@@ -214,8 +214,6 @@ export class VoiceService extends EventEmitter<EventMap> {
   private signallingUp = true;
   /** Who yields when both sides offer at once; the voice manager decides from the account ids. */
   private politeFor: (peerId: string) => boolean = () => true;
-  /** What the camera senders carry while an effect (background blur) processes the picture; null: the camera's own track. */
-  private cameraOutputTrack: MediaStreamTrack | null = null;
 
   constructor(
     voiceBitrate = OPUS_TARGET_BITRATE,
@@ -1486,7 +1484,6 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.aliases.clear();
     this.pendingOffers.clear();
     this.signallingUp = true;
-    this.cameraOutputTrack = null;
   }
 
   // ==================== VIDEO METHODS ====================
@@ -1532,13 +1529,12 @@ export class VoiceService extends EventEmitter<EventMap> {
         this.handleCameraTrackEnded();
       });
 
-      // Replace track in all peer connections (an effect's track stays; it re-feeds from video:camera:started)
-      const outgoing = this.outgoingCameraTrack();
+      // Replace track in all peer connections
       const promises: Promise<void>[] = [];
       for (const senders of this.videoSenders.values()) {
         const sender = senders.camera;
-        if (sender && sender.track !== outgoing) {
-          promises.push(sender.replaceTrack(outgoing));
+        if (sender) {
+          promises.push(sender.replaceTrack(newTrack));
         }
       }
 
@@ -1593,37 +1589,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       this.removeVideoTrackFromAllPeers('camera');
       this.localVideoStream = null;
     }
-    this.cameraOutputTrack = null;
     this.emit('video:camera:stopped', undefined as never);
-  }
-
-  /**
-   * The track the camera senders carry: an effect's output while one is set
-   * (setCameraOutputTrack), otherwise the camera's own track. Every new or rebuilt
-   * connection (a rejoin after a drop, a late joiner, the other side starting over) takes
-   * the camera from here, so it comes back the way it was being sent.
-   */
-  outgoingCameraTrack(): MediaStreamTrack | null {
-    if (!this.localVideoStream) return null;
-    // An effect track that ended stays too: never fall back to the unprocessed picture by ourselves.
-    return this.cameraOutputTrack ?? this.localVideoStream.getVideoTracks()[0] ?? null;
-  }
-
-  /**
-   * Send `track` (a camera effect's output, such as background blur) to everyone instead of
-   * the raw camera, now and on every connection made later; null goes back to the raw camera.
-   * The camera stream (getCameraStream) stays the raw capture.
-   */
-  async setCameraOutputTrack(track: MediaStreamTrack | null): Promise<void> {
-    this.cameraOutputTrack = track;
-    const outgoing = this.outgoingCameraTrack();
-    const swaps: Promise<void>[] = [];
-    for (const [peerId, senders] of this.videoSenders) {
-      const sender = senders.camera;
-      if (!sender || sender.track === outgoing) continue;
-      swaps.push(sender.replaceTrack(outgoing).catch((error) => console.error(`[VoiceService] Could not swap the camera track for ${peerId}:`, error)));
-    }
-    await Promise.all(swaps);
   }
 
   /**
@@ -1716,8 +1682,7 @@ export class VoiceService extends EventEmitter<EventMap> {
    * stream this is before the offer reaches it, so late joiners classify it too.
    */
   private addVideoTrackToPeer(peerId: string, pc: RTCPeerConnection, type: 'camera' | 'screen', stream: MediaStream): void {
-    // The camera goes out as whatever the other senders carry (an effect's track while one runs).
-    const track = type === 'camera' && stream === this.localVideoStream ? this.outgoingCameraTrack() : stream.getVideoTracks()[0];
+    const track = stream.getVideoTracks()[0];
     if (!track) return;
 
     try {
@@ -1731,9 +1696,6 @@ export class VoiceService extends EventEmitter<EventMap> {
         if (type === 'screen') {
           applyScreenEncoding(senders[type]!, this.screenQuality);
         }
-      } else if (senders[type]!.track !== track) {
-        // A sender left with an older track (the camera was switched, an effect turned on).
-        void senders[type]!.replaceTrack(track).catch((error) => console.error(`[VoiceService] Could not update the ${type} track for ${peerId}:`, error));
       }
 
       if (type === 'screen') {
@@ -1809,7 +1771,6 @@ export class VoiceService extends EventEmitter<EventMap> {
    */
   private handleCameraTrackEnded(): void {
     this.localVideoStream = null;
-    this.cameraOutputTrack = null;
     this.removeVideoTrackFromAllPeers('camera');
     this.emit('video:camera:stopped', undefined as never);
   }

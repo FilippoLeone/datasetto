@@ -422,27 +422,15 @@ describe('VoiceService: the camera after a renegotiation', () => {
     expect(net.errors).toEqual([]);
   });
 
-  it('new and rebuilt connections carry the camera track an effect produces, never the raw one behind it', async () => {
+  it('a rebuilt connection sends the track the camera stream holds now (a processed one, such as background blur)', async () => {
+    // The camera stream is what gets sent; an effect swaps its video track for a processed one.
+    internals(alice).localVideoStream = new FakeStream('camera-stream', [new FakeTrack('video', 'cam-blurred')]);
     const net = connect(alice, 'sock-alice', bob, 'sock-bob');
-    await alice.createOffer('sock-bob');
-    await net.flush();
-    const processed = new FakeTrack('video', 'cam-blurred');
-    await alice.setCameraOutputTrack(processed as unknown as MediaStreamTrack);
-    expect(pcOf(alice, 'sock-bob').sentKinds()).toEqual(['audio:mic-alice', 'video:cam-blurred']);
-    expect(alice.outgoingCameraTrack()).toBe(processed);
-
-    bob.removePeer('sock-alice');
     await bob.createOffer('sock-alice');
     await net.flush();
     expect(pcOf(alice, 'sock-bob').sentKinds()).toEqual(['audio:mic-alice', 'video:cam-blurred']);
-
-    // An effect track that ended is still not swapped for the raw picture.
-    processed.readyState = 'ended';
-    expect(alice.outgoingCameraTrack()).toBe(processed);
-    await alice.setCameraOutputTrack(null);
-    expect(pcOf(alice, 'sock-bob').sentKinds()).toEqual(['audio:mic-alice', 'video:cam-raw']);
-    alice.stopCamera();
-    expect(alice.outgoingCameraTrack()).toBeNull();
+    // Bob was told this stream is the camera.
+    expect(net.log).toContain('ab metadata');
   });
 
   it('when both restart ICE at once, the polite side yields and both end on the same credentials', async () => {
