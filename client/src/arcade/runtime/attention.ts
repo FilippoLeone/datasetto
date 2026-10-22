@@ -3,7 +3,7 @@
  * and, in the desktop shell, a flashing taskbar entry (or a dock bounce on macOS) until the window
  * gets focus. The shell bridge also sets `arcadeSession.attention` for the in-app badge.
  */
-import { desktopBridge } from './p0';
+import { requestDesktopAttention } from './p0';
 
 export const ATTENTION_PREFIX = '(•) ';
 
@@ -23,11 +23,7 @@ export const createAttention = (): AttentionHelper => {
       if (next && !title.startsWith(ATTENTION_PREFIX)) document.title = ATTENTION_PREFIX + title;
       if (!next && title.startsWith(ATTENTION_PREFIX)) document.title = title.slice(ATTENTION_PREFIX.length);
     }
-    try {
-      desktopBridge()?.requestAttention?.(next);
-    } catch {
-      /* older shells */
-    }
+    requestDesktopAttention(next);
   };
 
   return { set, dispose: () => set(false) };

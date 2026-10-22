@@ -364,7 +364,7 @@ describe('Glimmerhall in jsdom', () => {
     const h = mountWith({ mode: 'local' });
     await step(800);
     expect(frames.active).toBe(0);
-    const labels = (): string[] => (window as unknown as { __frames: { subscribers: string[] } }).__frames.subscribers;
+    const labels = (): string[] => Object.keys(window.__frames?.subscribers ?? {});
     expect(labels()).not.toContain('glimmer-pad');
     window.dispatchEvent(new Event('gamepadconnected'));
     expect(labels()).toEqual(['glimmer-pad']);
