@@ -14,6 +14,8 @@ export const meta: GameMeta = {
   ],
   seats: [2, 4],
   watch: true,
+  // Bots fill every empty seat at the start (Fighters and Bots below decide), not the sheet's stepper.
+  hostBots: false,
   options: [
     {
       key: 'arena',

@@ -840,6 +840,7 @@ Soak results (CI size, seeds fixed): Menace beats Sprout in 93 % of 60 Quickfire
 | View check | The client world, encoded as a keyframe, equals the server's public view after every message, except passer masks, which events do not carry (the predictor uses its own overlap rule). |
 | HANDOVER, replay | The HANDOVER body is the core's raw dump; the platform deflates it (about 1 KB) and the client inflates it. The replay ring is deflated by `rooms/fuseyard.ts` (under 8 KB). |
 | Bot strength | Seats filled with bots (and every bot seat) play at the lobby's Bots option. The hub's own bot level is always 1 from the Arcade sheet, so it is not used. |
+| Bots in the lobby | The catalogue entry sets `hostBots: false`: every seat still empty at the start gets a bot (the definition's `botFill`), so the sheet shows no bot stepper and a lone host can start at once. |
 | Offline rematch | `sendEvent([1, u32 seed])` restarts the local match with a seed from the device; online, the next match comes from the lobby. |
 
 ### 15.4 Client
