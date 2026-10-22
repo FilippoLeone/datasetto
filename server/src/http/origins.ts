@@ -18,8 +18,10 @@ export const createOriginChecker = (cors: AppConfig['cors']): ((origin: string |
     if (allowed.has(normalized)) return true;
 
     if (cors.allowNativeOrigins) {
-      if (normalized === 'null' || normalized.startsWith('file://')) return true;
-      if (/^(capacitor|ionic|electron|app):\/\//.test(normalized)) return true;
+      // Tested on the raw origin: normalizing would turn Electron's `file://` into `file:`.
+      const raw = origin.toLowerCase();
+      if (raw === 'null' || raw === 'file:' || raw.startsWith('file://')) return true;
+      if (/^(capacitor|ionic|electron|app):\/\//.test(raw)) return true;
       if (/^https?:\/\/localhost(:\d+)?$/.test(normalized)) return true;
       if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(normalized)) return true;
     }

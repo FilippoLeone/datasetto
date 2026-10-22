@@ -100,13 +100,17 @@ describe('tickets and hello', () => {
     expect(await late.closed()).toBe(CLOSE.ticket);
   });
 
-  it('refuses a bad origin with 403 and a stale codec with 4426', async () => {
-    const { players, tickets } = await startMatch(1);
+  it('refuses a bad origin with 403 and a stale codec with 4426, and lets the desktop shell (Origin file://) in', async () => {
+    const { players, tickets, lobbyId } = await startMatch(1);
     const me = players[0] as Player;
     const evil = await me.account.lane(tickets[0] as string, { origin: 'https://evil.example' });
     expect(await evil.closed()).toBe(403);
     const old = await me.account.lane(tickets[0] as string, { codec: 99 });
     expect(await old.closed()).toBe(CLOSE.update);
+    // Electron's renderer is loaded from file:// and its WebSockets send that Origin.
+    const fresh = await me.socket.request<{ ticket: string }>('arcade:ticket', { id: lobbyId });
+    const desktop = await me.account.lane(fresh.ticket, { origin: 'file://' });
+    expect(await desktop.next(S2C.WELCOME)).toMatchObject({ t: 'welcome' });
   });
 
   it('closes with 4408 when no hello comes within 5 s, and 4400 on binary before hello', async () => {
