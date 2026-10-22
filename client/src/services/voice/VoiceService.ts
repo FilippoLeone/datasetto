@@ -68,6 +68,13 @@ const OPUS_TARGET_BITRATE = Math.round(
     max: OPUS_BITRATE_MAX,
   })
 );
+/**
+ * Data-saver voice (linkConstraint.ts): the cap per voice stream while this device's link,
+ * or the peer's, is constrained.
+ */
+export const CONSTRAINED_VOICE_BITRATE = 24000;
+/** Packet overhead of one voice stream: 50 packets/s x 62 B of IP, UDP, RTP, header extensions and the SRTP tag. */
+export const VOICE_PACKET_OVERHEAD_BPS = 25000;
 const DEFAULT_DTX_ENABLED = parseBooleanEnv(config.VOICE_DTX_ENABLED, true);
 const DEFAULT_VAD_THRESHOLD = parseNumberEnv(config.VOICE_VAD_THRESHOLD, 0.07, {
   min: 0.01,
@@ -152,6 +159,8 @@ export interface PeerConnectionStats {
   packetLoss: number | null;
   jitter: number | null;
   bitrate: number | null;
+  /** The browser's estimate of what this connection may send, in bit/s (`availableOutgoingBitrate`). */
+  availableOutgoingBitrate: number | null;
   timestamp: number;
 }
 
@@ -206,6 +215,10 @@ export class VoiceService extends EventEmitter<EventMap> {
    * Callbacks created with the old id look the current one up when they fire.
    */
   private aliases: Map<string, string> = new Map();
+  /** Our own link is constrained (data-saver voice): every voice sender is capped. */
+  private linkConstrained = false;
+  /** Peers that said their link is constrained (`voice:link`): our sender to them is capped. */
+  private peerLinkConstrained: Map<string, boolean> = new Map();
 
   constructor(
     voiceBitrate = OPUS_TARGET_BITRATE,
@@ -255,23 +268,21 @@ export class VoiceService extends EventEmitter<EventMap> {
     peerId: string,
     pc: RTCPeerConnection
   ): Promise<void> {
-    // The screen share's audio is a second audio sender; never swap the microphone into it.
-    const screenAudio = this.videoSenders.get(peerId)?.screenAudio;
-    const sender = pc.getSenders().find((s) => s !== screenAudio && s.track?.kind === 'audio');
+    const sender = this.voiceSender(peerId, pc);
     const newTrack = this.localStream?.getAudioTracks()[0];
 
     if (newTrack) {
       if (sender) {
         try {
           await sender.replaceTrack(newTrack);
-          this.applySenderQualityHints(sender);
+          this.applySenderQualityHints(sender, peerId);
         } catch (error) {
           console.error(`Error replacing track for peer ${peerId}:`, error);
         }
       } else if (this.localStream) {
         // No sender yet, add the track
         const newSender = pc.addTrack(newTrack, this.localStream);
-        this.applySenderQualityHints(newSender);
+        this.applySenderQualityHints(newSender, peerId);
       }
     } else if (sender) {
       try {
@@ -414,6 +425,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     move(this.peerStatsHistory);
     move(this.lastStatsTimestamp);
     move(this.peerAudioPreferences);
+    move(this.peerLinkConstrained);
     this.peerManagers.get(to)?.rename(to);
     this.aliases.delete(to);
     this.aliases.set(from, to);
@@ -891,6 +903,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       const enhancedAnswer = this.enhanceOpusSdp(answer);
       await pc.setLocalDescription(enhancedAnswer);
       this.applyScreenSenderEncoding(peerId);
+      this.reapplyVoiceSender(peerId, pc);
 
       const local = pc.localDescription ?? enhancedAnswer;
       this.emit('voice:answer', {
@@ -924,6 +937,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
       this.resetIceRecovery(peerId);
       this.applyScreenSenderEncoding(peerId);
+      this.reapplyVoiceSender(peerId, pc);
     } catch (error) {
       console.error(`Error handling answer from ${peerId}:`, error);
       throw error;
@@ -1101,13 +1115,59 @@ export class VoiceService extends EventEmitter<EventMap> {
       }
     }
 
-    // Update all existing peer connections
-    for (const pc of this.peers.values()) {
-      const sender = pc.getSenders().find((s) => s.track?.kind === 'audio');
-      if (sender) {
-        this.applySenderQualityHints(sender);
-      }
-    }
+    this.applyVoiceSenderHints();
+  }
+
+  /**
+   * Data-saver voice for our own link: cap every voice sender at 24 kbps, or lift the cap.
+   * Applied with setParameters, so nothing is renegotiated; the next offer or answer also
+   * asks the peers for the same (`maxaveragebitrate`).
+   */
+  setLinkConstrained(constrained: boolean): void {
+    if (this.linkConstrained === constrained) return;
+    this.linkConstrained = constrained;
+    this.applyVoiceSenderHints();
+  }
+
+  /** A peer said its link is constrained (`voice:link`): cap only our sender to that peer. */
+  setPeerLinkConstrained(peerId: string, constrained: boolean): void {
+    const id = this.resolve(peerId);
+    if ((this.peerLinkConstrained.get(id) ?? false) === constrained) return;
+    if (constrained) this.peerLinkConstrained.set(id, true);
+    else this.peerLinkConstrained.delete(id);
+    const pc = this.peers.get(id);
+    if (pc) this.reapplyVoiceSender(id, pc);
+  }
+
+  /** The peer left the room: drop what it said about its link. */
+  forgetPeerLink(peerId: string): void {
+    this.peerLinkConstrained.delete(this.resolve(peerId));
+  }
+
+  /** The bitrate cap of our voice sender to `peerId`. */
+  voiceSenderBitrate(peerId: string): number {
+    const capped = this.linkConstrained || this.peerLinkConstrained.get(this.resolve(peerId)) === true;
+    return capped ? Math.min(this.voiceBitrate, CONSTRAINED_VOICE_BITRATE) : this.voiceBitrate;
+  }
+
+  /** The microphone's sender on a connection (the screen share's audio is a second audio sender; never treat it as the voice). */
+  private voiceSender(peerId: string, pc: RTCPeerConnection): RTCRtpSender | undefined {
+    const screenAudio = this.videoSenders.get(peerId)?.screenAudio;
+    return pc.getSenders().find((s) => s !== screenAudio && s.track?.kind === 'audio');
+  }
+
+  private applyVoiceSenderHints(): void {
+    for (const [peerId, pc] of this.peers.entries()) this.reapplyVoiceSender(peerId, pc);
+  }
+
+  /**
+   * The voice sender's limits again, once a negotiation completed: on the answering side the
+   * sender only gets its encoding during the answer, and setParameters before that does not
+   * stick, so a cap set then would be lost.
+   */
+  private reapplyVoiceSender(peerId: string, pc: RTCPeerConnection): void {
+    const sender = this.voiceSender(peerId, pc);
+    if (sender) this.applySenderQualityHints(sender, peerId);
   }
 
   /**
@@ -1208,12 +1268,20 @@ export class VoiceService extends EventEmitter<EventMap> {
   }
 
   private async pollConnectionStats(): Promise<void> {
+    let estimate = 0;
+    let need = 0;
+    let measured = 0;
     const statsPromises = Array.from(this.peers.entries()).map(async ([peerId, pc]) => {
       try {
         const stats = await this.gatherPeerStats(peerId, pc);
         if (stats) {
           this.recordPeerStats(peerId, stats);
           this.emit('voice:stats', stats as never);
+          if (stats.availableOutgoingBitrate !== null && this.voiceSender(peerId, pc)) {
+            measured += 1;
+            estimate += stats.availableOutgoingBitrate;
+            need += this.voiceSenderBitrate(peerId) + VOICE_PACKET_OVERHEAD_BPS;
+          }
         }
       } catch (error) {
         if (import.meta.env.DEV) {
@@ -1223,6 +1291,8 @@ export class VoiceService extends EventEmitter<EventMap> {
     });
 
     await Promise.allSettled(statsPromises);
+    // Does the call's voice fit what the browser thinks it may send? (data-saver voice)
+    this.emit('voice:bandwidth', (measured > 0 ? { estimate, need } : null) as never);
   }
 
   private async gatherPeerStats(
@@ -1234,6 +1304,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     let packetLoss: number | null = null;
     let jitter: number | null = null;
     let bitrate: number | null = null;
+    let availableOutgoingBitrate: number | null = null;
 
     const lastTs = this.lastStatsTimestamp.get(peerId) ?? 0;
     let currentBytesReceived = 0;
@@ -1243,6 +1314,9 @@ export class VoiceService extends EventEmitter<EventMap> {
       if (stat.type === 'candidate-pair' && stat.state === 'succeeded') {
         if (typeof stat.currentRoundTripTime === 'number') {
           rtt = stat.currentRoundTripTime * 1000; // Convert to ms
+        }
+        if (stat.nominated !== false && typeof stat.availableOutgoingBitrate === 'number') {
+          availableOutgoingBitrate = stat.availableOutgoingBitrate;
         }
       }
 
@@ -1287,6 +1361,7 @@ export class VoiceService extends EventEmitter<EventMap> {
       packetLoss,
       jitter,
       bitrate,
+      availableOutgoingBitrate,
       timestamp: Date.now(),
       _bytesReceived: currentBytesReceived,
     };
@@ -1376,6 +1451,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     this.videoSenders.clear();
     this.remoteVideoTracks.clear();
     this.aliases.clear();
+    this.peerLinkConstrained.clear();
   }
 
   // ==================== VIDEO METHODS ====================
@@ -1731,7 +1807,7 @@ export class VoiceService extends EventEmitter<EventMap> {
     return clamp(numeric, 0, MAX_PEER_VOLUME);
   }
 
-  private applySenderQualityHints(sender: RTCRtpSender): void {
+  private applySenderQualityHints(sender: RTCRtpSender, peerId: string): void {
     const track = sender.track;
     if (track) {
       track.contentHint = 'speech';
@@ -1744,8 +1820,9 @@ export class VoiceService extends EventEmitter<EventMap> {
         parameters.encodings = [{}];
       }
 
+      const maxBitrate = this.voiceSenderBitrate(peerId);
       for (const encoding of parameters.encodings) {
-        encoding.maxBitrate = this.voiceBitrate;
+        encoding.maxBitrate = maxBitrate;
         encoding.priority = 'high';
         (encoding as RTCRtpEncodingParameters & { dtx?: boolean }).dtx = this.dtxEnabled;
       }
@@ -1808,8 +1885,10 @@ export class VoiceService extends EventEmitter<EventMap> {
         params.set('maxptime', this.opusMaxPtime.toString());
         params.set('maxplaybackrate', this.opusMaxPlaybackRate.toString());
         params.set('usedtx', this.dtxEnabled ? '1' : '0');
-        // Ask the remote encoder for the same bitrate we cap our own sender at (RFC 7587).
-        params.set('maxaveragebitrate', this.voiceBitrate.toString());
+        // Ask the remote encoder for the same bitrate we cap our own sender at (RFC 7587);
+        // with data-saver voice on our side, that is the 24 kbps cap.
+        const receiveBitrate = this.linkConstrained ? Math.min(this.voiceBitrate, CONSTRAINED_VOICE_BITRATE) : this.voiceBitrate;
+        params.set('maxaveragebitrate', receiveBitrate.toString());
 
         const newParams = Array.from(params.entries())
           .map(([k, v]) => (v ? `${k}=${v}` : k))
