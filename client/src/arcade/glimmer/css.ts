@@ -11,7 +11,7 @@ export const CSS = `
 .gh button:disabled{opacity:.45;cursor:default}
 .gh button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .gh-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.gh-top{display:flex;align-items:center;gap:6px;padding:6px 8px;flex:none}
+.gh-top{display:flex;align-items:center;gap:6px;padding:6px 8px;flex:none;contain:layout style}
 .gh-bal{display:flex;align-items:center;gap:6px;height:36px;padding:0 10px 0 8px;border-radius:18px;background:var(--color-elevated,#383a40);font-weight:700;color:var(--color-text-bright,#f2f3f5);white-space:nowrap;min-width:0}
 .gh-bal img,.gh-mem img,.gh-emo img{image-rendering:pixelated}
 .gh-bal img{width:18px;height:18px}
@@ -33,12 +33,12 @@ export const CSS = `
 .gh-hits button{flex:1}
 .gh-banner{position:absolute;left:8px;right:8px;top:4px;z-index:3;padding:8px 12px;border-radius:10px;background:rgba(20,16,24,.92);border:1px solid var(--acc);color:#fff;font-weight:700;text-align:center;pointer-events:none;animation:gh-banner 4.2s ease forwards}
 @keyframes gh-banner{0%{opacity:0;transform:translateY(-6px)}8%,85%{opacity:1;transform:none}100%{opacity:0}}
-.gh-meter{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:44px;padding:2px 8px}
+.gh-meter{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;height:48px;padding:2px 8px;contain:strict;overflow:hidden}
 .gh-win{font-size:20px;font-weight:800;color:var(--color-text-bright,#f2f3f5);font-variant-numeric:tabular-nums;text-align:center}
 .gh-win.small{color:var(--color-text-muted,#949ba4);font-size:16px;font-weight:600}
 .gh-win.idle{color:var(--color-text-faint,#6d6f78);font-size:15px;font-weight:600}
 .gh-sub{font-size:12px;color:var(--color-text-muted,#949ba4);min-height:15px;text-align:center}
-.gh-friends{flex:none;display:flex;gap:6px;overflow-x:auto;padding:4px 8px;scrollbar-width:none}
+.gh-friends{flex:none;display:flex;gap:6px;overflow-x:auto;padding:4px 8px;scrollbar-width:none;contain:layout style}
 .gh-friends.shut .gh-mem:not(.me){display:none}
 .gh-mem{position:relative;flex:none;display:flex;align-items:center;gap:6px;height:44px;padding:0 10px 0 4px;border-radius:22px;background:var(--color-sidebar,#2b2d31);text-align:left;max-width:170px}
 .gh-mem.away{opacity:.45}
@@ -97,7 +97,7 @@ export const CSS = `
 .gh-body{flex-direction:row}
 .gh-play{display:grid;grid-template-columns:1fr auto;grid-template-rows:minmax(0,1fr) auto;column-gap:4px}
 .gh-reelbox{grid-column:1;grid-row:1;margin:0 0 0 4px}
-.gh-meter{grid-column:1;grid-row:2;min-height:36px}
+.gh-meter{grid-column:1;grid-row:2;height:40px}
 .gh-ctrl{grid-column:2;grid-row:1 / span 2;display:grid;grid-template-columns:48px 44px 48px;gap:6px;align-content:center;justify-items:center;padding:2px 8px;min-height:0}
 .gh-ctrl .gh-bet{width:44px}
 .gh-ctrl .gh-spin{grid-column:1 / span 3;grid-row:2}
