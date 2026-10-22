@@ -541,7 +541,6 @@ const mount = (el: HTMLElement, firstHost: MatchHost, opts: MountOpts): GameHand
         prevX[s] = curX[s] as number;
         prevY[s] = curY[s] as number;
       }
-      const before = world.tick;
       applyFrame(world, f.tick, f.events, f.snapshot);
       for (let s = 0; s < 4; s += 1) {
         const ft = world.fight[s]!;
@@ -564,7 +563,8 @@ const mount = (el: HTMLElement, firstHost: MatchHost, opts: MountOpts): GameHand
         if (me >= 0) predictor.reconcile(world, me, f.ackUp);
       }
       fx();
-      if (world.fxLen > 0 || world.tick !== before || world.phase !== Phase.MatchEnd) afterWorldChange();
+      // A finished match only redraws when something still happens (offline the host keeps ticking).
+      if (world.fxLen > 0 || world.phase !== Phase.MatchEnd) afterWorldChange();
       if (local && world.phase !== Phase.MatchEnd && !menus.pauseOpen) sendLocalInput();
     });
 

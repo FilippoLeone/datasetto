@@ -112,6 +112,9 @@ describe('host events', () => {
       const end = events.find((e) => e.t === 'end');
       expect(Boolean(end)).toBe(!offline);
       expect(c.idle).toBe(true);
+      // After the end nothing more happens: no events go out again on later ticks.
+      c.step();
+      expect(c.takeEvents({ slot: 0, view: 0 })).toBeNull();
       expect(c.result()?.players.map((p) => [p.slot, p.place])).toEqual([[0, 1], [1, 2]]);
       if (offline) {
         c.onEvent(0, new Uint8Array([CORE_EVENT.rematch, 9, 9, 9, 9]));

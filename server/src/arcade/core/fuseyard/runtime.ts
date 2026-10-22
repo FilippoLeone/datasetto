@@ -224,7 +224,12 @@ export const createFuseyardCore = (o: FuseyardCoreOpts): FuseyardCore => {
         started = true;
         emit({ t: 'phase', phase: PHASE.running, reason: PHASE_REASON.none, body: new Uint8Array(0) });
       }
-      if (ended) return;
+      if (ended) {
+        // Nothing happens after the end, and the last tick's events must not go out again.
+        m.eventsLen = 0;
+        m.eventCount = 0;
+        return;
+      }
       const r = m.current;
       let anyInput = false;
       let liveHuman = false;

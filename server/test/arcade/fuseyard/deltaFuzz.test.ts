@@ -250,8 +250,8 @@ describe('Fuseyard delta base (platform fuzz, real sender)', () => {
         deltaFuzz({
           create: () => {
             made += 1;
-            // Spread the schedules over the recorded states; every third starts on a result card.
-            const pool = made % 3 === 0 ? starts.edges : starts.all;
+            // Spread the schedules over the recorded states; every other one starts on a result card.
+            const pool = made % 2 === 0 ? starts.edges : starts.all;
             return runtimeFrom(pool[(made * 37) % pool.length] as Start, tally);
           },
           schedules: SCHEDULES,

@@ -19,7 +19,7 @@
  */
 import { connectMain, openLane } from '../lib/clients.mjs';
 
-export const scenarios = ['3g', '3g-loss', 'collapse'];
+export const scenarios = ['3g', '3g-loss', 'collapse', 'squeeze'];
 export const game = 'fuseyard';
 /** The shaped client and one Node player; the other two seats are the server's bots. */
 export const humans = 2;
