@@ -6,6 +6,7 @@ Electron shell around the Datasetto web client (`client/`, Preact + Vite). It lo
 
 - Node.js 22.12+ (24 LTS recommended, it is what CI uses) and npm 10+
 - Electron 44 (Chromium 152, Node 24 inside the app) packaged with electron-builder 26; the installers run on Windows 10+, macOS 13+ and glibc Linux x64
+  - The next Electron bump must bundle Node 24.22.1 or later (the `node` field in <https://releases.electronjs.org/releases.json>). Electron 44.8.0 ships Node 24.22.0, which has CVE-2026-111497 (a remote code execution bug in Node's Brotli decoder); on 22 October 2026 no Electron release had the fix yet (44.9.3 and 45.0.0 still bundle 24.22.0). The risk to the app is low: the main process never decodes Brotli from the network itself, and the updater and `net.fetch` go through Chromium's network stack.
 - The web client dependencies installed (`npm install` inside `client/`); the renderer is built from there
 - For local testing, the Docker stack on <http://localhost:8080>, started from the repo root with
   `docker compose -f ops/docker-compose.yml -f ops/docker-compose.local.yml up -d`

@@ -1,6 +1,23 @@
 # syntax=docker/dockerfile:1.7
 # Builds the web client and serves it with Caddy (TLS + reverse proxy).
 FROM node:24-bookworm-slim AS build
+# Node only runs at build time here, but the floor matches server/Dockerfile: 24.22.1 fixes
+# CVE-2026-111497 (Brotli decoder). The tag floats; the check stops a stale cached base.
+ARG NODE_FLOOR=24.22.1
+RUN node <<'EOF'
+const floor = process.env.NODE_FLOOR;
+const want = floor.split('.').map(Number);
+const have = process.versions.node.split('.').map(Number);
+if (have[0] !== want[0]) {
+  console.error('The base image has Node ' + process.versions.node + ' but NODE_FLOOR ' + floor + ' is for Node ' + want[0] + '. Set NODE_FLOOR to the first patched release of the new line.');
+  process.exit(1);
+}
+if (have[1] < want[1] || (have[1] === want[1] && have[2] < want[2])) {
+  console.error('Node ' + process.versions.node + ' is older than the security floor ' + floor + ' (CVE-2026-111497). Pull a newer base image (docker build --pull) and build again.');
+  process.exit(1);
+}
+console.log('Node ' + process.versions.node + ' meets the security floor ' + floor);
+EOF
 ARG SITE_URL=
 # Release version of this build (the tag without the v); the app compares it with
 # the latest GitHub release once a day. Empty means "unknown": no update notice.

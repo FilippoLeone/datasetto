@@ -44,8 +44,11 @@ export const createHttpApp = (ctx: AppContext): express.Express => {
     res.status(429).json({ error: 'Too many requests', code: 'RATE_LIMITED' });
   });
 
-  app.use(express.json({ limit: '256kb' }));
-  app.use(express.urlencoded({ extended: false, limit: '64kb' }));
+  // Compressed request bodies (Content-Encoding gzip, deflate or br) are refused with 415
+  // instead of decompressed: no Datasetto client sends them, and decompressing would put
+  // zlib and Node's Brotli decoder (CVE-2026-111497) in front of unauthenticated requests.
+  app.use(express.json({ limit: '256kb', inflate: false }));
+  app.use(express.urlencoded({ extended: false, limit: '64kb', inflate: false }));
 
   app.use((req, res, next) => {
     if (req.path === '/health' || req.path === '/api/health') return next();
@@ -78,6 +81,10 @@ export const createHttpApp = (ctx: AppContext): express.Express => {
       return;
     }
     const status = (error as { status?: number; statusCode?: number })?.status ?? (error as { statusCode?: number })?.statusCode;
+    if (status === 415 && (error as { type?: string }).type === 'encoding.unsupported') {
+      res.status(415).json({ error: 'Compressed request bodies are not accepted', code: 'UNSUPPORTED_ENCODING' });
+      return;
+    }
     if (typeof status === 'number' && status >= 400 && status < 500) {
       res.status(status).json({ error: 'Bad request', code: 'BAD_REQUEST' });
       return;

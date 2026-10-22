@@ -26,6 +26,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '24'
+          # Resolve the newest 24.x instead of an older one cached on the runner image.
+          check-latest: true
           cache: 'npm'
           cache-dependency-path: |
             client/package-lock.json
@@ -222,6 +224,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '24'
+          # Resolve the newest 24.x instead of an older one cached on the runner image.
+          check-latest: true
           cache: 'npm'
           cache-dependency-path: |
             client/package-lock.json
@@ -334,6 +338,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '24'
+          # Resolve the newest 24.x instead of an older one cached on the runner image.
+          check-latest: true
           cache: 'npm'
           cache-dependency-path: |
             client/package-lock.json

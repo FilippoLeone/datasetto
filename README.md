@@ -84,7 +84,8 @@ Details, cost breakdown, abuse protection and day-two operations:
 ## Development
 
 Requirements: Node.js 24 LTS, the version the Docker images and the GitHub workflows use
-(22.12 or newer works too, except that jsdom 30 for the client tests needs 22.22+). The client
+(22.12 or newer works too, except that jsdom 30 for the client tests needs 22.22+). Run the
+server on 24.22.1+ or 22.23.4+, the first releases with the fix for CVE-2026-111497. The client
 builds with Vite 8 and tests with Vitest 5; the server runs on Express 5, Socket.IO 4 and zod 4.
 
 ```bash

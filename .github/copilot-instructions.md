@@ -6,7 +6,7 @@ Datasetto is a self-hosted voice, video, streaming and chat server for a small f
 - **Deployment target**: one small VPS set up by `ops/vps/install.sh` (how datasetto.com runs) or, as the alternative, a GCP e2-micro; both run `ops/docker-compose.yml`. Keep resource use and egress low; this is a hobby project with a monthly budget under 15 EUR.
 
 ## Server (`server/`)
-- TypeScript 6, ESM (`NodeNext`), Node 24 (22.12+ minimum). Build with `tsc`, run `dist/index.js`. Tests: `npm test` (vitest 5).
+- TypeScript 6, ESM (`NodeNext`), Node 24.22.1+ (22.23.4+ minimum, the CVE-2026-111497 fix; the Dockerfiles refuse anything older). Body parsers keep `inflate: false`: request bodies are never decompressed. Build with `tsc`, run `dist/index.js`. Tests: `npm test` (vitest 5).
 - Layers: `config.ts` (zod 4 env schema) -> `context.ts` (services) -> `http/` (Express 5) and `socket/` (Socket.IO 4).
 - Persistence is SQLite via `better-sqlite3` (`src/db`, migrations in `db/migrations.ts`; bump `user_version` with a new entry, never edit old ones). Live state belongs in `services/presence.ts`, not the database.
 - Every socket handler goes through `handle()` in `socket/context.ts`: zod schema, auth requirement, rate-limit bucket, error event. Throw `AppError(message, code, status)` for user-facing failures.
