@@ -106,6 +106,19 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
   const members = new Map<number, Member>();
 
   const now = (): number => performance.now();
+  /** Pauses inside the presentation; unmount resolves and clears them. */
+  const sleeps = new Set<{ t: ReturnType<typeof setTimeout>; done: () => void }>();
+  const delay = (ms: number): Promise<void> =>
+    new Promise<void>((done) => {
+      const entry = {
+        t: setTimeout(() => {
+          sleeps.delete(entry);
+          done();
+        }, ms),
+        done,
+      };
+      sleeps.add(entry);
+    });
   const def = (): MachineDef => machineDef(machine);
   const ladder = (m: MachineIdx = machine): readonly number[] => {
     const l = betLadder(machineDef(m), maxBet);
@@ -642,7 +655,7 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
         const at = now();
         [ack.f.d, (ack.f.d + 1) % 3, (ack.f.d + 2) % 3].forEach((door, i) => (st.openedAt[door] = at + i * 350));
         play('door');
-        await new Promise<void>((done) => setTimeout(done, 1500));
+        await delay(1500);
         st.closed = true;
       }
       total += await playFeature(d, DASH_BET, ack.f);
@@ -727,7 +740,7 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
     [ack.f.d, (ack.f.d + 1) % 3, (ack.f.d + 2) % 3].forEach((door, i) => (st.openedAt[door] = at + i * 450));
     play('door');
     play('reveal');
-    await new Promise<void>((done) => setTimeout(done, opts.reducedMotion ? 600 : 1700));
+    await delay(opts.reducedMotion ? 600 : 1700);
     st.closed = true;
     pending = null;
     const won = await playFeature(d, pend.bet, ack.f);
@@ -1303,6 +1316,11 @@ export const mountHall = (stage: HTMLElement, table: TableHost, opts: MountOpts)
       waitTimer = walletTimer = null;
       padOff?.();
       padOff = null;
+      for (const sleep of sleeps) {
+        clearTimeout(sleep.t);
+        sleep.done();
+      }
+      sleeps.clear();
       for (const off of offs.splice(0)) off();
       opts.shell.idleAway(null);
       opts.shell.wakeLock(false);

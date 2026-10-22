@@ -93,11 +93,13 @@ const refuse = (code: string): Refused => ({ ok: false, code });
 export interface LocalHall extends LocalTableServer {
   /** Test hooks. */
   readonly debug: {
-    members(): readonly { slot: number; acct: string; machine: MachineIdx }[];
+    members(): readonly { slot: number; acct: string; machine: MachineIdx; bankroll: number | null }[];
     dash(): DashView | null;
     timers(): number;
     /** Tests and dev checks only: the next draws return these values (mod n). */
     rig(values: readonly number[]): void;
+    /** Bot spins so far (hall and Dash). */
+    botSpins(): number;
   };
 }
 
@@ -168,18 +170,23 @@ export const createLocalHall = (o: LocalHallOptions = {}): LocalHall => {
 
   // ------------------------------------------------------------------ bots
 
+  /** A bot playing its Dash spins takes no hall spins meanwhile. */
+  const inDash = (slot: number): boolean => dash?.st === DASH_ST.running && dash.entrants.some((e) => e.slot === slot && e.left > 0);
+
   const armBots = (): void => {
     if (botTimer !== null) clearTimer(botTimer);
     botTimer = null;
     if (disposed || !visible) return;
     let soonest = Infinity;
-    for (const m of members) if (m.bot && m.nextAt < soonest) soonest = m.nextAt;
+    for (const m of members) if (m.bot && !inDash(m.slot) && m.nextAt < soonest) soonest = m.nextAt;
     if (dash?.st === DASH_ST.running) for (const e of dash.entrants) if (e.slot !== 0 && e.left > 0 && e.nextAt < soonest) soonest = e.nextAt;
     if (soonest === Infinity) return;
     botTimer = setTimer(runBots, Math.max(0, soonest - now()));
   };
 
+  let botSpins = 0;
   const botSpin = (m: Member, at: number, out: FeedView): void => {
+    botSpins += 1;
     const bot = m.bot as BotState;
     const before = bot.machine;
     const def = machineDef(bot.machine);
@@ -200,6 +207,7 @@ export const createLocalHall = (o: LocalHallOptions = {}): LocalHall => {
 
   const dashBotSpin = (e: Entrant, at: number): void => {
     if (!dash) return;
+    botSpins += 1;
     const def = machineDef(dash.m);
     const base = spinBase(def, DASH_BET, rng);
     const { f } = playFor(dash.m, DASH_BET, base, true);
@@ -216,7 +224,7 @@ export const createLocalHall = (o: LocalHallOptions = {}): LocalHall => {
     const at = now();
     const out: FeedView = {};
     // Bounded: each bot spins at most once per wake-up.
-    for (const m of members) if (m.bot && m.nextAt <= at && !(dash?.st === DASH_ST.running && dash.entrants.some((e) => e.slot === m.slot && e.left > 0))) botSpin(m, at, out);
+    for (const m of members) if (m.bot && m.nextAt <= at && !inDash(m.slot)) botSpin(m, at, out);
     if (dash?.st === DASH_ST.running) {
       for (const e of dash.entrants) if (e.slot !== 0 && e.left > 0 && e.nextAt <= at) dashBotSpin(e, at);
       if (dashDone()) finishDash(at, out);
@@ -287,6 +295,7 @@ export const createLocalHall = (o: LocalHallOptions = {}): LocalHall => {
     for (const p of places) if (p.prize > 0 || (pool === 0 && p.place === 1)) pay.push(Number(p.key), p.prize);
     dash.pay = pay;
     dash.st = DASH_ST.done;
+    startBots(at);
     // My buy-in leaves the escrow into the pool; my prize comes back as chips.
     const ref = 'dash:' + dash.id;
     if (wallet.release(ref) > 0) wallet.debit(dash.buy, ref);
@@ -526,12 +535,13 @@ export const createLocalHall = (o: LocalHallOptions = {}): LocalHall => {
       emit = null;
     },
     debug: {
-      members: () => members.map((m) => ({ slot: m.slot, acct: m.acct, machine: machineOf(m) })),
+      members: () => members.map((m) => ({ slot: m.slot, acct: m.acct, machine: machineOf(m), bankroll: m.bot ? m.bot.bankroll : null })),
       dash: () => dashView(now()),
       timers: () => (botTimer !== null ? 1 : 0) + (dashTimer !== null ? 1 : 0),
       rig: (values) => {
         rigged.push(...values);
       },
+      botSpins: () => botSpins,
     },
   };
 };
