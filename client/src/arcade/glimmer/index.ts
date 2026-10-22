@@ -1,10 +1,23 @@
 /**
- * Glimmerhall's lazy chunk (plan.md §2.6.6: the default export is a GameChunk). Handover stub from the
- * platform: it mounts a "coming soon" card until the Glimmerhall package replaces it (owned by that
- * package from arcade-p-m1).
+ * Glimmerhall's lazy chunk (glimmerhall.md §7.3, plan.md §2.6.6): the hall module and, for offline
+ * play, the local hall that answers the same table-lane events on the device.
  */
-import { comingSoon } from '../runtime/comingSoon';
-import type { GameChunk } from '../runtime/types';
+import type { GameChunk, GameModule, TableHost } from '../runtime/types';
+import { mountHall } from './game';
+import { createLocalHall } from './hosts/local';
 
-const chunk: GameChunk = comingSoon("Glimmerhall");
+const module: GameModule<TableHost> = {
+  mount: (el, host, opts) => mountHall(el, host, opts),
+};
+
+const chunk: GameChunk = {
+  module,
+  local: () => {
+    const hall = createLocalHall();
+    // Dev builds only: lets a browser check force the next draws (never in a production build).
+    if (import.meta.env.DEV) (window as unknown as { __glimmerLocal?: unknown }).__glimmerLocal = hall.debug;
+    return hall;
+  },
+};
+
 export default chunk;
