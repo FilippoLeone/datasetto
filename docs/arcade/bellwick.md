@@ -944,6 +944,7 @@ Where the build fills in or differs from this spec. Each row also says why.
 |---|---|---|
 | 16 | Accounts | The runtime knows heroes by seat and join order. Persist events carry the match id plus every hero of the session, present or departed. `persist`, which gets `accountOf` for the seats at that moment, learns a hero's account at its first save, one tick after it joins. On the next step the hero gets its saved tunic, Hearthbrew and counts back. A hero who leaves is saved at once, because on a restart the platform drains that save before the session goes. |
 | 17 | Lobby options | The sheet's `saveSlot` field gives `'new'` or an existing slot, so `meta.ts` adds "New tale in" (Slot 1–3). The cfg schema turns both into `{tale, slot}`. The sheet does not ask before a new tale overwrites an occupied slot. That confirmation is the platform's (§4.1). |
+| 17a | Import | `importSave` keeps an imported Solo Tale as a tale: marked `imported`, with any `online` claim dropped and no hero records (the device's `solo` hero has no account). Any other version or a file that is not a SaveV1 is refused. |
 | 18 | Clears | A clear adds `clears` for every hero at the bell. Results and the fastest-clear board count only clears with at least 2 heroes there, in tales started online (`online: true` in SaveV1) and not imported. |
 | 19 | 3-minute rule | A visible hero with no input for 5,400 ticks rests on the server until its next input. When everyone rests, the session is idle and does no work. |
 | 20 | Replay | `replay()` holds the world now plus the last 10 s of UPs and EVTs, deflated, at most 8 KB (inputs are cut from the oldest end). It does not hold the world as it was at the start of the ring. |
@@ -956,20 +957,20 @@ Where the build fills in or differs from this spec. Each row also says why.
 |---|---|---|
 | 23 | 9, routing | `deltaFuzz` over a Party Tale that drives itself. Projectiles are left out of the comparison: a client also ends them by its own clock, and the fuzz's event sections carry no tick to replay that with. |
 | 24 | 13, lossy link | Two halves. Bellwick's own traffic in the boss room (4 bot heroes, 167 ms each way) is sized frame by frame against the budget, and the claim acceptance is counted. The platform's `lossyLink` scenarios then run with a probe shaped like that traffic, because the scenario runner drives only its probe runtime. |
-| 25 | 10, session | Runs on the live test server. It uses its own lane client (`test/arcade/bellwick/live.ts`), because the harness's HELLO names Fuseyard's codec only. |
+| 25 | 10, session | Runs on the live test server, with its own lane client (`test/arcade/bellwick/live.ts`) that keeps a client mirror and ACKs every frame. It also covers save imports. |
 | 26 | Bot | The walkthrough bot's "use" step first walks up to the thing it uses, because a fight can push it out of reach. |
-| 27 | Not built | Pip, the helper hero, and the solo save import (both M7). |
+| 27 | Not built | Pip, the helper hero (M7), and the client's button for importing a Solo Tale (the server side, `importSave`, is in). |
 
 ### 17.6 Verification (2026-10-22)
 
 | Check | Result |
 |---|---|
-| Server suite | 68 files, 457 tests, 24 s; Bellwick's 13 files and 68 tests take 4.8 s. Typecheck (with core purity) is clean. |
-| Client | 60 files and 413 tests; lint clean. `npm run build` passes, with the Bellwick chunk at 58.4 KB gzip of 60 KB and the main bundle 74 B larger for the catalogue entry. |
+| Server suite | 70 files, 464 tests, 23 s (on the platform's branch after M3); Bellwick's 13 files take about 5 s. Typecheck (with core purity) is clean. |
+| Client | 60 files and 417 tests; lint clean. `npm run build` passes: the Bellwick chunk is 58.4 KB gzip of 60 KB, and all of the Arcade's code in the main bundle is 3,030 B of 4,096. |
 | Bots | The walkthrough bot finishes the tale from seed 1. 32 seeded dungeon runs finish. Behind 167 ms each way, a bot clears the dungeon with no `Correct` and no refused claim. |
 | Boss room traffic (4 heroes, 3G delay) | 1,709 B/s mean and 1,868 B/s peak per client (budget 2,750 and 4,000); snapshot at most 36 B; keyframe at most 196 B; no refused claim. |
 | Shaped bench (real Chrome plus 3 Node bot heroes in the Belfry) | 3G: 15 frames/s, chat p95 171 ms, lane 13.9 kbit/s down. 3G + 1 % loss: median 11 frames/s, chat p95 170 ms. Both pass. |
 | Web | Chrome and Firefox: a two-player Party Tale passed 10/10 checks (drop-in, both heroes seen within 3 px, the host's slot saved under both accounts, leaving). Solo Tale passed 11/11. |
 | CPU | Boss fight at 4× throttle: 18.9 % main thread, no task over 16 ms. |
-| Packaged desktop | Solo Tale and Party Tale pass 5/5, but only with `file://` added to `CORS_ORIGINS`. The shared origin check turns `file://` into `file:` and refuses the action lane with 403 (reported to the platform). |
+| Packaged desktop | Solo Tale and Party Tale pass 5/5 with the server's default origins (the platform fixed the `file://` origin on the lane). |
 | Android emulator | 7/7: joins and walks; fits the phone; in the background it draws no frames and the hero rests; back in front, active again. |
