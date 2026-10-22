@@ -1037,3 +1037,23 @@ This replaces the first spec's 2-minute network check. The real shaped smoke (pl
 ## 21. Out of scope
 
 Straddles, running it twice, rabbit hunting, multi-table tournaments, rake, spectator delay (spectators never see hidden cards), push notifications for turns, and anything to do with real money or purchases.
+
+---
+
+## 22. As built
+
+Where the implementation fills in or differs from the sections above.
+
+| # | Where | Note |
+|---|---|---|
+| 1 | `lamplight:hand` | Also carries `n` (the first seat to act) and `ms`, plus `xb` (seats posting a late big blind) when there are any. Offline it carries `sd`, the hand's deck seed, and no `cr`. |
+| 2 | `lamplight:act` | `a` is the seat's total for the street after the action (before any uncalled refund). Every all-in, called or raised, is `k: 'a'`. |
+| 3 | `lamplight:show` | Also sent with `rv` only (no `pots`) when an all-in runout starts; the final `show` then lists only hands not yet face up. |
+| 4 | Snap and `seat` | Seat status is one letter on the wire (`e w a o x`). Snap seats also carry `tot` (chips in this hand), `ac` (the seat's `actedAt`, or −1) and `tb`; the snap adds `hp`, `lbb`, `h.tq` (`turnQ`), `h.la`, `h.bk`, `h.xb`, `h.ro`, `h.pend`. Tournament snaps add `bi`, `pay`, `pool`, `mult`; offline snaps add `local`, `bal` and `res`. |
+| 5 | Intents | `lamplight:sitOut` takes an optional `post`. Offline only: `lamplight:join` (sit down or register), `lamplight:refill` and `lamplight:fast`. |
+| 6 | `TableConfig` | No schedule array: the host reads levels from `schedule.ts` at each hand start. Time-bank growth is `timeBankAddMs` and `timeBankMaxMs`. |
+| 7 | `ranks169.ts` | The order is the average equity share against 2, 5 and 8 random hands. Heads-up equity alone ranks 32o below 72o; from about five opponents on 72o is the weakest, so the averaged order runs from AA to 72o. |
+| 8 | Bots | A heads-up button opens 60 % (Regular) or 70 % (Sharp). Calling an all-in uses about half the range that would shove it. On the server the CPU budget is enforced by the host's slicing, so Sharp may decide before its trial cap. |
+| 9 | Engine | Fold is always legal; chips a fold leaves above every live contribution join the last pot. Raising is refused when no other seat could answer it. A cash seat with no chips is `busted` until it tops up. |
+| 10 | Offline | The bot Worker stops as soon as the table hides and starts again on the next decision. The table pauses while you are busted or sitting out, so bots never play on alone. An offline Cup or Trio ends when you bust or win. |
+| 11 | Hand rows | Written to `arcade_poker_hands` when the platform's `TableApi` carries the database; otherwise kept in memory. |
