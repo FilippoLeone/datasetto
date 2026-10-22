@@ -150,4 +150,26 @@ describe('watchdog', () => {
     watchdog.stop();
     expect(clock.pending).toBe(0);
   });
+
+  it('clears a hot event loop after the last match has ended, then stops sampling', () => {
+    const clock = createFakeClock();
+    let p99 = 35;
+    const watchdog = createWatchdog({ clock, log, egressKbps: () => 1500, loopP99: () => p99 });
+    watchdog.setActive(true);
+    clock.advance(10_000);
+    expect(watchdog.refuseMatches).toBe(true);
+    // The last match ends while the loop is hot: sampling goes on, so calm can still clear it.
+    watchdog.setActive(false);
+    expect(clock.pending).toBe(1);
+    p99 = 10;
+    clock.advance(40_000);
+    expect(watchdog.refuseMatches).toBe(false);
+    expect(watchdog.level).toBe(0);
+    expect(clock.pending).toBe(0);
+    // A new match after that starts fresh, with one loop timer.
+    watchdog.setActive(true);
+    expect(clock.pending).toBe(2);
+    watchdog.stop();
+    expect(clock.pending).toBe(0);
+  });
 });

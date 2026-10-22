@@ -94,19 +94,28 @@ export const createWatchdog = (o: WatchdogOptions): Watchdog => {
         loopCalmSince ??= now;
         if (now - loopCalmSince >= 30_000) {
           loopHot = false;
-          setLevel(level - 1, 'event loop calm');
+          loopCalmSince = null;
+          setLevel(active ? level - 1 : 0, active ? 'event loop calm' : 'event loop calm, no matches');
         }
       } else loopCalmSince = null;
     }
-    if (active) loopTimer = clock.setTimeout(everyTenSeconds, 10_000);
+    // While the loop is hot the sampling goes on even with no match left, or nothing could ever
+    // clear it and new matches would stay refused until a restart.
+    if (active || loopHot) loopTimer = clock.setTimeout(everyTenSeconds, 10_000);
+    else stopLoopSampling();
+  };
+
+  const stopLoopSampling = (): void => {
+    if (loopTimer !== null) clock.clearTimeout(loopTimer);
+    loopTimer = null;
+    histogram?.disable();
+    histogram = null;
   };
 
   const stopTimers = (): void => {
     if (secondTimer !== null) clock.clearTimeout(secondTimer);
-    if (loopTimer !== null) clock.clearTimeout(loopTimer);
-    secondTimer = loopTimer = null;
-    histogram?.disable();
-    histogram = null;
+    secondTimer = null;
+    stopLoopSampling();
   };
 
   return {
@@ -141,15 +150,19 @@ export const createWatchdog = (o: WatchdogOptions): Watchdog => {
       if (next === active) return;
       active = next;
       if (active) {
-        if (!o.loopP99) {
+        // Sampling may still be running from a hot spell after the last match ended.
+        if (!o.loopP99 && histogram === null) {
           histogram = monitorEventLoopDelay({ resolution: LOOP_RESOLUTION_MS });
           histogram.enable();
         }
         secondTimer = clock.setTimeout(everySecond, 1000);
-        loopTimer = clock.setTimeout(everyTenSeconds, 10_000);
+        loopTimer ??= clock.setTimeout(everyTenSeconds, 10_000);
       } else {
-        stopTimers();
-        if (!loopHot) setLevel(0, 'no matches');
+        if (secondTimer !== null) clock.clearTimeout(secondTimer);
+        secondTimer = null;
+        if (loopHot) return;
+        stopLoopSampling();
+        setLevel(0, 'no matches');
       }
     },
     stop() {
