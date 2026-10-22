@@ -28,9 +28,10 @@ WORKDIR /src
 COPY client/package.json client/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY client/ ./
-# client/src/features/activity/catalogue.test.ts type-checks the desktop shell game matcher
-# from ../../../../desktop/games; the tsc gate in `npm run build` needs it at that path.
-COPY desktop/games /desktop/games
+# Client unit tests type-check desktop shell modules through relative imports (../desktop/games,
+# app-identity, picker/own-windows, picker/share-audio); the tsc gate in `npm run build` needs them
+# at that path. .dockerignore lets only the shell's small source files into the context.
+COPY desktop /desktop
 # The Arcade's shared core lives in the server tree; the client imports it as @arcade/core from ../server/src/arcade/core.
 COPY server/src/arcade/core /server/src/arcade/core
 RUN npm run build

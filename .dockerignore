@@ -19,8 +19,13 @@
 .claude
 .github
 desktop
-# The client unit tests type-check the shell game matcher; the web image build needs these two files.
+# Client unit tests type-check a few desktop shell modules (the game matcher, the app identity and
+# the picker helpers) through relative imports, so the web image build needs the shell's own small
+# source files. Its node_modules, release, renderer and icon folders stay out.
+!desktop/*.js
+!desktop/*.d.ts
 !desktop/games
+!desktop/picker
 mobile
 server
 # The client imports the Arcade's shared core from the server tree (@arcade/core).
