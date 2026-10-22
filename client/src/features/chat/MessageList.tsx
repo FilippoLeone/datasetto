@@ -22,6 +22,7 @@ import {
   setReplyTarget,
   startEditing,
 } from '@/state/chat';
+import { avatarOf } from '@/state/avatars';
 import { account, can } from '@/state/session';
 import { AttachmentGrid } from './AttachmentGrid';
 import { isMobile, toast } from '@/state/ui';
@@ -143,6 +144,7 @@ const ReplyQuote = ({ reply, channelId }: { reply: ReplyRef; channelId: string }
       }}
     >
       <CornerUpLeft size={12} className="shrink-0 text-text-faint" aria-hidden="true" />
+      {!gone && <Avatar seed={reply.accountId ?? reply.from ?? ''} name={reply.from ?? ''} src={avatarOf(reply.accountId, reply.avatarUrl)} size={16} />}
       {!gone && <span className="shrink-0 font-semibold text-text-bright">{reply.from}</span>}
       <span className={cn('min-w-0 truncate', (gone || reply.deleted) && 'italic')}>{label}</span>
     </button>
@@ -344,7 +346,7 @@ const RowAction = ({ label, danger, onClick, children }: { label: string; danger
 const Gutter = ({ message, showHeader }: { message: ChatMessage; showHeader: boolean }) => (
   <div className="w-10 shrink-0">
     {showHeader ? (
-      <Avatar seed={message.accountId ?? message.from} name={message.from} size={40} />
+      <Avatar seed={message.accountId ?? message.from} name={message.from} src={avatarOf(message.accountId, message.authorAvatarUrl)} size={40} />
     ) : (
       <span className="message-time block pt-1 text-right text-[10px] text-text-faint opacity-0 group-hover:opacity-100 tabular-nums">
         {formatMessageTime(message.ts).slice(-5)}

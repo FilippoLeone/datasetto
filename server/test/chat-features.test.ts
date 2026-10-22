@@ -143,7 +143,7 @@ describe('MessageService: edit, delete, reply and mentions', () => {
 
     const original = ctx.messages.create(general.id, users.alice, 'the ' + long);
     const reply = ctx.messages.create(general.id, users.bob, 'agreed', { replyToId: original.id });
-    expect(reply.replyTo).toEqual({ id: original.id, from: 'Alice', accountId: alice.id, text: quoteOf('the ' + long), deleted: false, pictures: 0 });
+    expect(reply.replyTo).toEqual({ id: original.id, from: 'Alice', accountId: alice.id, avatarUrl: null, text: quoteOf('the ' + long), deleted: false, pictures: 0 });
     // Hydrated the same way from history, in both directions.
     expect(ctx.messages.history(general.id)[1].replyTo).toEqual(reply.replyTo);
     const later = ctx.messages.create(general.id, users.bob, 'cursor');
@@ -152,7 +152,7 @@ describe('MessageService: edit, delete, reply and mentions', () => {
 
     // The original is deleted: the quote says so and shows no text.
     ctx.messages.delete(general.id, original.id, 'Alice');
-    expect(ctx.messages.get(general.id, reply.id)?.replyTo).toEqual({ id: original.id, from: 'Alice', accountId: alice.id, text: '', deleted: true, pictures: 0 });
+    expect(ctx.messages.get(general.id, reply.id)?.replyTo).toEqual({ id: original.id, from: 'Alice', accountId: alice.id, avatarUrl: null, text: '', deleted: true, pictures: 0 });
     // The reply itself deleted: a tombstone has no quote.
     ctx.messages.delete(general.id, reply.id, 'Bob');
     expect(ctx.messages.get(general.id, reply.id)?.replyTo).toBeNull();
@@ -161,7 +161,7 @@ describe('MessageService: edit, delete, reply and mentions', () => {
     const gone = ctx.messages.create(general.id, users.alice, 'soon pruned');
     const orphan = ctx.messages.create(general.id, users.bob, 'orphan', { replyToId: gone.id });
     ctx.db.prepare('DELETE FROM messages WHERE id = ?').run(gone.id);
-    expect(ctx.messages.get(general.id, orphan.id)?.replyTo).toEqual({ id: gone.id, from: null, accountId: null, text: '', deleted: true, pictures: 0 });
+    expect(ctx.messages.get(general.id, orphan.id)?.replyTo).toEqual({ id: gone.id, from: null, accountId: null, avatarUrl: null, text: '', deleted: true, pictures: 0 });
   });
 });
 
@@ -383,7 +383,7 @@ describe('chat features (socket)', () => {
     const seen = once<MessageRecord>(alice.socket, 'chat');
     const { ack, message } = await send(bob.socket, general.id, 'yes!', { replyToId: original.id, clientId: 'c-1' });
     expect(ack).toMatchObject({ clientId: 'c-1' });
-    expect(message.replyTo).toEqual({ id: original.id, from: 'Alice', accountId: alice.account.id, text: 'shall we play?', deleted: false, pictures: 0 });
+    expect(message.replyTo).toEqual({ id: original.id, from: 'Alice', accountId: alice.account.id, avatarUrl: null, text: 'shall we play?', deleted: false, pictures: 0 });
     expect((await seen).replyTo).toEqual(message.replyTo);
 
     expect(await request<Ack>(bob.socket, 'chat', { channelId: general.id, text: 'x', replyToId: 'msg-nope' })).toMatchObject({ success: false, code: 'REPLY_TARGET_MISSING' });

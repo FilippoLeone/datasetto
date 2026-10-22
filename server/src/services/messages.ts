@@ -51,6 +51,8 @@ interface MessageRow {
   channel_id: string;
   account_id: string | null;
   author_name: string;
+  /** From the author's account row (joined), so old messages show the current picture. */
+  author_avatar_url: string | null;
   text: string;
   roles: string;
   is_superuser: number;
@@ -73,6 +75,7 @@ interface ReplyRow {
   id: string;
   author_name: string;
   account_id: string | null;
+  author_avatar_url: string | null;
   text: string;
   deleted_at: number | null;
   pictures: number;
@@ -114,7 +117,7 @@ interface Extras {
 }
 
 /** The quote for a reply whose original row is gone (pruned). */
-const missingReply = (id: string): ReplyRef => ({ id, from: null, accountId: null, text: '', deleted: true, pictures: 0 });
+const missingReply = (id: string): ReplyRef => ({ id, from: null, accountId: null, avatarUrl: null, text: '', deleted: true, pictures: 0 });
 
 /** The first part of a message's text for a reply quote: one line, cut at REPLY_QUOTE_LENGTH. */
 export const quoteOf = (text: string): string => {
@@ -130,6 +133,7 @@ const rowToRecord = (row: MessageRow, extras: Extras): MessageRecord => {
     from: row.author_name,
     fromId: row.account_id,
     accountId: row.account_id,
+    authorAvatarUrl: row.author_avatar_url ?? null,
     text: deleted ? '' : row.text,
     ts: row.created_at,
     roles: normalizeRoles(parseJson<string[]>(row.roles, [])),
@@ -149,6 +153,7 @@ const replyRowToRef = (row: ReplyRow): ReplyRef => ({
   id: row.id,
   from: row.author_name,
   accountId: row.account_id,
+  avatarUrl: row.author_avatar_url ?? null,
   text: row.deleted_at ? '' : quoteOf(row.text),
   deleted: row.deleted_at !== null,
   pictures: row.deleted_at ? 0 : Number(row.pictures),
@@ -199,9 +204,10 @@ export class MessageService {
       deleteMentions: db.prepare('DELETE FROM message_mentions WHERE message_id = ?'),
       // The originals of replies: enough of each for the quote.
       repliesOf: db.prepare(`
-        SELECT m.id, m.author_name, m.account_id, m.text, m.deleted_at,
+        SELECT m.id, m.author_name, m.account_id, acc.avatar_url AS author_avatar_url, m.text, m.deleted_at,
                (SELECT COUNT(*) FROM message_attachments a WHERE a.message_id = m.id) AS pictures
-        FROM messages m WHERE m.id IN (SELECT value FROM json_each(?))
+        FROM messages m LEFT JOIN accounts acc ON acc.id = m.account_id
+        WHERE m.id IN (SELECT value FROM json_each(?))
       `),
       attachmentsOfMessages: db.prepare(`
         SELECT * FROM message_attachments WHERE message_id IN (SELECT value FROM json_each(?)) ORDER BY created_at ASC, rowid ASC
@@ -220,9 +226,11 @@ export class MessageService {
         )
       `),
       // Deleted messages stay in history as tombstones (rowToRecord strips them).
+      // The author's picture comes from their account row, so it is always the current one.
       history: db.prepare(`
         SELECT * FROM (
-          SELECT m.*, m.rowid AS rid FROM messages m
+          SELECT m.*, m.rowid AS rid, acc.avatar_url AS author_avatar_url FROM messages m
+          LEFT JOIN accounts acc ON acc.id = m.account_id
           WHERE m.channel_id = ?
           ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?
         ) ORDER BY created_at ASC, rid ASC
@@ -230,14 +238,19 @@ export class MessageService {
       // Older history, newest-first page before a cursor message (by time, then insertion order).
       historyBefore: db.prepare(`
         SELECT * FROM (
-          SELECT m.*, m.rowid AS rid FROM messages m
+          SELECT m.*, m.rowid AS rid, acc.avatar_url AS author_avatar_url FROM messages m
+          LEFT JOIN accounts acc ON acc.id = m.account_id
           WHERE m.channel_id = ?
             AND (m.created_at < ? OR (m.created_at = ? AND m.rowid < ?))
           ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?
         ) ORDER BY created_at ASC, rid ASC
       `),
       cursor: db.prepare('SELECT created_at, rowid AS rid FROM messages WHERE id = ? AND channel_id = ?'),
-      byId: db.prepare('SELECT * FROM messages WHERE id = ? AND channel_id = ?'),
+      byId: db.prepare(`
+        SELECT m.*, acc.avatar_url AS author_avatar_url FROM messages m
+        LEFT JOIN accounts acc ON acc.id = m.account_id
+        WHERE m.id = ? AND m.channel_id = ?
+      `),
       // The text goes too, so the search index (FTS trigger on text) forgets the message.
       softDelete: db.prepare("UPDATE messages SET deleted_at = ?, deleted_by = ?, text = '' WHERE id = ? AND deleted_at IS NULL"),
       countChannel: db.prepare('SELECT COUNT(*) AS n FROM messages WHERE channel_id = ?'),
@@ -283,6 +296,7 @@ export class MessageService {
       from: author.displayName,
       fromId: author.id,
       accountId: author.accountId,
+      authorAvatarUrl: author.avatarUrl ?? null,
       text,
       ts: Date.now(),
       roles: [...author.roles],

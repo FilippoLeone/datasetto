@@ -37,6 +37,9 @@ export const avatarsRouter = (ctx: AppContext): Router => {
     // `source` lets the client skip its generic "profile updated" toast; it shows its own.
     ctx.broadcast.toAccount(account.id, 'account:updated', { account, user: null, source: 'avatar' });
     ctx.broadcast.users();
+    // Everyone else: their messages and the conversation with them show the new picture.
+    ctx.broadcast.avatar(account.id, account.avatarUrl ?? null);
+    ctx.broadcast.channels();
   };
 
   router.get('/api/avatars/:file', (req, res) => {
