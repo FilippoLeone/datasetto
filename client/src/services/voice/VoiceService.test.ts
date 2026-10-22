@@ -183,3 +183,177 @@ describe('VoiceService per-person volume', () => {
     expect(document.querySelector('audio[data-peer-id="sock-bob"]')).toBeNull();
   });
 });
+
+/** Opus offer/answer as Chrome writes it, cut down to the lines the service rewrites. */
+const OPUS_SDP = ['v=0', 'm=audio 9 UDP/TLS/RTP/SAVPF 111', 'a=rtpmap:111 opus/48000/2', 'a=fmtp:111 minptime=10;useinbandfec=1', ''].join('\r\n');
+
+class FakeSender {
+  params: { encodings: Array<Record<string, unknown>> } = { encodings: [{}] };
+  constructor(public track: { kind: string; contentHint?: string } | null) {}
+  getParameters = vi.fn(() => JSON.parse(JSON.stringify(this.params)) as RTCRtpSendParameters);
+  setParameters = vi.fn(async (parameters: { encodings: Array<Record<string, unknown>> }) => {
+    this.params = parameters;
+  });
+  replaceTrack = vi.fn(async (track: { kind: string } | null) => {
+    this.track = track;
+  });
+  get maxBitrate() {
+    return this.params.encodings[0]?.maxBitrate;
+  }
+}
+
+class FakePeerConnection {
+  static all: FakePeerConnection[] = [];
+  senders: FakeSender[] = [];
+  localDescription: RTCSessionDescriptionInit | null = null;
+  remoteDescription: RTCSessionDescriptionInit | null = null;
+  signalingState = 'stable';
+  connectionState = 'new';
+  iceConnectionState = 'new';
+  report = new Map<string, Record<string, unknown>>();
+  createOffer = vi.fn(async () => ({ type: 'offer' as const, sdp: OPUS_SDP }));
+  createAnswer = vi.fn(async () => ({ type: 'answer' as const, sdp: OPUS_SDP }));
+  setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+    this.localDescription = description;
+  });
+  setRemoteDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+    this.remoteDescription = description;
+  });
+  addTrack = vi.fn((track: { kind: string }) => {
+    const sender = new FakeSender(track);
+    this.senders.push(sender);
+    return sender;
+  });
+  getSenders = () => this.senders;
+  getStats = vi.fn(async () => this.report);
+  close = vi.fn();
+  constructor() {
+    FakePeerConnection.all.push(this);
+  }
+}
+
+describe('VoiceService data-saver voice', () => {
+  let service: VoiceService;
+  const offers: Array<{ peerId: string; sdp: string }> = [];
+  const original = (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection;
+
+  const micStream = () => {
+    const track = { kind: 'audio', contentHint: '' };
+    return { id: 'mic', getAudioTracks: () => [track], getTracks: () => [track] } as unknown as MediaStream;
+  };
+  const pcFor = (index: number) => FakePeerConnection.all[index];
+  const voiceSenderOf = (index: number) => pcFor(index).senders.find((sender) => sender.track?.kind === 'audio' && !(sender as { screen?: boolean }).screen)!;
+  const createOfferCalls = () => FakePeerConnection.all.reduce((sum, pc) => sum + pc.createOffer.mock.calls.length, 0);
+  const maxAverage = (sdp: string) => /maxaveragebitrate=(\d+)/.exec(sdp)?.[1];
+
+  beforeEach(async () => {
+    installAudioContext();
+    FakePeerConnection.all = [];
+    offers.length = 0;
+    (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection = FakePeerConnection;
+    service = new VoiceService(128000, true);
+    service.on('voice:offer', ({ peerId, offer }) => offers.push({ peerId, sdp: offer.sdp ?? '' }));
+    service.setLocalStream(micStream());
+    await service.createOffer('sock-bob');
+    await service.createOffer('sock-carol');
+  });
+
+  afterEach(() => {
+    service.dispose();
+    (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection = original;
+    document.body.innerHTML = '';
+    localStorage.clear();
+  });
+
+  it('sends at the full bitrate and asks for it while the link is fine', () => {
+    expect(voiceSenderOf(0).maxBitrate).toBe(128000);
+    expect(voiceSenderOf(1).maxBitrate).toBe(128000);
+    expect(offers.map((offer) => maxAverage(offer.sdp))).toEqual(['128000', '128000']);
+  });
+
+  it('caps every voice sender at 24 kbps with setParameters and no renegotiation, and the next SDP asks for 24 kbps', async () => {
+    const before = createOfferCalls();
+    const calls = [voiceSenderOf(0).setParameters.mock.calls.length, voiceSenderOf(1).setParameters.mock.calls.length];
+    service.setLinkConstrained(true);
+    expect(voiceSenderOf(0).maxBitrate).toBe(24000);
+    expect(voiceSenderOf(1).maxBitrate).toBe(24000);
+    expect(voiceSenderOf(0).setParameters.mock.calls.length).toBe(calls[0] + 1);
+    expect(voiceSenderOf(1).setParameters.mock.calls.length).toBe(calls[1] + 1);
+    expect(createOfferCalls()).toBe(before);
+    expect(voiceSenderOf(0).params.encodings[0].dtx).toBe(true);
+
+    // Setting the same state again does nothing.
+    service.setLinkConstrained(true);
+    expect(voiceSenderOf(0).setParameters.mock.calls.length).toBe(calls[0] + 1);
+
+    await service.createOffer('sock-bob');
+    expect(maxAverage(offers.at(-1)!.sdp)).toBe('24000');
+
+    service.setLinkConstrained(false);
+    expect(voiceSenderOf(0).maxBitrate).toBe(128000);
+    await service.createOffer('sock-bob');
+    expect(maxAverage(offers.at(-1)!.sdp)).toBe('128000');
+  });
+
+  it('never goes above the bitrate chosen in the settings', () => {
+    service.updateVoiceSettings(16000, true);
+    service.setLinkConstrained(true);
+    expect(voiceSenderOf(0).maxBitrate).toBe(16000);
+  });
+
+  it('caps only the sender to a peer that reports a constrained link', () => {
+    const before = createOfferCalls();
+    service.setPeerLinkConstrained('sock-bob', true);
+    expect(voiceSenderOf(0).maxBitrate).toBe(24000);
+    expect(voiceSenderOf(1).maxBitrate).toBe(128000);
+    expect(createOfferCalls()).toBe(before);
+
+    // A settings change keeps the per-peer cap.
+    service.updateVoiceSettings(96000, true);
+    expect(voiceSenderOf(0).maxBitrate).toBe(24000);
+    expect(voiceSenderOf(1).maxBitrate).toBe(96000);
+
+    service.setPeerLinkConstrained('sock-bob', false);
+    expect(voiceSenderOf(0).maxBitrate).toBe(96000);
+  });
+
+  it('keeps a peer cap across a rekey and applies one that arrived before the connection', async () => {
+    service.setPeerLinkConstrained('sock-bob', true);
+    expect(service.rekeyPeer('sock-bob', 'sock-bob-2')).toBe(true);
+    expect(service.voiceSenderBitrate('sock-bob-2')).toBe(24000);
+    service.updateVoiceSettings(128000, true);
+    expect(voiceSenderOf(0).maxBitrate).toBe(24000);
+
+    service.setPeerLinkConstrained('sock-dave', true);
+    await service.createOffer('sock-dave');
+    expect(voiceSenderOf(2).maxBitrate).toBe(24000);
+    service.forgetPeerLink('sock-dave');
+    expect(service.voiceSenderBitrate('sock-dave')).toBe(128000);
+  });
+
+  it('leaves the screen share audio sender alone', () => {
+    const screenAudio = Object.assign(new FakeSender({ kind: 'audio' }), { screen: true });
+    pcFor(0).senders.unshift(screenAudio);
+    (service as unknown as { videoSenders: Map<string, { screenAudio?: unknown }> }).videoSenders.set('sock-bob', { screenAudio });
+    service.setLinkConstrained(true);
+    expect(screenAudio.setParameters).not.toHaveBeenCalled();
+    expect(voiceSenderOf(0).maxBitrate).toBe(24000);
+  });
+
+  it('reports what the call needs against what the browser estimates, after each stats round', async () => {
+    const samples: unknown[] = [];
+    service.on('voice:bandwidth', (sample) => samples.push(sample));
+    const internals = service as unknown as { pollConnectionStats: () => Promise<void> };
+
+    await internals.pollConnectionStats();
+    expect(samples).toEqual([null]);
+
+    const pair = (estimate: number) => ({ type: 'candidate-pair', state: 'succeeded', nominated: true, currentRoundTripTime: 0.04, availableOutgoingBitrate: estimate });
+    pcFor(0).report.set('pair', pair(100_000));
+    pcFor(1).report.set('pair', pair(150_000));
+    service.setPeerLinkConstrained('sock-carol', true);
+    await internals.pollConnectionStats();
+    expect(samples.at(-1)).toEqual({ estimate: 250_000, need: 128_000 + 25_000 + 24_000 + 25_000 });
+    expect(service.getPeerStats('sock-bob')?.availableOutgoingBitrate).toBe(100_000);
+  });
+});

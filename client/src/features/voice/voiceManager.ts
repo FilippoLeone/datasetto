@@ -17,6 +17,8 @@ import { DEFAULT_PEER_AUDIO, peerAudioPrefs } from '@/state/peerAudio';
 import { displayNameFor, usersById } from '@/state/presence';
 import { account, isAuthenticated } from '@/state/session';
 import { audioSettings } from '@/state/settings';
+import { onAppStateChange } from '@/services/native/appState';
+import { linkConstrained, reportCallBandwidth, type CallBandwidthSample } from '@/services/voice/linkConstraint';
 import { toast } from '@/state/ui';
 import {
   localCameraStream,
@@ -85,6 +87,11 @@ class VoiceManager {
   private rejoin: RejoinState = initialRejoinState;
   private tickTimer: number | null = null;
   private readonly iceGraceTimers = new Map<string, number>();
+  /**
+   * What each peer was last told about our link (`voice:link`). Absent: nothing, which a
+   * peer reads as "not constrained"; null: told before a rejoin, so it hears it again.
+   */
+  private readonly linkSent = new Map<string, boolean | null>();
 
   constructor() {
     const settings = audioSettings.value;
@@ -109,6 +116,35 @@ class VoiceManager {
         speaking: localSpeaking.value,
         muted: localMuted.value || localDeafened.value,
       });
+    });
+
+    // Data-saver voice: cap our own senders while the link is constrained, and tell every
+    // peer in the call (once per change, and again after we rejoin on a new socket) so
+    // they cap what they send to us. Peers that never heard from us send at full rate.
+    effect(() => this.voice.setLinkConstrained(linkConstrained.value));
+    effect(() => {
+      const constrained = linkConstrained.value;
+      const peers = voicePeers.value;
+      const status = voiceStatus.value;
+      if (status === 'idle') {
+        this.linkSent.clear();
+        reportCallBandwidth(null);
+        return;
+      }
+      if (status !== 'connected') {
+        // Rejoining on a new socket: whoever heard from us gets the current state again.
+        for (const id of this.linkSent.keys()) this.linkSent.set(id, null);
+        return;
+      }
+      for (const id of Object.keys(peers)) {
+        const sent = this.linkSent.get(id);
+        if (sent === undefined ? !constrained : sent === constrained) continue;
+        this.linkSent.set(id, constrained);
+        api.sendVoiceSignal(id, { link: { constrained } });
+      }
+      for (const id of Array.from(this.linkSent.keys())) {
+        if (!peers[id]) this.linkSent.delete(id);
+      }
     });
 
     // What I hear of each person: the account's remembered volume and "mute for me"
@@ -289,6 +325,7 @@ class VoiceManager {
       const health = this.voice.peerHealth(peer.id);
       if (health === 'missing' || health === 'broken' || now - peer.staleSince > STALE_PEER_MAX_MS) {
         this.voice.removePeer(peer.id);
+        this.voice.forgetPeerLink(peer.id);
         removePeer(peer.id);
       }
     }
@@ -639,6 +676,7 @@ class VoiceManager {
       if (voicePeers.value[data.peerId]) upsertPeer({ id: data.peerId, quality: data.quality as ConnectionQuality });
       overallQuality.value = this.voice.getOverallConnectionQuality();
     });
+    this.voice.on('voice:bandwidth', (sample) => reportCallBandwidth(sample as CallBandwidthSample | null));
     this.voice.on('notification', (notification) => {
       toast[notification.type](notification.message);
     });
@@ -701,17 +739,8 @@ class VoiceManager {
       if (voiceStatus.value !== 'idle') this.syncForegroundService();
     };
     document.addEventListener('visibilitychange', () => (document.visibilityState === 'visible' ? resumed() : paused()));
-
-    void (async () => {
-      try {
-        const { Capacitor } = await import('@capacitor/core');
-        if (!Capacitor.isNativePlatform()) return;
-        const { App: CapApp } = await import('@capacitor/app');
-        await CapApp.addListener('appStateChange', ({ isActive }) => (isActive ? resumed() : paused()));
-      } catch {
-        /* not running inside Capacitor */
-      }
-    })();
+    // The Android app moving to the foreground or the background (a no-op elsewhere).
+    onAppStateChange((active) => (active ? resumed() : paused()));
   }
 
   private scheduleMicRecovery(): void {
@@ -758,6 +787,7 @@ class VoiceManager {
           case 'rebuild':
             if (action.from) {
               this.voice.removePeer(action.from);
+              this.voice.forgetPeerLink(action.from);
               removePeer(action.from);
             }
             upsertPeer({ id: action.to, ...this.peerFields(byId.get(action.to)!), speaking: false, camera: false, screen: false, quality: 'unknown' });
@@ -809,6 +839,7 @@ class VoiceManager {
     if (action.action !== 'rebuild') return;
     if (action.from) {
       this.voice.removePeer(action.from);
+      this.voice.forgetPeerLink(action.from);
       removePeer(action.from);
     } else {
       sounds.play('userJoin', 0.3);
@@ -831,12 +862,18 @@ class VoiceManager {
       return;
     }
     this.voice.removePeer(id);
+    this.voice.forgetPeerLink(id);
     removePeer(id);
     if (voiceStatus.value === 'connected') sounds.play('userLeave', 0.3);
   }
 
   private async onSignal(data: VoiceSignalEvent): Promise<void> {
     if (!this.inCall() || !voicePeers.value[data.from]) return;
+    const link = (data.data as { link?: { constrained?: unknown } }).link;
+    if (link && typeof link === 'object') {
+      this.voice.setPeerLinkConstrained(data.from, link.constrained === true);
+      return;
+    }
     try {
       if (data.data.sdp?.type === 'offer') await this.voice.handleOffer(data.from, data.data.sdp);
       else if (data.data.sdp?.type === 'answer') await this.voice.handleAnswer(data.from, data.data.sdp);
