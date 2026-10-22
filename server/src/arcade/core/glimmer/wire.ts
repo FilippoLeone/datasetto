@@ -120,8 +120,8 @@ export const dashRows = (v: DashView): [number, number, number][] => {
 
 // --------------------------------------------------------------------------- messages
 
-/** Harvest Wheel `g` segment; Tide Turn `r` free-spin stops; Forge Spins after door `d`. Wins `w` in chips. */
-export type WireFeature = { k: 'h'; g: number; w: number } | { k: 't'; r: string; w: number } | { k: 'v'; d: number; r: string; w: number };
+/** Harvest Wheel `g` segment; Tide Turn `r` free-spin stops; Forge Spins after door `d` at multiplier `x`. Wins `w` in chips. */
+export type WireFeature = { k: 'h'; g: number; w: number } | { k: 't'; r: string; w: number } | { k: 'v'; d: number; x: number; r: string; w: number };
 
 export type RefuseCode =
   | 'busy'
@@ -298,8 +298,8 @@ export const SIZE = {
 } as const;
 
 /** The wire form of a feature result (`r`: free-spin stops). */
-export const wireFeature = (kind: 'wheel' | 'tide' | 'vault', o: { segment?: number; stops: readonly number[]; win: number; picked?: number }): WireFeature => {
+export const wireFeature = (kind: 'wheel' | 'tide' | 'vault', o: { segment?: number; stops: readonly number[]; win: number; picked?: number; mult?: number }): WireFeature => {
   if (kind === 'wheel') return { k: 'h', g: o.segment ?? 0, w: o.win };
   if (kind === 'tide') return { k: 't', r: encodeStops(o.stops), w: o.win };
-  return { k: 'v', d: o.picked ?? 0, r: encodeStops(o.stops), w: o.win };
+  return { k: 'v', d: o.picked ?? 0, x: o.mult ?? 1, r: encodeStops(o.stops), w: o.win };
 };
