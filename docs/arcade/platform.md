@@ -169,7 +169,7 @@ Each game is its own lazy chunk (`import('./fuseyard/index.ts')`), and all of th
 
 | Chunk | Budget |
 |---|---|
-| Main bundle growth | ≤ 4 KB |
+| Arcade code in the main bundle (modules under `src/arcade`, `src/features/arcade` and the shared core that the startup chunks hold) | ≤ 4 KB |
 | `arcade-runtime` | ≤ 25 KB |
 | Fuseyard | ≤ 45 KB |
 | Bellwick | ≤ 60 KB |
@@ -201,7 +201,7 @@ arcade/
 ### 3.3 Client modules
 
 ```
-client/src/features/arcade/        # Preact shell, in the main bundle (≤ 4 KB gzip)
+client/src/features/arcade/        # Preact shell; its main-bundle part ≤ 4 KB gzip
   ArcadeButton.tsx  ArcadeSheet.tsx  LobbyChip.tsx  InviteChip.tsx  GameStage.tsx  WalletPill.tsx
   state.ts          # coarse signals only (§10.1)
   api.ts bindings.ts
@@ -1404,7 +1404,7 @@ Notes on where the implementation fills in or differs from plan.md §2.6. Each l
 | 17 | Table-lane refusals | `handle(…, {refusal: 'arcade'})`: a limiter refusal acks `{ok: false, code: 'busy'}`, a failure acks `{ok: false, code}` with lower-case codes (`invalid`, `auth`, …) and nothing is emitted on `error`. |
 | 18 | Limiters | `arcade` 20 / 10 s, `arcadeAct` 4 / s, `spin` 2 / s, `arcadeProbe` 1 / 2 s; the old `game` kind is gone. |
 | 19 | Migration 14 | As §11.1 plus `arcade_prefs`, plus `usage_months.arcade_egress_bytes` for the "Arcade egress" counter, plus indexes `arcade_txns_time`, `arcade_ledger_time` and `arcade_stats_board` for the retention job and boards. |
-| 20 | Bundle | `arcade-runtime` is a code-splitting group with `includeDependenciesRecursively: false`, so the app modules the runtime imports stay in the main bundle and the main bundle never loads Arcade code at startup. The overlay, sheet and catalogue form a lazy `shell` chunk. `client/scripts/check-bundle.mjs` runs in `npm run build`. |
+| 20 | Bundle | `arcade-runtime` is a code-splitting group with `includeDependenciesRecursively: false`, so the app modules the runtime imports stay in the main bundle and the main bundle never loads Arcade code at startup. The overlay, sheet and catalogue form a lazy `shell` chunk. `client/scripts/check-bundle.mjs` runs in `npm run build` (see note 49). |
 
 ### 20.2 Online platform notes (`arcade-p-m2`)
 
@@ -1438,3 +1438,4 @@ Notes on where the implementation fills in or differs from plan.md §2.6. Each l
 | 46 | Event bursts | A FRAME carries at most 255 events, and the sender splits only between ticks: one tick's chunk is opaque to it. A tick with 255 or more events for one recipient becomes a KEYFRAME with reason 5 instead, and those events are dropped; games should keep a tick well under that. A game that finds a bad event mid-block makes sure the decode check fires with one read past the end (`r.skip(r.remaining + 1)`), so the remote host sends RESYNC 1 even when the bad event was the last one. |
 | 47 | Shaped bench (probe game) | One shaped Chrome and 3 Node bots, 129.6 s with setup: 3G 15 frames/s and chat p95 169 ms; 3G + 1 % loss median 10 frames/s (on the limit: each 600 ms retransmission stall reads as queueing and costs 3 s at d = 3); the 120 kbit/s collapse never queues (n/a). In the 12 kbit/s squeeze the first FRAME at the new rate left the server 1,191 ms after the queueing onset as the server sees it (1,069 ms after the bottleneck queue built): the pacer steps once queueing has held 1 s, then waits for the next slot the in-flight cap admits. The bar is therefore 1.25 s from the server-view onset (§15.2); a shorter trigger would cost the lossy-link margin. Up messages stay at 15/s whatever the divisor, so their TCP acks keep about 65 % of a 12 kbit/s down link busy. |
 | 48 | Capped-rate frames | Decided with PR #28: when every `frames` subscriber has a `maxFps` whose period is at least 1.5 display frames, the scheduler sleeps on a timer until 1 ms before the soonest is due and requests a single rAF, instead of keeping a request pending every refresh (a 60 fps game on a 240 Hz screen). The display period is measured from back-to-back frames and re-measured whenever the scheduler goes idle. The `p0.ts` stand-in does the same; `installFakeFrames()` runs the scheduler's timers (`frameTimers`) in virtual time. |
+| 49 | Bundle check | The budget is the Arcade's own code in the main bundle, not the whole bundle's growth: other features grow the main entry too (with every open PR merged it was 151 KB gzip against 136.7 KB before the Arcade). A build plugin (`client/scripts/bundle-stats.mjs`) records each chunk's modules and rendered lengths; the check takes the Arcade modules' share of each startup chunk's rendered code and applies it to that chunk's gzip size (about 3.0 KB; the true growth on this branch was 2.4 KB, so the estimate errs high). It still fails when the startup chunks include `arcade-runtime`, the shell or a game chunk. The whole main entry has a 180 KB ceiling, and its growth against `client/scripts/bundle-baseline.json` is printed as a warning above 8 KB; move the baseline on purpose with `node scripts/check-bundle.mjs --update-baseline`. |

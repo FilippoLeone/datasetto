@@ -3,6 +3,7 @@ import { resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import preact from '@preact/preset-vite';
 import tailwindcss from '@tailwindcss/vite';
+import { bundleStatsPlugin } from './scripts/bundle-stats.mjs';
 
 const isDesktopBuild = process.env.VITE_BUILD_TARGET === 'desktop';
 const devProxyTarget = process.env.VITE_DEV_PROXY || 'http://localhost:8080';
@@ -70,7 +71,7 @@ const rawWorkletsPlugin = () => ({
 
 export default defineConfig({
   base: isDesktopBuild ? './' : '/',
-  plugins: [preact(), tailwindcss(), siteUrlPlugin(), rawWorkletsPlugin()],
+  plugins: [preact(), tailwindcss(), siteUrlPlugin(), rawWorkletsPlugin(), bundleStatsPlugin()],
   resolve: {
     alias: {
       '@': resolve(import.meta.dirname, './src'),

@@ -58,7 +58,7 @@ src/
                            desktopVoice (system-wide push to talk + voice overlay through the Electron bridge), pushToTalkHold, voiceOverlayState
     screenshare/           presenter/viewer rooms over direct WebRTC, screenshareRejoin (room rejoin state machine)
     arcade/                the Arcade shell: button, chips and bindings in the main bundle; the overlay, sheet, stage, wallet, boards,
-                           profile switches and requests in lazy chunks (the bundle check holds the main bundle to +4 KB gzip)
+                           profile switches and requests in lazy chunks (the bundle check holds the Arcade's main-bundle part to 4 KB gzip)
     admin/                 members, channel permissions, bans
     activity/              "Playing <game>": own entries and report pacing (gameActivity), the Electron bridge wiring (desktopActivity), catalogue tests
     settings/              the Notifications, Desktop app (automatic updates), Game activity and Clips sections of the settings dialog (features/voice/AudioSettingsModal hosts the dialog)
