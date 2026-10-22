@@ -30,7 +30,8 @@ export interface MenuHandlers {
 export interface Menus {
   showPause(on: boolean): void;
   readonly pauseOpen: boolean;
-  showEnd(rows: readonly Standing[], o: { canRematch: boolean; note: string }): void;
+  /** The match-end panel; `title` and `again` (the primary button's label) default to a match end. */
+  showEnd(rows: readonly Standing[], o: { canRematch: boolean; note: string; title?: string; again?: string }): void;
   hideEnd(): void;
   readonly endOpen: boolean;
   setSettings(s: MenuSettings): void;
@@ -153,6 +154,9 @@ export const createMenus = (root: HTMLElement, h: MenuHandlers, o: { coarse: boo
         list.append(li);
       }
       note.textContent = opts.note;
+      title.textContent = opts.title ?? 'Match over';
+      end.setAttribute('aria-label', opts.title ?? 'Match over');
+      again.textContent = opts.again ?? 'Rematch';
       again.classList.toggle('hidden', !opts.canRematch);
       show(end, true);
     },

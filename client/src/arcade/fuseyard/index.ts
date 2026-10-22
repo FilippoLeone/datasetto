@@ -9,16 +9,20 @@
  */
 import { buildDanger, dFrom, type DangerInput } from '@arcade/core/fuseyard/danger';
 import { decodeCfg, decodeKeyframe, decodeResult, encodeUp, type WireConfig } from '@arcade/core/fuseyard/codec';
+import { restoreMatch } from '@arcade/core/fuseyard/replay';
 import { CORE_EVENT, createFuseyardCore } from '@arcade/core/fuseyard/runtime';
-import { ARENA_IDS, BotLevel, CELLS, EV, MAX_BOMBS, Phase, REMOTE, Seat, cellAt, closeStart, roundLimit, type ArenaId, type MatchConfig } from '@arcade/core/fuseyard/rules';
+import { ARENA_IDS, BotLevel, CELLS, EV, MAX_BOMBS, Phase, REMOTE, Seat, cellAt, closeStart, roundLimit, type ArenaId, type Match, type MatchConfig } from '@arcade/core/fuseyard/rules';
+import { takeOverOffline } from '@arcade/core/fuseyard/sim';
+import { VERSION } from '@arcade/core/fuseyard/version';
 import { NO_END, applyFrame, createWorld, type WBomb, type World } from '@arcade/core/fuseyard/view';
 import { PEV } from '@arcade/core/net/events';
-import { PHASE, TICK_MS, type Divisor } from '@arcade/core/net/lane';
+import { CLOSE, PHASE, TICK_MS, type Divisor } from '@arcade/core/net/lane';
 import { createTickRing, interpDelayMs } from '@arcade/core/net/interp';
 import { createGameAudio } from '@/arcade/runtime/audio';
 import { createStageCanvas } from '@/arcade/runtime/canvas';
 import { createInput } from '@/arcade/runtime/input';
 import { createLoop } from '@/arcade/runtime/loop';
+import { createLocalMatchHost } from '@/arcade/runtime/net/localHost';
 import { readGamePref, writeGamePref } from '@/arcade/runtime/prefs';
 import { bakeAtlas, type Atlas } from '@/arcade/runtime/sprites';
 import { readLocal, writeLocal } from '@/arcade/runtime/store';
@@ -103,8 +107,17 @@ const randomSeed = (): number => {
 
 // ------------------------------------------------------------------ the module
 
-const mount = (el: HTMLElement, host: MatchHost, opts: MountOpts): GameHandle => {
-  const local = host.mode === 'local';
+const mount = (el: HTMLElement, firstHost: MatchHost, opts: MountOpts): GameHandle => {
+  // The host changes at most once: after a server restart the match can go on here, offline.
+  let host: MatchHost = firstHost;
+  let local = host.mode === 'local';
+  /** This module made the current host (a restart continued offline), so it shows and hides it too. */
+  let ownHost = false;
+  /** A continued match: it does not count toward this device's stats. */
+  let voided = false;
+  /** The restored match from a HANDOVER, while the restart panel offers to continue it. */
+  let handover: Match | null = null;
+  let restartOffer = false;
   const root = document.createElement('div');
   root.className = 'fuseyard relative h-full w-full overflow-hidden bg-[#0b0b12] outline-none select-none';
   root.dataset.fuseyard = '';
@@ -307,6 +320,10 @@ const mount = (el: HTMLElement, host: MatchHost, opts: MountOpts): GameHandle =>
       resume: resumePlay,
       leave: () => opts.shell.leave(),
       rematch: () => {
+        if (restartOffer) {
+          continueOffline();
+          return;
+        }
         if (!local) {
           opts.shell.leave();
           return;
@@ -486,114 +503,178 @@ const mount = (el: HTMLElement, host: MatchHost, opts: MountOpts): GameHandle =>
     }
   };
 
-  host.onWelcome((w) => {
-    const c = decodeCfg(w.cfg);
-    if (c) cfg = c;
-    me = w.slot === 0xff ? -1 : w.slot;
-    world = createWorld(cfg.fighters);
-    dangerIn.cells = world.cells;
-    divisor = local ? 1 : w.divisor;
-    renderer?.invalidate();
-    if (w.queued) {
-      notice.textContent = 'You are watching until the next round';
-      notice.classList.remove('hidden');
-    } else notice.classList.add('hidden');
-    opts.shell.status('live');
-  });
+  let offSeats: () => void = () => undefined;
+  const bindHost = (h: MatchHost): void => {
+    h.onWelcome((w) => {
+      const c = decodeCfg(w.cfg);
+      if (c) cfg = c;
+      me = w.slot === 0xff ? -1 : w.slot;
+      world = createWorld(cfg.fighters);
+      dangerIn.cells = world.cells;
+      divisor = local ? 1 : w.divisor;
+      renderer?.invalidate();
+      if (w.queued) {
+        notice.textContent = 'You are watching until the next round';
+        notice.classList.remove('hidden');
+      } else notice.classList.add('hidden');
+      opts.shell.status('live');
+    });
 
-  host.onKeyframe((k) => {
-    if (!decodeKeyframe(k.body, k.tick, world)) return;
-    snapPositions();
-    ring.clear();
-    predictor.reset();
-    if (!local && me >= 0) predictor.reconcile(world, me, k.ackUp);
-    ghostBomb = -1;
-    menus.hideEnd();
-    renderer?.invalidate();
-    if (world.phase === Phase.Playing) playStartTick = k.tick - 999;
-    afterWorldChange();
-  });
+    h.onKeyframe((k) => {
+      if (!decodeKeyframe(k.body, k.tick, world)) return;
+      snapPositions();
+      ring.clear();
+      predictor.reset();
+      if (!local && me >= 0) predictor.reconcile(world, me, k.ackUp);
+      ghostBomb = -1;
+      menus.hideEnd();
+      renderer?.invalidate();
+      if (world.phase === Phase.Playing) playStartTick = k.tick - 999;
+      afterWorldChange();
+    });
 
-  host.onFrame((f) => {
-    if (!world.ready) return;
-    if (f.divisor !== divisor && !local) divisor = f.divisor;
-    lagging = f.lagging;
-    for (let s = 0; s < 4; s += 1) {
-      prevX[s] = curX[s] as number;
-      prevY[s] = curY[s] as number;
-    }
-    const before = world.tick;
-    applyFrame(world, f.tick, f.events, f.snapshot);
-    for (let s = 0; s < 4; s += 1) {
-      const ft = world.fight[s]!;
-      curX[s] = ft.x;
-      curY[s] = ft.y;
-      // A jump (pad, steel, new round) is not smoothed.
-      if (Math.abs((curX[s] as number) - (prevX[s] as number)) > 40 || Math.abs((curY[s] as number) - (prevY[s] as number)) > 40) {
+    h.onFrame((f) => {
+      if (!world.ready) return;
+      if (f.divisor !== divisor && !local) divisor = f.divisor;
+      lagging = f.lagging;
+      for (let s = 0; s < 4; s += 1) {
         prevX[s] = curX[s] as number;
         prevY[s] = curY[s] as number;
       }
-    }
-    if (!local) {
-      const slot = ring.push(f.tick);
-      if (slot >= 0) {
-        for (let s = 0; s < 4; s += 1) {
-          ringX[slot * 4 + s] = curX[s] as number;
-          ringY[slot * 4 + s] = curY[s] as number;
+      const before = world.tick;
+      applyFrame(world, f.tick, f.events, f.snapshot);
+      for (let s = 0; s < 4; s += 1) {
+        const ft = world.fight[s]!;
+        curX[s] = ft.x;
+        curY[s] = ft.y;
+        // A jump (pad, steel, new round) is not smoothed.
+        if (Math.abs((curX[s] as number) - (prevX[s] as number)) > 40 || Math.abs((curY[s] as number) - (prevY[s] as number)) > 40) {
+          prevX[s] = curX[s] as number;
+          prevY[s] = curY[s] as number;
         }
       }
-      if (me >= 0) predictor.reconcile(world, me, f.ackUp);
-    }
-    fx();
-    if (world.fxLen > 0 || world.tick !== before || world.phase !== Phase.MatchEnd) afterWorldChange();
-    if (local && world.phase !== Phase.MatchEnd && !menus.pauseOpen) sendLocalInput();
-  });
+      if (!local) {
+        const slot = ring.push(f.tick);
+        if (slot >= 0) {
+          for (let s = 0; s < 4; s += 1) {
+            ringX[slot * 4 + s] = curX[s] as number;
+            ringY[slot * 4 + s] = curY[s] as number;
+          }
+        }
+        if (me >= 0) predictor.reconcile(world, me, f.ackUp);
+      }
+      fx();
+      if (world.fxLen > 0 || world.tick !== before || world.phase !== Phase.MatchEnd) afterWorldChange();
+      if (local && world.phase !== Phase.MatchEnd && !menus.pauseOpen) sendLocalInput();
+    });
 
-  host.onPhase((p) => {
-    if (p.phase === PHASE.running) {
-      ended = false;
-      menus.hideEnd();
-      return;
+    h.onPhase((p) => {
+      if (p.phase === PHASE.running) {
+        ended = false;
+        menus.hideEnd();
+        return;
+      }
+      if (p.phase !== PHASE.ending) return;
+      const res = decodeResult(p.body);
+      if (!res) return;
+      const rows: Standing[] = [];
+      for (let s = 0; s < cfg.fighters; s += 1) {
+        const r = res[s]!;
+        let better = 0;
+        for (let o = 0; o < cfg.fighters; o += 1) if (res[o]!.roundWins > r.roundWins) better += 1;
+        rows.push({ slot: s, wick: WICK_NAMES[s] as string, name: names[s] ?? '', roundWins: r.roundWins, kills: r.kills, blocks: r.blocks, place: better + 1 });
+      }
+      rows.sort((a, b) => a.place - b.place || a.slot - b.slot);
+      let note = '';
+      if (local && me >= 0 && !voided) {
+        const mine = rows.find((r) => r.slot === me);
+        const st = loadStats();
+        const won = Boolean(mine && mine.place === 1 && mine.roundWins > 0);
+        const streak = won ? st.streak + 1 : 0;
+        saveStats({ matches: st.matches + 1, wins: st.wins + (won ? 1 : 0), roundWins: st.roundWins + (mine?.roundWins ?? 0), streak, bestStreak: Math.max(st.bestStreak, streak) });
+        const now = loadStats();
+        note = `On this device: ${now.wins} wins in ${now.matches} matches · best streak ${now.bestStreak}`;
+      } else if (voided) note = 'A match continued after a restart does not count toward your stats.';
+      else if (!local) note = 'Rematch from the lobby: the host starts the next one.';
+      menus.showEnd(rows, { canRematch: local, note });
+      menus.focus();
+      padPoll();
+      loop.markDirty();
+    });
+
+    h.onHandover((body, simVersion) => {
+      // Only a dump of this exact sim can go on here (fuseyard.md §5).
+      handover = simVersion === VERSION.sim ? restoreMatch(body) : null;
+    });
+
+    h.onClosed((code) => {
+      if (h !== host) return;
+      ended = true;
+      opts.shell.status('ended');
+      loop.animate(false);
+      loop.markDirty();
+      syncWake();
+      if (!local && code === CLOSE.restart) showRestart();
+    });
+
+    offSeats = h.onSeats((seats: readonly SeatInfo[]) => {
+      names = ['', '', '', ''];
+      for (const s of seats) if (s.slot >= 0 && s.slot < 4) names[s.slot] = s.bot ? 'Bot' : s.name;
+    });
+  };
+  bindHost(host);
+
+  /** After a restart: offer to play the match on here against bots, when its dump came through. */
+  const showRestart = (): void => {
+    restartOffer = handover !== null && me >= 0;
+    if (menus.pauseOpen) {
+      menus.showPause(false);
+      root.removeEventListener('keydown', menuKeys, true);
     }
-    if (p.phase !== PHASE.ending) return;
-    const res = decodeResult(p.body);
-    if (!res) return;
-    const rows: Standing[] = [];
-    for (let s = 0; s < cfg.fighters; s += 1) {
-      const r = res[s]!;
-      let better = 0;
-      for (let o = 0; o < cfg.fighters; o += 1) if (res[o]!.roundWins > r.roundWins) better += 1;
-      rows.push({ slot: s, wick: WICK_NAMES[s] as string, name: names[s] ?? '', roundWins: r.roundWins, kills: r.kills, blocks: r.blocks, place: better + 1 });
-    }
-    rows.sort((a, b) => a.place - b.place || a.slot - b.slot);
-    let note = '';
-    if (local && me >= 0) {
-      const mine = rows.find((r) => r.slot === me);
-      const st = loadStats();
-      const won = Boolean(mine && mine.place === 1 && mine.roundWins > 0);
-      const streak = won ? st.streak + 1 : 0;
-      saveStats({ matches: st.matches + 1, wins: st.wins + (won ? 1 : 0), roundWins: st.roundWins + (mine?.roundWins ?? 0), streak, bestStreak: Math.max(st.bestStreak, streak) });
-      const now = loadStats();
-      note = `On this device: ${now.wins} wins in ${now.matches} matches · best streak ${now.bestStreak}`;
-    } else if (!local) note = 'Rematch from the lobby: the host starts the next one.';
-    menus.showEnd(rows, { canRematch: local, note });
+    menus.showEnd([], {
+      canRematch: restartOffer,
+      title: 'The server restarted',
+      again: 'Continue vs bots',
+      note: restartOffer
+        ? 'Play this match on here, with bots in the other seats. Results will not count.'
+        : 'This match could not be saved. Leave, and start a new one when the server is back.',
+    });
     menus.focus();
     padPoll();
     loop.markDirty();
-  });
+  };
 
-  host.onClosed(() => {
-    ended = true;
-    opts.shell.status('ended');
-    loop.animate(false);
+  /** Swap the closed lane for a local host running the restored match (other humans become bots). */
+  const continueOffline = (): void => {
+    const m = handover;
+    restartOffer = false;
+    handover = null;
+    if (!m || me < 0 || disposed) return;
+    takeOverOffline(m, me);
+    const core = createFuseyardCore({ config: m.config, seats: [], offline: true, match: m });
+    const seats: SeatInfo[] = [];
+    for (let s = 0; s < m.config.fighters; s += 1) seats.push({ slot: s, accountId: null, name: s === me ? (names[me] ?? '') : 'Bot', bot: s !== me, joinOrder: s, extra: 0 });
+    offSeats();
+    host.close();
+    host = createLocalMatchHost(core, { selfSlot: me, seats });
+    local = true;
+    ownHost = true;
+    voided = true;
+    ended = false;
+    divisor = 1;
+    upCount = 0;
+    upActive = false;
+    ghostBomb = -1;
+    predictor.reset();
+    ring.clear();
+    menus.hideEnd();
+    bindHost(host);
+    if (!visible) host.setVisible(false);
+    opts.shell.status('live');
+    loop.animate(true);
     loop.markDirty();
-    syncWake();
-  });
-
-  const offSeats = host.onSeats((seats: readonly SeatInfo[]) => {
-    names = ['', '', '', ''];
-    for (const s of seats) if (s.slot >= 0 && s.slot < 4) names[s.slot] = s.bot ? 'Bot' : s.name;
-  });
+    root.focus({ preventScroll: true });
+  };
 
   // ---------------------------------------------------------------- drawing
   const draw: DrawState = {
@@ -739,6 +820,7 @@ const mount = (el: HTMLElement, host: MatchHost, opts: MountOpts): GameHandle =>
       loop.setVisible(false);
       audio.suspend();
       steering.reset();
+      if (ownHost) host.setVisible(false);
       // Offline, hiding pauses the match: come back to the pause menu, not to a running round.
       if (local && world.ready && world.phase !== Phase.MatchEnd && !ended && !menus.pauseOpen) {
         menus.showPause(true);
@@ -754,6 +836,7 @@ const mount = (el: HTMLElement, host: MatchHost, opts: MountOpts): GameHandle =>
       lastNow = 0;
       tickAcc = 0;
       if (local && menus.pauseOpen) host.setVisible(false);
+      else if (ownHost) host.setVisible(true);
       loop.markDirty();
       padPoll();
       syncWake();
@@ -772,6 +855,7 @@ const mount = (el: HTMLElement, host: MatchHost, opts: MountOpts): GameHandle =>
       loop.dispose();
       input.dispose();
       offSeats();
+      if (ownHost) host.close();
       offResize();
       observer?.disconnect();
       observer = null;

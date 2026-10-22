@@ -11,7 +11,7 @@ import { encodeUp } from '../../../src/arcade/core/fuseyard/codec.js';
 import { createReplayRing, dumpMatch, hashMatch, replayRun, restoreMatch } from '../../../src/arcade/core/fuseyard/replay.js';
 import { CORE_EVENT, createFuseyardCore, type FuseyardCore } from '../../../src/arcade/core/fuseyard/runtime.js';
 import { BotLevel, Control, Dir, IN_BOMB, Phase, inputByte, newStepIn, type MatchConfig } from '../../../src/arcade/core/fuseyard/rules.js';
-import { createMatch, step } from '../../../src/arcade/core/fuseyard/sim.js';
+import { createMatch, step, takeOverOffline } from '../../../src/arcade/core/fuseyard/sim.js';
 
 const cfg = (o: Partial<MatchConfig> = {}): MatchConfig => ({ mode: 'brawl', arena: 'yard', fighters: 2, winsNeeded: 2, botLevel: BotLevel.Scrapper, seed: 77, ...o });
 
@@ -189,5 +189,43 @@ describe('dump, restore and replay', () => {
     expect(replayed.tick).toBe(m.tick);
     expect(hashMatch(replayed)).toBe(hashMatch(m));
     expect(IN_BOMB).toBe(0x40);
+  });
+});
+
+describe('continuing a HANDOVER offline', () => {
+  it('keeps the player, turns the other humans and ghosts into bots at the match level, and plays on', () => {
+    // Online: slots 0–2 human, 3 a bot; slot 0 is a ghost when the server restarts.
+    const online = createFuseyardCore({
+      config: cfg({ fighters: 4, botLevel: BotLevel.Menace }),
+      seats: [0, 1, 2].map((slot) => ({ slot, human: true, botLevel: 1 })).concat([{ slot: 3, human: false, botLevel: BotLevel.Sprout }]),
+      offline: false,
+    });
+    toPlay(online);
+    online.setSeat(0, 'ghost');
+    online.setSeat(2, 'ghost');
+    for (let i = 0; i < 60; i += 1) online.step();
+    expect(online.match.current.fighters[0]!.control).toBe(Control.Ghost);
+    const m = restoreMatch(online.dump())!;
+    expect(m.current.phase).toBe(Phase.Playing);
+
+    takeOverOffline(m, 0);
+    const f = m.current.fighters;
+    expect(f[0]!.control).toBe(Control.Human);
+    expect(f[0]!.shield).toBeGreaterThan(0);
+    expect([f[1]!.control, f[2]!.control, f[3]!.control]).toEqual([Control.Bot, Control.Bot, Control.Bot]);
+    expect([f[1]!.botLevel, f[2]!.botLevel, f[3]!.botLevel]).toEqual([BotLevel.Menace, BotLevel.Menace, BotLevel.Sprout]);
+
+    // The offline runtime plays it on, with no ghosts and no results.
+    const local = createFuseyardCore({ config: m.config, seats: [], offline: true, match: m });
+    const from = m.tick;
+    const hosts: HostEvent[] = [];
+    for (let i = 0; i < 900; i += 1) {
+      up(local, 0, i + 1, [inputByte(i % 60 < 30 ? Dir.E : Dir.W, 0, false, false)]);
+      local.step();
+      hosts.push(...local.takeHostEvents());
+    }
+    expect(local.match.tick).toBe(from + 900);
+    expect(local.match.current.fighters.some((x) => x.control === Control.Ghost)).toBe(false);
+    expect(hosts.some((e) => e.t === 'end')).toBe(false);
   });
 });

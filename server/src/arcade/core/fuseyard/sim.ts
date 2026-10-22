@@ -650,6 +650,37 @@ const applySeats = (m: Match, input: StepIn): void => {
   }
 };
 
+/**
+ * A HANDOVER continued on this device (fuseyard.md §5 "Restart or overload"): `self` plays on (a
+ * ghost returns at once, shielded as on any return), and every other human or ghost becomes a bot at
+ * the match's level, as if its player had left. Pending ghost requests and reclaims are dropped.
+ * Call it on a restored match before building the offline runtime around it.
+ */
+export const takeOverOffline = (m: Match, self: number): void => {
+  const r = m.current;
+  const running = r.phase !== Phase.Countdown && r.phase !== Phase.RoundEnd && r.phase !== Phase.MatchEnd;
+  for (let s = 0; s < 4; s += 1) {
+    const f = r.fighters[s] as Fighter;
+    if (!f.seated) continue;
+    f.ghostLock = 0xff;
+    f.reclaim = false;
+    if (s === self) {
+      if (f.control === Control.Human) continue;
+      if (f.control === Control.Ghost && f.alive && running) f.shield = SHIELD;
+      f.control = Control.Human;
+      f.left = false;
+      f.lastInput = 0;
+      if (f.alive) passersFor(r, f);
+    } else if (f.control === Control.Human || f.control === Control.Ghost) {
+      if (f.control === Control.Ghost && f.alive) f.shield = SHIELD;
+      f.control = Control.Bot;
+      f.left = true;
+      f.botLevel = m.config.botLevel;
+      resetBrain(m.brains[s] as BotBrain);
+    }
+  }
+};
+
 // ------------------------------------------------------------------ steps 2–12
 
 const placeBomb = (m: Match, f: Fighter): void => {

@@ -21,7 +21,9 @@ import { practiceWallet } from '@/arcade/runtime/practiceWallet';
 import { DEFAULT_PREFS } from '@/arcade/runtime/prefs';
 import { startLocalSession } from '@/arcade/runtime/session';
 import { installFakeFrames, stubCanvas, trackResources, type FakeFrames } from '@/arcade/runtime/testing';
-import type { MountOpts, SeatInfo } from '@/arcade/runtime/types';
+import type { MatchHost, MountOpts, SeatInfo } from '@/arcade/runtime/types';
+import type { FrameView, KeyframeView, PhaseView, Welcome } from '@arcade/core/net/lane';
+import { VERSION } from '@arcade/core/fuseyard/version';
 import { AXIS_SWITCH, KEYMAP, createSteering, layoutFor } from './controls';
 import chunk, { STATS_KEY, localConfig } from './index';
 import { meta } from './meta';
@@ -199,6 +201,120 @@ describe('an offline match', () => {
     expect(core.match.current.phase).toBe(Phase.Countdown);
     handle.unmount();
     host.close();
+    el.remove();
+  });
+});
+
+describe('a server restart', () => {
+  /** A remote host the test drives: it delivers what an online core produces, then a restart. */
+  const fakeRemote = () => {
+    const cb: {
+      welcome?: (w: Welcome) => void;
+      keyframe?: (k: KeyframeView) => void;
+      frame?: (f: FrameView) => void;
+      phase?: (p: PhaseView) => void;
+      handover?: (body: Uint8Array, sim: number) => void;
+      closed?: (code: number, reason: string) => void;
+    } = {};
+    let closed = false;
+    const host: MatchHost = {
+      mode: 'remote',
+      sendUp: () => undefined,
+      sendEvent: () => undefined,
+      onWelcome: (f) => void (cb.welcome = f),
+      onFrame: (f) => void (cb.frame = f),
+      onKeyframe: (f) => void (cb.keyframe = f),
+      onPhase: (f) => void (cb.phase = f),
+      onHandover: (f) => void (cb.handover = f),
+      onSeats: (f) => {
+        f(seatsFor(4));
+        return () => undefined;
+      },
+      onClosed: (f) => void (cb.closed = f),
+      setVisible: () => undefined,
+      rttMs: () => 40,
+      linkConstrained: () => false,
+      estServerTick: () => 0,
+      close: () => void (closed = true),
+    };
+    return { host, cb, isClosed: () => closed };
+  };
+
+  it('offers to continue the match against bots from the HANDOVER, and plays it on locally', async () => {
+    const server = createFuseyardCore({
+      config: { mode: 'brawl', arena: 'yard', fighters: 4, winsNeeded: 3, botLevel: BotLevel.Scrapper, seed: 99 },
+      seats: [
+        { slot: 0, human: true, botLevel: 1 },
+        { slot: 1, human: true, botLevel: 1 },
+        { slot: 2, human: false, botLevel: 1 },
+        { slot: 3, human: false, botLevel: 1 },
+      ],
+      offline: false,
+    });
+    for (let i = 0; i < 150; i += 1) server.step();
+    const view = { slot: 0, view: 0 };
+    const { host, cb, isClosed } = fakeRemote();
+    const el = document.createElement('div');
+    document.body.append(el);
+    const handle = chunk.module.mount(el, host, opts({ mode: 'remote', me: { accountId: 'me', slot: 0 } }));
+    cleanup.push(() => {
+      handle.unmount();
+      el.remove();
+    });
+    await flush();
+    cb.welcome?.({ proto: 1, game: 1, codec: 1, slot: 0, queued: false, tick: server.tick, tickHz: 30, divisor: 2, lastEvSeq: 0, resumeToken: new Uint8Array(32), cfg: server.welcomeCfg() });
+    cb.keyframe?.({ frameSeq: 1, tick: server.tick, ackUp: 0, reason: 0, body: new ByteReader(server.keyframeFor(view)) });
+    fake.advance(100);
+    const end = el.querySelector('[data-fuseyard-end]') as HTMLElement;
+    expect(end.classList.contains('hidden')).toBe(true);
+
+    // PHASE 4 (restart, no body), the HANDOVER, then the lane closes with 1012.
+    cb.phase?.({ phase: 4, reason: 1, body: new ByteReader(new Uint8Array(0)) });
+    cb.handover?.(server.dump(), VERSION.sim);
+    cb.closed?.(1012, 'Server restarting');
+    fake.advance(100);
+    expect(end.classList.contains('hidden')).toBe(false);
+    expect(end.textContent).toMatch(/The server restarted/);
+    const go = Array.from(end.querySelectorAll('button')).find((b) => b.textContent === 'Continue vs bots') as HTMLButtonElement;
+    expect(go.classList.contains('hidden')).toBe(false);
+
+    const drawsBefore = canvas.calls.filter((c) => c === 'drawImage').length;
+    go.click();
+    expect(isClosed()).toBe(true);
+    fake.advance(3000);
+    expect(end.classList.contains('hidden')).toBe(true);
+    // The local host runs: the board keeps drawing frame after frame.
+    expect(canvas.calls.filter((c) => c === 'drawImage').length).toBeGreaterThan(drawsBefore + 50);
+    expect(frames.active).toBeGreaterThan(0);
+    handle.unmount();
+    el.remove();
+    await flush();
+    // Its own local host goes with it.
+    expect(frames.active).toBe(0);
+  });
+
+  it('without a usable HANDOVER only offers Leave', async () => {
+    const { host, cb } = fakeRemote();
+    const el = document.createElement('div');
+    document.body.append(el);
+    const handle = chunk.module.mount(el, host, opts({ mode: 'remote', me: { accountId: 'me', slot: 0 } }));
+    cleanup.push(() => {
+      handle.unmount();
+      el.remove();
+    });
+    await flush();
+    const server = createFuseyardCore({ config: { mode: 'brawl', arena: 'yard', fighters: 2, winsNeeded: 3, botLevel: 1, seed: 5 }, seats: [{ slot: 0, human: true, botLevel: 1 }], offline: false });
+    cb.welcome?.({ proto: 1, game: 1, codec: 1, slot: 0, queued: false, tick: 0, tickHz: 30, divisor: 2, lastEvSeq: 0, resumeToken: new Uint8Array(32), cfg: server.welcomeCfg() });
+    cb.keyframe?.({ frameSeq: 1, tick: 0, ackUp: 0, reason: 0, body: new ByteReader(server.keyframeFor({ slot: 0, view: 0 })) });
+    // A dump from another sim version is no use.
+    cb.handover?.(server.dump(), VERSION.sim + 1);
+    cb.closed?.(1012, 'Server restarting');
+    fake.advance(100);
+    const end = el.querySelector('[data-fuseyard-end]') as HTMLElement;
+    expect(end.textContent).toMatch(/could not be saved/);
+    const go = Array.from(end.querySelectorAll('button')).find((b) => b.textContent === 'Continue vs bots') as HTMLButtonElement;
+    expect(go.classList.contains('hidden')).toBe(true);
+    handle.unmount();
     el.remove();
   });
 });
