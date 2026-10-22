@@ -75,6 +75,11 @@ const ITEM_ICON: Readonly<Record<number, number>> = {
 };
 const SHOP_TEXT: Readonly<Record<number, string>> = { [Item.Buckler]: 'buy_buckler', [Item.Brew]: 'buy_brew', [Item.Shard]: 'buy_shard' };
 
+/** The buttons whose press the hero acts on (A talks or swings, B throws the Vinehook, swap); arrows walk while held. */
+const EDGE_BUTTONS = ACT.a | ACT.b | ACT.swap;
+/** Hero ticks (30 Hz, about 400 ms) after a dialogue or a question closes in which A on the same spot does nothing. */
+const RETALK_TICKS = 12;
+
 const fmtTime = (sec: number): string => {
   const m = Math.floor(sec / 60);
   const h = Math.floor(m / 60);
@@ -122,6 +127,14 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   const visited = new Uint8Array(64);
   let held = 0;
   let pending = 0;
+  // Edge buttons still down when a dialogue, a question, the menu, the map or the title handed the world
+  // back: the hero ignores each until it is let go. Online the hero saw no buttons while the dialogue was
+  // open, so the J that closed a sign would look like a new press to it and open the sign again.
+  let swallow = 0;
+  // The spot (room × 128 + tile) last talked to or used, and the hero tick before which A on it does
+  // nothing: mashing J through a sign reads it once, not over and over.
+  let talkSpot = -1;
+  let talkUntil = 0;
   let meX0 = 0;
   let meY0 = 0;
   let pages: string[] = [];
@@ -158,6 +171,10 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   };
 
   const setMode = (m: Mode): void => {
+    if (m === 'play' && mode !== 'play') {
+      swallow = held & EDGE_BUTTONS;
+      if (mode === 'dialogue' || mode === 'choice') talkUntil = cw.me.heroTick + RETALK_TICKS;
+    }
     mode = m;
     syncSim();
     loop.markDirty();
@@ -186,8 +203,9 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
     setMode('dialogue');
   };
 
-  const ask = (q: string, options: string[], then: (i: number) => void): void => {
-    choice = { q, options, sel: 0, then };
+  /** A question; `sel` is the option it starts on. */
+  const ask = (q: string, options: string[], then: (i: number) => void, sel = 0): void => {
+    choice = { q, options, sel, then };
     say(q + ' ' + options.join(', '));
     setMode('choice');
   };
@@ -301,6 +319,9 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
 
   const interact = (tile: number): void => {
     const c = cw;
+    const spot = c.room * 128 + tile;
+    if (spot === talkSpot && c.me.heroTick < talkUntil) return;
+    talkSpot = spot;
     const def = screen(c.room);
     const code = c.tiles[tile] as number;
     switch (code) {
@@ -347,13 +368,19 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
           dialogue(TEXT[def.talk ?? 'pell'] ?? []);
           return;
         }
+        // The question starts on No, so mashing A through the counter never spends glints.
         dialogue(TEXT[SHOP_TEXT[s.item] ?? ''] ?? [], () =>
-          ask('Buy it for ' + s.price + ' glints?', ['Yes', 'No'], (i) => {
-            if (i === 0) {
-              host.sendEvent(writeBuy(w.reset(), s.item).copy());
-              audio.play('buy');
-            }
-          }),
+          ask(
+            'Buy it for ' + s.price + ' glints?',
+            ['Yes', 'No'],
+            (i) => {
+              if (i === 0) {
+                host.sendEvent(writeBuy(w.reset(), s.item).copy());
+                audio.play('buy');
+              }
+            },
+            1,
+          ),
         );
         return;
       }
@@ -474,8 +501,10 @@ export const mountBellwick = (el: HTMLElement, host: MatchHost, opts: MountOpts)
   });
 
   const heroButtons = (): number => {
-    // Online the world runs on under a dialogue or the pause menu; the hero stands still there.
-    const b = mode === 'play' ? (held | pending) & 0x7f : 0;
+    // Online the world runs on under a dialogue or the pause menu; the hero stands still there. A new
+    // press after the UI closed still counts through `pending`, even one let go between two samples.
+    swallow &= held;
+    const b = mode === 'play' ? ((held & ~swallow) | pending) & 0x7f : 0;
     pending = 0;
     return b;
   };
