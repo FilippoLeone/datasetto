@@ -92,6 +92,8 @@ export const createSteering = (): Steering => {
         }
         if (order.length > 0) d1 = dirOf(order[order.length - 1] as number);
         if (order.length > 1) d2 = dirOf(order[order.length - 2] as number);
+        // A tap released before this sample still moves one tick.
+        if (d1 === 0) for (let k = 0; k < DIR_BITS.length && d1 === 0; k += 1) if (s.pressed & (DIR_BITS[k] as [number, number])[0]) d1 = (DIR_BITS[k] as [number, number])[1];
       }
       out.byte = inputByte(d1, d2, (s.pressed & ACT.a) !== 0, (s.pressed & ACT.b) !== 0);
       out.menu = (s.pressed & ACT.menu) !== 0;
