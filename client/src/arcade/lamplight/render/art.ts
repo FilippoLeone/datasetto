@@ -125,6 +125,32 @@ const back = (): string[] => {
   return toRows(g);
 };
 
+/** The six emotes, 8 × 8: a amber, k ink, r red, b blue, '.' clear. */
+export const EMOTES: readonly (readonly string[])[] = [
+  ['..aaaa..', '.aaaaaa.', 'aakaakaa', 'aaaaaaaa', 'akaaaaka', 'aakkkkaa', '.aaaaaa.', '..aaaa..'],
+  ['..aaaa..', '.aaaaaa.', 'akkaakka', 'aaaaaaaa', 'akkkkkka', 'aakrrkaa', '.aakkaa.', '..aaaa..'],
+  ['..aaaa..', '.aaaaaa.', 'aakaakaa', 'aakaakaa', 'aaaaaaaa', 'aaakkaaa', '.aakkaa.', '..aaaa..'],
+  ['..aaaa.b', '.aaaaabb', 'aakaakbb', 'aaaaaaaa', 'aaaaaaaa', 'aakkkkaa', '.aaaaaa.', '..aaaa..'],
+  ['...a....', '...aa...', '...aa...', 'aaaaaaa.', 'kaaaaaa.', 'kaaaaaa.', 'kaaaaaa.', '.aaaaa..'],
+  ['..kkkk..', '.k....k.', 'kkkkkkkk', '.kaaaak.', '.kaaaak.', '.kaaaak.', 'kkkkkkkk', '..kkkk..'],
+];
+export const EMOTE_NAMES = ['Smile', 'Laugh', 'Wow', 'Phew', 'Nice hand', 'Good luck'] as const;
+const EMOTE_COLOURS: Readonly<Record<string, string>> = { a: '#f2b84b', k: '#1b1b24', r: '#c8323c', b: '#4ea1ff' };
+
+/** Draw emote `id` into `ctx` at (x, y), `px` CSS px per pixel. */
+export const drawEmote = (ctx: CanvasRenderingContext2D, id: number, x: number, y: number, px: number): void => {
+  const rows = EMOTES[id];
+  if (!rows) return;
+  rows.forEach((row, ry) => {
+    for (let rx = 0; rx < row.length; rx++) {
+      const c = EMOTE_COLOURS[row[rx]];
+      if (!c) continue;
+      ctx.fillStyle = c;
+      ctx.fillRect(x + rx * px, y + ry * px, px, px);
+    }
+  });
+};
+
 export interface Art {
   atlas: Atlas;
   /** Draws a card (or the back) at (x, y) with `scale` CSS px per art pixel. */

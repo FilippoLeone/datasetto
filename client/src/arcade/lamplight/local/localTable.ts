@@ -472,8 +472,11 @@ export const createLocalTable = (o: LocalTableOpts): LocalTable => {
         if (format === 'open') o.practice.release(ref);
         return ok();
       }
-      case 'lamplight:emote':
+      case 'lamplight:emote': {
+        // Offline the emote shows on your own seat only.
+        if (joined) send('lamplight:emote', { t: LOCAL_ID, s: ME, id: Number(d.id) || 0 });
         return ok();
+      }
       default:
         return no('unknown');
     }

@@ -9,6 +9,7 @@ import { render } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Format, SeatStatus } from '@arcade/core/lamplight/engine';
 import { chips, fullChips, type HandRecord, type PreAction, type Turn } from './table';
+import { EMOTE_NAMES } from './render/art';
 import type { LayoutMode } from './render/layout';
 
 export interface SeatSummary {
@@ -33,6 +34,10 @@ export interface SeatSummary {
   sitOutNext: boolean;
   /** Online only: why you cannot play (old app version, signed out). */
   blocked: string | null;
+  /** You may sit down (cash, a seat free) or register (a Cup or Trio before its start). */
+  joinable: boolean;
+  /** Hands have been played here (a newcomer chooses to post a big blind or wait for it). */
+  running: boolean;
 }
 
 export const EMPTY_SEAT: SeatSummary = {
@@ -54,6 +59,8 @@ export const EMPTY_SEAT: SeatSummary = {
   buyIn: 0,
   sitOutNext: false,
   blocked: null,
+  joinable: true,
+  running: false,
 };
 
 export interface BarApi {
@@ -62,7 +69,14 @@ export interface BarApi {
   sitOut(on: boolean): void;
   topUp(amount: number): void;
   refill(): void;
-  join(buyIn: number): void;
+  join(buyIn: number, post: 'now' | 'wait'): void;
+  emote(id: number): void;
+  /** Draw emote `id` into a small canvas. */
+  paintEmote(canvas: HTMLCanvasElement, id: number): void;
+  /** Online: older hands from the server, 20 per page. */
+  older(before: number | null): Promise<OlderHand[]>;
+  /** Online: one older hand as lines, and its deck check. */
+  open(row: OlderHand): Promise<{ lines: string[]; check: () => Promise<string> }>;
   leave(): void;
   show(): void;
   fast(on: boolean): void;
@@ -70,6 +84,16 @@ export interface BarApi {
   verify(rec: HandRecord): Promise<string>;
   history(): readonly HandRecord[];
   hints(): { call: string; fold: string; raise: string };
+}
+
+export interface OlderHand {
+  id: number;
+  t: string;
+  h: number;
+  at: number;
+  label: string;
+  net: number;
+  pot: number;
 }
 
 /** Module-local signals (one set per mounted table). */
@@ -86,6 +110,9 @@ export const createBarState = () => ({
   fast: signal(false),
   twoColour: signal(false),
   allinArmed: signal(0),
+  postNow: signal(false),
+  emotes: signal(false),
+  emoteAt: signal(0),
 });
 export type BarState = ReturnType<typeof createBarState>;
 
@@ -208,6 +235,7 @@ const Drawer = ({ s, api }: { s: BarState; api: BarApi }) => {
             )}
           </div>
         ))}
+        {!s.seatState.value.local && <Older api={api} />}
         <p class="mt-3 px-1 leading-5 text-[#9aa3a0]">
           The deck check shows that the cards did not change during a hand. It cannot stop whoever runs the server from choosing the deck, and nothing can stop
           friends from telling each other their cards over voice. Chips here are play chips only.
@@ -216,6 +244,85 @@ const Drawer = ({ s, api }: { s: BarState; api: BarApi }) => {
     </div>
   );
 };
+
+/** Hands from before this session (the server keeps 30 days), 20 per page. */
+const Older = ({ api }: { api: BarApi }) => {
+  const [rows, setRows] = useState<OlderHand[] | null>(null);
+  const [more, setMore] = useState(true);
+  const [open, setOpen] = useState<{ id: number; lines: string[]; check: () => Promise<string>; verdict: string | null } | null>(null);
+  const load = () =>
+    void api.older(rows && rows.length ? rows[rows.length - 1].id : null).then((page) => {
+      setRows([...(rows ?? []), ...page]);
+      if (page.length < 20) setMore(false);
+    });
+  if (!rows)
+    return (
+      <button type="button" class={quiet + ' mt-2 w-full'} onClick={load}>
+        Older hands
+      </button>
+    );
+  return (
+    <div class="mt-2">
+      <p class="px-1 pb-1 font-semibold text-[#f4ead5]">Older hands</p>
+      {rows.length === 0 && <p class="p-2 text-[#9aa3a0]">None in the last 30 days.</p>}
+      {rows.map((r) => (
+        <div key={r.id} class="mb-1 rounded-md bg-white/5">
+          <button
+            type="button"
+            class="flex min-h-11 w-full items-center justify-between px-2 text-left"
+            onClick={() => (open?.id === r.id ? setOpen(null) : void api.open(r).then((o) => setOpen({ id: r.id, ...o, verdict: null })))}
+          >
+            <span>
+              Hand {r.h} · {r.label}
+            </span>
+            <span class={r.net > 0 ? 'text-[#7fd49a]' : r.net < 0 ? 'text-[#f08a8a]' : 'text-[#9aa3a0]'}>{(r.net > 0 ? '+' : '') + fullChips(r.net)}</span>
+          </button>
+          {open?.id === r.id && (
+            <div class="px-2 pb-2">
+              {open.lines.map((l) => (
+                <p class="leading-5">{l}</p>
+              ))}
+              <button type="button" class={quiet + ' mt-2'} onClick={() => void open.check().then((v) => setOpen({ ...open, verdict: v }))}>
+                Verify deck
+              </button>
+              {open.verdict && <p class="mt-1">{open.verdict}</p>}
+            </div>
+          )}
+        </div>
+      ))}
+      {more && rows.length > 0 && (
+        <button type="button" class={quiet + ' w-full'} onClick={load}>
+          More
+        </button>
+      )}
+    </div>
+  );
+};
+
+/** Six pixel emotes, at most one every 3 s. */
+const Emotes = ({ s, api }: { s: BarState; api: BarApi }) => (
+  <div class="pointer-events-auto absolute top-12 right-14 z-10 grid grid-cols-3 gap-1 rounded-lg bg-[#121c1b]/97 p-2 shadow-modal" data-ll-emotes>
+    {EMOTE_NAMES.map((name, id) => (
+      <button
+        type="button"
+        class={quiet + ' flex items-center justify-center'}
+        aria-label={name}
+        title={name}
+        disabled={Date.now() - s.emoteAt.value < 3000}
+        onClick={() => {
+          s.emotes.value = false;
+          s.emoteAt.value = Date.now();
+          api.emote(id);
+        }}
+      >
+        <canvas width={24} height={24} style={{ width: '24px', height: '24px', imageRendering: 'pixelated' }} ref={(c) => {
+            if (c) api.paintEmote(c, id);
+          }}
+        />
+      </button>
+    ))}
+  </div>
+);
 
 const Menu = ({ s, api, seat }: { s: BarState; api: BarApi; seat: SeatSummary }) => (
   <div class="pointer-events-auto absolute top-12 right-2 z-10 flex w-56 flex-col gap-1 rounded-lg bg-[#121c1b]/97 p-2 shadow-modal" data-ll-menu>
@@ -232,6 +339,18 @@ const Menu = ({ s, api, seat }: { s: BarState; api: BarApi; seat: SeatSummary })
     {seat.format === 'open' && seat.seated && (
       <button type="button" class={quiet + ' text-left'} onClick={() => api.sitOut(!seat.sitOutNext)}>
         {seat.sitOutNext ? 'Sit back in' : 'Sit out next hand'}
+      </button>
+    )}
+    {seat.format === 'open' && seat.seated && seat.status !== 'busted' && seat.stack < seat.maxBuyIn && !(seat.handRunning && seat.inHand) && (
+      <button
+        type="button"
+        class={quiet + ' text-left'}
+        onClick={() => {
+          s.menu.value = false;
+          api.topUp(seat.maxBuyIn - seat.stack);
+        }}
+      >
+        Top up to {chips(seat.maxBuyIn)}
       </button>
     )}
     {seat.local && (
@@ -300,6 +419,8 @@ const Bar = ({ s, api }: { s: BarState; api: BarApi }) => {
         </button>
       </>
     );
+  } else if (!seat.seated && !seat.joinable) {
+    body = <p class={'text-center text-sm text-[#9aa3a0] ' + grow}>Watching</p>;
   } else if (!seat.seated) {
     const cost = seat.format === 'open' ? buy || seat.maxBuyIn : seat.buyIn;
     const short = seat.balance !== null && seat.balance < (seat.format === 'open' ? seat.minBuyIn : seat.buyIn);
@@ -326,7 +447,13 @@ const Bar = ({ s, api }: { s: BarState; api: BarApi }) => {
             onInput={(e) => setBuy(Number((e.target as HTMLInputElement).value))}
           />
         )}
-        <button type="button" class={solid + ' ' + (column ? 'w-full' : '')} onClick={() => api.join(cost)} data-ll-join>
+        {seat.format === 'open' && seat.running && !seat.local && (
+          <label class="flex min-h-12 items-center gap-1 text-xs text-[#f4ead5]">
+            <input type="checkbox" checked={s.postNow.value} onChange={(e) => (s.postNow.value = (e.target as HTMLInputElement).checked)} />
+            Post BB now
+          </label>
+        )}
+        <button type="button" class={solid + ' ' + (column ? 'w-full' : '')} onClick={() => api.join(cost, s.postNow.value ? 'now' : 'wait')} data-ll-join>
           {seat.format === 'open' ? 'Sit · ' + chips(cost) : 'Join · ' + chips(cost)}
         </button>
       </>
@@ -403,6 +530,18 @@ const Bar = ({ s, api }: { s: BarState; api: BarApi }) => {
           {fullChips(seat.balance)} {seat.local ? 'practice chips' : 'chips'}
         </span>
       )}
+      {seat.seated && (
+        <button
+          type="button"
+          class="pointer-events-auto absolute top-2 right-16 flex h-11 min-w-11 items-center justify-center rounded-md bg-[#121c1b]/85 px-3 text-sm font-semibold text-[#f4ead5]"
+          aria-label="Emotes"
+          aria-expanded={s.emotes.value}
+          onClick={() => (s.emotes.value = !s.emotes.value)}
+        >
+          :)
+        </button>
+      )}
+      {s.emotes.value && <Emotes s={s} api={api} />}
       {s.menu.value && <Menu s={s} api={api} seat={seat} />}
       {s.drawer.value && <Drawer s={s} api={api} />}
       <div class={wrap} data-ll-bar>

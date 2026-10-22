@@ -9,7 +9,7 @@ import type { TableState } from '@arcade/core/lamplight/engine';
 import { textWidth, drawText } from '../../runtime/font';
 import type { Effect, TableModel } from '../table';
 import { chips } from '../table';
-import { BACK, CARD_H, CARD_W, C, CHIP_COLOURS, css, type Art } from './art';
+import { BACK, CARD_H, CARD_W, C, CHIP_COLOURS, css, drawEmote, type Art } from './art';
 import { layoutTable, type Layout } from './layout';
 
 interface Tween {
@@ -48,6 +48,7 @@ export const createScene = (o: { canvas: HTMLCanvasElement; art: Art; model: Tab
   let meSeat: number | null = null;
   const tweens: Tween[] = [];
   const bubbles = new Map<number, { text: string; until: number; colour: number }>();
+  const emotes = new Map<number, { id: number; until: number }>();
   const winners = new Set<number>();
   let trio: { mult: number; start: number } | null = null;
   let lastPots: { a: number; w: number[] }[] = [];
@@ -231,6 +232,15 @@ export const createScene = (o: { canvas: HTMLCanvasElement; art: Art; model: Tab
     }
     // The dealer token is a badge on the avatar, so it never covers cards or bets.
     if (hand && hand.button === n) dealer(c, spot.x - r + 3, spot.y - r + 3);
+    const emote = emotes.get(n);
+    if (emote && emote.until > now) {
+      const ex = spot.x + r - 6;
+      const ey = spot.y - r - 30;
+      c.fillStyle = 'rgba(244,234,213,0.95)';
+      roundRect(c, ex - 4, ey - 4, 32, 32, 8);
+      c.fill();
+      drawEmote(c, emote.id, ex, ey, 3);
+    }
     const bubble = bubbles.get(n);
     if (bubble && bubble.until > now) {
       const bw = textWidth(bubble.text) * 2 + 12;
@@ -388,6 +398,8 @@ export const createScene = (o: { canvas: HTMLCanvasElement; art: Art; model: Tab
           }
         }
         tweens.push({ kind: 'glow', start: now, dur: dur(1200), seat: -1, n: 0 });
+      } else if (e.k === 'emote') {
+        emotes.set(e.s, { id: e.id, until: now + 2000 });
       } else if (e.k === 'trio') {
         trio = { mult: e.mult, start: fast ? now - 3000 : now };
         tweens.push({ kind: 'trio', start: now, dur: fast ? 1 : 4800, seat: -1, n: 0 });
@@ -396,6 +408,7 @@ export const createScene = (o: { canvas: HTMLCanvasElement; art: Art; model: Tab
     nextExpiry(now) {
       let soonest: number | null = null;
       for (const b of bubbles.values()) if (b.until > now && (soonest === null || b.until < soonest)) soonest = b.until;
+      for (const e of emotes.values()) if (e.until > now && (soonest === null || e.until < soonest)) soonest = e.until;
       return soonest;
     },
     draw(now) {
@@ -411,6 +424,7 @@ export const createScene = (o: { canvas: HTMLCanvasElement; art: Art; model: Tab
       ctx.imageSmoothingEnabled = false;
       for (let i = tweens.length - 1; i >= 0; i--) if (now > tweens[i].start + tweens[i].dur) tweens.splice(i, 1);
       for (const [seat, b] of bubbles) if (b.until <= now) bubbles.delete(seat);
+      for (const [seat, e] of emotes) if (e.until <= now) emotes.delete(seat);
       if (view) {
         drawBoard(ctx, view, now);
         for (let n = 0; n < view.seats.length; n++) drawSeat(ctx, view, n, now);

@@ -9,7 +9,9 @@
  */
 import { BOT_LEVELS } from '@arcade/core/lamplight/bots';
 import type { BotLevel, Format, Tier } from '@arcade/core/lamplight/engine';
-import { CUP_BUY_INS, TIERS, TRIO_BUY_INS } from '@arcade/core/lamplight/schedule';
+import { CUP_BUY_INS, tierLabel, TIERS, TRIO_BUY_INS } from '@arcade/core/lamplight/schedule';
+import { botName } from '@arcade/core/lamplight/bots';
+import { formatCard } from '@arcade/core/lamplight/cards';
 import { createGameAudio } from '../runtime/audio';
 import { createLoop } from '../runtime/loop';
 import { practiceWallet } from '../runtime/practiceWallet';
@@ -19,8 +21,8 @@ import { chordFor, LAMPLIGHT_GAIN, SOUNDS } from './audio';
 import { createBarState, EMPTY_SEAT, mountBar, type BarApi, type SeatSummary } from './bar';
 import { createKeys, createPad, type Command } from './input';
 import { createLocalTable } from './local/localTable';
-import { subtleSha256, verifyHand } from './proofView';
-import { createArt, type Art } from './render/art';
+import { recordLines, seenOf, subtleSha256, verifyHand, type ServedRecord } from './proofView';
+import { createArt, drawEmote, type Art } from './render/art';
 import { createScene, type Scene } from './render/draw';
 import { createRing } from './render/ring';
 import { createTableModel, EVENT_NAMES, type Effect } from './table';
@@ -177,6 +179,8 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
       buyIn: model.buyIn,
       sitOutNext: s?.status === 'sittingOut',
       blocked: null,
+      joinable: view.config.format === 'open' ? view.seats.some((x) => !x.player) : model.registering,
+      running: view.handsPlayed > 0,
     };
   };
   const writeSeat = (): void => {
@@ -387,9 +391,9 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
     refill() {
       void request('lamplight:refill', {}).then(() => writeSeat());
     },
-    join(buyIn) {
+    join(buyIn, post) {
       unlock();
-      void request<{ ok: boolean; code?: string }>(model.view?.config.format === 'open' ? 'lamplight:sit' : 'lamplight:join', { buyIn, post: 'wait', id: requestId() }).then(
+      void request<{ ok: boolean; code?: string }>(model.view?.config.format === 'open' ? 'lamplight:sit' : 'lamplight:join', { buyIn, post, id: requestId() }).then(
         (r) => !r.ok && hint(r.code),
       );
     },
@@ -411,6 +415,45 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
       writeGamePref('lamplight', { fast: bar.fast.value, twoColour: two });
       bar.menu.value = false;
       markDirty();
+    },
+    emote(id) {
+      void request<{ ok: boolean; code?: string }>('lamplight:emote', { id }).then((r) => !r.ok && hint(r.code));
+    },
+    paintEmote(c, id) {
+      const g = c.getContext('2d');
+      if (!g) return;
+      g.clearRect(0, 0, c.width, c.height);
+      drawEmote(g, id, 0, 0, Math.floor(c.width / 8));
+    },
+    async older(before) {
+      const r = await request<{ ok: boolean; rows?: { id: number; t: string; h: number; at: number; f: string; tier: string | null; net: number; pot: number }[] }>('lamplight:hands', before ? { before } : {});
+      return (r.rows ?? []).map((x) => ({
+        id: x.id,
+        t: x.t,
+        h: x.h,
+        at: x.at,
+        net: x.net,
+        pot: x.pot,
+        label: x.tier && (TIERS as readonly string[]).includes(x.tier) ? tierLabel(x.tier as Tier) : x.f === 'cup' ? 'Lamplight Cup' : 'Firefly Trio',
+      }));
+    },
+    async open(row) {
+      const r = await host.request<{ ok: boolean; record?: ServedRecord }>('lamplight:record', { t: row.t, h: row.h });
+      const rec = r.record;
+      if (!r.ok || !rec) return { lines: ['This hand is no longer available.'], check: async () => 'This hand can no longer be checked.' };
+      const me = opts.me.accountId ?? '';
+      const ids = rec.seats.map((x) => x[1]).filter((x): x is string => !!x);
+      const names = new Map<string, string>(ids.map((id, i) => [id, opts.shell.names(ids)[i] ?? 'Player']));
+      const name = (seat: number): string => {
+        const x = rec.seats.find((y) => y[0] === seat);
+        if (!x) return 'Seat ' + (seat + 1);
+        if (x[1] === me) return 'You';
+        return x[1] ? (names.get(x[1]) ?? 'Player') : botName(x[2]);
+      };
+      return {
+        lines: recordLines(rec, name, formatCard),
+        check: () => verifyHand(host, row.t, { no: row.h, at: row.at, label: row.label, lines: [], net: row.net, pot: row.pot, cr: rec.cr, seen: seenOf(rec, me), seed: null, done: true }, subtleSha256()),
+      };
     },
     verify: (rec) => verifyHand(host, t, rec, subtleSha256()),
     history: () => model.history,
@@ -453,7 +496,7 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
       if (host.mode === 'local') {
         void request('lamplight:fast', { on: prefs.fast });
         // Offline you sit down at once with the default buy-in (or see the refill offer).
-        if (model.me === null || !model.view?.seats[model.me]?.player) api.join(model.view?.config.buyInMax ?? 0);
+        if (model.me === null || !model.view?.seats[model.me]?.player) api.join(model.view?.config.buyInMax ?? 0, 'wait');
       }
     })
     .catch(() => undefined);

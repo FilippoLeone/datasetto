@@ -105,6 +105,8 @@ export interface TableModel {
   readonly result: { place: number; prize: number } | null;
   readonly payouts: readonly number[];
   readonly buyIn: number;
+  /** A Cup or Trio still taking registrations (online). */
+  readonly registering: boolean;
   preAction: PreAction;
   /** The call amount a 'call' pre-action was armed for. */
   preCall: number;
@@ -124,6 +126,7 @@ export const createTableModel = (o: TableModelOpts): TableModel => {
   let result: { place: number; prize: number } | null = null;
   let payouts: number[] = [];
   let buyIn = 0;
+  let registering = false;
   const history: HandRecord[] = [];
   const nameCache = new Map<string, string>();
   let current: HandRecord | null = null;
@@ -175,6 +178,9 @@ export const createTableModel = (o: TableModelOpts): TableModel => {
     },
     get payouts() {
       return payouts;
+    },
+    get registering() {
+      return registering;
     },
     get buyIn() {
       return buyIn;
@@ -286,6 +292,7 @@ export const createTableModel = (o: TableModelOpts): TableModel => {
       balance = typeof d.bal === 'number' ? d.bal : balance;
       payouts = Array.isArray(d.pay) ? (d.pay as number[]) : payouts;
       buyIn = typeof d.bi === 'number' ? d.bi : buyIn;
+      registering = typeof d.reg === 'number';
       if (d.res && typeof d.res === 'object') result = d.res as { place: number; prize: number };
       o.onChange('seat');
       o.onChange('view');
@@ -319,6 +326,7 @@ export const createTableModel = (o: TableModelOpts): TableModel => {
     const v = view;
     switch (nameIn) {
       case 'lamplight:hand': {
+        registering = false;
         me = me ?? findMe();
         startRecord(Number(d.no), d);
         const dealt = v.seats.filter((s) => s.inHand).map((s) => s.seat);
@@ -390,6 +398,7 @@ export const createTableModel = (o: TableModelOpts): TableModel => {
         break;
       }
       case 'lamplight:trio': {
+        registering = false;
         o.onEffect({ k: 'trio', mult: Number(d.mult), pool: Number(d.pool) });
         payouts = Array.isArray(d.pay) ? (d.pay as number[]) : payouts;
         line('Firefly multiplier ×' + d.mult + ': the pool is ' + fullChips(Number(d.pool)));

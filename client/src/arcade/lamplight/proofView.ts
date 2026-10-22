@@ -29,3 +29,59 @@ export const verifyHand = async (host: TableHost, t: string, rec: HandRecord, sh
   if (result.ok) return 'Deck verified: the cards did not change during this hand.';
   return 'Mismatch: the proof does not match what you saw (' + result.why + ').';
 };
+
+/** A stored hand as the server serves it (`lamplight:record`), filtered for you. */
+export interface ServedRecord {
+  h: number;
+  f: string;
+  tier: string | null;
+  lv: [number, number, number];
+  btn: number;
+  seats: [number, string | null, string | null, number][];
+  dealt: number[];
+  acts: [number, number, string, number][];
+  board: number[];
+  pots: { a: number; w: number[] }[];
+  net: [number, number][];
+  shown: [number, number, number][];
+  cr: string;
+  own: [number, number] | null;
+}
+
+const STREET_NAMES = ['Preflop', 'Flop', 'Turn', 'River'];
+const ACT_WORDS: Record<string, string> = { f: 'folds', x: 'checks', c: 'calls', b: 'bets', r: 'raises to', a: 'is all-in' };
+
+/** Deck positions and cards you saw in a stored hand (your own, the board, shown hands). */
+export const seenOf = (rec: ServedRecord, me: string): { i: number; c: number }[] => {
+  const n = rec.dealt.length;
+  const out: { i: number; c: number }[] = [];
+  const mine = rec.seats.find((s) => s[1] === me);
+  if (mine && rec.own) {
+    const k = rec.dealt.indexOf(mine[0]);
+    if (k >= 0) out.push({ i: k, c: rec.own[0] }, { i: n + k, c: rec.own[1] });
+  }
+  rec.board.forEach((c, b) => out.push({ i: 2 * n + b, c }));
+  for (const [seat, a, b] of rec.shown) {
+    const k = rec.dealt.indexOf(seat);
+    if (k >= 0 && seat !== mine?.[0]) out.push({ i: k, c: a }, { i: n + k, c: b });
+  }
+  return out;
+};
+
+/** A stored hand as text lines ("Pip raises to 150"). */
+export const recordLines = (rec: ServedRecord, name: (seat: number) => string, card: (c: number) => string): string[] => {
+  const lines: string[] = [];
+  if (rec.own) lines.push('Your cards: ' + rec.own.map(card).join(' '));
+  let street = -1;
+  for (const [st, seat, k, a] of rec.acts) {
+    if (st !== street) {
+      street = st;
+      const shown = st === 0 ? [] : rec.board.slice(0, st === 1 ? 3 : st === 2 ? 4 : 5);
+      lines.push(STREET_NAMES[st] + (shown.length ? ': ' + shown.map(card).join(' ') : ''));
+    }
+    lines.push(name(seat) + ' ' + (ACT_WORDS[k] ?? k) + (k === 'c' || k === 'b' || k === 'r' ? ' ' + a.toLocaleString('en-US') : ''));
+  }
+  for (const [seat, a, b] of rec.shown) lines.push(name(seat) + ' shows ' + card(a) + ' ' + card(b));
+  for (const p of rec.pots) lines.push(p.w.map(name).join(' and ') + (p.w.length > 1 ? ' split ' : ' wins ') + p.a.toLocaleString('en-US'));
+  return lines;
+};
