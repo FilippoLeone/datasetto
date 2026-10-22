@@ -12,7 +12,7 @@ import { localSpeaking, voiceChannelId, voicePeers } from '@/state/voice';
 import { account } from '@/state/session';
 import { openModal } from '@/state/ui';
 import { closeConversation, selectChannel } from './channelActions';
-import { arcadeBadge } from '@/features/arcade/state';
+import { arcadeActivity, arcadeBadge, arcadeHidden, gameHidden, openArcade } from '@/features/arcade/state';
 import { PeerVolumePanel } from '@/features/voice/PeerVolumePanel';
 import { voiceManager } from '@/features/voice/voiceManager';
 import type { Channel, ChannelType, CreatableChannelType } from '@/types/protocol';
@@ -262,12 +262,46 @@ const Group = ({ type }: { type: CreatableChannelType }) => {
   );
 };
 
+/**
+ * The Arcade's place in the sidebar: a row like a channel that opens the Arcade for solo play on
+ * this device. Games in a voice channel start from that channel's header; the count says how many
+ * are running in channels you can see. Gone with "Hide Arcade".
+ */
+const ArcadeRow = () => {
+  if (arcadeHidden.value?.hidden) return null;
+  let running = 0;
+  for (const entries of arcadeActivity.value.values()) {
+    for (const entry of entries) if (!gameHidden(entry.g)) running += 1;
+  }
+  return (
+    <section className="mb-3">
+      <button
+        type="button"
+        aria-label="Arcade"
+        title="Arcade: poker, slots, the bomb arena and the adventure"
+        onClick={() => openArcade({ mode: 'local' })}
+        className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-left text-sm text-text-muted transition-colors duration-150 hover:bg-hover hover:text-text active:bg-active pointer-coarse:py-3"
+        data-arcade-row
+      >
+        <Gamepad2 size={18} className="shrink-0" />
+        <span className="truncate">Arcade</span>
+        {running > 0 && (
+          <span className="ml-auto rounded-full bg-warning/20 px-1.5 text-[10px] font-bold text-warning tabular-nums" title="Games running in voice channels">
+            {running}
+          </span>
+        )}
+      </button>
+    </section>
+  );
+};
+
 export const ChannelList = () => (
   <nav aria-label="Channels">
     <DmGroup />
     {ORDER.map((type) => (
       <Group key={type} type={type} />
     ))}
+    <ArcadeRow />
     <button
       type="button"
       onClick={() => openModal({ type: 'joinPrivateChannel' })}
