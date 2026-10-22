@@ -9,6 +9,8 @@ import { IconButton } from './IconButton';
 interface ModalProps {
   title: string;
   subtitle?: string;
+  /** Shown above the title, e.g. the name and logo on the sign-in screen. */
+  header?: ComponentChildren;
   /** Omit to make the dialog non-dismissable (e.g. the sign-in screen). */
   onClose?: () => void;
   size?: 'sm' | 'md' | 'lg';
@@ -20,7 +22,7 @@ const SIZES = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-2xl' };
 
 const noop = () => undefined;
 
-export const Modal = ({ title, subtitle, onClose, size = 'md', footer, children }: ModalProps) => {
+export const Modal = ({ title, subtitle, header, onClose, size = 'md', footer, children }: ModalProps) => {
   const cardRef = useRef<HTMLDivElement>(null);
   // Android back / the browser's back button on touch screens closes a dismissable dialog.
   useBackClose(Boolean(onClose), onClose ?? noop);
@@ -59,6 +61,7 @@ export const Modal = ({ title, subtitle, onClose, size = 'md', footer, children 
       >
         <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3">
           <div className="min-w-0">
+            {header}
             <h2 className="text-lg font-semibold text-text-bright">{title}</h2>
             {subtitle && <p className="mt-0.5 text-sm text-text-muted">{subtitle}</p>}
           </div>

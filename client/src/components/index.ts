@@ -9,6 +9,7 @@ export { VolumeSlider } from './VolumeSlider';
 export { Select } from './Select';
 export { TextInput, TextArea } from './TextInput';
 export { Spinner } from './Spinner';
+export { Logo } from './Logo';
 export { Menu, type MenuItem } from './Menu';
 export { ToastHost } from './ToastHost';
 export { UpdateNotice } from './UpdateNotice';

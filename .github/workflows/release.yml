@@ -366,12 +366,6 @@ jobs:
           cd desktop
           node ./scripts/copy-dist.mjs
 
-      - name: Generate icon
-        shell: bash
-        run: |
-          cd desktop
-          node ./scripts/generate-icon.mjs
-
       - name: Clean release directory
         shell: bash
         run: |

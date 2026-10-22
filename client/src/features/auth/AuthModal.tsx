@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Button, Field, Modal, TextInput } from '@/components';
+import { Button, Field, Logo, Modal, TextInput } from '@/components';
 import { cn } from '@/lib/cn';
 import { api } from '@/services/socket/api';
 import { serverConfig } from '@/services/ServerConfigService';
@@ -96,6 +96,14 @@ export const AuthModal = ({ initialMode, dismissable }: AuthModalProps) => {
       }
       onClose={dismissable ? closeModal : undefined}
       size="sm"
+      header={
+        dismissable ? undefined : (
+          <div className="mb-4 flex items-center gap-2.5 text-xl font-bold text-text-bright">
+            <Logo size={34} />
+            Datasetto
+          </div>
+        )
+      }
     >
       <form onSubmit={submit} noValidate>
         {tabs}

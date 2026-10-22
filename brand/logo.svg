@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+<defs>
+<linearGradient id="dsto-planet" gradientUnits="userSpaceOnUse" x1="88" y1="56" x2="168" y2="200">
+<stop offset="0" stop-color="#FFAE3B"/>
+<stop offset="1" stop-color="#FF6A3D"/>
+</linearGradient>
+</defs>
+<path fill="url(#dsto-planet)" d="M67.823 180.714A80 80 0 1 1 200.632 94.466A107 17 -33 0 1 67.823 180.714Z"/>
+<path fill="url(#dsto-planet)" d="M97.088 201.786A141 51 -33 0 0 207.98 129.772A80 80 0 0 1 97.088 201.786Z"/>
+<path fill="#12A89D" d="M40.766 145.639A132 42 -33 1 0 179.596 55.482A89 89 0 0 1 191.93 66.081A116 26 -33 1 1 45.432 161.218A89 89 0 0 1 40.766 145.639Z"/>
+</svg>

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,8 +29,6 @@ const features = [
   '<uses-feature android:name="android.hardware.microphone" android:required="false" />',
   '<uses-feature android:name="android.hardware.camera" android:required="false" />',
 ];
-
-const iconVector = `<?xml version="1.0" encoding="utf-8"?>\n<vector xmlns:android="http://schemas.android.com/apk/res/android"\n    android:width="24dp"\n    android:height="24dp"\n    android:viewportWidth="24"\n    android:viewportHeight="24">\n    <path\n        android:fillColor="#FFFFFFFF"\n        android:pathData="M12,2a10,10 0 1,0 0,20 10,10 0 1,0 0,-20zM10.2,7.4l1.8,1.8 1.8,-1.8 1.6,1.6 -1.8,1.8 1.8,1.8 -1.6,1.6 -1.8,-1.8 -1.8,1.8 -1.6,-1.6 1.8,-1.8 -1.8,-1.8z" />\n</vector>\n`;
 
 // The manifest fragments above are joined with \n. The manifest is edited on LF so they match
 // on a CRLF checkout (Windows, core.autocrlf=true) as well as an LF one, and written back in the
@@ -113,13 +111,11 @@ function ensureManifest() {
   writeFileSync(androidManifestPath, withEol(`${manifest.trim()}\n`, eol), 'utf8');
 }
 
+// The notification icon (the brand mark in white) is committed and drawn by brand/generate.mjs.
 function ensureIcon() {
-  if (!existsSync(drawableDir)) {
-    mkdirSync(drawableDir, { recursive: true });
+  if (!existsSync(iconPath)) {
+    console.warn('[configure-android-foreground-service] res/drawable/ic_stat_datasetto.xml is missing: run node brand/generate.mjs --only android.');
   }
-
-  const eol = existsSync(iconPath) ? detectEol(readFileSync(iconPath, 'utf8')) : '\n';
-  writeFileSync(iconPath, withEol(iconVector, eol), 'utf8');
 }
 
 ensureManifest();
