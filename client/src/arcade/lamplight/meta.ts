@@ -17,6 +17,8 @@ export const meta: GameMeta = {
   ],
   seats: [2, 9],
   watch: true,
+  // Bots come from the lobby options (cash and Cup), never the sheet's stepper; the Trio is people only.
+  hostBots: false,
   options: [
     {
       key: 'tier',

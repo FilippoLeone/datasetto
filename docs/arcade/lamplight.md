@@ -1065,4 +1065,4 @@ Where the implementation fills in or differs from the sections above.
 | 17 | Disconnects | The platform calls `onSocketGone` while presence still lists the closing socket; a seat counts as disconnected when no other socket of that account is left. |
 | 18 | Turn ring | A CSS pie (transform and opacity only, so the compositor runs it) restarted for each turn; the 10 Hz timer text runs only on your own turn. |
 | 19 | Layout | In landscape the raise sheet opens beside the button column, which starts below the menu buttons. The board moves up or down by up to 30 px, then shrinks to ×1.5 and ×1.25, while a side seat's name plate or cards would cover it (short stages such as the online stage under the voice strip). |
-| 20 | Platform lobby panel | The sheet's "Bots in free seats" stepper does not apply to Lamplight (its bots come from the lobby options); hiding it for Lamplight is a platform change, requested. |
+| 20 | Platform lobby panel | The catalogue entry sets `hostBots: false`: the sheet shows no "Bots in free seats" stepper (Lamplight's bots come from its lobby options) and leaves the two-player minimum to `onStart`, which answers `players`. |
