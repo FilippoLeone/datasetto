@@ -9,17 +9,19 @@
  *   60 (it never runs more than `maxFps + 1` times in any second).
  * - Paced mode: a rAF pending on every vsync costs a main-thread task per
  *   display frame even when nothing runs in it (on a 240 Hz screen, 180 empty
- *   frames a second around a 60 fps game). So when every subscriber is capped
- *   well below the display rate, the scheduler sleeps on a `setTimeout` until
- *   just before the soonest one is due and then asks for a single rAF, which
- *   still lands the call on a vsync. That needs the display rate, measured from
- *   back-to-back frames: the first frames of a session run as a plain loop,
- *   and one extra frame a second keeps the measurement fresh (a window can
- *   move to another screen). The timer aims just after the vsync before the
- *   due one, so it may fire up to almost a frame late and still hit it. Chrome
- *   answers a rAF from a page that stopped asking for frames at once, stamped
- *   with that earlier vsync; such a frame runs only `once` callbacks and the
- *   call waits one more frame, so a paced call costs about two frames. When
+ *   frames a second around a 60 fps game). So when every subscriber's period
+ *   is at least 1.5 display frames, the scheduler sleeps on a `setTimeout`
+ *   until one display frame minus 1.25 ms before the soonest one is due, then
+ *   asks for a single rAF, which lands the call on its vsync: a timer may fire
+ *   almost a frame late and still hit it (a busy or throttled main thread
+ *   fires timers late). Once a subscriber is due within that last frame, the
+ *   rAF is requested at once, not through a 0 ms timer. The display rate is
+ *   measured from back-to-back frames: the first frames of a session run as a
+ *   plain loop, and one extra frame a second keeps the measurement fresh (a
+ *   window can move to another screen). Chrome answers a rAF from a page that
+ *   stopped asking for frames at once, stamped with the vsync that already
+ *   passed; such a frame runs only `once` callbacks and the call takes the
+ *   next frame, so in Chrome a paced call usually costs two frames. When
  *   timers keep firing later than that (DevTools CPU throttling stretches
  *   them 3–4×, some laptops on battery have coarse timers), pacing gives way
  *   to the plain loop for a few seconds, so the frame rate never drops. Caps
@@ -73,19 +75,23 @@ export interface FrameEnv {
 export const LOW_RATE_MAX_FPS = 15;
 
 /**
- * Pace only when every subscriber skips at least every other display frame
- * (its interval is about twice the display's or more). Closer to the display
- * rate a timer per frame saves little and risks missing the vsync.
+ * Pace only when every subscriber's period is at least this many display
+ * frames (docs/arcade/platform.md note 48). Closer to the display rate a timer
+ * per frame saves little and risks missing the vsync.
  */
-const PACE_MIN_FRAMES = 1.9;
+const PACE_MIN_FRAMES = 1.5;
 
 /**
- * When the pacing timer wakes. Measured pacing wakes this long after the vsync before the one
- * the call should land on: the widest window (almost a frame) for a late timer to still hit
- * it. Low-rate pacing has no measurement and wakes a fixed lead before the due time.
+ * How early the pacing timer wakes before the soonest due time. Measured pacing wakes one display
+ * frame minus 1.25 ms early (at least 1 ms), so the one frame it asks for is the frame the call is
+ * due in even when the timer fires up to almost a frame late (platform.md note 48). Low-rate
+ * pacing (15 fps or less) has no measurement and wakes 2 ms early: a longer lead would take
+ * several frames per call on a fast screen (plan §3.1: at most maxFps + 1 rAF calls a second).
  */
-const LEAD_MARGIN_MS = 0.5;
+const pacedLeadMs = (displayMs: number): number => Math.max(1, displayMs - 1.25);
 const LOW_RATE_LEAD_MS = 2;
+/** The pacing timer never sleeps longer than this (a very low cap wakes once a second and sleeps again). */
+const MAX_SLEEP_MS = 1000;
 
 /** Measured pacing backs off when this many of the last MISS_WINDOW paced frames missed their vsync. */
 const MISS_WINDOW = 10;
@@ -198,10 +204,15 @@ export function createFrames(env: FrameEnv = browserEnv): Frames & { snapshot():
     timerAim = null;
   };
 
-  const requestFrame = () => {
+  /**
+   * `measure`: the frame follows the last one back to back (a loop, a re-measurement, or the
+   * frame after a missed one), so its gap is one display frame. A frame asked for because a call
+   * is due may come several vsyncs later and says nothing about the display.
+   */
+  const requestFrame = (measure = false) => {
     clearTimer();
     if (frameId !== null) return;
-    chained = planningTick;
+    chained = planningTick && measure;
     frameId = env.requestFrame(tick);
   };
 
@@ -223,22 +234,28 @@ export function createFrames(env: FrameEnv = browserEnv): Frames & { snapshot():
     if (ticking) return; // the tick plans once it is done
     if (active() === 0) return stop();
     if (frameId !== null) return; // a frame is coming, and its tick plans again
-    if (onceQueue.length > 0) return requestFrame();
+    if (onceQueue.length > 0) return requestFrame(true);
     const mode = pacing();
-    if (mode === 'loop') return requestFrame();
+    if (mode === 'loop') return requestFrame(true);
     // Paced on the measured display rate: one back-to-back frame a second keeps it current.
-    if (mode === 'measured' && planningTick && lastFrameAt !== null && lastFrameAt - lastSampleAt >= RESAMPLE_MS) return requestFrame();
+    if (mode === 'measured' && planningTick && lastFrameAt !== null && lastFrameAt - lastSampleAt >= RESAMPLE_MS) return requestFrame(true);
     let due = Infinity;
     for (const sub of subs) due = Math.min(due, sub.due);
-    // Wake just after the vsync before the one the call should land on: the first vsync at or
-    // after the due time, predicted from the last frame's timestamp and the measured interval.
     const display = displayInterval();
-    let wakeAt = due - LOW_RATE_LEAD_MS;
+    const lead = mode === 'measured' && display !== null ? pacedLeadMs(display) : LOW_RATE_LEAD_MS;
+    // When the call lands: its due time, or with a measured display the first vsync at or after
+    // it (predicted from the last frame). The two are the same when the due time sits on a vsync
+    // (60 fps on 120 or 240 Hz); on 144 Hz waking from the vsync keeps one frame per call.
+    let landAt = due;
     if (mode === 'measured' && display !== null && lastFrameAt !== null) {
-      const target = lastFrameAt + Math.max(1, Math.ceil((due - TOLERANCE_MS - lastFrameAt) / display)) * display;
-      wakeAt = target - display + LEAD_MARGIN_MS;
+      landAt = lastFrameAt + Math.max(1, Math.ceil((due - TOLERANCE_MS - lastFrameAt) / display)) * display;
     }
-    const wait = Math.ceil(wakeAt - env.now());
+    // A subscriber runs from its due time minus the tick's tolerance; a new one is due at once.
+    // Rounded up: browsers truncate a fractional delay, and waking even a little before the
+    // previous vsync lands the frame there, a vsync early, and costs another frame.
+    const wait = Math.min(MAX_SLEEP_MS, Math.ceil(landAt - TOLERANCE_MS - lead - env.now()));
+    // Already inside the last frame before it is due: ask for that frame now, not through a
+    // timer that could itself fire late and miss it.
     if (wait <= 0) return requestFrame();
     clearTimer();
     timerAim = { due, measured: mode === 'measured' };
@@ -300,7 +317,7 @@ export function createFrames(env: FrameEnv = browserEnv): Frames & { snapshot():
     }
     planningTick = true;
     try {
-      if (early && subs.size > 0) requestFrame();
+      if (early && subs.size > 0) requestFrame(true);
       else plan();
     } finally {
       planningTick = false;

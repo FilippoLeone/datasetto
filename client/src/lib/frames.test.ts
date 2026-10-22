@@ -67,11 +67,12 @@ function fakeDisplay(hz: number, options: { missedFrames?: boolean } = {}) {
       }
       let timer: [number, { at: number; cb: () => void }] | null = null;
       for (const entry of timers) if (!timer || entry[1].at < timer[1].at) timer = entry;
+      while (nextVsync < clock) nextVsync += period; // vsyncs a long frame overran are gone
       const vsync = paused ? Infinity : nextVsync;
-      const next = Math.min(vsync, timer ? timer[1].at : Infinity);
+      const next = Math.max(clock, Math.min(vsync, timer ? timer[1].at : Infinity));
       if (next > end) break;
       clock = next;
-      if (timer && timer[1].at === next) {
+      if (timer && timer[1].at <= next) {
         timers.delete(timer[0]);
         run(timer[1].cb);
         continue;
@@ -98,6 +99,8 @@ function fakeDisplay(hz: number, options: { missedFrames?: boolean } = {}) {
     pendingTimers: () => timers.size,
     pause: (on: boolean) => void (paused = on),
     lateTimers: (ms: number) => void (timerLate = ms),
+    /** Main-thread work inside a callback: the clock moves on. */
+    work: (ms: number) => void (clock += ms),
     /** The window moves to a screen with another refresh rate. */
     setHz(next: number) {
       period = 1000 / next;
@@ -258,11 +261,12 @@ describe('frames', () => {
     expect(f.snapshot().mode).toBe('timer');
   });
 
-  it('paces 60 fps on 144 Hz and 30 fps on 60 Hz, but keeps a loop when the cap is near the display rate', () => {
+  it('paces when the period is at least 1.5 display frames, and keeps a loop closer to the display rate', () => {
     const cases: Array<[hz: number, fps: number, paced: boolean]> = [
       [144, 60, true],
       [60, 30, true],
-      [90, 60, false],
+      [100, 60, true],
+      [75, 60, false],
       [60, 60, false],
       [240, 200, false],
     ];
@@ -349,19 +353,61 @@ describe('frames', () => {
     expect(f.snapshot()).toMatchObject({ mode: 'idle', displayHz: null });
   });
 
-  it('still lands every paced call on its vsync when timers fire a little late', () => {
+  it('holds 60 fps on a 240 Hz display when every timer fires 3 ms late (a throttled main thread)', () => {
     const display = fakeDisplay(240);
-    display.lateTimers(2.5);
+    display.lateTimers(3);
     const f = createFrames(display.env);
     const dts: number[] = [];
     f.add((_now, dt) => dts.push(dt), { maxFps: 60 });
     display.advance(200);
     display.stats.rafCalls = 0;
     dts.length = 0;
+    display.advance(1000);
+    expect(dts.length).toBeGreaterThanOrEqual(57);
+    expect(display.stats.rafCalls).toBeLessThan(100); // still paced: one frame per call
+    for (const dt of dts) expect(dt).toBeCloseTo(1000 / 60, 5); // and every call on its own vsync
+  });
+
+  it('asks for the frame at once when a long frame leaves the call due within the next one', () => {
+    const display = fakeDisplay(240);
+    display.lateTimers(3);
+    const f = createFrames(display.env);
+    let calls = 0;
+    // 14 ms of work per call: the frame ends with less than the lead left before the next call.
+    f.add(() => {
+      calls++;
+      if (calls > 30) display.work(14);
+    }, { maxFps: 60 });
+    display.advance(500); // measure the display while the frames are light
+    expect(f.snapshot().displayHz).toBe(240);
+    calls = 31;
+    const before = calls;
     display.advance(2000);
-    for (const dt of dts) expect(dt).toBeCloseTo(1000 / 60, 5);
-    expect(dts.length).toBeGreaterThanOrEqual(119);
-    expect(display.stats.rafCalls).toBeLessThanOrEqual(124); // still paced
+    expect(calls - before).toBeGreaterThanOrEqual(2 * 57);
+    expect(f.snapshot().displayHz).toBe(240); // frames asked for this way are not display samples
+  });
+
+  it('asks for the frame at once, never through a 0 ms timer, when the call is due within the current frame', () => {
+    const setups: Array<[hz: number, missedFrames: boolean, late: number]> = [
+      [240, false, 0],
+      [240, true, 0],
+      [144, true, 0],
+      [240, true, 3],
+    ];
+    for (const [hz, missedFrames, late] of setups) {
+      const display = fakeDisplay(hz, { missedFrames });
+      display.lateTimers(late);
+      const delays: number[] = [];
+      const setTimer = display.env.setTimer;
+      const f = createFrames({ ...display.env, setTimer: (cb, ms) => (delays.push(ms), setTimer(cb, ms)) });
+      let calls = 0;
+      f.add(() => calls++, { maxFps: 60 });
+      display.advance(3000);
+      const label = `${hz} Hz${missedFrames ? ', missed frames' : ''}${late ? `, timers ${late} ms late` : ''}`;
+      expect(delays.length, label).toBeGreaterThan(100);
+      expect(Math.min(...delays), label).toBeGreaterThan(0);
+      expect(calls, label).toBeGreaterThanOrEqual(3 * 57);
+    }
   });
 
   it('falls back to a frame loop while timers fire far too late (CPU throttling), so the rate holds', () => {
