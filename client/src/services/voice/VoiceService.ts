@@ -9,8 +9,8 @@ import { config } from '@/config';
 import { serverConfig } from '@/services/ServerConfigService';
 import { DEFAULT_SCREEN_QUALITY, applyScreenEncoding, applyScreenQualityToStream, captureScreen, isCancelError } from '@/services/screenCapture';
 import { captureCamera } from './cameraCapture';
-import { iceRestartDelay, isOfferStale, needsOwnOffer, resolveOfferCollision, type PendingOffer } from './negotiation';
 import { PeerAudioManager, type PeerAudioPreference } from './PeerAudioManager';
+import { iceRestartDelay, isOfferStale, needsOwnOffer, resolveOfferCollision, type PendingOffer } from './negotiation';
 
 export type { PeerAudioPreference } from './PeerAudioManager';
 

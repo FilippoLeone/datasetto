@@ -93,8 +93,6 @@ class VoiceManager {
     this.voice = new VoiceService(settings.voiceBitrate, settings.dtx, settings.vadThreshold);
     this.voice.setScreenQuality(settings.screenQuality);
     this.voice.setShareClipsAllowed(settings.shareClipsAllowed);
-    // When both sides offer at once (both restart ICE after a drop), the larger account id yields.
-    this.voice.setPolitePeer((peerId) => isPolitePeer(account.value?.id, voicePeers.value[peerId]?.accountId ?? usersById.value.get(peerId)?.accountId));
     noiseSuppressionStatus.value = this.audio.getNeuralStatus();
   }
 
@@ -632,6 +630,8 @@ class VoiceManager {
   }
 
   private bindServices(): void {
+    // When both sides offer at once (both restart ICE after a drop), the larger account id yields.
+    this.voice.setPolitePeer((peerId) => isPolitePeer(account.value?.id, voicePeers.value[peerId]?.accountId ?? usersById.value.get(peerId)?.accountId));
     this.voice.on('voice:offer', ({ peerId, offer, offerId }) => api.sendVoiceSignal(peerId, { sdp: offer, offerId }));
     this.voice.on('voice:answer', ({ peerId, answer, offerId }) => api.sendVoiceSignal(peerId, offerId === undefined ? { sdp: answer } : { sdp: answer, offerId }));
     this.voice.on('voice:ice-candidate', ({ peerId, candidate }) => api.sendVoiceSignal(peerId, { candidate }));
