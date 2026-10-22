@@ -118,8 +118,11 @@ export const createFuseyardCore = (o: FuseyardCoreOpts): FuseyardCore => {
     qIn[at] = v;
     qSeq[at] = seq;
     qLen[s] = (qLen[s] as number) + 1;
+  };
+
+  /** Backlog (after a whole UP is queued): above 4, keep the newest two; dropped presses ride on the first kept. */
+  const trim = (s: number): void => {
     if ((qLen[s] as number) > QUEUE_TRIM_ABOVE) {
-      // Backlog: keep the newest two; the dropped presses ride on the first kept input.
       let presses = 0;
       for (let k = (qLen[s] as number) - QUEUE_TRIM_TO; k > 0; k -= 1) {
         const h = qHead[s] as number;
@@ -279,6 +282,7 @@ export const createFuseyardCore = (o: FuseyardCoreOpts): FuseyardCore => {
         lastSeq[slot] = seq;
         push(slot, sanitizeInput(inputs[i] as number), seq);
       }
+      trim(slot);
     },
     onEvent(_slot, payload) {
       if (!o.offline || payload.length < 5 || payload[0] !== CORE_EVENT.rematch) return;

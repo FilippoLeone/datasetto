@@ -7,33 +7,18 @@
  * Loot, Clear, Hunt, Wait. A bot never places a bomb unless `canEscape` holds. Paths are followed
  * with d1 at the next cell and d2 at the one after it.
  */
-import { MULBERRY_INC, mulberry32Out } from '../rng.js';
-import { ARENAS, type Arena } from './arenas.js';
-import { NEVER, bombTime, chainOf, dFrom, dRemote, dTo, footContains, footprintHas, isSafe, walkBlast } from './danger.js';
-import {
-  BotLevel,
-  CELLS,
-  Cell,
-  Control,
-  DX,
-  DY,
-  FLAME,
-  FUSE,
-  IN_BOMB,
-  IN_DETONATE,
-  Item,
-  MAX_BOMBS,
-  REMOTE,
-  Special,
-  W,
-  cellAt,
-  inputByte,
-  ticksPerTile,
-  type BotBrain,
-  type BotView,
-  type Bomb,
-  type Fighter,
-} from './rules.js';
+import * as __rng from '../rng.js';
+import * as __arenas from './arenas.js';
+import type { Arena } from './arenas.js';
+import * as __danger from './danger.js';
+import * as __rules from './rules.js';
+import type { BotBrain, BotView, Bomb, Fighter } from './rules.js';
+
+// Local copies of imported values: hot loops read them without a module-binding lookup.
+const { MULBERRY_INC, mulberry32Out } = __rng;
+const { ARENAS } = __arenas;
+const { NEVER, bombTime, chainOf, dFrom, dRemote, dRest, dTo, footContains, footprintHas, isSafe, walkBlast } = __danger;
+const { BotLevel, CELLS, Cell, Control, DX, DY, FLAME, FUSE, IN_BOMB, IN_DETONATE, Item, MAX_BOMBS, REMOTE, Special, W, cellAt, inputByte, ticksPerTile } = __rules;
 
 export const BotRule = { Wait: 0, Flee: 1, Trap: 2, Loot: 3, Clear: 4, Hunt: 5, Kick: 6 } as const;
 export type BotRule = (typeof BotRule)[keyof typeof BotRule];
@@ -44,6 +29,14 @@ const MARGIN: readonly number[] = [10, 6, 3];
 const MISTAKE: readonly number[] = [6, 1, 0];
 const SKIP_ITEMS: readonly number[] = [25, 1, 0];
 const FLEE_WITHIN = 30;
+/**
+ * Walking about (not fleeing), a bot keeps out of cells that burn within 30 ticks of passing them,
+ * the same horizon that makes it flee: otherwise it plans through a cell, flees out of it, plans
+ * through it again, and dithers on the edge.
+ */
+const PLAN_MARGIN = FLEE_WITHIN;
+/** Before dropping a bomb, its way out keeps at least this many ticks to spare. */
+const ESCAPE_SLACK = 10;
 /** Score per opponent a bomb spot would catch (Sprout only clears blocks). */
 const PRESSURE: readonly number[] = [0, 6, 10];
 const LOOT_RANGE = 8;
@@ -85,7 +78,7 @@ const rand = (rngs: Uint32Array, slot: number): number => {
 const chance = (rngs: Uint32Array, slot: number, pct: number): boolean => pct > 0 && Math.floor((rand(rngs, slot) * 100) / 4294967296) < pct;
 
 const walkable = (v: BotView, bombAt: Int8Array, self: number, c: number): boolean => {
-  if (v.cells[c] !== Cell.Floor) return false;
+  if (v.cells[c] !== Cell.Floor || dRest[c] === 1) return false;
   const bi = bombAt[c] as number;
   return bi < 0 || ((((v.bombs[bi] as Bomb).passers >> self) & 1) === 1);
 };
@@ -232,7 +225,7 @@ const canEscape = (v: BotView, bombAt: Int8Array, self: number, f: Fighter, c: n
   // The bot stands on its own new bomb: the start cell is walkable for it.
   const slide = searchSlide;
   searchSlide = 0;
-  const reached = bfs(v, bombAt, self, c, t0, tpt, m, aFrom, aTo, 24);
+  const reached = bfs(v, bombAt, self, c, t0, tpt, Math.max(m, ESCAPE_SLACK), aFrom, aTo, 24);
   searchSlide = slide;
   for (let k = 1; k < reached; k += 1) {
     const x = order[k] as number;
@@ -315,7 +308,7 @@ const findTrapSpot = (v: BotView, bombAt: Int8Array, self: number, f: Fighter, c
   const reach = TRAP_REACH[level] as number;
   if (reach === 0 || f.bombsOut >= f.bombsMax) return -1;
   const tpt = ticksPerTile(f.speedLvl);
-  const reached = bfs(v, bombAt, self, c, 0, tpt, m, dFrom, dTo, reach);
+  const reached = bfs(v, bombAt, self, c, 0, tpt, PLAN_MARGIN, dFrom, dTo, reach);
   let n = 0;
   for (let k = 1; k < reached && n < trapCand.length; k += 1) {
     const x = order[k] as number;
@@ -329,11 +322,11 @@ const findTrapSpot = (v: BotView, bombAt: Int8Array, self: number, f: Fighter, c
   let found = -1;
   for (let i = 0; i < n && i < TRAP_TRIES && found < 0; i += 1) {
     const x = trapCand[i] as number;
-    bfs(v, bombAt, self, c, 0, tpt, m, dFrom, dTo, reach);
+    bfs(v, bombAt, self, c, 0, tpt, PLAN_MARGIN, dFrom, dTo, reach);
     const t0 = (dist[x] as number) * tpt;
     if (trapAt(v, bombAt, self, f, x, t0, m)) found = x;
   }
-  if (found >= 0) bfs(v, bombAt, self, c, 0, tpt, m, dFrom, dTo, reach);
+  if (found >= 0) bfs(v, bombAt, self, c, 0, tpt, PLAN_MARGIN, dFrom, dTo, reach);
   return found;
 };
 
@@ -411,14 +404,15 @@ const plan = (v: BotView, bombAt: Int8Array, self: number, f: Fighter, b: BotBra
     }
     if (pick >= 0 && pick !== c) setPath(b, pick, BotRule.Flee, ACT_NONE);
     else {
+      // Nowhere better to go: it waits where it is.
       b.pathLen = 0;
-      b.rule = BotRule.Flee;
+      b.rule = BotRule.Wait;
       b.action = ACT_NONE;
       b.target = c;
     }
     return;
   }
-  const reached = bfs(v, bombAt, self, c, 0, tpt, m, dFrom, dTo, CLEAR_RANGE);
+  const reached = bfs(v, bombAt, self, c, 0, tpt, PLAN_MARGIN, dFrom, dTo, CLEAR_RANGE);
   // 3. Loot
   if (!chance(rngs, self, SKIP_ITEMS[level] as number)) {
     let best = -1;
@@ -471,17 +465,17 @@ const plan = (v: BotView, bombAt: Int8Array, self: number, f: Fighter, b: BotBra
           b.action = ACT_BOMB;
         } else {
           // `canEscape` reused the BFS scratch: rebuild the route to the chosen cell.
-          bfs(v, bombAt, self, c, 0, tpt, m, dFrom, dTo, CLEAR_RANGE);
+          bfs(v, bombAt, self, c, 0, tpt, PLAN_MARGIN, dFrom, dTo, CLEAR_RANGE);
           if ((dist[best] as number) < 0) break;
           setPath(b, best, BotRule.Clear, ACT_BOMB);
         }
         return;
       }
-      bfs(v, bombAt, self, c, 0, tpt, m, dFrom, dTo, CLEAR_RANGE);
+      bfs(v, bombAt, self, c, 0, tpt, PLAN_MARGIN, dFrom, dTo, CLEAR_RANGE);
     }
   }
   // 5. Hunt: toward the nearest opponent reachable on open floor, stopping 2–4 cells short.
-  const far = bfs(v, bombAt, self, c, 0, tpt, m, dFrom, dTo, 40);
+  const far = bfs(v, bombAt, self, c, 0, tpt, PLAN_MARGIN, dFrom, dTo, 40);
   let prey = -1;
   for (let k = 1; k < far && prey < 0; k += 1) {
     const x = order[k] as number;

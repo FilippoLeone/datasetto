@@ -10,34 +10,17 @@
  * dropping to fuse 45 when their holder dies or turns ghost.
  */
 import type { ByteReader } from '../bytes.js';
-import { PEV, forEachEvent, type PlatformEvent } from '../net/events.js';
+import * as __events from '../net/events.js';
+import type { PlatformEvent } from '../net/events.js';
 import type { EventBlock } from '../net/lane.js';
-import { ARENAS, type Arena } from './arenas.js';
-import {
-  CELLS,
-  COUNTDOWN,
-  Cell,
-  EV,
-  FLAME,
-  FUSE,
-  KICK_BELT,
-  KICK_SPEED,
-  BELT_SPEED,
-  MAX_BOMBS,
-  ORPHAN_FUSE,
-  PAD_COOLDOWN,
-  Phase,
-  RESULT_CARD,
-  RESUME_COUNT,
-  SHIELD,
-  Seat,
-  EV_SIZE,
-  TELE_BOMB,
-  TELE_FIGHTER,
-  W,
-  WARN_TICKS,
-  cellAt,
-} from './rules.js';
+import * as __arenas from './arenas.js';
+import type { Arena } from './arenas.js';
+import * as __rules from './rules.js';
+
+// Local copies of imported values: hot loops read them without a module-binding lookup.
+const { PEV, forEachEvent } = __events;
+const { ARENAS } = __arenas;
+const { CELLS, COUNTDOWN, Cell, EV, FLAME, FUSE, KICK_BELT, KICK_SPEED, BELT_SPEED, MAX_BOMBS, ORPHAN_FUSE, PAD_COOLDOWN, Phase, RESULT_CARD, RESUME_COUNT, SHIELD, Seat, EV_SIZE, TELE_BOMB, TELE_FIGHTER, W, WARN_TICKS, cellAt } = __rules;
 
 /** A Clicker bomb's fuse end. */
 export const NO_END = 0x7fffffff;

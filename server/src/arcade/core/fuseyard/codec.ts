@@ -192,7 +192,8 @@ export const encodeKeyframe = (w: World, out: ByteWriter, passers = true): ByteW
   out.u16(R);
   for (let s = 0; s < 4; s += 1) out.u8(w.scores[s] as number);
   out.u8(w.spiralIndex);
-  out.u8(clamp8(frozen ? w.tick - w.holdStart : w.phase === Phase.Playing ? 0 : w.phaseEnd - w.tick));
+  // Frozen: the hold's ticks (0 while no lone human holds); else the countdown or card left.
+  out.u8(clamp8(frozen ? (w.holdWinner >= 0 ? w.tick - w.holdStart : 0) : w.phase === Phase.Playing ? 0 : w.phaseEnd - w.tick));
   out.u8(((w.winner + 1) & 7) | (((frozen ? w.holdWinner : -1) + 1) & 7) << 3);
   for (let i = 0; i < CELLS; i += 2) out.u8(((w.cells[i] as number) & 15) | (i + 1 < CELLS ? ((w.cells[i + 1] as number) & 15) << 4 : 0));
   let items = 0;

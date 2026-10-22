@@ -9,77 +9,20 @@
  * 10 Closing Time; 11 flame decay and item reveals; 12 death scatter; 13 the round-end check.
  * Shields count down at the start of a playing step, so a fresh shield always reads 45 after it.
  */
-import { MULBERRY_INC, mulberry32Out } from '../rng.js';
-import { ARENAS, SPIRAL, arenaIndex, spawnOf, type Arena } from './arenas.js';
-import { decideBot, resetBrain } from './bots.js';
-import { buildDanger, footprintHas } from './danger.js';
-import {
-  ARM_BLOCK,
-  BELT_PUSH,
-  BELT_SPEED,
-  BOMBS_CAP,
-  BotLevel,
-  CELLS,
-  CLOSE_EVERY,
-  COUNTDOWN,
-  Cell,
-  Control,
-  DEATH_FLAME,
-  DEATH_STEEL,
-  DX,
-  DY,
-  Dir,
-  EV,
-  EV_SIZE,
-  FLAME,
-  FUSE,
-  GHOST_LOCK_FUSE,
-  GHOST_LOCK_MAX,
-  HIT_HALF,
-  HOLD_WIN,
-  IN_BOMB,
-  IN_DETONATE,
-  Item,
-  KICK_BELT,
-  KICK_SPEED,
-  MAX_BOMBS,
-  NO_SLOT,
-  ORPHAN_FUSE,
-  PAD_COOLDOWN,
-  Phase,
-  RANGE_CAP,
-  REMOTE,
-  RESULT_CARD,
-  RESUME_COUNT,
-  SCATTER_MAX,
-  SCATTER_ORDER,
-  SHIELD,
-  SPEEDS,
-  SPEED_CAP,
-  SPIRAL_CELLS,
-  Seat,
-  SeatCmd,
-  Special,
-  TELE_BOMB,
-  TELE_FIGHTER,
-  TELE_GHOST,
-  W,
-  WARN_TICKS,
-  cellAt,
-  closeStart,
-  inDir1,
-  inDir2,
-  itemCount,
-  maxRounds,
-  roundLimit,
-  type BotBrain,
-  type Bomb,
-  type Fighter,
-  type Match,
-  type MatchConfig,
-  type Round,
-  type StepIn,
-} from './rules.js';
+import * as __rng from '../rng.js';
+import * as __arenas from './arenas.js';
+import type { Arena } from './arenas.js';
+import * as __bots from './bots.js';
+import * as __danger from './danger.js';
+import * as __rules from './rules.js';
+import type { BotBrain, Bomb, Fighter, Match, MatchConfig, Round, StepIn } from './rules.js';
+
+// Local copies of imported values: hot loops read them without a module-binding lookup.
+const { MULBERRY_INC, mulberry32Out } = __rng;
+const { ARENAS, SPIRAL, arenaIndex, spawnOf } = __arenas;
+const { decideBot, resetBrain } = __bots;
+const { buildDanger, footprintHas } = __danger;
+const { ARM_BLOCK, BELT_PUSH, BELT_SPEED, BOMBS_CAP, BotLevel, CELLS, CLOSE_EVERY, COUNTDOWN, Cell, Control, DEATH_FLAME, DEATH_STEEL, DX, DY, Dir, EV, EV_SIZE, FLAME, FUSE, GHOST_LOCK_FUSE, GHOST_LOCK_MAX, HIT_HALF, HOLD_WIN, IN_BOMB, IN_DETONATE, Item, KICK_BELT, KICK_SPEED, MAX_BOMBS, NO_SLOT, ORPHAN_FUSE, PAD_COOLDOWN, Phase, RANGE_CAP, REMOTE, RESULT_CARD, RESUME_COUNT, SCATTER_MAX, SCATTER_ORDER, SHIELD, SPEEDS, SPEED_CAP, SPIRAL_CELLS, Seat, SeatCmd, Special, TELE_BOMB, TELE_FIGHTER, TELE_GHOST, W, WARN_TICKS, cellAt, closeStart, inDir1, inDir2, itemCount, maxRounds, roundLimit } = __rules;
 
 // ------------------------------------------------------------------ movement (shared with the client's predictor)
 
@@ -231,12 +174,12 @@ export const moveFighter = (b: MoveBoard, f: Mover, input: number, out: MoveOut)
     }
   }
   if (moved > 0) {
-    f.facing = dir as Dir;
+    f.facing = dir as __rules.Dir;
     f.moving = true;
     out.moveDir = dir;
   } else {
     f.moving = false;
-    if (out.kickBomb >= 0) f.facing = out.kickDir as Dir;
+    if (out.kickBomb >= 0) f.facing = out.kickDir as __rules.Dir;
   }
   if (out.teleTo >= 0) return;
   const bd = b.beltDir[cellAt(f.x, f.y)] as number;
@@ -448,7 +391,7 @@ export const createMatch = (config: MatchConfig, seats: readonly SeatSetup[]): M
     const f = m.current.fighters[seat.slot];
     if (!f || !f.seated) continue;
     f.control = seat.human ? Control.Human : Control.Bot;
-    f.botLevel = (seat.human ? config.botLevel : seat.botLevel) as BotLevel;
+    f.botLevel = (seat.human ? config.botLevel : seat.botLevel) as __rules.BotLevel;
   }
   setupRound(m, null);
   m.eventsLen = 0;
@@ -778,7 +721,7 @@ const slideBombs = (m: Match): void => {
     if (b.slideDir === Dir.None) {
       const bd = a.beltDir[c] as number;
       if (bd === 0 || !atCentre || bombBlocked(r, c + (DX[bd] as number) + (DY[bd] as number) * W, i)) continue;
-      b.slideDir = bd as Dir;
+      b.slideDir = bd as __rules.Dir;
       b.slideSpeed = BELT_SPEED;
       evBombDir(m, b, bd | KICK_BELT);
     } else if (atCentre) {
@@ -789,7 +732,7 @@ const slideBombs = (m: Match): void => {
           continue;
         }
         if (bd !== b.slideDir) {
-          b.slideDir = bd as Dir;
+          b.slideDir = bd as __rules.Dir;
           evBombDir(m, b, bd | KICK_BELT);
         }
       }
@@ -1242,7 +1185,7 @@ const playStep = (m: Match, input: StepIn): void => {
       const d = moveOut.kickDir;
       const bc = cellAt(b.x, b.y);
       if (b.slideDir === Dir.None && !bombBlocked(r, bc + (DX[d] as number) + (DY[d] as number) * W, moveOut.kickBomb)) {
-        b.slideDir = d as Dir;
+        b.slideDir = d as __rules.Dir;
         b.slideSpeed = KICK_SPEED;
         evBombDir(m, b, d);
       }
