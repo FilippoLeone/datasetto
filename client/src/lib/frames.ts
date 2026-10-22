@@ -114,11 +114,20 @@ const SAMPLE_MAX_MS = 50;
 /** While paced on the measurement, one back-to-back frame this often keeps it fresh. */
 const RESAMPLE_MS = 1000;
 
+/**
+ * The shared scheduler's timers. Tests that run it in virtual time swap these (the Arcade's
+ * `installFakeFrames()` does, next to requestAnimationFrame and performance.now); nothing else should.
+ */
+export const frameTimers: { set(cb: () => void, ms: number): unknown; clear(id: unknown): void } = {
+  set: (cb, ms) => setTimeout(cb, ms),
+  clear: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+};
+
 const browserEnv: FrameEnv = {
   requestFrame: (cb) => requestAnimationFrame(cb),
   cancelFrame: (id) => cancelAnimationFrame(id),
-  setTimer: (cb, ms) => setTimeout(cb, ms),
-  clearTimer: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+  setTimer: (cb, ms) => frameTimers.set(cb, ms),
+  clearTimer: (id) => frameTimers.clear(id),
   now: () => performance.now(),
 };
 

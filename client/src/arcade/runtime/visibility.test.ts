@@ -1,20 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type * as Device from '@/lib/device';
 
-// A Capacitor shell: the shared app-state listener comes from @capacitor/app.
-let appState: ((state: { isActive: boolean }) => void) | null = null;
-let appStateRemoved = 0;
-vi.mock('@/lib/device', async (original) => ({ ...(await original<typeof Device>()), isCapacitor: () => true }));
-vi.mock('@capacitor/app', () => ({
-  App: {
-    addListener: async (_event: string, cb: (state: { isActive: boolean }) => void) => {
-      appState = cb;
-      return {
-        remove: async () => {
-          appStateRemoved += 1;
-          appState = null;
-        },
-      };
+// The app's merged visibility (document, page, Capacitor, desktop window) is the phase 0 module,
+// tested in services/native/appVisibility.test.ts. Here it is a switch, and the stage adds being
+// on screen, not minimized and not idle.
+const app = vi.hoisted(() => {
+  const listeners = new Set<(visible: boolean) => void>();
+  return {
+    visible: true,
+    listeners,
+    set(next: boolean) {
+      this.visible = next;
+      for (const cb of [...listeners]) cb(next);
+    },
+  };
+});
+vi.mock('@/services/native/appVisibility', () => ({
+  appVisibility: {
+    get visible() {
+      return app.visible;
+    },
+    subscribe(cb: (visible: boolean) => void) {
+      app.listeners.add(cb);
+      return () => app.listeners.delete(cb);
     },
   },
 }));
@@ -38,54 +45,26 @@ class FakeObserver {
   }
 }
 
-let docState: 'visible' | 'hidden' = 'visible';
-let windowCb: ((visible: boolean) => void) | null = null;
-let windowOff = 0;
-
 beforeEach(() => {
-  docState = 'visible';
-  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => docState });
+  app.visible = true;
+  app.listeners.clear();
   (window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = FakeObserver;
-  (window as unknown as { desktopAPI: unknown }).desktopAPI = {
-    onWindowVisibility: (cb: (visible: boolean) => void) => {
-      windowCb = cb;
-      return () => {
-        windowOff += 1;
-        windowCb = null;
-      };
-    },
-  };
   arcadeSession.value = { game: 'fuseyard', id: 'local', role: 'player', mode: 'local', status: 'live', attention: false, minimized: false };
 });
 
 afterEach(() => {
   arcadeSession.value = null;
-  delete (window as unknown as { desktopAPI?: unknown }).desktopAPI;
 });
 
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-
 describe('watchStageVisibility', () => {
-  it('merges document, page, Capacitor, desktop window, on-screen and minimized into one flag', async () => {
+  it('merges app visibility, being on screen (10 %) and not minimized into one flag, and stops cleanly', () => {
     const stage = document.createElement('div');
     const seen: boolean[] = [];
     const stop = watchStageVisibility(stage, (v) => seen.push(v));
-    await flush();
     expect(seen).toEqual([true]);
 
-    docState = 'hidden';
-    document.dispatchEvent(new Event('visibilitychange'));
-    docState = 'visible';
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    window.dispatchEvent(new Event('pagehide'));
-    window.dispatchEvent(new Event('pageshow'));
-
-    appState?.({ isActive: false });
-    appState?.({ isActive: true });
-
-    windowCb?.(false);
-    windowCb?.(true);
+    app.set(false);
+    app.set(true);
 
     FakeObserver.last?.fire(0.05);
     FakeObserver.last?.fire(0.5);
@@ -93,16 +72,14 @@ describe('watchStageVisibility', () => {
     arcadeSession.value = { ...arcadeSession.value!, minimized: true };
     arcadeSession.value = { ...arcadeSession.value!, minimized: false };
 
-    expect(seen).toEqual([true, false, true, false, true, false, true, false, true, false, true, false, true]);
+    expect(seen).toEqual([true, false, true, false, true, false, true]);
 
     stop();
-    await flush();
     expect(FakeObserver.last?.disconnected).toBe(true);
-    expect(windowOff).toBe(1);
-    expect(appStateRemoved).toBe(1);
+    expect(app.listeners.size).toBe(0);
     // Nothing reacts after stop.
-    document.dispatchEvent(new Event('visibilitychange'));
-    expect(seen).toHaveLength(13);
+    app.set(false);
+    expect(seen).toHaveLength(7);
   });
 
   it('treats a visible stage without input for the idle time as hidden until the next input', () => {
@@ -128,14 +105,13 @@ describe('watchStageVisibility', () => {
     vi.useRealTimers();
   });
 
-  it('starts hidden when the page is hidden and reports only changes', () => {
-    docState = 'hidden';
+  it('starts hidden when the app is hidden and reports only changes', () => {
+    app.visible = false;
     const seen: boolean[] = [];
     const stop = watchStageVisibility(document.createElement('div'), (v) => seen.push(v));
     FakeObserver.last?.fire(1);
     expect(seen).toEqual([false]);
-    docState = 'visible';
-    document.dispatchEvent(new Event('visibilitychange'));
+    app.set(true);
     expect(seen).toEqual([false, true]);
     stop();
   });

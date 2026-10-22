@@ -16,7 +16,7 @@ vi.mock('@/arcade/catalog', async (original) => {
 });
 
 import * as catalog from '@/arcade/catalog';
-import { frames } from '@/arcade/runtime/p0';
+import { appVisibility, frames } from '@/arcade/runtime/p0';
 import { startLocalSession } from '@/arcade/runtime/session';
 import { installFakeFrames, stubCanvas, trackResources, type FakeFrames } from '@/arcade/runtime/testing';
 import type { MatchHost, MountOpts } from '@/arcade/runtime/types';
@@ -24,6 +24,10 @@ import { practiceWallet } from '@/arcade/runtime/practiceWallet';
 import { DEFAULT_PREFS } from '@/arcade/runtime/prefs';
 import { ArcadeButton } from './ArcadeButton';
 import { arcadeSession, arcadeSignalWrites } from './state';
+
+// The app's shared visibility listeners live for the page's lifetime (the visibility heartbeat installs
+// them at start-up), so they are not the Arcade's: install them before any resource baseline.
+void appVisibility.visible;
 
 const host = document.createElement('div');
 document.body.appendChild(host);
