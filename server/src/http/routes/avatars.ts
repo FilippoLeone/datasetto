@@ -55,7 +55,8 @@ export const avatarsRouter = (ctx: AppContext): Router => {
 
   router.post(
     '/api/avatars',
-    express.raw({ type: ['image/png', 'image/webp', 'application/octet-stream'], limit: MAX_AVATAR_BYTES }),
+    // inflate: false refuses compressed bodies with 415 (see the note in http/app.ts).
+    express.raw({ type: ['image/png', 'image/webp', 'application/octet-stream'], limit: MAX_AVATAR_BYTES, inflate: false }),
     (req, res) => {
       if (!uploadLimiter.hit(req.ip ?? 'unknown').allowed) {
         res.status(429).json({ error: 'Too many uploads', code: 'RATE_LIMITED' });

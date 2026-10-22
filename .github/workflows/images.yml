@@ -73,6 +73,9 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
+          # Always resolve the floating base tags (node:24-bookworm-slim) to their newest
+          # digest; server/Dockerfile and ops/caddy/Dockerfile refuse a Node below the floor.
+          pull: true
           platforms: linux/amd64
           build-args: |
             SITE_URL=${{ vars.SITE_URL }}

@@ -1,6 +1,28 @@
 # syntax=docker/dockerfile:1.7
+# ---- base ------------------------------------------------------------------
+# Both stages start here. The oldest Node the image may run is 24.22.1, which fixes
+# CVE-2026-111497 (an out-of-bounds write in Node's bundled Brotli decoder). The tag
+# floats so later patch releases flow in; this check stops a build that picked up a
+# stale cached base image.
+FROM node:24-bookworm-slim AS base
+ARG NODE_FLOOR=24.22.1
+RUN node <<'EOF'
+const floor = process.env.NODE_FLOOR;
+const want = floor.split('.').map(Number);
+const have = process.versions.node.split('.').map(Number);
+if (have[0] !== want[0]) {
+  console.error('The base image has Node ' + process.versions.node + ' but NODE_FLOOR ' + floor + ' is for Node ' + want[0] + '. Set NODE_FLOOR to the first patched release of the new line.');
+  process.exit(1);
+}
+if (have[1] < want[1] || (have[1] === want[1] && have[2] < want[2])) {
+  console.error('Node ' + process.versions.node + ' is older than the security floor ' + floor + ' (CVE-2026-111497). Pull a newer base image (docker build --pull) and build again.');
+  process.exit(1);
+}
+console.log('Node ' + process.versions.node + ' meets the security floor ' + floor);
+EOF
+
 # ---- build -----------------------------------------------------------------
-FROM node:24-bookworm-slim AS build
+FROM base AS build
 # Toolchain so better-sqlite3 can compile when no prebuilt binary matches this Node ABI.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
@@ -14,7 +36,7 @@ COPY assets ./assets
 RUN npm run build && npm prune --omit=dev
 
 # ---- runtime ---------------------------------------------------------------
-FROM node:24-bookworm-slim
+FROM base
 ENV NODE_ENV=production \
     PORT=4000 \
     HOST=0.0.0.0 \

@@ -1,6 +1,6 @@
 # Datasetto server
 
-Node.js 24 (22.12+ works) / TypeScript 6. Express 5 for HTTP, Socket.IO 4 for realtime, SQLite
+Node.js 24.22.1+ (22.23.4+ works) / TypeScript 6. Express 5 for HTTP, Socket.IO 4 for realtime, SQLite
 (better-sqlite3, WAL mode) for persistence, zod 4 for input validation, pino for
 logs. One process, one database file, no other services required.
 
@@ -92,6 +92,17 @@ See [.env.example](.env.example). Notable settings:
 
 `/internal/*` must not be exposed publicly: Caddy proxies only `/api`, `/socket.io`
 and `/health` to the app, and calls `/internal/hls/auth` itself before serving `/hls/*`.
+
+Request bodies are never decompressed. The JSON, form and avatar parsers run with
+`inflate: false`, so a body sent with `Content-Encoding: gzip`, `deflate` or `br` gets
+`415 {code: "UNSUPPORTED_ENCODING"}` before any route runs (no Datasetto client compresses
+what it sends; Socket.IO parses its own bodies and never decompresses them). That keeps zlib
+and Node's Brotli decoder away from unauthenticated requests: CVE-2026-111497, a remote code
+execution bug in that decoder, was fixed in Node 22.23.4, 24.22.1 and 26.12.1. The image
+also refuses to run an older Node: `server/Dockerfile` keeps the floating
+`node:24-bookworm-slim` tag so patch releases flow in, but fails the build when the base
+image is below `NODE_FLOOR` (24.22.1), and `engines` in `package.json` leaves out the
+vulnerable releases (npm only warns about it).
 
 ## Socket protocol
 

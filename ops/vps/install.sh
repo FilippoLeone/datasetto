@@ -402,7 +402,8 @@ compose_up() {
   cd "$APP_DIR/ops"
   if ! docker compose pull --quiet; then
     warn "image pull failed; building the images from source (a few minutes on a small VPS)"
-    docker compose build
+    # --pull refreshes the node base image; the Dockerfiles refuse one below the security floor.
+    docker compose build --pull
   fi
   ensure_vapid_keys
   cd "$APP_DIR/ops"
