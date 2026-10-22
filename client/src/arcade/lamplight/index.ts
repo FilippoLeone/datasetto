@@ -456,9 +456,14 @@ const mount = (el: HTMLElement, host: TableHost, opts: MountOpts): GameHandle =>
       sitDown(buyIn, post);
     },
     leave() {
-      void request('lamplight:leave', { now: true, id: requestId() })
-        .catch(() => undefined)
-        .finally(() => opts.shell.leave());
+      // The table goes at once: the server folds and pays out without waiting, so nothing here waits
+      // for its answer, and a failed request (offline, the table already closed) changes nothing on screen.
+      try {
+        void request('lamplight:leave', { now: true, id: requestId() }).catch(() => undefined);
+      } catch {
+        // A host that throws instead of rejecting.
+      }
+      opts.shell.leave();
     },
     show() {
       void request('lamplight:show', { h: model.view?.hand?.handNo ?? 0 });

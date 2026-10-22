@@ -141,8 +141,11 @@ describe('a cash table online', () => {
       }
     });
     await h.call(humans[0], 'lamplight:leave', { t: 'tblA', id: 'bye' });
-    h.clock.run(20_000);
+    // The seat is released at once, mid-hand or not, and no chip is lost on the way.
     expect(tb.state.seats.some((s) => s.player?.accountId === humans[0].accountId)).toBe(false);
+    expect(total() + house()).toBe(start);
+    h.clock.run(20_000);
+    expect(h.wallet.view(humans[0].accountId).esc).toBe(0);
     expect(total() + house()).toBe(start);
     expect(checkInvariant(h.db)).toEqual([]);
   });
@@ -273,7 +276,7 @@ describe('online rules', () => {
     expect(checkInvariant(h.db)).toEqual([]);
   });
 
-  it('closes an empty table after 2 minutes and arms no timer between hands when nobody can play', async () => {
+  it('closes a table at once when its last player leaves, and arms no timer between hands when nobody can play', async () => {
     const { h, game, humans } = setup();
     await h.call(humans[0], 'lamplight:sit', { t: 'tblA', buyIn: 1000, id: 'sit-1' });
     const tb = table(game);
@@ -282,11 +285,21 @@ describe('online rules', () => {
     expect(tb.state.hand).toBeNull();
     expect(h.clock.pending()).toBe(0);
     await h.call(humans[0], 'lamplight:leave', { t: 'tblA', id: 'bye' });
-    h.clock.run(IDLE_EMPTY_MS + 1000);
     expect(tb.closed).toBe(true);
-    expect(h.closed.map((c) => c.id)).toContain('tblA');
+    expect(h.closed).toContainEqual({ id: 'tblA', reason: 'empty' });
     expect(checkInvariant(h.db)).toEqual([]);
     expect(h.wallet.view(humans[0].accountId).bal).toBe(20_000);
+  });
+
+  it('closes a table nobody sat down at after 2 minutes', () => {
+    const { h, game, humans } = setup();
+    game.lobby!.onJoin({ accountId: humans[0].accountId, socketId: humans[0].id, voiceChannelId: 'ch1' }, h.lobbies.get('tblA')!, 'spectator');
+    const tb = table(game);
+    h.clock.run(IDLE_EMPTY_MS - 1000);
+    expect(tb.closed).toBe(false);
+    h.clock.run(2000);
+    expect(tb.closed).toBe(true);
+    expect(h.closed).toContainEqual({ id: 'tblA', reason: 'idle' });
   });
 
   it('a restart voids the hand and refunds every stack as it was when the hand began', async () => {

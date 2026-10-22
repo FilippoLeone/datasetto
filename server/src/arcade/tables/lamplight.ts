@@ -23,6 +23,7 @@ import {
   creditDeadline,
   dealPositions,
   handNet,
+  legal,
   pendingDelay,
   seat as seatPlayer,
   setLevel,
@@ -299,9 +300,16 @@ const BOARDS: readonly BoardDef[] = [
 interface SeatInfo {
   level: BotLevel | null;
   buyIns: number;
-  /** Fold at your next turn and leave after the hand (cash). */
+  /** A departed seat (`gone`) folds the moment its turn comes. */
   leaveNow: boolean;
+  /** A bot gives its seat to a person when this hand ends. */
   leaveAfter: boolean;
+  /**
+   * A cash player who left during a hand: the seat is nobody's any more (its `accountId` is cleared)
+   * but stays in the hand, so the chips it put in stay in the pot. `paid` went back to the wallet
+   * when they left; whatever the seat holds beyond it when the hand ends follows.
+   */
+  gone: { accountId: string; paid: number } | null;
   disconnectedAt: number | null;
   handsDisconnected: number;
   sitOutSince: number | null;
@@ -318,6 +326,7 @@ const freshInfo = (): SeatInfo => ({
   buyIns: 0,
   leaveNow: false,
   leaveAfter: false,
+  gone: null,
   disconnectedAt: null,
   handsDisconnected: 0,
   sitOutSince: null,
@@ -620,12 +629,78 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     return true;
   };
 
+  /** Who owns a seat's escrow row: its player, the player who left it mid-hand, or its bot. */
+  const holderOf = (tb: Table, n: number): string | null => tb.state.seats[n].player?.accountId ?? tb.info[n].gone?.accountId ?? null;
+
+  /**
+   * A cash player leaves during a hand: the stack goes back to the wallet now and the seat is
+   * released (the account may sit anywhere at once), while the chips already in the pot stay there.
+   * A seat that has not folded folds the moment its turn comes; an all-in one plays to the showdown
+   * and its winnings follow when the hand ends (`settleGone`).
+   */
+  const depart = (tb: Table, n: number): void => {
+    const s = tb.state.seats[n];
+    const a = s.player?.accountId;
+    if (!a || !s.player) return;
+    let paid = s.stack;
+    if (paid > 0) {
+      const r = api.wallet.transfer('cashout', tb.ref, a, 'out:' + nonce(tb) + ':leave', [
+        { account: escrowAccount(tb.ref, a), delta: -paid },
+        { account: walletAccount(a), delta: paid },
+      ]);
+      if (!r.ok) {
+        // Nothing moved: the whole stack follows when the hand ends.
+        api.log.error({ table: tb.id, seat: n, code: r.code }, 'lamplight: cashout refused');
+        paid = 0;
+      }
+    }
+    const info = tb.info[n];
+    info.gone = { accountId: a, paid };
+    info.leaveNow = !s.folded && !s.allIn;
+    info.disconnectedAt = null;
+    info.dirtyAt = null;
+    s.player = { ...s.player, accountId: null };
+    seatOf.delete(a);
+    leftWith.set(a, { t: tb.id, stack: paid, at: clock.now() });
+    refreshIdle(tb, clock.now());
+    lobbyDirty(tb);
+    api.hub.activityChanged(tb.channelId);
+  };
+
+  /** The hand a player left is over (or void): what the seat holds beyond what was paid goes to their wallet, and the seat empties. */
+  const settleGone = (tb: Table, n: number): void => {
+    const gone = tb.info[n].gone;
+    if (!gone) return;
+    const rest = tb.state.seats[n].stack - gone.paid;
+    if (rest < 0) api.log.error({ table: tb.id, seat: n, rest }, 'lamplight: a departed seat holds less than was paid out');
+    if (rest > 0) {
+      const r = api.wallet.transfer('cashout', tb.ref, gone.accountId, 'out:' + nonce(tb) + ':gone', [
+        { account: escrowAccount(tb.ref, gone.accountId), delta: -rest },
+        { account: walletAccount(gone.accountId), delta: rest },
+      ]);
+      if (!r.ok) api.log.error({ table: tb.id, seat: n, code: r.code }, 'lamplight: cashout refused');
+      const back = leftWith.get(gone.accountId);
+      if (r.ok && back?.t === tb.id) back.stack += rest;
+    }
+    emitEvents(tb, unseat(tb.state, n).events);
+    tb.info[n] = freshInfo();
+    refreshIdle(tb, clock.now());
+    api.hub.activityChanged(tb.channelId);
+  };
+
   const closeTable = (tb: Table, reason: string): void => {
     if (tb.closed) return;
     disarm(tb);
     tb.bot?.cancel();
+    // Stacks only match the escrow rows between hands: a cash hand still open here is voided first.
+    const hand = tb.state.hand;
+    if (tb.mode === 'open' && tb.handOpen && hand && hand.street !== 'done') {
+      emitEvents(tb, voidHand(tb.state, reason));
+      tb.handOpen = false;
+    }
     for (const s of tb.state.seats) {
       if (s.player?.botId) botCashout(tb, s.seat);
+      else if (tb.info[s.seat].gone) settleGone(tb, s.seat);
       else if (s.player?.accountId && tb.mode === 'open') cashout(tb, s.seat, 'close');
     }
     if (tb.mode !== 'open' && tb.tournament && !tb.tournament.ended) {
@@ -873,14 +948,15 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     if (!hand || !tb.handOpen) return;
     tb.handOpen = false;
     const net = handNet(state);
-    const humans = state.seats.filter((s) => s.inHand && s.player?.accountId);
+    // Players who left during the hand count too: their chips moved and the hand is in their history.
+    const humans = state.seats.filter((s) => s.inHand && holderOf(tb, s.seat));
     const record = handRecord(tb, net);
     const now = clock.now();
     api.wallet.tx(() => {
       if (tb.mode === 'open') {
         const legs = state.seats
           .filter((s) => s.inHand && net[s.seat] !== 0 && s.player)
-          .map((s) => ({ account: escrowAccount(tb.ref, s.player?.accountId ?? 'bot:' + s.seat), delta: net[s.seat] }));
+          .map((s) => ({ account: escrowAccount(tb.ref, holderOf(tb, s.seat) ?? 'bot:' + s.seat), delta: net[s.seat] }));
         if (legs.length > 0) api.wallet.transfer('hand', tb.ref, 'system', 'hand:' + tb.id + ':' + hand.handNo + ':' + tb.createdAt, legs);
       }
       if (tb.commit) {
@@ -888,7 +964,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
           tableRef: tb.id,
           handNo: hand.handNo,
           format: tb.mode,
-          seats: humans.map((s) => s.player?.accountId as string),
+          seats: humans.map((s) => holderOf(tb, s.seat) as string),
           root: tb.commit.root,
           secret: tb.commit.secret,
           deck: Uint8Array.from(tb.deck),
@@ -901,7 +977,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
         let pot = 0;
         for (const p of record.pots) pot += p.a;
         for (const s of humans) {
-          const a = s.player?.accountId as string;
+          const a = holderOf(tb, s.seat) as string;
           api.stats.add(a, 'lamplight', 'hands', 1);
           if (tb.mode === 'open') {
             api.stats.add(a, 'lamplight', week, net[s.seat]);
@@ -913,10 +989,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     });
     tb.commit = null;
     if (tb.mode === 'open') {
-      for (const s of state.seats) {
-        const info = tb.info[s.seat];
-        if (s.player?.accountId && (info.leaveAfter || info.leaveNow)) cashout(tb, s.seat, 'leave');
-      }
+      for (const s of state.seats) if (tb.info[s.seat].gone) settleGone(tb, s.seat);
       if (state.handsPlayed % 10 === 0) for (const s of state.seats) if (s.player) emitEvents(tb, updateSeat(state, s.seat, {}));
     }
     refreshIdle(tb, now);
@@ -934,7 +1007,7 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       tier: tb.mode === 'open' ? tb.cfg.tier : null,
       lv: [state.level.sb, state.level.bb, state.level.ante],
       btn: hand?.button ?? 0,
-      seats: state.seats.filter((s) => s.inHand).map((s) => [s.seat, s.player?.accountId ?? null, s.player?.botId ?? null, s.startStack]),
+      seats: state.seats.filter((s) => s.inHand).map((s) => [s.seat, holderOf(tb, s.seat), s.player?.botId ?? null, s.startStack]),
       dealt,
       acts: (hand?.log ?? []).map((l) => [l[0], l[1], l[2], l[3]]),
       board: hand?.board.slice() ?? [],
@@ -969,12 +1042,13 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
         }
         continue;
       }
+      // Settled when its hand ended; this only catches a seat that hand left behind.
+      if (info.gone) {
+        settleGone(tb, s.seat);
+        continue;
+      }
       if (!s.player?.accountId) continue;
       if (tb.mode === 'open') {
-        if (info.leaveAfter || info.leaveNow) {
-          cashout(tb, s.seat, 'leave');
-          continue;
-        }
         if (info.disconnectedAt !== null && now - info.disconnectedAt >= RELEASE_DISCONNECTED_MS) {
           cashout(tb, s.seat, 'gone');
           continue;
@@ -1218,6 +1292,64 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     api.hub.activityChanged(tb.channelId);
   };
 
+  /** A socket stops watching the table (it left the game). */
+  const unwatch = (tb: Table, sid: string): void => {
+    tb.watchers.delete(sid);
+    tb.away.delete(sid);
+    api.rooms.leave(sid, ROOM(tb.id));
+    if (watching.get(sid) === tb.id) watching.delete(sid);
+  };
+
+  /**
+   * Leaving a cash seat on purpose (Leave, or leaving the lobby) is immediate: between hands or
+   * after a fold the stack goes back to the wallet now; in a hand the seat folds now (or the moment
+   * its turn comes, which takes no time) and the stack is paid out now (`depart`). Only a disconnect
+   * keeps a seat waiting (§5).
+   */
+  const leaveSeat = (tb: Table, n: number): void => {
+    const s = tb.state.seats[n];
+    if (tb.mode !== 'open' || !s.player?.accountId) return;
+    const hand = tb.state.hand;
+    if (!hand || hand.street === 'done' || !s.inHand) cashout(tb, n, 'leave');
+    else {
+      if (!s.folded && hand.toAct === n && !hand.pending) {
+        const r = act(tb.state, n, { kind: 'fold' }, clock.now());
+        if (r.ok) emitEvents(tb, r.events);
+      }
+      depart(tb, n);
+    }
+    if (!closeIfDeserted(tb)) arm(tb);
+  };
+
+  /**
+   * After a voluntary leave: a table with no human seat and no registrant closes at once (bots never
+   * play alone). A hand still running is first played to its end in no time, the departed seats
+   * folding and the bots checking or calling, so the hand transaction settles every chip in the pot
+   * (bots are house-backed, so how they share it moves nothing between people).
+   */
+  const closeIfDeserted = (tb: Table): boolean => {
+    if (tb.closed) return true;
+    if (tb.registered.length > 0 || tb.state.seats.some((s) => s.player?.accountId)) return false;
+    tb.bot?.cancel();
+    tb.bot = null;
+    for (let guard = 0; guard < 256 && tb.handOpen; guard++) {
+      const hand = tb.state.hand;
+      if (!hand || hand.street === 'done') break;
+      if (hand.pending) {
+        runAdvance(tb);
+        continue;
+      }
+      const n = hand.toAct;
+      const lg = n >= 0 ? legal(tb.state, n) : null;
+      if (!lg) break;
+      const r = act(tb.state, n, tb.info[n].gone ? { kind: 'fold' } : lg.canCheck ? { kind: 'check' } : { kind: 'call' }, clock.now());
+      if (!r.ok) break;
+      emitEvents(tb, r.events);
+    }
+    closeTable(tb, 'empty');
+    return true;
+  };
+
   /** Register for a Cup or Trio: the buy-in goes into escrow in the same transaction. */
   const register = (tb: Table, c: { accountId: string; socketId: string }): { ok: true } | { ok: false; code: string } => {
     if (tb.started) return no('started');
@@ -1387,12 +1519,11 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
     if (!tb) return ok;
     const n = seatIndexOf(tb, c.accountId);
     if (n < 0 || tb.mode !== 'open') return ok;
-    const s = tb.state.seats[n];
-    const running = tb.state.hand && tb.state.hand.street !== 'done' && s.inHand;
-    if (!running) cashout(tb, n, 'leave');
-    else if (p.now && !s.folded) tb.info[n].leaveNow = true;
-    else tb.info[n].leaveAfter = true;
-    arm(tb);
+    // The leaving device closes the table view at once (it does not wait for this answer).
+    unwatch(tb, c.socketId);
+    // `now` is kept for older clients: every leave is immediate.
+    leaveSeat(tb, n);
+    lobbyDirty(tb);
     return ok;
   });
 
@@ -1549,22 +1680,16 @@ export const createLamplight = (api: TableApi, deps: LamplightDeps = {}): Lampli
       onLeave(c, lobby) {
         const tb = tables.get(lobby.id);
         if (!tb) return;
-        // Unregistering refunds the buy-in, but only before the start (and never after the Firefly draw).
-        if (tb.mode !== 'open' && !tb.started && tb.registered.includes(c.accountId)) unregister(tb, c.accountId);
-        // Leaving a cash table's lobby is "leave after this hand".
-        const n = seatIndexOf(tb, c.accountId);
-        if (tb.mode === 'open' && n >= 0) {
-          const s = tb.state.seats[n];
-          if (tb.state.hand && tb.state.hand.street !== 'done' && s.inHand) tb.info[n].leaveAfter = true;
-          else cashout(tb, n, 'leave');
-          arm(tb);
-        }
-        for (const sid of api.presence.socketsOf(c.accountId)) {
-          if (!tb.watchers.has(sid)) continue;
-          tb.watchers.delete(sid);
-          tb.away.delete(sid);
-          api.rooms.leave(sid, ROOM(tb.id));
-          if (watching.get(sid) === tb.id) watching.delete(sid);
+        // The leaver's devices stop watching first (a hand finished below for a table left empty is not theirs to see).
+        for (const sid of api.presence.socketsOf(c.accountId)) if (tb.watchers.has(sid)) unwatch(tb, sid);
+        if (tb.mode !== 'open' && !tb.started && tb.registered.includes(c.accountId)) {
+          // Unregistering refunds the buy-in, but only before the start (and never after the Firefly draw).
+          unregister(tb, c.accountId);
+          closeIfDeserted(tb);
+        } else {
+          // Leaving a cash table's lobby leaves the seat at once.
+          const n = seatIndexOf(tb, c.accountId);
+          if (tb.mode === 'open' && n >= 0) leaveSeat(tb, n);
         }
         lobbyDirty(tb);
       },
