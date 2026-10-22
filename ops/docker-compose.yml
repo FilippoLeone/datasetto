@@ -16,6 +16,14 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# No process in a container can gain privileges through setuid binaries or file
+# capabilities. rtmp's entrypoint drops from root to nginx with su-exec, which only
+# gives privileges up, so it works under this. ops/vps/install.sh also makes it Docker's
+# default on a VPS; setting it here covers local and GCP runs and makes every deploy
+# prove the services start with it.
+x-security-opt: &no-new-privileges
+  - no-new-privileges:true
+
 services:
   web:
     image: ${IMAGE_PREFIX:-ghcr.io/filippoleone/datasetto}-web:${IMAGE_TAG:-latest}
@@ -42,6 +50,7 @@ services:
         limits:
           memory: 128M
     logging: *default-logging
+    security_opt: *no-new-privileges
 
   app:
     image: ${IMAGE_PREFIX:-ghcr.io/filippoleone/datasetto}-app:${IMAGE_TAG:-latest}
@@ -77,6 +86,7 @@ services:
         limits:
           memory: 320M
     logging: *default-logging
+    security_opt: *no-new-privileges
 
   rtmp:
     image: ${IMAGE_PREFIX:-ghcr.io/filippoleone/datasetto}-rtmp:${IMAGE_TAG:-latest}
@@ -104,6 +114,7 @@ services:
         limits:
           memory: 192M
     logging: *default-logging
+    security_opt: *no-new-privileges
 
   turn:
     image: coturn/coturn:4.18-alpine3.24
@@ -131,6 +142,7 @@ services:
         limits:
           memory: 96M
     logging: *default-logging
+    security_opt: *no-new-privileges
 
 volumes:
   app_data:

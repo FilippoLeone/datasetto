@@ -16,7 +16,7 @@ ops/
   turn/entrypoint.sh        coturn settings (ephemeral credentials)
   common/                   egress-guard.sh + its systemd installer, shared by gcp/ and vps/
   gcp/                      create-vm.sh, deploy.sh, destroy.sh, VM-side startup/update/backup
-  vps/                      install.sh, backup.sh and restore.sh for a plain Debian/Ubuntu VPS (OVH, Hetzner); install-ssh-key.ps1 for the first login
+  vps/                      install.sh (with harden.sh for the host), backup.sh and restore.sh for a plain Debian/Ubuntu VPS (OVH, Hetzner); install-ssh-key.ps1 for the first login
 ```
 
 ```
@@ -83,7 +83,10 @@ is skipped).
 
 From Windows, `.\ops\vps\install-ssh-key.ps1 -Server <server-ip> -User debian`
 copies your `~/.ssh/id_ed25519.pub` to the VPS using the password from the
-provider's email, so the `ssh` commands below need no password.
+provider's email, so the `ssh` commands below need no password. Do this before
+the first install: once a key is in place the installer switches SSH password
+logins off (see "Host hardening"), and further keys are added over a key login
+or from the provider's console.
 
 The three commands, from the repository root (`<ref>` is the branch or tag to
 deploy, for example `main` or a release tag such as `v0.1.9`, and `<user>` is
@@ -103,8 +106,10 @@ first request, so the record can be created before or after the install.
 What the script sets up (it is idempotent; re-running it only changes what
 differs, and `--help` lists every option):
 
-- **System**: a 2 GB swap file when RAM is below 3 GB, unattended security
-  upgrades, Docker Engine with the compose plugin from `get.docker.com`.
+- **System**: a 2 GB swap file when RAM is below 3 GB, unattended upgrades
+  (security and Docker CE, with a reboot at 04:30 when one needs it), Docker
+  Engine with the compose plugin from `get.docker.com`, and the host hardening
+  described under "Host hardening" below.
 - **Code and config**: the repository in `/opt/datasetto` at `--ref`, your env
   file copied to `/opt/datasetto/ops/.env` with mode 600 (Windows line endings
   are stripped), with the same sanity checks as `create-vm.sh`.
@@ -115,11 +120,16 @@ differs, and `--help` lists every option):
   them again when the profile is removed. Docker publishes 80, 443, 1935 and 1936
   straight into iptables, bypassing ufw; those are exactly the ports meant to be
   open, and the app and HLS ports (4000, 8080) are not published at all, so ufw
-  mainly protects SSH and anything else on the host. `--no-firewall` leaves the
-  firewall to you (for example when the provider's firewall is already in use).
+  mainly protects SSH and anything else on the host. Each run lists the ports
+  containers publish on public addresses and warns about any that ufw does not
+  open, so a new `ports:` entry cannot slip past the firewall unnoticed.
+  `--no-firewall` leaves the firewall to you (for example when the provider's
+  firewall is already in use).
 - **Containers**: `docker compose pull`, falling back to a local build, then
   `docker compose up -d`, plus a `datasetto.service` systemd unit so the stack
   comes back after a reboot (`systemctl status datasetto`, `systemctl stop datasetto`).
+  Every service runs with `no-new-privileges`, and the run waits until all of
+  them report healthy.
 - **Push notifications**: when `PUSH_VAPID_PUBLIC_KEY` and `PUSH_VAPID_PRIVATE_KEY`
   are both empty, the script generates a VAPID key pair with the app image
   (`web-push`) into `/opt/datasetto/ops/.env` before the first `up`, and sets
@@ -129,8 +139,8 @@ differs, and `--help` lists every option):
   keeps the ones already on the server (the script says so); copy the three
   `PUSH_VAPID_*` lines into your local copy to be safe. Browsers only subscribe
   over https, so push needs a real `SITE_ADDRESS`.
-- **Backups**: `ops/vps/backup.sh` runs every night at 04:00 from the
-  `datasetto-backup.timer` systemd timer. It asks the app container for a
+- **Backups**: `ops/vps/backup.sh` runs every night between 04:00 and 04:20
+  from the `datasetto-backup.timer` systemd timer. It asks the app container for a
   consistent copy through SQLite's online backup API, gzips it into
   `/var/backups/datasetto` (mode 600) and keeps the 14 newest. Set
   `BACKUP_RCLONE_REMOTE` in `ops/.env` (any rclone remote and path, such as
@@ -173,9 +183,104 @@ sudo systemctl status datasetto datasetto-backup.timer      # stack and backup t
 cd /opt/datasetto/ops && sudo docker compose ps && sudo docker compose logs --tail 100
 sudo ufw status verbose                                      # firewall rules
 sudo tail -f /var/log/datasetto-install.log                  # install progress
-ls -l /var/backups/datasetto                                 # nightly copies
+sudo ls -l /var/backups/datasetto                            # nightly copies
 curl -s https://<your domain>/api/health | jq               # database, watchdog and socket state
+sudo fail2ban-client status sshd                             # failed SSH logins and bans
+sudo sshd -T | grep -Ei '^(passwordauth|permitroot)'         # SSH settings in effect
+cat /var/run/reboot-required.pkgs 2>/dev/null                # updates waiting for a reboot
 ```
+
+### Host hardening
+
+Every run of `install.sh` also hardens the host (`ops/vps/harden.sh`, step 10 in
+`--help`). Each part rewrites its own file only when the content changes and
+restarts a service only then, so a second run changes nothing. The summary at the
+end has one line per part; a part that fails warns and the deploy goes on.
+
+| Part | What it does | Opt out |
+| --- | --- | --- |
+| SSH | `/etc/ssh/sshd_config.d/10-datasetto.conf`: key logins only (password and keyboard-interactive off), `PermitRootLogin no`, no X11 or agent forwarding, `MaxAuthTries 3`, `LoginGraceTime 30`. TCP forwarding stays, so SSH tunnels keep working. | `--keep-ssh-passwords` keeps passwords, `--no-harden-ssh` removes the file |
+| Updates | unattended-upgrades also installs Docker CE updates from download.docker.com; needrestart restarts services still running old libraries; an update that needs a reboot (a new kernel) gets one at 04:30 server time. | `--no-auto-reboot`, `--reboot-time HH:MM`, `--no-harden-updates` |
+| Docker | `/etc/docker/daemon.json` gets log rotation (10 MB x 5), `live-restore` and `no-new-privileges`, merged into whatever the file already has (a file that was there first is kept as `daemon.json.before-datasetto`; another `log-driver` is left as it is). | `--no-harden-docker` |
+| fail2ban | an sshd jail on the systemd journal: 5 failed logins within 10 minutes (unknown user names, root, wrong passwords; a wrong key offered for a real user does not count) ban the address from SSH for an hour, doubling for repeat offenders up to a day. This comes on top of ufw's rate limit of 6 connections in 30 s. | `--no-fail2ban` |
+| Resolver | LLMNR (port 5355 on every interface) and multicast DNS off in systemd-resolved. | `--no-harden-resolver` |
+| Kernel | `/etc/sysctl.d/60-datasetto-hardening.conf`: ICMP redirects and source routing off, martian packets logged, strict reverse-path filter, protected symlinks, hardlinks and FIFOs, kernel pointers and `dmesg` for root only, no unprivileged BPF. IP forwarding stays on for Docker. | `--no-harden-sysctl` |
+| Time | makes sure a time sync service runs (installs systemd-timesyncd when neither it nor chrony does). | |
+| Files | `ops/.env` root and mode 600, the uploaded `--env` copy 600, backups 700 (copies 600), logs 640, the checkout owned by root (git refuses to run as root in a repository someone else owns). | |
+
+`--no-harden` turns all of it off. Each `--no-*` flag also removes what an earlier
+run wrote for its part, except `--no-harden-docker`, which leaves `daemon.json` as
+it is. Flags count for the run they are given on; to keep a choice across re-runs,
+put `DATASETTO_KEEP_SSH_PASSWORDS=yes`, `DATASETTO_AUTO_REBOOT=no` or
+`DATASETTO_REBOOT_TIME=05:15` in `ops/.env` (a flag still wins).
+
+The SSH part is built so that it cannot lock you out:
+
+- Password logins go only when the admin user (the one who runs `sudo`; after
+  `sudo su -` the user who logged in) has an `authorized_keys` line sshd accepts:
+  a valid key without a forced command, in a file that passes sshd's ownership and
+  permission checks, with key logins on and no `AuthenticationMethods` or
+  `AllowUsers`-style rule in the way. Otherwise passwords stay on and the run says why.
+- Root login goes only when that user has full sudo.
+- The file is checked with `sshd -t` and `sshd -T` before sshd is reloaded (a reload
+  keeps open sessions), and the previous file comes back on any failure.
+- Before passwords are switched off for the first time, the run prints a boxed note
+  with the fingerprints of the keys that keep working, and any password login for
+  that user the journal saw in the last 30 days.
+
+Before the first deploy with hardening, check from your own machine that the key
+works by itself:
+
+```bash
+ssh -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no debian@<server-ip> true
+```
+
+With `MaxAuthTries 3`, a client that offers more than two wrong keys first is cut
+off; give it the right one (`ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes ...`).
+
+Docker restarts once, the first time `daemon.json` changes, and only after every
+service reported healthy with `no-new-privileges`. `live-restore` is switched on
+with a reload before that restart, so the containers keep running through it, and
+`datasetto.service` uses `Wants=docker.service` rather than `Requires=` so that a
+Docker restart (that one, or a Docker package update) no longer stops the stack.
+New connections can fail for a second or two while Docker sets up its port
+forwarding again; the app keeps running and clients reconnect as after a deploy.
+
+Reboots: unattended-upgrades runs once a day (around 06:00 to 07:00 server time);
+when something it installed needs a reboot, it schedules one for the next 04:30.
+While a reboot is pending, every installer run ends with a warning and the
+command to do it at once (`sudo reboot`). The nightly backup finishes before 04:30.
+
+### Locked out of SSH
+
+A lost key (new laptop, wiped disk) is not the end: the provider's web console
+does not go through sshd, so passwords still work there.
+
+1. OVHcloud Control Panel, your VPS, "KVM": a console in the browser. Log in as
+   `debian` with the password from the installation email (Hetzner: Cloud Console,
+   the server, "Console"; log in as root).
+2. Add the new key, then log in over SSH as usual:
+
+   ```bash
+   echo 'ssh-ed25519 AAAA... you@laptop' >> /home/debian/.ssh/authorized_keys
+   ```
+
+   Or switch passwords back on for now (the next installer run switches them off
+   again unless you pass `--keep-ssh-passwords`):
+
+   ```bash
+   sudo rm /etc/ssh/sshd_config.d/10-datasetto.conf && sudo systemctl reload ssh
+   ```
+
+3. Console password unknown too: on the VPS page choose "Reboot in rescue mode".
+   OVH emails root credentials for a rescue system; log in to it over SSH, find the
+   VPS disk with `lsblk` (usually `/dev/sdb1`), `mount /dev/sdb1 /mnt`, append the
+   new key to `/mnt/home/debian/.ssh/authorized_keys`, then reboot normally from the
+   panel.
+
+Banned by fail2ban (SSH answers "connection refused" from your address only): wait
+an hour, connect from another network, or unban yourself from the console with
+`sudo fail2ban-client set sshd unbanip <your address>`.
 
 ### What happens on deploy
 

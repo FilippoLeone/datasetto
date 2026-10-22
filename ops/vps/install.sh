@@ -2,10 +2,10 @@
 # Install Datasetto on a plain VPS (OVH, Hetzner, any KVM box with a public IPv4)
 # running Debian 13 (the tested primary target), Debian 12, Ubuntu 24.04 or 26.04.
 # Run as root. Idempotent: re-run it any time to update the checkout, the
-# configuration, the firewall and the containers.
+# configuration, the firewall, the host hardening and the containers.
 # When the checkout in step 4 changes this very file, the run restarts from the
 # checked-out copy (internal flag --no-self-update, which skips that check and
-# keeps the open log), so steps 5 to 9 always run the code just checked out.
+# keeps the open log), so steps 5 to 11 always run the code just checked out.
 #
 #   install.sh --env /root/datasetto.env --ref productionize-rewrite
 #
@@ -23,22 +23,66 @@
 #   --no-backup         do not install the daily SQLite backup timer
 #   -h, --help          this text
 #
+# Host hardening options (step 10, ops/vps/harden.sh; ops/README.md, "Host hardening").
+# Everything is on by default. Each --no-* flag also undoes what an earlier run wrote
+# for its area, except --no-harden-docker, which leaves daemon.json as it is. Flags
+# apply to the run they are given on; the DATASETTO_* keys (in the environment or in
+# ops/.env) keep a choice across re-runs, and a flag wins over them.
+#   --keep-ssh-passwords  keep SSH password logins; the rest of the SSH step still
+#                       applies (DATASETTO_KEEP_SSH_PASSWORDS=yes)
+#   --no-harden-ssh     leave sshd alone (removes /etc/ssh/sshd_config.d/10-datasetto.conf)
+#   --no-auto-reboot    install updates but never reboot by itself (DATASETTO_AUTO_REBOOT=no)
+#   --reboot-time HH:MM when unattended-upgrades may reboot, server time (default 04:30;
+#                       DATASETTO_REBOOT_TIME=HH:MM)
+#   --no-harden-updates no Docker CE origin, needrestart settings or automatic reboot
+#   --no-harden-docker  leave /etc/docker/daemon.json alone
+#   --no-fail2ban       no fail2ban jail for SSH (fail2ban itself stays installed)
+#   --no-harden-resolver  keep LLMNR and multicast DNS in systemd-resolved
+#   --no-harden-sysctl  no kernel settings file in /etc/sysctl.d
+#   --no-harden         all of the --no-* hardening flags above at once (step 10 then
+#                       only removes what earlier runs wrote)
+#
 # What it does, skipping anything already in place:
 #   1. 2 GB swap file when the machine has less than 3 GB RAM and no swap
 #      (skipped on a 4 GB plan such as OVH VPS-1)
-#   2. packages: ca-certificates curl git ufw unattended-upgrades (rclone when
+#   2. packages: ca-certificates curl git ufw unattended-upgrades, for the hardening
+#      fail2ban python3-systemd nftables needrestart python3 (rclone when
 #      BACKUP_RCLONE_REMOTE is set in the env file)
 #   3. Docker Engine and the compose plugin from get.docker.com
-#   4. clone or update the repository and check out --ref
-#   5. copy --env to ops/.env (mode 600, CRLF stripped) and sanity-check it
+#   4. clone or update the repository and check out --ref; the checkout belongs to
+#      root (git refuses to run as root in a repository someone else owns)
+#   5. copy --env to ops/.env (root, mode 600, CRLF stripped) and sanity-check it
 #   6. firewall: rate-limited SSH, 80, 443 tcp+udp, 1935, 1936, and the TURN ports
 #      only when COMPOSE_PROFILES contains "turn"; everything else denied
 #   7. docker compose pull (or build); a VAPID key pair for Web Push notifications
 #      is generated into ops/.env with the app image when PUSH_VAPID_* is empty;
-#      up -d; systemd unit datasetto.service so the stack starts on boot
+#      up -d (every service with no-new-privileges); systemd unit datasetto.service
+#      so the stack starts on boot; waits until every service reports healthy and
+#      warns about any container port published outside the list in step 6
+#      (Docker's published ports bypass ufw)
 #   8. daily SQLite backup (ops/vps/backup.sh) from a systemd timer; 14 copies
-#      kept in /var/backups/datasetto, optional upload to an rclone remote
+#      kept in /var/backups/datasetto (mode 700), optional upload to an rclone remote
 #   9. the egress guard, only with --egress-guard
+#  10. host hardening, each part rewritten only when it changed:
+#      - Docker daemon: log rotation (10m x 5), live-restore and no-new-privileges
+#        merged into /etc/docker/daemon.json; Docker restarts only when the file
+#        changed and the stack is healthy, live-restore first so containers keep running
+#      - updates: Docker CE packages in unattended-upgrades, needrestart restarts
+#        services by itself, a reboot at 04:30 when an update needs one
+#      - fail2ban: sshd jail on the systemd journal, bans with nftables
+#      - resolver: LLMNR and multicast DNS off in systemd-resolved
+#      - kernel: /etc/sysctl.d/60-datasetto-hardening.conf (no ICMP redirects or source
+#        routes, martians logged, strict rp_filter, protected links, kptr and dmesg
+#        restricted, no unprivileged BPF; forwarding stays on for Docker)
+#      - time: a time sync service runs (systemd-timesyncd is installed if none does)
+#      - SSH: /etc/ssh/sshd_config.d/10-datasetto.conf with key logins only, no root
+#        login, no X11 or agent forwarding, MaxAuthTries 3, LoginGraceTime 30.
+#        Password logins go only when the admin user (the sudo caller) has a key sshd
+#        accepts; root login goes only when that user has sudo. Checked with sshd -t
+#        and sshd -T, loaded with a reload (open sessions stay up); any failure puts
+#        the previous file back. A loud note comes first when passwords are switched off.
+#  11. secrets and files: ops/.env and the --env file mode 600, backups 700/600, logs
+#      640; a summary that warns when an installed update waits for a reboot
 #
 # Log: /var/log/datasetto-install.log
 set -euo pipefail
@@ -52,6 +96,18 @@ SSH_PORT=""
 FIREWALL=1
 BACKUP=1
 EGRESS_GUARD=""   # "" leave as is, 1 install, 0 remove
+# Host hardening (ops/vps/harden.sh). "" = take DATASETTO_* from the environment or ops/.env.
+HARDEN=1
+HARDEN_SSH=1
+KEEP_SSH_PASSWORDS=""
+HARDEN_UPDATES=1
+AUTO_REBOOT=""
+REBOOT_TIME=""
+HARDEN_DOCKER=1
+HARDEN_FAIL2BAN=1
+HARDEN_RESOLVER=1
+HARDEN_SYSCTL=1
+STACK_HEALTHY=0   # set by wait_for_stack; Docker is only restarted on a healthy stack
 LOG=/var/log/datasetto-install.log
 SELF_UPDATE=1     # 0 after the restart described above (--no-self-update)
 ORIG_ARGS=("$@")
@@ -80,6 +136,17 @@ while (( $# )); do
     --no-egress-guard) EGRESS_GUARD=0; shift ;;
     --no-firewall) FIREWALL=0; shift ;;
     --no-backup) BACKUP=0; shift ;;
+    --keep-ssh-passwords) KEEP_SSH_PASSWORDS=1; shift ;;
+    --no-harden-ssh) HARDEN_SSH=0; shift ;;
+    --no-auto-reboot) AUTO_REBOOT=0; shift ;;
+    --reboot-time) REBOOT_TIME="${2:?--reboot-time needs HH:MM}"; shift 2 ;;
+    --reboot-time=*) REBOOT_TIME="${1#*=}"; shift ;;
+    --no-harden-updates) HARDEN_UPDATES=0; shift ;;
+    --no-harden-docker) HARDEN_DOCKER=0; shift ;;
+    --no-fail2ban) HARDEN_FAIL2BAN=0; shift ;;
+    --no-harden-resolver) HARDEN_RESOLVER=0; shift ;;
+    --no-harden-sysctl) HARDEN_SYSCTL=0; shift ;;
+    --no-harden) HARDEN=0; shift ;;
     --no-self-update) SELF_UPDATE=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; echo >&2; usage >&2; exit 2 ;;
@@ -143,6 +210,29 @@ TURN_PORT="$(env_value TURN_PORT)"; TURN_PORT="${TURN_PORT:-3478}"
 TURN_MIN_PORT="$(env_value TURN_MIN_PORT)"; TURN_MIN_PORT="${TURN_MIN_PORT:-49152}"
 TURN_MAX_PORT="$(env_value TURN_MAX_PORT)"; TURN_MAX_PORT="${TURN_MAX_PORT:-49400}"
 WANT_TURN=0; [[ "$PROFILES" == *turn* ]] && WANT_TURN=1
+# What the firewall opens, and therefore the only ports a container may publish
+# (check_published_ports). TURN runs with host networking, so ufw filters it.
+PUBLIC_PORTS=(80/tcp 443/tcp 443/udp 1935/tcp 1936/tcp)
+
+# Hardening options that can also come from the environment or ops/.env, so a choice
+# survives re-runs: the flag wins, then the environment, then ops/.env, then the default.
+option_value() {
+  local value="$1"
+  [[ -n "$value" ]] || value="${!2:-}"
+  [[ -n "$value" ]] || value="$(env_value "$2")"
+  printf '%s' "${value:-$3}"
+}
+as_bool() {
+  case "${1,,}" in
+    1|y|yes|true|on) echo 1 ;;
+    0|n|no|false|off) echo 0 ;;
+    *) echo "error: $2 must be yes or no, not '$1'" >&2; return 1 ;;
+  esac
+}
+KEEP_SSH_PASSWORDS="$(as_bool "$(option_value "$KEEP_SSH_PASSWORDS" DATASETTO_KEEP_SSH_PASSWORDS no)" DATASETTO_KEEP_SSH_PASSWORDS)"
+AUTO_REBOOT="$(as_bool "$(option_value "$AUTO_REBOOT" DATASETTO_AUTO_REBOOT yes)" DATASETTO_AUTO_REBOOT)"
+REBOOT_TIME="$(option_value "$REBOOT_TIME" DATASETTO_REBOOT_TIME 04:30)"
+[[ "$REBOOT_TIME" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || die "--reboot-time / DATASETTO_REBOOT_TIME must be HH:MM (24 h), not '$REBOOT_TIME'"
 
 # ---- 1. swap -----------------------------------------------------------------
 ensure_swap() {
@@ -178,12 +268,23 @@ ensure_swap() {
 ensure_packages() {
   step "Packages"
   export DEBIAN_FRONTEND=noninteractive
+  # needrestart (installed below for unattended upgrades) stays out of the installer's own
+  # apt runs: nothing should restart in the middle of a deploy.
+  export NEEDRESTART_SUSPEND=1
   local pkgs=(ca-certificates curl git unattended-upgrades iproute2)
   (( FIREWALL )) && pkgs+=(ufw)
   [[ -n "$RCLONE_REMOTE" ]] && pkgs+=(rclone)
+  if (( HARDEN )); then
+    # python3 merges /etc/docker/daemon.json; fail2ban's systemd backend needs
+    # python3-systemd (trixie has no auth.log) and its bans use nftables.
+    pkgs+=(python3)
+    (( HARDEN_FAIL2BAN )) && pkgs+=(fail2ban python3-systemd nftables)
+    (( HARDEN_UPDATES )) && pkgs+=(needrestart)
+  fi
   apt-get update -qq
   apt-get install -y -qq --no-install-recommends "${pkgs[@]}"
-  # Security updates install themselves; reboots stay manual.
+  # Security updates install themselves; harden_updates (step 10) adds Docker's packages
+  # and the reboot policy.
   if ! grep -qs 'Unattended-Upgrade "1"' /etc/apt/apt.conf.d/20auto-upgrades; then
     cat > /etc/apt/apt.conf.d/20auto-upgrades <<'CONF'
 APT::Periodic::Update-Package-Lists "1";
@@ -208,12 +309,27 @@ ensure_docker() {
 }
 
 # ---- 4. code -----------------------------------------------------------------
+# git refuses to work as root in a repository that another user owns ("detected dubious
+# ownership"), unless sudo's SUDO_UID happens to match the owner. The installer and
+# `sudo git` are the checkout's only writers, so it belongs to root; listing it in
+# safe.directory instead would only switch the check off.
+ensure_checkout_owner() {
+  local other
+  other="$(find "$APP_DIR" \( ! -user root -o ! -group root \) -print -quit 2>/dev/null || true)"
+  [[ -n "$other" ]] || return 0
+  echo "    $APP_DIR (or files in it) belonged to uid $(stat -c '%u (%U)' "$other"), so git as root would refuse it as dubious ownership; giving the checkout to root:root"
+  chown -R root:root "$APP_DIR"
+}
+
 sync_repo() {
   step "Code in $APP_DIR (ref $REF)"
   if [[ ! -d "$APP_DIR/.git" ]]; then
     git clone --quiet "$REPO" "$APP_DIR"
-  elif (( REPO_GIVEN )) && [[ "$(git -C "$APP_DIR" remote get-url origin)" != "$REPO" ]]; then
-    git -C "$APP_DIR" remote set-url origin "$REPO"
+  else
+    ensure_checkout_owner
+    if (( REPO_GIVEN )) && [[ "$(git -C "$APP_DIR" remote get-url origin)" != "$REPO" ]]; then
+      git -C "$APP_DIR" remote set-url origin "$REPO"
+    fi
   fi
   cd "$APP_DIR"
   if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
@@ -245,6 +361,19 @@ restart_from_checkout() {
   exec "$BASH" "$current" --no-self-update "${ORIG_ARGS[@]}"
 }
 
+# The hardening steps live next to this file in the checkout, so they are always the
+# version just checked out (this file restarts itself for the same reason).
+load_hardening() {
+  local lib="$APP_DIR/ops/vps/harden.sh"
+  if [[ -f "$lib" ]]; then
+    # shellcheck source=ops/vps/harden.sh
+    . "$lib"
+  else
+    warn "$lib is not in ref $REF; host hardening skipped"
+    HARDEN=0
+  fi
+}
+
 # ---- 5. configuration --------------------------------------------------------
 write_env() {
   step "Configuration ops/.env"
@@ -259,7 +388,13 @@ write_env() {
       done
       install -m 0600 -o root -g root "$ENV_FILE" "$target"
     fi
+    # The uploaded copy (scp'd to the admin's home with the usual 644) holds the same secrets.
+    if [[ "$ENV_FILE" != "$target" && -n "$(find "$ENV_FILE" -perm /077 2>/dev/null)" ]]; then
+      chmod 600 "$ENV_FILE"
+      echo "    $ENV_FILE was readable by other users; now mode 600 (delete it if you keep a copy elsewhere)"
+    fi
   fi
+  chown root:root "$target"
   chmod 600 "$target"
   sed -i 's/\r$//' "$target"
   ENV_SRC="$target"
@@ -335,11 +470,9 @@ configure_firewall() {
       ssh_mode="open, not rate limited"
     fi
   done
-  ufw allow 80/tcp >/dev/null
-  ufw allow 443/tcp >/dev/null
-  ufw allow 443/udp >/dev/null
-  ufw allow 1935/tcp >/dev/null
-  ufw allow 1936/tcp >/dev/null
+  for p in "${PUBLIC_PORTS[@]}"; do
+    ufw allow "$p" >/dev/null
+  done
   if (( WANT_TURN )); then
     ufw allow "$TURN_PORT/tcp" >/dev/null
     ufw allow "$TURN_PORT/udp" >/dev/null
@@ -350,7 +483,7 @@ configure_firewall() {
     ufw delete allow "$TURN_MIN_PORT:$TURN_MAX_PORT/udp" >/dev/null 2>&1 || true
   fi
   ufw --force enable >/dev/null
-  echo "    ssh ($ssh_mode) on tcp ${ssh_ports% }; open: 80/tcp 443/tcp 443/udp 1935/tcp 1936/tcp$( (( WANT_TURN )) && echo " $TURN_PORT/tcp $TURN_PORT/udp $TURN_MIN_PORT:$TURN_MAX_PORT/udp")"
+  echo "    ssh ($ssh_mode) on tcp ${ssh_ports% }; open: ${PUBLIC_PORTS[*]}$( (( WANT_TURN )) && echo " $TURN_PORT/tcp $TURN_PORT/udp $TURN_MIN_PORT:$TURN_MAX_PORT/udp")"
   ufw status | sed 's/^/    /'
 }
 
@@ -422,7 +555,9 @@ install_boot_unit() {
   cat > /etc/systemd/system/datasetto.service <<UNIT
 [Unit]
 Description=Datasetto (docker compose stack in $APP_DIR/ops)
-Requires=docker.service
+# Wants, not Requires: with Requires a Docker restart (a package update, a daemon.json
+# change) would stop the whole stack through this unit, even with live-restore on.
+Wants=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
 
@@ -445,20 +580,66 @@ UNIT
   echo "    enabled; systemctl status datasetto / systemctl stop datasetto"
 }
 
-wait_for_app() {
-  step "Waiting for the app to report healthy"
-  local cid status i
-  cid="$(cd "$APP_DIR/ops" && docker compose ps -q app)"
+# Every service of the active profiles running, and healthy where the image has a health
+# check. This is also the proof that the services start with no-new-privileges before
+# the Docker step makes it the daemon's default.
+stack_state() {
+  local svc ps state health pending=""
+  ps="$(cd "$APP_DIR/ops" && docker compose ps -a --format '{{.Service}} {{.State}} {{.Health}}' 2>/dev/null || true)"
+  for svc in $(cd "$APP_DIR/ops" && docker compose config --services 2>/dev/null); do
+    state=""; health=""
+    read -r state health < <(awk -v s="$svc" '$1 == s { print $2, $3; exit }' <<< "$ps")
+    case "${state:-missing}/$health" in
+      running/|running/healthy) ;;
+      *) pending="$pending $svc=${state:-missing}${health:+/$health}" ;;
+    esac
+  done
+  printf '%s' "${pending# }"
+}
+
+wait_for_stack() {
+  step "Waiting for every service to report healthy"
+  local pending i
+  STACK_HEALTHY=0
   for i in $(seq 1 45); do
-    status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid" 2>/dev/null || echo unknown)"
-    if [[ "$status" == "healthy" ]]; then
-      echo "    app healthy after about $(( i * 2 )) s"
+    pending="$(stack_state)"
+    if [[ -z "$pending" ]]; then
+      STACK_HEALTHY=1
+      echo "    $(cd "$APP_DIR/ops" && docker compose config --services | tr '\n' ' ')up after about $(( i * 2 )) s"
       return 0
     fi
     sleep 2
   done
-  warn "app is '$status' after 90 s; check: cd $APP_DIR/ops && docker compose logs app"
+  warn "not healthy after 90 s: $pending; check: cd $APP_DIR/ops && docker compose ps && docker compose logs"
   return 0
+}
+
+# Docker writes its published ports straight into iptables, past ufw. Any container port
+# published on a public address must therefore be one the firewall opens anyway.
+check_published_ports() {
+  step "Published container ports"
+  local allowed name cport arrow host hostport proto unexpected=() seen=()
+  allowed=" ${PUBLIC_PORTS[*]} "
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    while read -r cport arrow host; do
+      [[ "$arrow" == "->" ]] || continue
+      hostport="${host##*:}"
+      proto="${cport#*/}"
+      case "${host%:*}" in 127.*|"[::1]"|::1) continue ;; esac
+      if [[ "$allowed" == *" $hostport/$proto "* ]] \
+        || { (( WANT_TURN )) && [[ "$hostport/$proto" == "$TURN_PORT/tcp" || "$hostport/$proto" == "$TURN_PORT/udp" ]]; } \
+        || { (( WANT_TURN )) && [[ "$proto" == udp ]] && (( hostport >= TURN_MIN_PORT && hostport <= TURN_MAX_PORT )); }; then
+        [[ " ${seen[*]} " == *" $hostport/$proto "* ]] || seen+=("$hostport/$proto")
+        continue
+      fi
+      unexpected+=("$name:$cport on $host")
+    done < <(docker port "$name" 2>/dev/null || true)
+  done < <(docker ps --format '{{.Names}}' 2>/dev/null || true)
+  echo "    published on public addresses: ${seen[*]:-none}"
+  if (( ${#unexpected[@]} )); then
+    warn "these container ports are reachable from the internet although ufw does not open them (Docker bypasses ufw): ${unexpected[*]}. Bind them to 127.0.0.1 in the compose file, or add them to PUBLIC_PORTS in ops/vps/install.sh if they are meant to be public."
+  fi
 }
 
 # ---- 8. backups ----------------------------------------------------------------
@@ -491,8 +672,9 @@ UNIT
 Description=Run the Datasetto backup every night
 
 [Timer]
+# Done before 04:30, when unattended-upgrades reboots if an update needs it.
 OnCalendar=*-*-* 04:00:00
-RandomizedDelaySec=30min
+RandomizedDelaySec=20min
 Persistent=true
 
 [Install]
@@ -514,7 +696,7 @@ UNIT
   else
     warn "first backup failed; see /var/log/datasetto-backup.log"
   fi
-  echo "    nightly at 04:00 (timer datasetto-backup.timer), 14 copies in /var/backups/datasetto"
+  echo "    nightly between 04:00 and 04:20 (timer datasetto-backup.timer), 14 copies in /var/backups/datasetto"
 }
 
 # ---- 9. egress guard (optional) ---------------------------------------------
@@ -524,6 +706,52 @@ configure_egress_guard() {
     0) step "Egress guard"; bash "$APP_DIR/ops/common/egress-guard-install.sh" --remove | sed 's/^/    /' ;;
     *) ;;
   esac
+}
+
+# ---- 11. secrets and files ---------------------------------------------------
+secure_files() {
+  step "Secrets and file permissions"
+  local f fixed=""
+  # ops/.env holds the TURN secret, the VAPID private key and the invite code.
+  chown root:root "$APP_DIR/ops/.env" && chmod 600 "$APP_DIR/ops/.env"
+  # Backups hold every account's password hash and session tokens.
+  if [[ -d /var/backups/datasetto ]]; then
+    chown root:root /var/backups/datasetto
+    chmod 700 /var/backups/datasetto
+    if [[ -n "$(find /var/backups/datasetto -maxdepth 1 -type f -perm /077 -print -quit)" ]]; then
+      find /var/backups/datasetto -maxdepth 1 -type f -exec chmod 600 {} +
+      fixed+=" backup copies"
+    fi
+  fi
+  # rclone's remote credentials, when backups go off the server.
+  f=/root/.config/rclone/rclone.conf
+  if [[ -f "$f" && -n "$(find "$f" -perm /077)" ]]; then chmod 600 "$f"; fixed+=" $f"; fi
+  # The logs name hosts and settings, not secrets: readable by root and the adm group.
+  for f in "$LOG" /var/log/datasetto-backup.log; do
+    if [[ -f "$f" ]]; then chgrp adm "$f" 2>/dev/null || true; chmod 640 "$f"; fi
+  done
+  echo "    ops/.env root 600, /var/backups/datasetto root 700 (copies 600), logs 640, checkout owned by root${fixed:+; tightened:$fixed}"
+}
+
+# Warns when an installed update waits for a reboot (a new kernel or libc not running yet).
+report_reboot_pending() {
+  [[ -f /var/run/reboot-required ]] || return 0
+  local pkgs newest usec scheduled=""
+  pkgs="$(sort -u /var/run/reboot-required.pkgs 2>/dev/null | tr '\n' ' ')"
+  newest="$(find /boot -maxdepth 1 -name 'vmlinuz-*' -printf '%f\n' 2>/dev/null | sed 's/^vmlinuz-//' | sort -V | tail -n1)"
+  if [[ -f /run/systemd/shutdown/scheduled ]]; then
+    usec="$(sed -n 's/^USEC=//p' /run/systemd/shutdown/scheduled)"
+    [[ -z "$usec" ]] || scheduled="$(date -d "@$(( usec / 1000000 ))" '+%F %H:%M %Z' 2>/dev/null || true)"
+  fi
+  echo
+  warn "a reboot is pending for ${pkgs:-an installed update}(running kernel $(uname -r)${newest:+, newest installed $newest})"
+  if [[ -n "$scheduled" ]]; then
+    echo "    a reboot is scheduled for $scheduled (cancel: sudo shutdown -c)"
+  elif (( HARDEN && HARDEN_UPDATES && AUTO_REBOOT )); then
+    echo "    unattended-upgrades reboots at $REBOOT_TIME after its next daily run; to do it now: sudo reboot"
+  else
+    echo "    automatic reboots are off; reboot when it suits you: sudo reboot"
+  fi
 }
 
 summary() {
@@ -545,6 +773,9 @@ summary() {
   Logs        : cd $APP_DIR/ops && docker compose logs -f --tail 100
   Install log : $LOG
 
+Host hardening (ops/README.md, "Host hardening"):
+$(if (( ${#HARDEN_SUMMARY[@]} )); then printf '  %s\n' "${HARDEN_SUMMARY[@]}"; else echo "  skipped (--no-harden)"; fi)
+
 Next:
   1. DNS: A record ${host:-<your domain>} -> ${ip:-<server ip>} (Caddy fetches the certificate on the first request)
   2. Open https://${host:-<your domain>}/app and register with an ADMIN_EMAILS address
@@ -553,18 +784,24 @@ Next:
 Update later: re-run this script with the same --ref, or
   cd $APP_DIR && git pull && cd ops && docker compose pull && docker compose up -d --remove-orphans
 EOF
+  report_reboot_pending
 }
 
+HARDEN_SUMMARY=()
 ensure_swap
 ensure_packages
 ensure_docker
 sync_repo
 restart_from_checkout
+load_hardening
 write_env
 if (( FIREWALL )); then configure_firewall; else step "Firewall"; echo "    skipped (--no-firewall)"; fi
 compose_up
 install_boot_unit
-wait_for_app
+wait_for_stack
+check_published_ports
 install_backup
 configure_egress_guard
+if declare -F harden_host >/dev/null; then harden_host; fi
+secure_files
 summary
