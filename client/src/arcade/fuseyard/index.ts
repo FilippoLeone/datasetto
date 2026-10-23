@@ -1,6 +1,6 @@
 /**
  * Fuseyard's lazy chunk (fuseyard.md §8): the GameModule the shell mounts and the offline core it
- * steps for "Solo vs bots". One code path for both: the module only talks to its MatchHost.
+ * steps for solo play. One code path for both: the module only talks to its MatchHost.
  *
  * Offline the device has authority: one input per sim tick goes to the local host as the host
  * delivers each tick's FRAME, with no prediction. Online the module samples input at 30 Hz itself,

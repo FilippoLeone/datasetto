@@ -11,6 +11,8 @@ interface SheetProps {
   showTitle?: boolean;
   onClose: () => void;
   children: ComponentChildren;
+  /** Stays in view under the scrolling content (a Start button, a toolbar), padded clear of the home indicator. */
+  footer?: ComponentChildren;
   /** From usePresence: 'closed' plays the leave animation. */
   state?: PresenceState;
   className?: string;
@@ -22,7 +24,7 @@ interface SheetProps {
  * Rendered into <body> so no ancestor can clip it; a tap outside, Escape or
  * the back button closes it (lib/backStack.ts).
  */
-export const Sheet = ({ title, showTitle = true, onClose, children, state = 'open', className }: SheetProps) => {
+export const Sheet = ({ title, showTitle = true, onClose, children, footer, state = 'open', className }: SheetProps) => {
   useBackClose(state === 'open', onClose);
 
   useEffect(() => {
@@ -48,7 +50,8 @@ export const Sheet = ({ title, showTitle = true, onClose, children, state = 'ope
       >
         <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-border-strong" aria-hidden="true" />
         {title && showTitle && <p className="shrink-0 truncate px-5 pt-3 pb-1 text-sm font-semibold text-text-bright">{title}</p>}
-        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]">{children}</div>
+        <div className={cn('scrollbar-thin min-h-0 flex-1 overflow-y-auto', footer ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]')}>{children}</div>
+        {footer && <div className="shrink-0 pb-[env(safe-area-inset-bottom,0px)]">{footer}</div>}
       </div>
     </div>,
     document.body,

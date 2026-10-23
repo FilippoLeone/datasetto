@@ -18,6 +18,7 @@ import { AuthScreen } from '@/features/auth/AuthScreen';
 import { appVisibility, frames } from '@/arcade/runtime/p0';
 import { installFakeFrames, stubCanvas, trackResources, type FakeFrames } from '@/arcade/runtime/testing';
 import { ArcadeHost } from './ArcadeHost';
+import { SETUP_KEY } from './setup';
 import { arcadeSession, arcadeView } from './state';
 
 // The app's shared visibility listeners live for the page's lifetime (the visibility heartbeat installs
@@ -82,8 +83,9 @@ describe('offline play from the sign-in screen', () => {
 
     await click('[data-play-offline]');
     await until(() => document.querySelector('[data-arcade-tile]') !== null, 'the catalogue');
+    // One tap on the card plays the remembered (here the default) setup.
+    expect(document.querySelector('[data-arcade-tile="fuseyard"]')?.getAttribute('aria-label')).toBe('Play Test Game: Brawl, 4');
     await click('[data-arcade-tile="fuseyard"]');
-    await click('[data-arcade-start]');
     await until(() => fakeLog.mounted === 1, 'the game to mount');
     expect(arcadeSession.value).toMatchObject({ game: 'fuseyard', mode: 'local' });
 
@@ -108,12 +110,52 @@ describe('offline play from the sign-in screen', () => {
     expect(fake.pending).toBe(0);
     expect(audio.closed).toBe(1);
     expect(fakeLog.canvases.every((c) => c.canvas.width === 0 && c.canvas.height === 0 && !c.canvas.isConnected)).toBe(true);
+    // Remembering the setup wrote localStorage, and jsdom queues its "storage" event with a 0 ms timeout.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
     const after = resources.live();
     expect(after.sockets).toBe(0);
     expect(after.intervals).toBe(baseline.intervals);
     expect(after.timeouts).toBe(baseline.timeouts);
     expect(after.listeners).toBe(baseline.listeners);
     expect(document.querySelector('[data-arcade-overlay]')).toBeNull();
+    expect(JSON.parse(localStorage.getItem(SETUP_KEY) ?? '{}').offline.fuseyard).toEqual({ mode: 'brawl', values: { fighters: 4 } });
     resources.restore();
+  });
+
+  it('opens the options from the card, plays them, and remembers them for the next tap', async () => {
+    localStorage.removeItem(SETUP_KEY);
+    act(() =>
+      render(
+        <>
+          <AuthScreen resuming={false} />
+          <ArcadeHost />
+        </>,
+        host,
+      ),
+    );
+    await click('[data-play-offline]');
+    await until(() => document.querySelector('[data-arcade-options="fuseyard"]') !== null, 'the catalogue');
+    await click('[data-arcade-options="fuseyard"]');
+    expect(document.querySelector('[data-arcade-form="fuseyard"]')).not.toBeNull();
+    // No PRACTICE badge: this game plays without chips.
+    expect(document.querySelector('[data-arcade-overlay] header')?.textContent).not.toContain('PRACTICE');
+    await click('[data-arcade-field="fighters"] [role="radio"]:first-child');
+    expect(document.querySelector('[data-arcade-field="fighters"] [aria-checked="true"]')?.textContent).toBe('2');
+    const mounted = fakeLog.mounted;
+    await click('[data-arcade-start]');
+    await until(() => fakeLog.mounted === mounted + 1, 'the game to mount');
+    expect(arcadeSession.value).toMatchObject({ game: 'fuseyard', mode: 'local' });
+    expect(document.querySelector('[aria-label="Game menu"]')).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem(SETUP_KEY) ?? '{}').offline.fuseyard).toEqual({ mode: 'brawl', values: { fighters: 2 } });
+
+    await click('[aria-label="Leave game"]');
+    expect(arcadeView.value).toBeNull();
+    await click('[data-play-offline]');
+    await until(() => document.querySelector('[data-arcade-tile="fuseyard"]') !== null, 'the catalogue again');
+    expect(document.querySelector('[data-arcade-tile="fuseyard"]')?.getAttribute('aria-label')).toBe('Play Test Game: Brawl, 2');
+    await click('[data-arcade-overlay] [aria-label="Close"]');
+    expect(arcadeView.value).toBeNull();
   });
 });

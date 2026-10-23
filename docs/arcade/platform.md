@@ -427,7 +427,7 @@ Snapshots, events and keyframes go only to heroes in that room (§8.3).
 | `arcade:lobby:join` | C→S | `{id, as: 'player'\|'spectator', seat?}` → `{ok, lobby, ticket?}` | 50 / 300 |
 | `arcade:lobby:leave` / `:start` / `:bots` / `:config` | C→S | `{id, …}` → `{ok}` | 30–80 |
 | `arcade:lobby` | S→C, lobby room, ≤ 2 Hz coalesced | `{id, game, ch, st, host, seats:[{a, bot, st}], spec, cfg, v}` | 150–350 |
-| `arcade:activity` | S→C, channel viewers, on change, ≤ 1 per 2 s per channel | `{ch, a:[{g, id, st, n, max, w}]}` | 60–150 |
+| `arcade:activity` | S→C, channel viewers, on change, ≤ 1 per 2 s per channel; a lobby or table that closes goes out at once | `{ch, a:[{g, id, st, n, max, w}]}` | 60–150 |
 | `arcade:activity:all` | S→C, once after `auth:success` | `{chs:[…]}` | ≤ 1 KB |
 | `arcade:ticket` | C→S | `{id}` → `{ok, ticket, exp}` | 30 / 120 |
 | `arcade:invite` | C→S | `{id, to}` → `{ok}`; the recipient gets `arcade:invited {id, from, game, ch}` | 50 |
@@ -657,7 +657,7 @@ Per the slots spec.
 
 ### 9.2 Joining is opt-in
 
-- **Lobbies** are per voice channel. They show as a passive **LobbyChip** in the voice header, for example "Fuseyard · 2/4 · Join seat · Watch". The same summary feeds the channel-list badge.
+- **Lobbies** are per voice channel. They show as a passive **LobbyChip** in the voice header, for example "Fuseyard · 2/4 · Join · Watch". Every game uses the same two verbs: **Join** (a seat, a table or the hall) and **Watch** where the game offers it. Your own game's chip has neither: it reads "Your game" with Leave, or Open while its stage is closed. The same summary feeds the channel-list badge.
   - No toast, no sound, no change of view.
   - An account with "Hide Arcade" on sees no chips or badges.
 - **Who can do what**
@@ -667,7 +667,7 @@ Per the slots spec.
   | Create a lobby, sit as a player | voice members of that channel |
   | Watch | voice members, and anyone with `view` on the channel; up to 4 per action match and 8 per table (none in Bellwick v1) |
 
-  Channel viewers outside the call receive only `arcade:activity` (≤ 150 B, on change, at most once per 2 s) until they press Watch.
+  Channel viewers outside the call receive only `arcade:activity` (≤ 150 B, on change, at most once per 2 s) until they press Watch. A close skips the 2 s wait, so a lobby or table that ends leaves everyone's list at once.
 - **Invites.** `arcade:invite` pings one named voice member, at most once a minute per pair, and never while they are on Do Not Disturb. It shows as a dismissible InviteChip that expires after 60 s.
 - **Late join**
   - Fuseyard: late joiners watch until the next round, then take a free or bot seat.
@@ -811,11 +811,16 @@ Every change calls `host.setVisible`. Remote, that sends VIS. Local, it pauses t
 
 - **Voice page.**
   - The old Minigames header button (`VoicePage.tsx:337–343`) becomes **Arcade**, a gamepad IconButton that opens `ArcadeSheet`. On phones there is the same button in `VoiceDock`.
-  - The sheet is a `Sheet` on phones and a `Menu` popover on desktop. It lists this channel's lobbies (Join, Watch), "Start a game", "Solo vs bots", the wallet pill and the daily claim.
+  - The sheet is a `Sheet` on phones and a 320 px popover on desktop. Its main view always has the same order, and a part with nothing to show is left out:
+    1. **Your game**, when you are in a lobby in this channel: one card with the game and mode, the status ("You're the host · waiting for players", "Waiting for Ada to start", "Playing · 2 watching"), who is in ("Ada (host), Bo · 2 open seats"; table games only say "3 at the table"), and for action games what fills the empty seats and the options line. The host of a forming action game can **Change** the options in place, except what was fixed at create (the seat count, the save slot). Then Start (host) or Open game, Invite and Leave.
+    2. **Play with your call**: a Join row for each of this channel's games you are not in (Watch beside it where the game offers it; after three rows, "Show N more"), then a **start card** per game. Outside the call this part is one line: "Join the voice channel to play with the people in it." While you are in a game here, the start cards fold under "Start a different game", since starting one leaves it.
+    3. **Play solo** opens the overlay.
+    4. A footer that stays in view: the chips with the daily claim (when a chip game is listed), **Boards** and **Settings**.
+  - **One-tap play.** A start card (and a card in the solo catalogue) plays the setup you last played *there*, or the default: the call and solo setups are remembered apart, in `datasetto.arcade.setup.v1`, and only when the game started. The card shows that setup ("Cash table · Pebble 5/10"). Its **Options** button, shown only when there is something to choose, opens a short setup screen: mode cards with one line each, at most two main fields, a collapsed "More options" line, and the one filled button (Play or Start) sticky at the bottom. The fields and their order come from each game's `meta.ts` (plan.md §2.6.7); hidden fields send their defaults, so the cfg keeps the shape the servers parse. Bellwick's Party Tale reads the save list first: it continues the tale the card names ("Continue Slot 2", the slot last played, a new tale remembered as the slot it went into); the first time, the latest tale that is not in use, or a new one in the first empty slot. When that tale is in use or gone, or every slot is used, it opens the setup screen instead: it never plays another tale, never preselects a new tale over an old one, and asks which tale a new one replaces right under the list. On phones the sheet's footer (Start, the chips) sits below the scrolling part, clear of the home indicator.
   - **Starting or joining** replaces the video grid *on your own screen only*. The voice tiles collapse to a strip (the existing immersive layout), and the header gets "Back to call", which minimizes.
   - A minimized running game shows as a chip, "Fuseyard running · Return".
 - **Channel list.** `ChannelList.tsx:138` keeps its Gamepad2 badge, now driven by `arcadeActivity` instead of `currentMinigame`.
-- **Global entry.** "Arcade" in the user menu opens solo play (LocalHost) even while online. It costs the server nothing, and results don't count.
+- **Global entry.** The Arcade row in the channel list opens solo play (LocalHost) even while online. It costs the server nothing, and results don't count. The solo catalogue is the same game cards (one tap plays; Options first where there is something to choose); during play the header's left button is "Game menu" (the game's own pause menu), and the PRACTICE badge shows only for chip games.
 - **Offline entry.** "Play offline" on the login screen, on the ConnectionBanner while offline, and on the desktop and Android server-unreachable screens (§12).
 - **Phone.**
   - Action games prefer landscape and use the existing immersive mode (Capacitor SystemBars on Android).
@@ -825,7 +830,7 @@ Every change calls `host.setVisible`. Remote, that sends VIS. Local, it pauses t
 - **Desktop.** Gamepads work, and the push-to-talk key is excluded (§10.4). There is no pop-out window in v1.
 - **Settings.**
   - Account: "Hide Arcade" (the slots spec's self-exclusion, generalized to all games, with per-game toggles).
-  - Device: control layout, vibration and volume, stored in `lib/storage` under `datasetto.arcade.prefs.v1`.
+  - Device: volume, music and battery saver, plus vibration and the touch controls on touch screens only, stored in `lib/storage` under `datasetto.arcade.prefs.v1`. The last setup played per game, solo and in a call apart, is `datasetto.arcade.setup.v1`.
 
 ---
 

@@ -673,7 +673,7 @@ Both are negligible against the platform's 1.5 Mbit/s degrade threshold. Glimmer
 
 **Entry points.**
 - **Voice channel.** The ArcadeSheet tile "Glimmerhall" opens `GameStage` with the `glimmer` chunk. The video grid collapses to the voice strip on your screen only, and "Back to call" minimizes the stage (counted as away).
-- **Elsewhere.** "Arcade" in the user menu, and "Play offline", open Glimmerhall with `LocalHost` (Practice). It costs the server nothing.
+- **Elsewhere.** The Arcade row in the channel list, and "Play offline", open Glimmerhall with `LocalHost` (Practice). It costs the server nothing.
 - **Mode choice.** When the server is reachable and you came from a voice channel, the hall asks "Play online" or "Practice". Without a server, it offers Practice only, with "Practice chips stay on this device".
 
 **Phone portrait** (≥ 360 × 640), portrait-first:

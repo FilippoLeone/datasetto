@@ -292,6 +292,47 @@ describe('the mounted table', () => {
     s.handle.unmount();
   });
 
+  it('leaves at once: the table goes in the same tick as the request, which may never answer or may fail', async () => {
+    const s = scriptedHost();
+    const answer = s.host.request.bind(s.host);
+    let fail: (error: Error) => void = () => undefined;
+    s.host.request = <T>(ev: string, data: unknown): Promise<T> => {
+      if (ev !== 'lamplight:leave') return answer<T>(ev, data);
+      s.requests.push([ev, data as Record<string, unknown>]);
+      return new Promise<T>((_, reject) => (fail = reject));
+    };
+    const base = opts();
+    let left = 0;
+    // The real shell stops the session (and so unmounts the game) when the game leaves.
+    const handle: GameHandle = chunk.module.mount(el, s.host, {
+      ...base,
+      shell: {
+        ...base.shell,
+        leave: () => {
+          left++;
+          handle.unmount();
+        },
+      },
+    });
+    await flush();
+    fake.advance(50);
+    s.deal(0);
+    await flush();
+    click('[aria-label="Table menu"]');
+    await flush();
+    const leave = [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Leave table') as HTMLElement;
+    leave.click();
+    // Same tick: the request is out and the table is gone, with no answer yet.
+    expect(s.requests.filter((r) => r[0] === 'lamplight:leave')).toEqual([['lamplight:leave', expect.objectContaining({ t: 'tbl00001', now: true })]]);
+    expect(left).toBe(1);
+    expect(el.childNodes.length).toBe(0);
+    // The answer fails afterwards: nothing is thrown and nothing comes back.
+    fail(new Error('Not connected'));
+    await flush();
+    expect(left).toBe(1);
+    expect(el.childNodes.length).toBe(0);
+  });
+
   it('writes myTurn at most twice per turn and no platform signal', async () => {
     const before = { ...arcadeSignalWrites };
     const s = await mountScripted();

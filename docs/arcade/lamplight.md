@@ -62,7 +62,14 @@ All names, art, sounds and text are original. The naming rules and the pre-relea
 - **Table setup.** The table's creator (the host) picks the stakes tier, the number of seats (2 to 9, default 6) and the bots (off by default online). Creating a table is `arcade:lobby:create {ch, game: 'lamplight', mode: 'open', cfg}`. The table exists at once: an Open Table has no registration phase.
 - **Buying in.** A buy-in is 40 to 100 BB from the wallet, default 100. You can rebuy or top up to 100 BB between hands. Sitting down needs at least the minimum buy-in (400 at Pebble).
 - **Sitting out.** "Sit out next hand" keeps your seat. If you missed your BB, or you are new at the table, you choose "post BB now" or "wait for BB".
-- **Leaving.** Your stack is paid back when the hand ends. "Leave now" folds first. If you come back to the same table within 10 minutes, you must buy in with at least the stack you left with. The server keeps that amount in memory for 10 minutes.
+- **Leaving** on purpose (Leave, or leaving the lobby: the stage's Leave, starting or joining another game, hiding Lamplight, leaving the call) is immediate. It never waits for the hand to end.
+  - Between hands, or after you folded, your whole stack goes back to the wallet at once.
+  - In a hand, your seat folds at once if it is your turn. Otherwise it folds the moment the action reaches it, with no clock. Either way the stack behind is paid out at once, the seat stops being yours (you may sit anywhere at once), and the chips you already put in stay in the pot.
+  - An all-in seat plays on to the showdown. Whatever it wins goes to your wallet when the hand ends.
+  - **Known limitation:** a seat that left before its turn has not folded yet. If everyone else folds before the action reaches it, it wins the pot uncontested, and that pot follows you to the wallet when the hand ends.
+  - The hand transaction, the hand row, history and stats still include you.
+  - When the last human leaves, the table closes at once (§5).
+  - If you come back to the same table within 10 minutes, you must buy in with at least the stack you left with, plus anything the seat won after you left. The server keeps that amount in memory for 10 minutes.
 - **No rake.**
 - **Online bots** are allowed only at Pebble and Cobble, only when the host turns them on and the admin setting `serverBots` is on, and only within the server-wide cap of 6 poker bots.
   - Bot stacks are backed by the house (§12).
@@ -248,12 +255,19 @@ It uses no lookup tables. It is about 3 KB minified and takes roughly 0.3 to 0.5
   - The seat keeps its place and the action clock, but not the time bank, and sits out after 2 hands.
   - A cash seat is released after 5 minutes disconnected, or 10 minutes sitting out, and the stack goes back to the wallet.
   - Seats belong to account ids. A reconnect brings your own cards back (§7.4).
-- **Idle.** An online table closes 2 minutes after the last human leaves its seats, or once all of a cash table's humans have sat out for 5 minutes. Tables never run with only bots.
+- **Last human out.** When the last human leaves on purpose (§2.1) and nobody else is registered, the table closes at once with reason `'empty'`. Tables never run with only bots.
+  - A hand still running is first played to its end in no time: departed seats fold, house-backed bots check or call. So every chip is settled before the bots are cashed out and the lobby ends.
+  - A Cup or Trio whose last registrant leaves before the start closes the same way.
+  - The table leaves everyone's channel list at once: the hub sends the `arcade:activity` for a closed lobby without the 2 s throttle (platform §9.2).
+- **Idle.** The idle timers are only for disconnects, sitting out and tables nobody sat at:
+  - A cash table closes 2 minutes after its last human seat was released by a disconnect or by sitting out, or 2 minutes after it was created if nobody sat down.
+  - A cash table also closes once all of its humans have sat out for 5 minutes.
+  - A Cup or Trio that never starts closes when its lobby idles out (10 minutes).
 - **Hidden** (the platform's merged visibility, §10.3: window hidden or minimized, stage minimized, or stage off screen):
   - **Seated players** keep the small event stream. The client applies events to its view model and draws nothing. On their turn they get one chime and the attention signal (§14.6).
   - **Spectators** send `arcade:away {id}` and get nothing. `arcade:back {id, since}` brings the missed events or a snap. The spectator slot is kept for 60 s while away.
   - **Offline tables** pause completely: clocks freeze, bots stop and the Worker goes idle.
-- **Closing the view.** At a cash table, closing means "leave after this hand". In a tournament it changes nothing: the seat stays and the timeout rules apply. Minimizing ("Back to call") is hidden, not leaving.
+- **Closing the view.** At a cash table, leaving the game (the stage's Leave, hiding Lamplight, leaving the call) is a voluntary leave and takes effect at once (§2.1). In a tournament it changes nothing: the seat stays and the timeout rules apply. Minimizing ("Back to call") is hidden, not leaving.
 
 ---
 
@@ -504,7 +518,7 @@ This is inside the platform's table-lane ceilings (≤ 4 kbit/s average and ≤ 
   - **Watching:** voice members and anyone with `view` on the channel, up to 8 per table.
 - **One seat per account.** Online, an account may hold one Lamplight seat or registration at a time. Each socket watches at most one table.
   - Another device on the same account sees the same seat, cards included, and may act. `q` and the `dup` rule make double actions harmless.
-  - Starting another Arcade game while seated asks "Leave the table after this hand?"
+  - Starting or joining another Arcade game while seated leaves the lobby, and with it the cash seat, at once (§2.1). Nothing waits for the hand to end.
 - **Host.** The host may change the bots between hands at a cash table, and the config before the start in Cup and Trio. If the host leaves, the role passes to the longest-seated human.
 - **Late join.** At a cash table you are dealt in from the next hand, with "post BB now" or "wait for BB". Cup and Trio cannot be joined late.
 - **Invites** use `arcade:invite`, as in platform §9.2.
@@ -565,7 +579,7 @@ export interface TableHost {
 
 ## 11. Offline mode
 
-- **Where it starts.** "Play offline" on the login screen and on the ConnectionBanner, or "Arcade" in the user menu (solo, even while online; results do not count). It mounts with defaults and needs no socket, no `/api/config` and no account.
+- **Where it starts.** "Play offline" on the login screen and on the ConnectionBanner, or the Arcade row in the channel list (solo, even while online; results do not count). It mounts with defaults and needs no socket, no `/api/config` and no account.
 - **Formats.** All three, against bots, in practice chips:
   - Cup levels advance every 10 hands and Trio levels every 5;
   - the Trio multiplier uses the default table;
@@ -931,7 +945,8 @@ All art and sound are original and generated from code. Nothing is downloaded.
   - A Cup with bots pays humans only and ends when the human places are settled.
   - An online cash table refuses bots at Boulder and Summit.
   - The 6-bot server cap holds.
-- **Idle.** An empty table closes after 2 minutes, and a cash table whose humans all sit out closes after 5. No table timer is armed between hands when nobody can play.
+- **Leaving.** A voluntary leave pays out at once, mid-hand too. A seat whose turn has not come folds when its turn comes. The last human leaving closes the table at once (`'empty'`), mid-hand too, and the table leaves the channel list without the activity throttle.
+- **Idle.** A table emptied by a disconnect closes 2 minutes after the seat is released, a cash table nobody sat at after 2 minutes, and a cash table whose humans all sit out after 5. No table timer is armed between hands when nobody can play.
 
 ### 18.3 Link simulator scenario (virtual time)
 
@@ -1061,7 +1076,7 @@ Where the implementation fills in or differs from the sections above.
 | 13 | Online bots | The lobby form's "Bots at an online table" switch (off by default) plus the bot level. Without the switch (the API, tests) a bot level alone asks for bots. A cash table seats at most `seats − 2` bots and at most 4, within the server-wide cap. At a full table a bot gives its seat to a person who sits down: at once if it is not in the hand, else when the hand ends (the sit answers `soon` and the client sends it again once a seat is free). |
 | 14 | Sends | Every event goes per socket (`api.emit`) to the table's sockets that are not away; nothing is broadcast to a room. The turn-timer credit counts only the acting player's own queue. A spectator's client sends `arcade:away` when hidden or closed and `arcade:back` with `since` on return; seated players keep the stream (their turn must reach them). |
 | 15 | Refusals | `onCreate` answers with codes the Arcade sheet explains: `channel-limit`, `server-limit`, `already` (you hold a seat or a registration at another Lamplight table) and `hidden`; `bots` when bots are not allowed there. In a running table the bar shows its own texts (`soon`, `full`, `seated`, `funds`). |
-| 16 | Join online | In a Cup or Trio the table bar's Join uses `arcade:lobby:join`, which registers and escrows the buy-in like the sheet's Join seat. |
+| 16 | Join online | In a Cup or Trio the table bar's Join uses `arcade:lobby:join`, which registers and escrows the buy-in like Join in the sheet. |
 | 17 | Disconnects | The platform calls `onSocketGone` while presence still lists the closing socket; a seat counts as disconnected when no other socket of that account is left. |
 | 18 | Turn ring | A CSS pie (transform and opacity only, so the compositor runs it) restarted for each turn; the 10 Hz timer text runs only on your own turn. |
 | 19 | Layout | In landscape the raise sheet opens beside the button column, which starts below the menu buttons. The board moves up or down by up to 30 px, then shrinks to ×1.5 and ×1.25, while a side seat's name plate or cards would cover it (short stages such as the online stage under the voice strip). |

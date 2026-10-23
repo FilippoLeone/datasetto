@@ -127,13 +127,20 @@ const tableChunk: GameChunk = {
   },
 };
 
-/** The fake action game, ready online (it plays as Fuseyard). */
+/**
+ * The fake action game, ready online (it plays as Fuseyard). As in the real Fuseyard, Fighters sets
+ * the seat count at create (a forming lobby cannot change it) and Wins is a lobby option.
+ */
 export const onlineFuseyard: GameMeta = {
   ...fakeMeta,
   name: 'Fuseyard',
   ready: { offline: true, online: true },
   modes: [{ id: 'brawl', label: 'Brawl', online: true, offline: true }],
   watch: true,
+  options: [
+    { key: 'fighters', label: 'Fighters', kind: 'choice', setsSeats: true, choices: [{ value: 2, label: '2' }, { value: 4, label: '4' }], default: 4, sum: '# fighters' },
+    { key: 'wins', label: 'Wins needed', kind: 'choice', choices: [{ value: 3, label: '3' }, { value: 5, label: '5' }], default: 3, sum: 'first to #' },
+  ],
   load: async () => fakeChunk,
 };
 

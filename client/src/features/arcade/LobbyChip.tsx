@@ -12,7 +12,7 @@ export const activitySummary = (entry: ActivityEntry): string => {
   return parts.join(' · ');
 };
 
-/** One of this channel's games: Join seat / Watch / Open, or your own lobby's state. */
+/** One of this channel's games: Join / Watch, or your own game (no Join or Watch; Open while its stage is closed). */
 export const LobbyChip = ({ entry }: { entry: ActivityEntry }) => {
   const meta = metaOf(entry.g);
   const lobby = arcadeLobby.value;
@@ -23,20 +23,21 @@ export const LobbyChip = ({ entry }: { entry: ActivityEntry }) => {
     </span>
   ) : null;
   let actions: ComponentChildren;
-  if (mine?.st === 'live') actions = <ChipAction label="Open" onClick={() => withShell((shell) => shell.reopenStage())} />;
-  else if (mine)
+  if (mine)
     actions = (
       <>
-        <span className="shrink-0 px-1 text-text-muted">You're in</span>
-        <ChipAction label="Leave" onClick={() => withShell((shell) => shell.leaveCurrent())} />
+        <span className="shrink-0 px-1 text-text-muted">Your game</span>
+        {mine.st === 'live' ? (
+          <ChipAction label="Open" onClick={() => withShell((shell) => shell.reopenStage())} />
+        ) : (
+          <ChipAction label="Leave" onClick={() => withShell((shell) => shell.leaveCurrent())} />
+        )}
       </>
     );
   else
     actions = (
       <>
-        {entry.n < entry.max && (
-          <ChipAction label={entry.st === 'open' || entry.st === 'dash' ? 'Open' : 'Join seat'} onClick={() => withShell((shell) => shell.joinFromChip(entry.id, 'player'))} />
-        )}
+        {entry.n < entry.max && <ChipAction label="Join" onClick={() => withShell((shell) => shell.joinFromChip(entry.id, 'player'))} />}
         {meta?.watch && <ChipAction label="Watch" onClick={() => withShell((shell) => shell.joinFromChip(entry.id, 'spectator'))} />}
       </>
     );

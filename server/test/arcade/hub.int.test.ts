@@ -114,6 +114,34 @@ describe('lobbies', () => {
     const updates = host.socket.received('arcade:lobby') as { id: string; st: string }[];
     expect(updates.at(-1)).toMatchObject({ id: lobby.lobby.id, st: 'ended' });
   });
+
+  it('sends a closed lobby off the channel list at once, without the 2 s throttle', async () => {
+    const host = await player();
+    const guest = await player();
+    const outsider = await player(false);
+    const lobby = await create(host);
+    const id = lobby.lobby.id;
+    server.clock.advance(0);
+    await settle();
+    const listed = () => outsider.socket.received('arcade:activity') as { ch: string; a: { id: string }[] }[];
+    expect(listed().length).toBe(1);
+    expect(listed()[0]?.a.some((e) => e.id === id)).toBe(true);
+    // Ordinary updates inside the window still wait for it.
+    await guest.socket.request('arcade:lobby:join', { id, as: 'player' });
+    await g0leave(guest, id);
+    await settle();
+    expect(listed().length).toBe(1);
+    // The last player leaves: the lobby closes and the removal goes out with the clock standing still.
+    await g0leave(host, id);
+    await settle();
+    expect(listed().length).toBe(2);
+    expect(listed()[1]?.ch).toBe(server.voiceChannel);
+    expect(listed()[1]?.a.some((e) => e.id === id)).toBe(false);
+    // The update that was waiting went out with it, so the window brings nothing more.
+    server.clock.advance(2100);
+    await settle();
+    expect(listed().length).toBe(2);
+  });
 });
 
 const g0leave = (p: Player, id: string) => p.socket.request('arcade:lobby:leave', { id });
