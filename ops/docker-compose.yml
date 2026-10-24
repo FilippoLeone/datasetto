@@ -117,7 +117,10 @@ services:
     security_opt: *no-new-privileges
 
   turn:
-    image: coturn/coturn:4.18-alpine3.24
+    # coturn with current Alpine packages (ops/turn/Dockerfile).
+    image: ${IMAGE_PREFIX:-ghcr.io/filippoleone/datasetto}-turn:${IMAGE_TAG:-latest}
+    build:
+      context: ./turn
     profiles: ["turn"]
     restart: unless-stopped
     # Host networking avoids per-port NAT for the UDP relay range.

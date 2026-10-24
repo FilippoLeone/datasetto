@@ -35,6 +35,9 @@ jobs:
           - image: rtmp
             context: ops/rtmp
             dockerfile: ops/rtmp/Dockerfile
+          - image: turn
+            context: ops/turn
+            dockerfile: ops/turn/Dockerfile
     steps:
       - uses: actions/checkout@v7
         with:
@@ -77,9 +80,12 @@ jobs:
           # digest; server/Dockerfile and ops/caddy/Dockerfile refuse a Node below the floor.
           pull: true
           platforms: linux/amd64
+          # APK_REFRESH changes on every run, so the web and turn images re-run `apk upgrade`
+          # instead of reusing a cached layer and pick up Alpine's newest security fixes.
           build-args: |
             SITE_URL=${{ vars.SITE_URL }}
             APP_VERSION=${{ steps.version.outputs.version }}
+            APK_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           tags: |
             ${{ steps.name.outputs.image }}:latest
             ${{ steps.name.outputs.image }}:${{ github.sha }}

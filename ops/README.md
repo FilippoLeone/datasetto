@@ -13,7 +13,7 @@ ops/
   .env.example              configuration template -> copy to .env
   caddy/                    web image: builds the client, serves it with Caddy, TLS, reverse proxy
   rtmp/                     nginx-rtmp image: OBS ingest (RTMP, RTMPS) -> HLS
-  turn/entrypoint.sh        coturn settings (ephemeral credentials)
+  turn/                     coturn image (upstream coturn with current Alpine packages) and entrypoint.sh (ephemeral credentials)
   common/                   egress-guard.sh + its systemd installer, shared by gcp/ and vps/
   gcp/                      create-vm.sh, deploy.sh, destroy.sh, VM-side startup/update/backup
   vps/                      install.sh (with harden.sh for the host), backup.sh and restore.sh for a plain Debian/Ubuntu VPS (OVH, Hetzner); install-ssh-key.ps1 for the first login
@@ -454,7 +454,7 @@ Prerequisites: `gcloud` authenticated, a project with billing (the scripts defau
 to project `datasetto`), a domain you control, and Docker images published by
 the GitHub Actions workflow (`.github/workflows/images.yml`, pushed to GHCR on
 every push to `main`).
-After the first workflow run, set the three `datasetto-*` packages to public
+After the first workflow run, set the four `datasetto-*` packages (web, app, rtmp, turn) to public
 (GitHub profile > Packages > package > Package settings > Change visibility) so the
 VM can pull them without credentials. If a pull fails, the startup script falls
 back to building the images on the VM, which is slow on an e2-micro but works
