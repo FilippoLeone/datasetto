@@ -37,6 +37,11 @@ COPY server/src/arcade/core /server/src/arcade/core
 RUN npm run build
 
 FROM caddy:2.11-alpine
+# Alpine's security fixes reach its package mirror days before the official image is rebuilt:
+# on 23 October 2026 caddy:2.11-alpine still had Brotli 1.2.0 (CVE-2026-111497, fixed in
+# 1.2.1-r0). CI passes a new APK_REFRESH on every build, so this layer never comes from the cache.
+ARG APK_REFRESH=
+RUN echo "Alpine packages for build ${APK_REFRESH:-local}" && apk upgrade --no-cache
 COPY ops/caddy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /src/dist /srv
 # Fail the build on a broken Caddyfile (placeholders need a value to validate).
